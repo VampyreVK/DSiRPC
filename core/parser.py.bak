@@ -1,0 +1,92 @@
+import struct
+import logging
+
+class PlatinumParser:
+    ANCHOR_POINTER = 0x02101D40
+    # Absolute base RAM physical offset translation (For MelonDS TCP dumps mapping to NDS memory)
+    # Base NDS Ram starts at 0x02000000. So we subtract 0x02000000 to get array indices.
+    RAM_OFFSET = 0x02000000
+    
+    # Offsets relative to the Live Save Block (Destination of the Anchor Pointer)
+    OFFSET_TRAINER_NAME = 0x7C
+    OFFSET_PLAYTIME = 0xAC
+    OFFSET_PARTY_BLOCK = 0xB0
+
+    # Pokemon details
+    SIZE_POKEMON = 236
+    POKEMON_OFFSET_LEVEL = 0x8C
+    POKEMON_OFFSET_CURR_HP = 0x8E
+    POKEMON_OFFSET_MAX_HP = 0x90
+
+    def __init__(self, ram_dump, charmap):
+        self.ram = ram_dump
+        self.charmap = charmap
+        self.live_save_addr = None
+        self.parsed_data = {}
+
+    def read_u32(self, address):
+        """Reads a 32-bit unsigned integer from the absolute memory address."""
+        index = address - self.RAM_OFFSET
+        if index < 0 or index + 4 > len(self.ram):
+            return 0
+        return struct.unpack('<I', self.ram[index:index+4])[0]
+
+    def read_u16(self, address):
+        index = address - self.RAM_OFFSET
+        if index < 0 or index + 2 > len(self.ram):
+            return 0
+        return struct.unpack('<H', self.ram[index:index+2])[0]
+        
+    def read_u8(self, address):
+        index = address - self.RAM_OFFSET
+        if index < 0 or index + 1 > len(self.ram):
+            return 0
+        return self.ram[index]
+
+    def read_bytes(self, address, length):
+        index = address - self.RAM_OFFSET
+        if index < 0 or index + length > len(self.ram):
+            return b''
+        return self.ram[index:index+length]
+
+    def parse(self):
+        """Parses the RAM dump for configured values."""
+        self.parsed_data.clear()
+        
+        # 1. Read Pointer Chain
+        self.live_save_addr = self.read_u32(self.ANCHOR_POINTER)
+        # Ensure it's a valid ram address
+        if not (0x02000000 <= self.live_save_addr < 0x02400000):
+            logging.error(f"Invalid live save block pointer: {hex(self.live_save_addr)}")
+            return None
+
+        # 2. Extract Trainer Name
+        raw_name = self.read_bytes(self.live_save_addr + self.OFFSET_TRAINER_NAME, 16)
+        from .charmap import decode_string
+        trainer_name = decode_string(raw_name, self.charmap)
+        self.parsed_data['trainer_name'] = trainer_name
+        self.parsed_data['live_save_addr'] = hex(self.live_save_addr)
+
+        # 3. Party Data
+        party_start = self.live_save_addr + self.OFFSET_PARTY_BLOCK
+        party_count = self.read_u32(party_start)
+        
+        self.parsed_data['party_count'] = party_count
+        self.parsed_data['party'] = []
+        
+        # 4. Lead Pokemon Status
+        if 0 < party_count <= 6:
+            lead_pokemon_addr = party_start + 4
+            level = self.read_u8(lead_pokemon_addr + self.POKEMON_OFFSET_LEVEL)
+            curr_hp = self.read_u16(lead_pokemon_addr + self.POKEMON_OFFSET_CURR_HP)
+            max_hp = self.read_u16(lead_pokemon_addr + self.POKEMON_OFFSET_MAX_HP)
+            
+            self.parsed_data['party'].append({
+                'slot': 1,
+                'level': level,
+                'curr_hp': curr_hp,
+                'max_hp': max_hp,
+                'address': hex(lead_pokemon_addr)
+            })
+
+        return self.parsed_data

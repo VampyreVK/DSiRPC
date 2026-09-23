@@ -7,8 +7,8 @@ and need no rebuild.
 
 ## 1. Hello packets (always on)
 
-Once running, the DSi sends one UDP packet per second to `pc_ip:port` from
-`/RPCPROBE.CFG`:
+Once running, the DSi broadcasts one UDP packet per second to
+255.255.255.255, port 4244:
 
 ```
 DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N
@@ -29,9 +29,11 @@ Watch them with `launcher/pc/hello_listener.py`.
 No hellos at all means one of the startup steps failed. Check, in order:
 
 1. The launcher ran in DSi mode and wrote `/RPCHAND.TXT`.
-2. `/RPCPROBE.CFG` exists with a valid `pc_ip=`.
-3. The build has `DSIRPC_KEEP_DSI_WIFI`.
-4. The Windows firewall lets Python receive on the port.
+2. The build has `DSIRPC_KEEP_DSI_WIFI`.
+3. The Windows firewall lets Python receive on the port.
+4. The network passes broadcasts between Wi-Fi and the PC. If it doesn't,
+   hellos never arrive but memory requests can still work: pass the IP
+   the launcher showed to the PC tools with `--dsi-ip`.
 
 If all of that looks right, use a debug build (section 3).
 
@@ -65,12 +67,10 @@ make won't notice a flag change on its own. Delete
 
 rpcprobe logs only during the first VBlank:
 
-- `rpcprobe: RPCPROBE.CFG not found`, `rpcprobe: config loaded`, or
-  `rpcprobe: RPCPROBE.CFG found but no usable pc_ip=`
 - `rpcprobe: RPCHAND.TXT not found (run the launcher first)`,
   `rpcprobe: handoff loaded`, or `... found but no usable mac=/ip=`
-- `rpcprobe: handoff ready, sending to pc_mac` (or `... using broadcast`),
-  or `rpcprobe: config/handoff files missing, handoff off`
+- `rpcprobe: handoff ready, hellos will be broadcast`, or
+  `rpcprobe: no usable RPCHAND.TXT, handoff off`
 
 Two things to know:
 

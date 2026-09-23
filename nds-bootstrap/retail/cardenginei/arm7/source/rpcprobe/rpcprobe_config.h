@@ -1,34 +1,20 @@
-// rpcprobe_config.h - reads the two small text files the in-game side needs
-// off the SD card root, once, on the first VBlank:
+// rpcprobe_config.h - reads /RPCHAND.TXT off the SD card root, once, on the
+// first VBlank. The DSiRPC launcher writes that file after it connects: the
+// DSi's MAC and IP. Nothing else is configured on the SD card: hellos are
+// broadcast, so the DSi doesn't need to know the PC's address, and memory
+// replies go back to whoever sent the request.
 //
-//   /RPCPROBE.CFG  - where to send packets: pc_ip=, port=, optional pc_mac=
-//                    and dsi_ip= (overridden by the launcher's DHCP lease).
-//   /RPCHAND.TXT   - written by the DSiRPC launcher after it connects: the
-//                    DSi's MAC and IP.
-//
-// Both use nds-bootstrap's own ARM7-side FAT access (getBootFileCluster +
+// It uses nds-bootstrap's own ARM7-side FAT access (getBootFileCluster +
 // fileRead from my_fat.h), the same calls cardengine.c uses for its debug
-// log. That lookup only matches 8.3 names, hence the short file names.
+// log. That lookup only matches 8.3 names, hence the short file name.
 #ifndef RPCPROBE_CONFIG_H
 #define RPCPROBE_CONFIG_H
 
 #include <nds/ndstypes.h>
 
-typedef struct {
-	u8   pcMac[6];
-	u8   dsiIp[4];
-	u8   pcIp[4];
-	u16  udpPort;
-
-	u8   valid; // 1 if RPCPROBE.CFG was found and has a usable pc_ip=
-} RpcProbeConfig;
-
-extern RpcProbeConfig rpcProbeConfig;
-
-// Reads and parses /RPCPROBE.CFG. port= defaults to 4244 when missing. Keys
-// this build doesn't use (for example old ssid=/wpa2_passphrase= lines) are
-// ignored. Returns rpcProbeConfig.valid.
-u8 RpcProbeConfig_Load(void);
+// UDP port for everything: the hellos, the PC's memory requests and the
+// replies. The PC tools use the same port.
+#define RPCPROBE_UDP_PORT 4244
 
 // Connection details written by the DSiRPC launcher after it associates in
 // DSi mode. The launcher owns the actual WPA2 connection; this is just what
@@ -42,9 +28,9 @@ typedef struct {
 
 extern RpcProbeHandoff rpcProbeHandoff;
 
-// Same SD access pattern as RpcProbeConfig_Load(). Stops parsing at a line
-// reading "end" (the launcher writes one), since fileRead() can return
-// leftover bytes past the file's real end. Returns rpcProbeHandoff.valid.
+// Stops parsing at a line reading "end" (the launcher writes one), since
+// fileRead() can return leftover bytes past the file's real end. Returns
+// rpcProbeHandoff.valid.
 u8 RpcProbeHandoff_Load(void);
 
 #endif

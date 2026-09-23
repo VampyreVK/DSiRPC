@@ -50,12 +50,12 @@ Only Pokémon Platinum (USA, Rev 1) is supported at the moment.
         v
  our nds-bootstrap build  --boots-->  Pokémon Platinum
    ARM7 VBlank hook (cardengine.c -> Probe_VBlankTick)
-     first VBlank: read RPCPROBE.CFG + RPCHAND.TXT
+     first VBlank: read RPCHAND.TXT
      a few seconds later: probe the already-connected chip
      then every VBlank: read at most one packet
        ARP request for our IP  -> ARP reply
        'R' memory request      -> 'D' reply with bytes
-     once a second: "DSiRPC hello ..." packet  ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
+     once a second: "DSiRPC hello" broadcast   ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
                                                                  dsi_status.py / dsirpc.py
@@ -125,30 +125,13 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 |---|---|---|
 | `dsirpc-launcher.nds` | Anywhere you can launch from | Must be started in **DSi mode** |
 | Our `nds-bootstrap-nightly.nds` | Wherever you launch it from | Keep it separate from TWiLight's stock copy so the two don't get mixed up |
-| `RPCPROBE.CFG` | SD root, exact 8.3 name | Template: `RPCPROBE.CFG.example` |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 
-`RPCPROBE.CFG` is read once, on the first VBlank, and only its first 1 KB is
-used, so keep it short:
-
-```
-pc_ip=192.168.2.196
-port=4244
-pc_mac=
-dsi_ip=
-```
-
-- `pc_ip=` is required. Hello packets go there, and the launcher sends its
-  test packets there too.
-- `port=` is optional and defaults to 4244. The same port is used on both
-  ends.
-- `pc_mac=` is optional. If it's empty, hellos go to the broadcast MAC,
-  which the PC still accepts because the IP destination is `pc_ip`.
-- `dsi_ip=` is optional. The IP the launcher got from DHCP (in
-  `RPCHAND.TXT`) always wins.
-- Lines like `ssid=` or `wpa2_passphrase=` from older versions are ignored.
-  **Don't put your Wi-Fi password in this file.** The launcher uses the
-  DSi's own saved settings.
+That's all. There's no config file: the Wi-Fi settings come from the DSi's
+own saved connections, and the in-game side broadcasts its hellos, so it
+never needs the PC's IP. Replies to memory requests go back to whichever PC
+asked. An `RPCPROBE.CFG` left over from an older version is ignored and can
+be deleted (old ones can hold your Wi-Fi password).
 
 `RPCHAND.TXT` is written by the launcher, for example:
 
@@ -161,7 +144,7 @@ mac=00:23:CC:12:34:56
 end
 ```
 
-Both files need 8.3 names because nds-bootstrap's ARM7 file lookup only
+The file needs an 8.3 name because nds-bootstrap's ARM7 file lookup only
 matches short names.
 
 ### 3.3 PC side
@@ -186,7 +169,7 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
 ## 4. Every-session flow
 
 1. **Launcher (DSi mode).** Wait for `ASSOCIATED`. The screen shows the IP,
-   gateway, mask and MAC. Three test packets go to `pc_ip:4242`, which
+   gateway, mask and MAC. Three test packets are broadcast on UDP 4242, which
    `spikes/stage1-listen/pc/listener.py` can pick up. The launcher writes
    `RPCHAND.TXT`.
 2. **START.** Exits without disconnecting and returns to your menu. SELECT
@@ -196,14 +179,17 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    whenever you launch something from its game list, so if you last launched
    a different game there, that game boots instead. Launch Platinum from
    TWiLight once to fix it.
-4. **In game.** On the first VBlank the ARM7 side reads the two SD files.
+4. **In game.** On the first VBlank the ARM7 side reads `RPCHAND.TXT`.
    A couple of seconds later it probes the chip and starts serving. It sends a
-   gratuitous ARP so the PC learns its MAC, then one hello packet per second.
+   gratuitous ARP so the PC learns its MAC, then broadcasts one hello packet
+   per second.
    If the board was ever found in old DS mode, it waits 15 seconds for the
    game to finish booting before switching it back, which delays the first
    hello.
-5. **PC.** Run `dsirpc.py` (or `dsi_status.py`). Both wait up to
-   15 s for a hello and learn the DSi's IP from it.
+5. **PC.** Run `dsirpc.py` (or `dsi_status.py`). Both learn the DSi's IP
+   from its first hello: `dsirpc.py` waits as long as it takes,
+   `dsi_status.py` gives up after 15 s. On a network that drops broadcasts,
+   pass the IP the launcher showed with `--dsi-ip`.
 
 ---
 
@@ -220,12 +206,23 @@ All commands run from the repo root, using the virtual environment's Python
 | `--interval S` | `5` | Seconds between reads. Discord accepts about one update per 5 s. |
 | `--dry-run` | off | Print the presence instead of sending it |
 | `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi |
-| `--dsi-ip IP` | auto | Skip waiting for a hello |
-| `--port N` | `4244` | `port=` from `RPCPROBE.CFG` |
+| `--dsi-ip IP` | auto | The IP the launcher showed. Skips waiting for a hello (needed only if your network drops broadcasts) |
+| `--port N` | `4244` | UDP port. The DSi always uses 4244, so leave it |
 
-It only sends to Discord when the presence actually changes. If the DSi stops
-answering for about 30 s, it clears the presence and restores it when data
-comes back.
+It runs until you stop it (Ctrl+C, or SIGTERM from a service manager), so it
+can be left running in the background:
+
+- It waits for a hello from the DSi for as long as it takes.
+- It connects to Discord only once there's something to show. If Discord
+  isn't running, or is closed later, it keeps retrying and logs the error
+  once.
+- It only sends to Discord when the presence actually changes.
+- After about 30 s without data (game closed, DSi off), it clears the
+  presence, disconnects from Discord and goes back to waiting for a hello
+  (unless `--dsi-ip` was given), so a new IP from the router is picked up.
+- The timer shows the save's playtime. If that jumps by more than a minute
+  (a soft reset, or loading another save), the timer is reset.
+- Stopping it clears the presence before it exits.
 
 ### `dsi_status.py` (everything, human-readable)
 
@@ -328,10 +325,13 @@ battle, so the sanity check is what separates a live battle from leftovers.
 
 ## 7. Wire protocol
 
-All traffic is UDP on `port=` (4244), in both directions and from the same
+All traffic is UDP on port 4244, in both directions and from the same
 source port. Multi-byte fields are **big endian**.
 
-### Hello (DSi -> PC, once per second)
+### Hello (DSi -> broadcast, once per second)
+
+Sent to 255.255.255.255, so every PC on the network gets it and nothing has
+to be configured.
 
 ASCII text:
 
@@ -406,8 +406,8 @@ All paths below are under `nds-bootstrap/retail/`.
 | `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests. |
 | `twl_wifi.c/.h` | Minimal Atheros SDIO access, CMD52 only: chip probe, send one framed packet to the chip's mailbox, check for and read one received packet |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP, counts EAPOL |
-| `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the hellos |
-| `rpcprobe_config.c/.h` | Reads `RPCPROBE.CFG` and `RPCHAND.TXT` |
+| `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
+| `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT`; defines the UDP port (4244) |
 | `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only) |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
 
@@ -612,7 +612,7 @@ Folder names are case-sensitive on GitHub Pages.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), no valid `pc_ip=` in `RPCPROBE.CFG`, `RPCHAND.TXT` missing, or the firewall blocking UDP 4244 |
+| No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
 | "A communication error has occurred" after Continue | Stock nds-bootstrap, or not the USA Rev 1 ROM, so the patch didn't apply |
@@ -680,7 +680,7 @@ section 8).
 | `docs/memory-map/` | RetroAchievements code notes and ProjectPokemon breakpoints |
 | `spikes/` | Stages 1-3, the early experiments |
 | `tools/charmap/` | Hex-editor tables generated from the Gen IV charmap |
-| `RPCPROBE.CFG.example`, `PokemonPlatinumRPC.cfg.sample` | Config templates (the real files are gitignored) |
+| `PokemonPlatinumRPC.cfg.sample` | Template for the Discord application ID (the real file is gitignored) |
 | `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, publishes a release for `v*` tags |
 
 ---

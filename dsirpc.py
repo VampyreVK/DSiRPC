@@ -12,6 +12,11 @@ Reads the game every few seconds (same parser as dsi_status.py) and shows:
 
 Sprites come from the Assets folders on GitHub Pages, by national dex number.
 
+It runs until you stop it (Ctrl+C, or SIGTERM from a service manager), so it
+can stay running in the background: it waits for the DSi, shows the presence
+only while the game answers, and takes it down (and disconnects from Discord)
+after about 30 s without data, then waits for the DSi again.
+
 Usage:
   python dsirpc.py                                 # client ID from PokemonPlatinumRPC.cfg
   python dsirpc.py --client-id <your application ID>
@@ -25,6 +30,7 @@ Don't run it together with dsi_status.py / hello_listener.py (same UDP port).
 import argparse
 import logging
 import os
+import signal
 import sys
 import time
 
@@ -146,17 +152,23 @@ def build_presence(d):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Test Discord Rich Presence from the DSi")
+    ap = argparse.ArgumentParser(description="Discord Rich Presence from the DSi (runs until stopped)")
     ap.add_argument("--client-id", help="Discord application ID (default: discord_client_id in PokemonPlatinumRPC.cfg)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
-    ap.add_argument("--dsi-ip", help="skip waiting for a hello packet")
-    ap.add_argument("--port", type=int, default=4244, help="port= in RPCPROBE.CFG")
+    ap.add_argument("--dsi-ip", help="the IP the launcher shows; skips waiting for a hello packet")
+    ap.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
     ap.add_argument("--interval", type=float, default=5.0, help="seconds between reads (Discord allows about one update per 5 s)")
     ap.add_argument("--dry-run", action="store_true", help="print the presence instead of sending it to Discord")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     charmap = parse_charmap_txt(os.path.join(HERE, "PokeGen4Charmap.txt"))
+
+    # A service manager stopping the process gets the same clean shutdown as
+    # Ctrl+C, so the presence doesn't linger in Discord.
+    def stop(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
 
     rpc = None
     if not args.dry_run:
@@ -165,30 +177,33 @@ def main():
         if not client_id:
             print("No Discord application ID: pass --client-id or set discord_client_id in PokemonPlatinumRPC.cfg")
             sys.exit(1)
-        rpc = DiscordRPC(client_id)
-        if not rpc.connect():
-            print("Couldn't connect to Discord - is the desktop app running?")
-            sys.exit(1)
+        rpc = DiscordRPC(client_id)  # connects only once there's something to show
 
+    client = None
     if args.file:
         with open(args.file, "rb") as f:
             ram = f.read()
     else:
-        from core.dsi_memory import DsiRam, connect
-        print(f"Waiting for the DSi on UDP port {args.port}...")
-        client = connect(port=args.port, dsi_ip=args.dsi_ip)
-        if client is None:
-            print("No hello from the DSi within 15 s - is the game running after the handoff?")
-            sys.exit(1)
+        from core.dsirpc_client import DSiClient
+        from core.dsi_memory import DsiRam
+        client = DSiClient(port=args.port, dsi_ip=args.dsi_ip)
         ram = DsiRam(client)
 
     start = None          # playtime-based, so Discord's timer shows the save's playtime
-    last_sent = None
+    last_sent = None      # what Discord is showing (None = nothing)
+    live = False          # the game answered recently
     failures = 0
-    cleared = False
 
     try:
         while True:
+            # The launcher's DHCP lease can change between sessions, so after
+            # the DSi goes quiet its IP is learned again from the next hello.
+            if client and client.dsi_ip is None:
+                print(time.strftime("%H:%M:%S"), f"Waiting for the DSi on UDP port {args.port} (Ctrl+C to stop)...")
+                while not client.wait_for_dsi(max_wait=60):
+                    pass
+                failures = 0
+
             t0 = time.time()
             data = None
             try:
@@ -196,43 +211,50 @@ def main():
                     ram.clear()
                 data = PlatinumParser(ram, charmap).parse()
             except (TimeoutError, RuntimeError) as e:
-                logging.warning(f"Read failed: {e}")
+                if failures == 0:
+                    logging.warning(f"Read failed: {e}")
 
             if data:
                 failures = 0
-                if start is None:
-                    pt = data['playtime']
-                    start = int(time.time()) - (pt['hours'] * 3600 + pt['minutes'] * 60 + pt['seconds'])
+                live = True
+                pt = data['playtime']
+                playtime_start = int(time.time()) - (pt['hours'] * 3600 + pt['minutes'] * 60 + pt['seconds'])
+                # Set once so the timer doesn't jitter. A jump of more than a
+                # minute means the game was reset or another save was loaded.
+                if start is None or abs(playtime_start - start) > 60:
+                    start = playtime_start
                 presence = build_presence(data)
                 presence['start'] = start
-                if presence != last_sent or cleared:
+                if presence != last_sent:
+                    sent = True
                     if rpc:
-                        if not rpc.connected:
-                            rpc.connect()
-                        rpc.update(**presence)
-                    shown = {k: (v.name if isinstance(v, ActivityType) else v) for k, v in presence.items() if k != 'start'}
-                    print(time.strftime("%H:%M:%S"), shown)
-                    last_sent, cleared = presence, False
+                        sent = (rpc.connected or rpc.connect()) and rpc.update(**presence)
+                    if sent:
+                        shown = {k: (v.name if isinstance(v, ActivityType) else v) for k, v in presence.items() if k != 'start'}
+                        print(time.strftime("%H:%M:%S"), shown)
+                        last_sent = presence
             else:
                 failures += 1
-                # About 30 s without data: take the presence down until the DSi answers again.
-                if failures * args.interval >= 30 and not cleared:
-                    print(time.strftime("%H:%M:%S"), "no data from the DSi, clearing the presence")
-                    if rpc and rpc.connected:
-                        try:
-                            rpc.rpc.clear()
-                        except Exception as e:
-                            logging.error(f"Couldn't clear the presence: {e}")
-                    cleared = True
+                # About 30 s without data: the game was closed (or the DSi
+                # turned off). Take the presence down until it's back.
+                if live and failures * args.interval >= 30:
+                    print(time.strftime("%H:%M:%S"), "No data from the DSi for 30 s, presence cleared")
+                    if rpc:
+                        rpc.close()
+                    live, last_sent, start = False, None, None
+                    if client and not args.dsi_ip:
+                        client.dsi_ip = None
 
             if args.file and args.dry_run:
                 break
             time.sleep(max(0.0, args.interval - (time.time() - t0)))
     except KeyboardInterrupt:
-        pass
+        print("Stopping.")
     finally:
         if rpc:
             rpc.close()
+        if client:
+            client.sock.close()
 
 
 if __name__ == "__main__":

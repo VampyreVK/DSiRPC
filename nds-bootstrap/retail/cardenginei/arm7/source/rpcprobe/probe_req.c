@@ -1,6 +1,6 @@
 // probe_req.c - see probe_req.h.
 //
-// Wire format (UDP, to/from port= in /RPCPROBE.CFG):
+// Wire format (UDP port RPCPROBE_UDP_PORT, 4244, on the DSi's side):
 //
 //   Request  (PC -> DSi):  'R' | seq u16 | count u8 | count x (addr u32, len u8)
 //   Response (DSi -> PC):  'D' | seq u16 | count u8 | status u8 | data...
@@ -75,7 +75,7 @@ static void putLlc(u8 *p, u16 ethertype) {
 // ARP packet (28 bytes) after an LLC/SNAP header, then send.
 static void sendArp(u16 op, const u8 dstMac[6], const u8 targetMac[6], const u8 targetIp[4]) {
 	const u8 *myMac = rpcProbeHandoff.dsiMac;
-	const u8 *myIp = rpcProbeConfig.dsiIp;
+	const u8 *myIp = rpcProbeHandoff.dsiIp;
 	u8 *p = txFrame;
 	putLlc(p, ETHERTYPE_ARP);
 	u8 *a = p + 8;
@@ -93,13 +93,13 @@ static void sendArp(u16 op, const u8 dstMac[6], const u8 targetMac[6], const u8 
 void ProbeReq_Announce(void) {
 	// Gratuitous ARP: a request for our own IP, sent to everyone.
 	static const u8 zeroMac[6] = { 0 };
-	sendArp(1, broadcastMac, zeroMac, rpcProbeConfig.dsiIp);
+	sendArp(1, broadcastMac, zeroMac, rpcProbeHandoff.dsiIp);
 }
 
 static void handleArp(const u8 *arp, int len) {
 	if (len < 28) return;
 	if (get16(&arp[6]) != 1) return;                         // not a request
-	if (memcmp(&arp[24], rpcProbeConfig.dsiIp, 4) != 0) return; // not for us
+	if (memcmp(&arp[24], rpcProbeHandoff.dsiIp, 4) != 0) return; // not for us
 	sendArp(2, &arp[8], &arp[8], &arp[14]);
 	probeReqArpReplies++;
 }
@@ -119,12 +119,12 @@ static void sendUdpReply(const u8 dstMac[6], const u8 dstIp[4], u16 dstPort, u16
 	ip[8] = 64;
 	ip[9] = IP_PROTO_UDP;
 	ip[10] = 0; ip[11] = 0;
-	memcpy(&ip[12], rpcProbeConfig.dsiIp, 4);
+	memcpy(&ip[12], rpcProbeHandoff.dsiIp, 4);
 	memcpy(&ip[16], dstIp, 4);
 	put16(&ip[10], checksum(ip, 20));
 
 	u8 *udp = ip + 20;
-	put16(&udp[0], rpcProbeConfig.udpPort);
+	put16(&udp[0], RPCPROBE_UDP_PORT);
 	put16(&udp[2], dstPort);
 	put16(&udp[4], udpLen);
 	udp[6] = 0; udp[7] = 0; // no UDP checksum (valid for IPv4)
@@ -177,14 +177,14 @@ static void handleIpv4(const u8 *srcMac, const u8 *ip, int len) {
 	if ((ip[0] >> 4) != 4) return;
 	int ihl = (ip[0] & 0x0F) * 4;
 	if (ihl < 20 || ip[9] != IP_PROTO_UDP) return;
-	if (memcmp(&ip[16], rpcProbeConfig.dsiIp, 4) != 0) return;
+	if (memcmp(&ip[16], rpcProbeHandoff.dsiIp, 4) != 0) return;
 
 	int ipLen = get16(&ip[2]);
 	if (ipLen < len) len = ipLen;
 	if (len < ihl + 8) return;
 
 	const u8 *udp = ip + ihl;
-	if (get16(&udp[2]) != rpcProbeConfig.udpPort) return;
+	if (get16(&udp[2]) != RPCPROBE_UDP_PORT) return;
 	int udpLen = get16(&udp[4]);
 	if (udpLen < 8 || ihl + udpLen > len) return;
 

@@ -22,6 +22,8 @@ session is:
 3. From your menu, launch **our** nds-bootstrap build, which boots Platinum.
 4. On the PC, turn off any other Rich Presence plugin (like Vencord CustomRPC), then run:
    `.venv\Scripts\python.exe dsirpc.py`
+   You can also start it first and leave it running. It waits for the DSi,
+   and Discord only shows something while the game is running.
 
 To see everything the PC can read in plain text instead:
 `.venv\Scripts\python.exe dsi_status.py --watch 5`
@@ -36,7 +38,7 @@ DSi launcher (BlocksDS)          connects in DSi mode with the WPA2 settings sav
 our nds-bootstrap  --boots-->  Pokémon Platinum
   ARM7 VBlank hook (rpcprobe)
     answers "read N bytes at X"  <--- UDP 4244 --->  PC: core/ (reader + parser)
-    sends a hello every second                          dsirpc.py
+    broadcasts a hello every second                     dsirpc.py
                                                              |
                                                              v
                                                   Discord Rich Presence
@@ -120,14 +122,12 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 The output is `launcher\dsirpc-launcher.nds`. Copy it anywhere on the SD card.
 It must be started in **DSi mode**.
 
-### 4. SD card config
+Nothing else needs setting up on the SD card. The launcher writes its own
+`RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
+DSi's saved settings, and the DSi broadcasts its hello packets, so it never
+needs to know your PC's IP.
 
-Copy `RPCPROBE.CFG.example` to the **root of the SD card** as `RPCPROBE.CFG`
-(exact name) and set `pc_ip=` to your PC's IPv4 address (`ipconfig`). The port
-defaults to 4244. No Wi-Fi password goes in this file; the DSi's saved
-settings are used. The launcher writes `RPCHAND.TXT` next to it on every run.
-
-### 5. Discord application
+### 4. Discord application
 
 1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications)
    and name it **Pokémon Platinum**. The name is what Discord shows after
@@ -136,7 +136,7 @@ settings are used. The launcher writes `RPCHAND.TXT` next to it on every run.
    application ID in `discord_client_id`. This file is gitignored. You can
    also pass `--client-id` instead.
 
-### 6. Sprites (GitHub Pages)
+### 5. Sprites (GitHub Pages)
 
 Discord loads every image from `https://vampyrevk.github.io/DSiRPC/Assets/...`,
 so the `Assets/` folder has to stay at the repo root and be published with
@@ -145,7 +145,7 @@ makes Pages serve the files as they are. New or changed sprites show up in
 Discord once they are pushed. How each folder is made is described in
 [docs/DOCUMENTATION.md, section 10](docs/DOCUMENTATION.md#10-sprite-assets-pipeline).
 
-### 7. Firewall
+### 6. Firewall
 
 Allow Python through the Windows firewall on private networks, or the DSi's
 UDP packets never reach the scripts.
@@ -180,8 +180,14 @@ has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
    `sd:/_nds/nds-bootstrap.ini`, which TWiLight Menu++ rewrites whenever you
    launch something from its game list. If the wrong game boots, launch
    Platinum from TWiLight once, then use our build again.
-3. **PC:** within about 15 seconds of the game starting, the DSi sends a hello
-   packet every second. Run `dsirpc.py`. It finds the DSi on its own.
+3. **PC:** within about 15 seconds of the game starting, the DSi broadcasts a
+   hello packet every second. Run `dsirpc.py` (before or after starting the
+   game). It finds the DSi on its own. If nothing is found and your network
+   blocks broadcasts, pass the IP the launcher showed, for example
+   `--dsi-ip 192.168.1.50`.
+4. **Stopping:** `dsirpc.py` keeps running until you press Ctrl+C. When the
+   game is closed it clears the presence after about 30 s and waits for the
+   DSi again, so restarting the game (or Discord) needs nothing on the PC.
 
 Only one PC tool can use UDP port 4244 at a time.
 

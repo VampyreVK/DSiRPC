@@ -13,7 +13,7 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
 1. Connects with the saved Wi-Fi settings in DSi mode.
 2. Shows the IP, gateway, mask and the DSi's MAC.
-3. Sends 3 UDP test packets to `pc_ip` (from `/RPCPROBE.CFG`) on port 4242.
+3. Broadcasts 3 UDP test packets on port 4242, so no PC address is needed.
    `spikes/stage1-listen/pc/listener.py` can show them.
 4. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
    then `end`) for the in-game side. The name has to be 8.3, because
@@ -35,7 +35,7 @@ DSi mode.
 ## Checking the connection
 
 `pc/hello_listener.py` prints the "DSiRPC hello" packets the in-game side
-sends once a second (UDP 4244, the `port=` in `/RPCPROBE.CFG`):
+broadcasts once a second (UDP 4244):
 
 ```
 python launcher\pc\hello_listener.py

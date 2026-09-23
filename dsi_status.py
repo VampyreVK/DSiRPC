@@ -98,8 +98,8 @@ def print_report(d, source):
 def main():
     ap = argparse.ArgumentParser(description="Print Pokemon Platinum's state from the DSi or a RAM dump")
     ap.add_argument("--file", help="parse a 4 MB RAM dump (e.g. from melonDS) instead of reading the DSi")
-    ap.add_argument("--dsi-ip", help="skip waiting for a hello packet")
-    ap.add_argument("--port", type=int, default=4244, help="port= in RPCPROBE.CFG")
+    ap.add_argument("--dsi-ip", help="the IP the launcher shows; skips waiting for a hello packet")
+    ap.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
     ap.add_argument("--timeout", type=float, default=1.0, help="seconds to wait for each reply")
     ap.add_argument("--watch", type=float, metavar="SECONDS", help="keep re-reading at this interval")
     ap.add_argument("--json", action="store_true", help="print the parsed data as JSON")

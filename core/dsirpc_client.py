@@ -12,9 +12,9 @@ status: 0 OK, 1 malformed/too big, 2 range outside main RAM
 (0x02000000-0x023FFFFF). At most 16 ranges and 192 bytes per request;
 read_ranges() splits bigger jobs automatically.
 
-The DSi also sends "DSiRPC hello ..." packets once a second on the same port.
-This client uses the first one to learn the DSi's IP (the launcher's DHCP
-lease can differ from dsi_ip= in RPCPROBE.CFG), so don't run another tool
+The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
+port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,
+for example on a network that drops broadcasts), so don't run another tool
 on the same port at the same time (hello_listener.py, dsi_status.py,
 dsirpc.py) - they'd fight over it.
 
@@ -150,8 +150,8 @@ def parse_range(s):
 
 def main():
     ap = argparse.ArgumentParser(description="DSiRPC stage 5 memory client")
-    ap.add_argument("--port", type=int, default=4244, help="port= in RPCPROBE.CFG")
-    ap.add_argument("--dsi-ip", help="skip auto-detection from hello packets")
+    ap.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
+    ap.add_argument("--dsi-ip", help="the IP the launcher shows; skips waiting for a hello packet")
     ap.add_argument("--read", nargs="+", type=parse_range, metavar="ADDR:LEN",
                     default=[(0x02000BBC, 8)],
                     help="ranges to read (default: the SDK marker in Platinum's "

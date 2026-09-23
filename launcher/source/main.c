@@ -10,8 +10,9 @@
 //   1. Connect with DSWiFi in DSi mode using the saved WFC settings (the same
 //      slots the DSi menu uses - no passphrase in any file on the SD card).
 //   2. Show IP, gateway, mask and the DSi's MAC address.
-//   3. Send a few UDP test packets to the PC (pc_ip from /RPCPROBE.CFG, port
-//      4242, spikes/stage1-listen/pc/listener.py).
+//   3. Broadcast a few UDP test packets on port 4242
+//      (spikes/stage1-listen/pc/listener.py shows them). Broadcast, so no
+//      PC address has to be configured anywhere.
 //   4. Write the connection info to sd:/RPCHAND.TXT, which the in-game side
 //      of nds-bootstrap reads to address its packets.
 //   5. START: exit WITHOUT disconnecting (then launch our nds-bootstrap).
@@ -31,34 +32,6 @@
 #define LISTENER_PORT     4242
 #define CONNECT_TIMEOUT_S 45
 #define HELLO_PACKETS     3
-
-static bool read_pc_ip(char *out, size_t out_size)
-{
-    FILE *f = fopen("sd:/RPCPROBE.CFG", "r");
-    if (f == NULL)
-        return false;
-
-    bool found = false;
-    char line[128];
-    while (fgets(line, sizeof(line), f) != NULL)
-    {
-        if (strncmp(line, "pc_ip=", 6) != 0)
-            continue;
-
-        const char *value = line + 6;
-        size_t len = strcspn(value, "\r\n \t");
-        if ((len > 0) && (len < out_size))
-        {
-            memcpy(out, value, len);
-            out[len] = '\0';
-            found = true;
-        }
-        break;
-    }
-
-    fclose(f);
-    return found;
-}
 
 static void wait_for_key_release(void)
 {
@@ -85,7 +58,7 @@ static int wait_for_start_or_select(void)
     }
 }
 
-static void send_hello_packets(const char *pc_ip, const char *dsi_ip)
+static void send_hello_packets(const char *dsi_ip)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0)
@@ -94,11 +67,15 @@ static void send_hello_packets(const char *pc_ip, const char *dsi_ip)
         return;
     }
 
+    // lwIP refuses broadcast sends unless the socket allows them.
+    int allow_broadcast = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &allow_broadcast, sizeof(allow_broadcast));
+
     struct sockaddr_in to;
     memset(&to, 0, sizeof(to));
     to.sin_family = AF_INET;
     to.sin_port = htons(LISTENER_PORT);
-    to.sin_addr.s_addr = inet_addr(pc_ip);
+    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
     for (int i = 0; i < HELLO_PACKETS; i++)
     {
@@ -142,14 +119,7 @@ int main(int argc, char *argv[])
 
     bool have_fat = fatInitDefault();
     if (!have_fat)
-        printf("SD init failed (no cfg/log)\n");
-
-    char pc_ip[20] = { 0 };
-    bool have_pc_ip = have_fat && read_pc_ip(pc_ip, sizeof(pc_ip));
-    if (have_pc_ip)
-        printf("PC:   %s:%d\n", pc_ip, LISTENER_PORT);
-    else
-        printf("No pc_ip in /RPCPROBE.CFG,\nskipping UDP test\n");
+        printf("SD init failed (can't write\nRPCHAND.TXT)\n");
 
     printf("\nConnecting with saved\nsettings (slots 1-6)...\n");
 
@@ -235,12 +205,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (have_pc_ip)
-    {
-        printf("\nSending %d UDP packets...\n", HELLO_PACKETS);
-        send_hello_packets(pc_ip, ip_str);
-        printf("Done.\n");
-    }
+    printf("\nBroadcasting %d UDP packets\n(port %d)...\n", HELLO_PACKETS, LISTENER_PORT);
+    send_hello_packets(ip_str);
+    printf("Done.\n");
 
     wait_for_key_release();
 

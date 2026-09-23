@@ -185,7 +185,8 @@ cython_debug/
 PokemonPlatinumRPC.cfg
 
 # --- DSiRPC ---
-# Personal config: SD card config (your IPs) and the launcher's handoff file
+# The launcher's handoff file, and the old SD card config (no longer used;
+# old copies can hold a Wi-Fi password)
 RPCPROBE.CFG
 RPCHAND.TXT
 # Editor settings

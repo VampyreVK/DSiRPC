@@ -4,21 +4,12 @@
 #include "debug_file.h"
 #include <string.h>
 
-RpcProbeConfig rpcProbeConfig;
 RpcProbeHandoff rpcProbeHandoff;
 
-#define CFG_MAX_BYTES     1024
-#define DEFAULT_UDP_PORT  4244
+// The launcher's file is about 100 bytes.
+#define HANDOFF_MAX_BYTES 256
 
-static char cfgReadBuf[CFG_MAX_BYTES + 1];
-
-static int atoiLocal(const char *s) {
-	int val = 0;
-	int neg = 0;
-	if (*s == '-') { neg = 1; s++; }
-	while (*s >= '0' && *s <= '9') { val = val * 10 + (*s - '0'); s++; }
-	return neg ? -val : val;
-}
+static char handoffReadBuf[HANDOFF_MAX_BYTES + 1];
 
 static u8 hexNibble(char c) {
 	if (c >= '0' && c <= '9') return (u8)(c - '0');
@@ -78,69 +69,6 @@ static u8 isNonZero(const u8 *p, int n) {
 	return 0;
 }
 
-static void applyLine(char *line) {
-	while (*line == ' ' || *line == '\t') line++;
-	if (*line == '#' || *line == ';' || *line == 0) return;
-
-	char *eq = strchr(line, '=');
-	if (!eq) return;
-	*eq = 0;
-	char *key = line;
-	char *value = eq + 1;
-	trimTrailing(key);
-	trimTrailing(value);
-
-	if (strcmp(key, "pc_mac") == 0) {
-		parseMac(value, rpcProbeConfig.pcMac);
-	} else if (strcmp(key, "dsi_ip") == 0) {
-		parseIp(value, rpcProbeConfig.dsiIp);
-	} else if (strcmp(key, "pc_ip") == 0) {
-		parseIp(value, rpcProbeConfig.pcIp);
-	} else if (strcmp(key, "port") == 0) {
-		int port = atoiLocal(value);
-		if (port > 0 && port < 65536) rpcProbeConfig.udpPort = (u16)port;
-	}
-	// Unrecognized keys are ignored on purpose.
-}
-
-u8 RpcProbeConfig_Load(void) {
-	memset(&rpcProbeConfig, 0, sizeof(rpcProbeConfig));
-	rpcProbeConfig.udpPort = DEFAULT_UDP_PORT;
-
-	aFile cfgFile;
-	getBootFileCluster(&cfgFile, "RPCPROBE.CFG", 0); // 0 = SD card slot
-	if (cfgFile.firstCluster == CLUSTER_FREE) {
-		#ifdef DEBUG
-		dbg_printf("rpcprobe: RPCPROBE.CFG not found\n");
-		#endif
-		return 0;
-	}
-
-	char *buf = cfgReadBuf;
-	u32 readLen = fileRead(buf, &cfgFile, 0, CFG_MAX_BYTES);
-	if (readLen > CFG_MAX_BYTES) readLen = CFG_MAX_BYTES;
-	buf[readLen] = 0;
-
-	// aFile doesn't expose the file's real byte length, so this reads up to
-	// CFG_MAX_BYTES regardless; anything past the true end of file is
-	// whatever else sits in that SD cluster. Keep the file short.
-	char *line = buf;
-	while (*line) {
-		char *nl = strchr(line, '\n');
-		if (nl) *nl = 0;
-		applyLine(line);
-		if (!nl) break;
-		line = nl + 1;
-	}
-
-	rpcProbeConfig.valid = isNonZero(rpcProbeConfig.pcIp, 4);
-	#ifdef DEBUG
-	dbg_printf(rpcProbeConfig.valid ? "rpcprobe: config loaded\n"
-	                                : "rpcprobe: RPCPROBE.CFG found but no usable pc_ip=\n");
-	#endif
-	return rpcProbeConfig.valid;
-}
-
 static void applyHandoffLine(char *line) {
 	while (*line == ' ' || *line == '\t') line++;
 	char *eq = strchr(line, '=');
@@ -172,10 +100,9 @@ u8 RpcProbeHandoff_Load(void) {
 		return 0;
 	}
 
-	const u32 maxBytes = 256;
-	char *buf = cfgReadBuf;
-	u32 readLen = fileRead(buf, &hoFile, 0, maxBytes);
-	if (readLen > maxBytes) readLen = maxBytes;
+	char *buf = handoffReadBuf;
+	u32 readLen = fileRead(buf, &hoFile, 0, HANDOFF_MAX_BYTES);
+	if (readLen > HANDOFF_MAX_BYTES) readLen = HANDOFF_MAX_BYTES;
 	buf[readLen] = 0;
 
 	char *line = buf;

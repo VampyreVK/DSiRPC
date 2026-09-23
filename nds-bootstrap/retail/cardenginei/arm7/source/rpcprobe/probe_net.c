@@ -16,8 +16,7 @@ static u16 internetChecksum(const u8 *data, u32 len, u32 initial) {
 }
 
 int ProbeNet_BuildUdpFrame(u8 *out, const u8 *payload, u16 payloadLen) {
-	const u8 *dsiIp = rpcProbeConfig.dsiIp;
-	const u8 *pcIp  = rpcProbeConfig.pcIp;
+	const u8 *dsiIp = rpcProbeHandoff.dsiIp;
 
 	u8 *llc = out;
 	llc[0] = 0xAA; llc[1] = 0xAA; llc[2] = 0x03;
@@ -35,13 +34,13 @@ int ProbeNet_BuildUdpFrame(u8 *out, const u8 *payload, u16 payloadLen) {
 	ip[9] = IP_PROTO_UDP;
 	ip[10] = 0; ip[11] = 0;      // checksum, filled below
 	ip[12] = dsiIp[0]; ip[13] = dsiIp[1]; ip[14] = dsiIp[2]; ip[15] = dsiIp[3];
-	ip[16] = pcIp[0]; ip[17] = pcIp[1]; ip[18] = pcIp[2]; ip[19] = pcIp[3];
+	ip[16] = 0xFF; ip[17] = 0xFF; ip[18] = 0xFF; ip[19] = 0xFF; // broadcast
 	u16 ipChecksum = internetChecksum(ip, 20, 0);
 	ip[10] = (ipChecksum >> 8) & 0xFF; ip[11] = ipChecksum & 0xFF;
 
 	u8 *udp = ip + 20;
-	udp[0] = (rpcProbeConfig.udpPort >> 8) & 0xFF; udp[1] = rpcProbeConfig.udpPort & 0xFF; // src port
-	udp[2] = (rpcProbeConfig.udpPort >> 8) & 0xFF; udp[3] = rpcProbeConfig.udpPort & 0xFF; // dst port (same port both ends)
+	udp[0] = (RPCPROBE_UDP_PORT >> 8) & 0xFF; udp[1] = RPCPROBE_UDP_PORT & 0xFF; // src port
+	udp[2] = (RPCPROBE_UDP_PORT >> 8) & 0xFF; udp[3] = RPCPROBE_UDP_PORT & 0xFF; // dst port (same port both ends)
 	udp[4] = (udpTotalLen >> 8) & 0xFF; udp[5] = udpTotalLen & 0xFF;
 	udp[6] = 0; udp[7] = 0; // checksum - 0 is valid/"unused" for UDP over IPv4
 

@@ -3,9 +3,9 @@
 hello_listener.py - prints the "DSiRPC hello #N" packets that nds-bootstrap's
 in-game side sends once a second after a DSi-mode handoff.
 
-The packets go to pc_ip= and port= from /RPCPROBE.CFG (4244 by default), with
-the same port as the source. If packets arrive, the connection the launcher
-made survived into gameplay.
+The packets are broadcast on UDP 4244 (source and destination port), so no
+configuration is needed. If packets arrive, the connection the launcher made
+survived into gameplay.
 
 Usage:
   python hello_listener.py
@@ -19,7 +19,7 @@ import time
 
 def main():
     ap = argparse.ArgumentParser(description="DSiRPC handoff hello listener")
-    ap.add_argument("--port", type=int, default=4244, help="UDP port (port= in RPCPROBE.CFG)")
+    ap.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
     args = ap.parse_args()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

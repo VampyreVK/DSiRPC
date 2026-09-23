@@ -2,12 +2,13 @@
 // calls Probe_VBlankTick() once per VBlank for the whole game session.
 //
 // The DSiRPC launcher has already connected the DSi's wifi chip in DSi mode
-// (WPA2 is handled by the chip). This file loads /RPCPROBE.CFG and
-// /RPCHAND.TXT, checks the chip still answers, then sends a hello packet once
-// a second and (with RPCPROBE_REQUESTS) answers memory requests from the PC.
+// (WPA2 is handled by the chip). This file loads /RPCHAND.TXT, checks the
+// chip still answers, then broadcasts a hello packet once a second (so the
+// PC finds the DSi without any configuration) and, with RPCPROBE_REQUESTS,
+// answers memory requests from the PC.
 //
 // SD card rule: the SD card is only touched on the very first VBlank (loading
-// the two files). After that the game's own ARM7 code reads its save from the
+// RPCHAND.TXT). After that the game's own ARM7 code reads its save from the
 // SD card outside interrupts, and a VBlank that touches the SD card in the
 // middle of that corrupts nds-bootstrap's SD/file state and hangs the game.
 // Diagnostics after the first VBlank go into the hello packets instead.
@@ -46,7 +47,7 @@ static u16 hoGpio = 0;
 static TwlWifiProbeResult hoProbe = { 0, 0 };
 static int hoLastSend = 0;
 static u16 hoSent = 0;
-static u8 hoDstMac[6];
+static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static u8 hoFrame[136];
 
 static int putDec(char *p, u16 v) {
@@ -73,26 +74,14 @@ static int putStr(char *p, const char *str) {
 }
 
 static void handoffLoad(void) {
-	u8 cfgOk = RpcProbeConfig_Load();
-	u8 hoOk = RpcProbeHandoff_Load();
-	if (cfgOk && hoOk) {
-		// The launcher's DHCP lease wins over the static dsi_ip= in the cfg.
-		for (int i = 0; i < 4; i++) rpcProbeConfig.dsiIp[i] = rpcProbeHandoff.dsiIp[i];
-
-		// pc_mac= if set, otherwise broadcast (the PC still only accepts it
-		// because the IP destination is pc_ip=).
-		u8 havePcMac = 0;
-		for (int i = 0; i < 6; i++) if (rpcProbeConfig.pcMac[i]) havePcMac = 1;
-		for (int i = 0; i < 6; i++) hoDstMac[i] = havePcMac ? rpcProbeConfig.pcMac[i] : 0xFF;
-
+	if (RpcProbeHandoff_Load()) {
 		#ifdef DEBUG
-		dbg_printf(havePcMac ? "rpcprobe: handoff ready, sending to pc_mac\n"
-		                     : "rpcprobe: handoff ready, no pc_mac, using broadcast\n");
+		dbg_printf("rpcprobe: handoff ready, hellos will be broadcast\n");
 		#endif
 		hoStage = HO_RESTORE;
 	} else {
 		#ifdef DEBUG
-		dbg_printf("rpcprobe: config/handoff files missing, handoff off\n");
+		dbg_printf("rpcprobe: no usable RPCHAND.TXT, handoff off\n");
 		#endif
 		hoStage = HO_FAILED;
 	}
@@ -145,7 +134,7 @@ static void handoffSend(void) {
 #endif
 
 	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
-	int r = TwlWifi_SendLlcFrame(hoDstMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen);
+	int r = TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen);
 	hoLastSend = r;
 
 	hoSent++;

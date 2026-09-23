@@ -17,7 +17,9 @@ STATUS_BITS = [(0x07, 'Asleep'), (0x08, 'Poisoned'), (0x10, 'Burned'),
 # FaceDirection in the saved Location struct.
 DIRECTIONS = ['up', 'down', 'left', 'right']
 
-# Trainer sprite IDs seen in battle data +0x3C6 (RetroAchievements code notes).
+# Trainer classes seen in battle data +0x3C6 (the RetroAchievements notes call
+# them sprite IDs). 0x3F is the rival class; the parser shows the rival's
+# real name from the save instead.
 TRAINER_SPRITES = {
     0x00: 'Lucas', 0x01: 'Dawn', 0x3E: 'Roark', 0x3F: 'Barry', 0x40: 'Byron',
     0x41: 'Aaron', 0x42: 'Bertha', 0x43: 'Flint', 0x44: 'Lucian',

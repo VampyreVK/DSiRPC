@@ -32,12 +32,14 @@ class PlatinumParser:
     OFFSET_DEX_CAUGHT = 0x1340    # 493 bits, bit n-1 = national dex #n
     OFFSET_DEX_SEEN = 0x1380      # same layout
     OFFSET_DEX_OBTAINED = 0x1656  # u8, 1 once you have the Pokedex
+    OFFSET_RIVAL_NAME = 0x27FC    # 8 x u16, the name chosen for the rival in the intro
+    TRAINER_CLASS_RIVAL = 0x3F    # trainer class at battle +0x3C6 when fighting the rival
 
     # Static addresses outside the save block.
     FIELD_POINTER = 0x02101D2C        # RA: "Current Map + Poketch Pointer"
     FIELD_RA_DIRECTION = 0x2A0884     # RA: "Player Direction and Action", used as (u16 of pointer) + this
     BATTLE_POINTER = 0x021BFB0C       # not cleared after a battle, so check the data too
-    BATTLE_OFFSET_TRAINER_SPRITE = 0x3C6
+    BATTLE_OFFSET_TRAINER_SPRITE = 0x3C6  # the opponent's trainer class (RA calls it a sprite ID)
     BATTLE_OFFSET_MONS = 0x4F40       # 4 BattleMons: you, foe, your 2nd, foe's 2nd
     SIZE_BATTLE_MON = 0xC0
     MUSIC_ID = 0x021BEB04             # u16
@@ -216,6 +218,7 @@ class PlatinumParser:
             (save + self.OFFSET_LOCATION, self.OFFSET_WEATHER + 2 - self.OFFSET_LOCATION),
             (save + self.OFFSET_DEX_CAUGHT, 0x80),
             (save + self.OFFSET_DEX_OBTAINED, 1),
+            (save + self.OFFSET_RIVAL_NAME, 16),
         ]
         if direction_addr:
             wanted.append((direction_addr, 2))
@@ -234,6 +237,7 @@ class PlatinumParser:
         self.parsed_data['secret_id'] = self.read_u16(save + self.OFFSET_TRAINER_ID + 2)
         self.parsed_data['money'] = self.read_u32(save + self.OFFSET_MONEY)
         self.parsed_data['coins'] = self.read_u16(save + self.OFFSET_COINS)
+        self.parsed_data['rival_name'] = decode_string(self.read_bytes(save + self.OFFSET_RIVAL_NAME, 16), self.charmap)
         self.parsed_data['character'] = 'Dawn' if self.read_u8(save + self.OFFSET_GENDER) else 'Lucas'
         badge_bits = self.read_u8(save + self.OFFSET_BADGES)
         self.parsed_data['badges'] = [n for i, n in enumerate(pdata.BADGES) if badge_bits >> i & 1]
@@ -306,7 +310,11 @@ class PlatinumParser:
             battle['active'] = 'yours' in sides_found and 'foe' in sides_found
             if battle['active']:
                 sprite = self.read_u16(battle_ptr + self.BATTLE_OFFSET_TRAINER_SPRITE)
-                battle['trainer'] = pdata.TRAINER_SPRITES.get(sprite, f'sprite {sprite:#x}')
+                battle['trainer_class'] = sprite
+                if sprite == self.TRAINER_CLASS_RIVAL and self.parsed_data.get('rival_name'):
+                    battle['trainer'] = self.parsed_data['rival_name']  # whatever the rival was named
+                else:
+                    battle['trainer'] = pdata.TRAINER_SPRITES.get(sprite, f'sprite {sprite:#x}')
         self.parsed_data['battle'] = battle
 
         # 8. Odds and ends

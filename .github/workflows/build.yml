@@ -1,0 +1,98 @@
+# Builds the two files that go on the DSi's SD card:
+#   nds-bootstrap-dsirpc.nds  - our modified nds-bootstrap (nds-bootstrap/)
+#   dsirpc-launcher.nds       - the DSi-mode launcher (launcher/)
+#
+# - Push to main (when nds-bootstrap/ or launcher/ change), pull requests, or
+#   "Run workflow" on the Actions tab: builds both and attaches them to the
+#   run as artifacts.
+# - Push a tag starting with "v" (for example v0.1.0): also publishes a GitHub
+#   release with both files.
+#
+# Uses the same Docker images as the local build commands in the README.
+
+name: Build DSi files
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "nds-bootstrap/**"
+      - "launcher/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "nds-bootstrap/**"
+      - "launcher/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nds-bootstrap:
+    name: nds-bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      # Only nds-bootstrap/ is needed, so skip downloading the sprites.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: nds-bootstrap
+          filter: blob:none
+
+      # The build needs an "lzss" tool inside the container. A static binary
+      # built here runs in there regardless of its library versions.
+      - name: Build lzss
+        run: gcc -O2 -static nds-bootstrap/lzss.c -o lzss
+
+      - name: Build nds-bootstrap
+        run: docker run --rm -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
+
+      - name: Name the output
+        run: cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc.nds
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nds-bootstrap-dsirpc
+          path: nds-bootstrap-dsirpc.nds
+          if-no-files-found: error
+
+  launcher:
+    name: launcher
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: launcher
+          filter: blob:none
+
+      - name: Build launcher
+        run: docker run --rm -v "$GITHUB_WORKSPACE/launcher:/work" -w /work --entrypoint make skylyrac/blocksds:slim-latest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsirpc-launcher
+          path: launcher/dsirpc-launcher.nds
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [nds-bootstrap, launcher]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Creates the release for this tag, or adds the files to it if a
+      # release with this tag already exists (for example one made on the
+      # website).
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.nds --repo "$GITHUB_REPOSITORY" --title "DSiRPC $GITHUB_REF_NAME" --generate-notes || gh release upload "$GITHUB_REF_NAME" dist/*.nds --repo "$GITHUB_REPOSITORY" --clobber

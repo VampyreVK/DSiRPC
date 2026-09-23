@@ -1,6 +1,9 @@
 #ifndef _NO_SDMMC
 #include "my_disc_io.h"
 #include "my_sdmmc.h"
+#ifdef DEBUG
+#include "nocashMessage.h" // DSiRPC: the debug-only call below needs it (GCC 14 rejects implicit declarations)
+#endif
 
 /*-----------------------------------------------------------------
 startUp

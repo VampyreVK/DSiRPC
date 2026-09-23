@@ -1,5 +1,5 @@
 """
-dsi_battle_rpc.py - test Discord Rich Presence driven by the real DSi.
+dsirpc.py - Discord Rich Presence driven by the real DSi.
 
 Reads the game every few seconds (same parser as dsi_status.py) and shows:
   in a battle:  "Competing in Pokémon Platinum", the foe's sprite as the big
@@ -13,10 +13,10 @@ Reads the game every few seconds (same parser as dsi_status.py) and shows:
 Sprites come from the Assets folders on GitHub Pages, by national dex number.
 
 Usage:
-  python dsi_battle_rpc.py                         # client ID from PokemonPlatinumRPC.cfg
-  python dsi_battle_rpc.py --client-id 1502029609045069985
-  python dsi_battle_rpc.py --dry-run               # read the DSi, print instead of sending
-  python dsi_battle_rpc.py --file ram_dump.bin --dry-run
+  python dsirpc.py                                 # client ID from PokemonPlatinumRPC.cfg
+  python dsirpc.py --client-id <your application ID>
+  python dsirpc.py --dry-run                       # read the DSi, print instead of sending
+  python dsirpc.py --file ram_dump.bin --dry-run
 
 Turn off Vencord's CustomRPC while this runs, or Discord shows two activities.
 Don't run it together with dsi_status.py / hello_listener.py (same UDP port).

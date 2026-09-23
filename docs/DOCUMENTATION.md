@@ -58,7 +58,7 @@ Only Pokémon Platinum (USA, Rev 1) is supported at the moment.
      once a second: "DSiRPC hello ..." packet  ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
-                                                                 dsi_status.py / dsi_battle_rpc.py
+                                                                 dsi_status.py / dsirpc.py
                                                                         |
                                                                         v
                                                                  Discord (pypresence, IPC)
@@ -103,6 +103,9 @@ network, and the Discord desktop app.
 
 The build commands and first-time setup steps are in the
 [README](../README.md#setup-and-build). This section covers the details.
+Prebuilt `.nds` files come from the GitHub Action in
+`.github/workflows/build.yml` (see the README's
+[Prebuilt files and releases](../README.md#prebuilt-files-and-releases)).
 
 ### 3.1 Build gotcha: make doesn't notice flag changes
 
@@ -199,7 +202,7 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    If the board was ever found in old DS mode, it waits 15 seconds for the
    game to finish booting before switching it back, which delays the first
    hello.
-5. **PC.** Run `dsi_battle_rpc.py` (or `dsi_status.py`). Both wait up to
+5. **PC.** Run `dsirpc.py` (or `dsi_status.py`). Both wait up to
    15 s for a hello and learn the DSi's IP from it.
 
 ---
@@ -209,7 +212,7 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
 All commands run from the repo root, using the virtual environment's Python
 (`.venv\Scripts\python.exe`).
 
-### `dsi_battle_rpc.py` (the Rich Presence)
+### `dsirpc.py` (the Rich Presence)
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -302,8 +305,9 @@ The battle kind comes from the music ID:
 | anything else | In a battle | The foe's |
 
 `<name>` comes from the trainer value at battle `+0x3C6`, which is actually
-the trainer **class** (see section 9). For rival battles it always says
-Barry, even if you renamed your rival.
+the trainer **class** (see section 9). For rival battles (class `0x3F`) it
+is the name you gave your rival in the intro, read from the save
+(`S+0x27FC`), so a renamed rival shows up under their real name.
 
 | Field | Content | Example |
 |---|---|---|
@@ -390,6 +394,7 @@ All paths below are under `nds-bootstrap/retail/`.
 |---|---|
 | `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick()` from `myIrqHandlerVBlank` (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
+| `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
 | `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
@@ -458,6 +463,7 @@ aren't read yet are in [research.md](research.md).
 | `S+0x1340` | Pokédex caught | 493 bits, bit n-1 = national #n |
 | `S+0x1380` | Pokédex seen | same layout |
 | `S+0x1656` | Has Pokédex | u8 |
+| `S+0x27FC` | Rival name | 8 x u16, same encoding as the trainer name |
 
 The save block is SaveData (a 0x14-byte header) followed by the save pages
 (system 0x64, player 0x34, party 0x598, then the bag, and so on), which is
@@ -564,7 +570,7 @@ for alternate forms, which DSiRPC doesn't use yet).
 All scripts work on the current folder. `process_sprites.py` writes to
 `processed_sprites/`, and `process_diorama.py` overwrites in place, so keep the
 raw originals somewhere else first. They need Pillow. The source files for the
-backgrounds are in `Affinity/`.
+backgrounds are in `art-source/`.
 
 **Note:** the NormalLarge `process_sprites.py` is *not* part of that folder's
 pipeline. The dioramas are made from the raw sprites; running
@@ -600,7 +606,7 @@ Folder names are case-sensitive on GitHub Pages.
    connection, not the parser.
 2. `core/dsirpc_client.py`: does the SDK marker read back correctly?
 3. `dsi_status.py --watch 2`: are the parsed values sensible?
-4. `dsi_battle_rpc.py --dry-run`: what would be sent to Discord?
+4. `dsirpc.py --dry-run`: what would be sent to Discord?
 
 ### Symptoms
 
@@ -623,8 +629,9 @@ Folder names are case-sensitive on GitHub Pages.
 See [DEBUGGING.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/DEBUGGING.md).
 **Only use debug builds for short startup checks.** nds-bootstrap's debug
 logging writes to the SD card from interrupts during gameplay, which has
-crashed the game. Also, a clean debug build currently fails to compile in
-upstream's `my_fat.c` with GCC 14; DEBUGGING.md has the two-line fix.
+crashed the game. Clean debug builds compile (the GCC 14 errors in
+upstream's debug-only code in `my_fat.c` and `my_sd.c` are fixed, see
+section 8).
 
 ---
 
@@ -646,8 +653,6 @@ upstream's `my_fat.c` with GCC 14; DEBUGGING.md has the two-line fix.
   before the DSi-mode rework, and it hasn't been retested since.
 - **USA Rev 1 only.** Other revisions and regions need their own patch
   addresses and memory map.
-- **Rival name.** Rival battles show the trainer-class name (Barry), not the
-  name you gave the rival. The real name is in the save (see research.md).
 - **Latency.** One received packet per VBlank, with CMD52 byte-at-a-time
   SDIO. A CMD53 block-transfer upgrade path is noted in
   [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md),
@@ -663,10 +668,10 @@ upstream's `my_fat.c` with GCC 14; DEBUGGING.md has the two-line fix.
 | Path | What |
 |---|---|
 | `README.md` | Overview, setup, build and everyday use |
-| `dsi_battle_rpc.py`, `dsi_status.py` | The Rich Presence and the status tool |
+| `dsirpc.py`, `dsi_status.py` | The Rich Presence and the status tool |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
-| `Affinity/` | Affinity source files for the sprite backgrounds |
+| `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `launcher/` | The DSi-mode launcher (`source/main.c`), hello listener, chainload plan |
 | `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
 | `docs/DOCUMENTATION.md` | This file |
@@ -676,6 +681,7 @@ upstream's `my_fat.c` with GCC 14; DEBUGGING.md has the two-line fix.
 | `spikes/` | Stages 1-3, the early experiments |
 | `tools/charmap/` | Hex-editor tables generated from the Gen IV charmap |
 | `RPCPROBE.CFG.example`, `PokemonPlatinumRPC.cfg.sample` | Config templates (the real files are gitignored) |
+| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, publishes a release for `v*` tags |
 
 ---
 

@@ -72,19 +72,19 @@ rpcprobe logs only during the first VBlank:
 - `rpcprobe: handoff ready, sending to pc_mac` (or `... using broadcast`),
   or `rpcprobe: config/handoff files missing, handoff off`
 
-Two warnings:
+Two things to know:
 
 - **Only use debug builds for short startup checks.** nds-bootstrap's own
   debug logging keeps writing to the SD card from interrupts during
   gameplay, and that has crashed the game (for example, opening the party
   menu). Turn it off again and do another clean build afterwards.
-- **A clean debug build currently fails to compile** in upstream code, not
-  ours. With GCC 14 (devkitARM r64+), `retail/common/source/my_fat.c`'s
-  debug-only lines call `nocashMessage()` without including
-  `nocashMessage.h`, and pass pointers to `dbg_hexa()` without a cast. Fix
-  it by adding `#include "nocashMessage.h"` to `my_fat.c` and casting those
-  arguments to `(u32)`. Earlier debug builds only worked because a stale
-  `my_fat.o` from a non-debug build was being reused.
+- **Clean debug builds compile.** Upstream's debug-only code in
+  `retail/common/source/my_fat.c` and `my_sd.c` didn't compile with GCC 14
+  (devkitARM r64+): it called `nocashMessage()` without including
+  `nocashMessage.h`, and passed pointers to `dbg_hexa()` without a cast.
+  DSiRPC adds the include (only when `DEBUG` is defined) and the `(u32)`
+  casts, so non-debug builds are unchanged. Earlier debug builds only worked
+  because a stale `my_fat.o` from a non-debug build was being reused.
 
 ## Rules the in-game code has to follow
 

@@ -33,6 +33,9 @@
 #include "my_fat.h"
 #include "card.h"
 #include "debug_file.h"
+#ifdef DEBUG
+#include "nocashMessage.h" // DSiRPC: the debug-only calls below need it (GCC 14 rejects implicit declarations)
+#endif
 
 #define nextClusterBufferCount 8
 
@@ -970,7 +973,7 @@ bool fileReadNonBLocking (char* buffer, aFile * file, u32 startOffset, u32 lengt
 {
 	#ifdef DEBUG
 	nocashMessage("fileRead");
-    dbg_hexa(buffer);
+    dbg_hexa((u32)buffer);
     dbg_hexa(startOffset);
     dbg_hexa(length);
 	#endif
@@ -1089,7 +1092,7 @@ bool resumeFileRead()
               dbg_hexa(context.curSect + FAT_ClustToSect(context.file->currentCluster));
 			  #endif
               dbg_hexa(sectorsToRead);
-              dbg_hexa(context.buffer + context.dataPos);
+              dbg_hexa((u32)(context.buffer + context.dataPos));
               #endif
 
               // Read the sectors
@@ -1205,7 +1208,7 @@ bool resumeFileRead()
               #ifdef DEBUG
 			  #ifdef TWOCARD
               dbg_hexa(context.curSect + FAT_ClustToSect(context.file->currentCluster, false));
-              dbg_hexa(globalBuffer[0]);
+              dbg_hexa((u32)globalBuffer[0]);
 			  #else
               dbg_hexa(context.curSect + FAT_ClustToSect(context.file->currentCluster));
               dbg_hexa(globalBuffer);
@@ -1284,7 +1287,7 @@ u32 fileRead (char* buffer, aFile* file, u32 startOffset, u32 length)
 {
 	#ifdef DEBUG
 	nocashMessage("fileRead");
-    dbg_hexa(buffer);
+    dbg_hexa((u32)buffer);
     dbg_hexa(startOffset);
     dbg_hexa(length);
 	#endif
@@ -1412,7 +1415,7 @@ u32 fileRead (char* buffer, aFile* file, u32 startOffset, u32 length)
               dbg_hexa(curSect + FAT_ClustToSect(file->currentCluster));
 			  #endif
               dbg_hexa(sectorsToRead);
-              dbg_hexa(buffer + dataPos);
+              dbg_hexa((u32)(buffer + dataPos));
               #endif
 
               // Read the sectors
@@ -1550,7 +1553,7 @@ u32 fileRead (char* buffer, aFile* file, u32 startOffset, u32 length)
           #ifdef DEBUG
 		  #ifdef TWOCARD
           dbg_hexa(curSect + FAT_ClustToSect(file->currentCluster, fileCard2));
-          dbg_hexa(globalBuffer[fileCard2]);
+          dbg_hexa((u32)globalBuffer[fileCard2]);
 		  #else
           dbg_hexa(curSect + FAT_ClustToSect(file->currentCluster));
           dbg_hexa(globalBuffer);

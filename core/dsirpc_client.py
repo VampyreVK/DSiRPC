@@ -16,7 +16,7 @@ The DSi also sends "DSiRPC hello ..." packets once a second on the same port.
 This client uses the first one to learn the DSi's IP (the launcher's DHCP
 lease can differ from dsi_ip= in RPCPROBE.CFG), so don't run another tool
 on the same port at the same time (hello_listener.py, dsi_status.py,
-dsi_battle_rpc.py) - they'd fight over it.
+dsirpc.py) - they'd fight over it.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)

@@ -33,7 +33,8 @@ These are Viv's goals from "Values to Obtain", with their status in the current 
 | Area icon or art per location as the main image | Open | Section 7 |
 | "Little battle": foe's front sprite large, your Pokémon's back sprite small | Done | Shiny-aware, like the overworld sprites |
 | Playtime | Done | The timer counts up from the save's playtime |
-| Names beyond the fixed trainer table (all gym leaders, trainer classes, the rival's real name) | Open | Section 7 |
+| The rival's real name in rival battles | Done | Read from `S+0x27FC` when the trainer class is `0x3F` |
+| Names beyond the fixed trainer table (all gym leaders, trainer classes) | Open | Section 7 |
 | Upload the party and trainers' Pokémon as Discord assets (300-slot budget) | Superseded | Images are URLs on GitHub Pages, so there is no asset budget |
 
 Other ideas from the old notes, not committed to: special-case Pokémon Centers, caves and gyms by map name; show the gym's badge as the small image in gym battles; add a link button (Discord allows up to two), e.g. to the location's Bulbapedia page.
@@ -161,7 +162,7 @@ The RA "Player Direction and Action" address (see DOCUMENTATION) is exactly `Map
 - **Running:** there is no saved state for running. `S+0x1322` only says you own the shoes. Watch PlayerAvatar `+0x08`/`+0x0C` and MapObject `+0xA4` while walking versus running. The MovementAction enum is generated at build time, so its values aren't in the sparse checkout.
 - **PC and menus:** while an application (bag, party, summary, PC...) runs, `[[FS]+0x04]` (the child app) should be non-NULL. Its first 16 bytes are the app template (init/main/exit function pointers and the overlay ID), which identifies the app. This needs captures with each menu open. The map name narrows it down: 54 of the 593 map headers in `platinum_data.MAPS` are Pokémon Center floors.
 - **Area art:** `platinum_data.MAPS` has 593 map headers but only 125 distinct in-game location names, so at most about 125 images are needed. Spriters Resource is a source (section 9). A PokéAPI location's generation-iv `game_index` is not the map ID (Jubilife City: map 3, PokéAPI `game_index` 6).
-- **Trainer names:** the IDs at battle `+0x3C6` that RA lists as "sprite IDs" line up exactly with the decomp's trainer class order (`include/data/trainer_class_genders.h`: `PLAYER_MALE` = 0, `LEADER_ROARK` = `0x3E`, `RIVAL` = `0x3F`, `CHAMPION_CYNTHIA` = `0x45`, `COMMANDER_MARS` = `0x48`, `TRAINER_MIRA` = `0x5E`). That array names every class, including generic ones. The decomp's `BattleSystem` also holds `trainerIDs[4]` and `Trainer trainers[4]`, each with a header (class, sprite) and an 8-unit name. Their offset from `[0x021BFB0C]` hasn't been worked out. For rival battles, the name to show is `S+0x27FC`.
+- **Trainer names:** the IDs at battle `+0x3C6` that RA lists as "sprite IDs" line up exactly with the decomp's trainer class order (`include/data/trainer_class_genders.h`: `PLAYER_MALE` = 0, `LEADER_ROARK` = `0x3E`, `RIVAL` = `0x3F`, `CHAMPION_CYNTHIA` = `0x45`, `COMMANDER_MARS` = `0x48`, `TRAINER_MIRA` = `0x5E`). That array names every class, including generic ones. The decomp's `BattleSystem` also holds `trainerIDs[4]` and `Trainer trainers[4]`, each with a header (class, sprite) and an 8-unit name. Their offset from `[0x021BFB0C]` hasn't been worked out. For rival battles, the parser shows the name at `S+0x27FC`.
 - **Held-item icons:** PokéAPI item sprites (section 8). Map the game's item ID through `game_indices`: Town Map is PokéAPI item 419 but game item 442.
 - **Box Pokémon:** `S+0xCF44` (section 6.1). **Story progress:** the vars/flags page at `S+0xDC0`. The flag IDs are in the decomp's generated `vars_flags.h`.
 

@@ -21,7 +21,7 @@ session is:
 2. Press **START**. This exits but keeps the Wi-Fi connected.
 3. From your menu, launch **our** nds-bootstrap build, which boots Platinum.
 4. On the PC, turn off any other Rich Presence plugin (like Vencord CustomRPC), then run:
-   `.venv\Scripts\python.exe dsi_battle_rpc.py`
+   `.venv\Scripts\python.exe dsirpc.py`
 
 To see everything the PC can read in plain text instead:
 `.venv\Scripts\python.exe dsi_status.py --watch 5`
@@ -36,7 +36,7 @@ DSi launcher (BlocksDS)          connects in DSi mode with the WPA2 settings sav
 our nds-bootstrap  --boots-->  Pokémon Platinum
   ARM7 VBlank hook (rpcprobe)
     answers "read N bytes at X"  <--- UDP 4244 --->  PC: core/ (reader + parser)
-    sends a hello every second                          dsi_battle_rpc.py
+    sends a hello every second                          dsirpc.py
                                                              |
                                                              v
                                                   Discord Rich Presence
@@ -51,7 +51,7 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 
 | Path | What |
 |---|---|
-| `dsi_battle_rpc.py` | The Rich Presence: reads the DSi every 5 s and updates Discord |
+| `dsirpc.py` | The Rich Presence: reads the DSi every 5 s and updates Discord |
 | `dsi_status.py` | Prints everything that can be read, in plain text (for testing) |
 | `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), game parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`) |
 | `rpc/`, `utils/` | Discord (pypresence) wrapper, config reader |
@@ -61,7 +61,8 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 | `docs/` | [DOCUMENTATION.md](docs/DOCUMENTATION.md) (technical reference), [research.md](docs/research.md) (verified research notes), [HISTORY.md](docs/HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `tools/charmap/` | Generates hex-editor tables (ImHex, Thingy `.tbl`) from the Gen IV charmap |
-| `Affinity/` | Affinity source files for the sprite backgrounds |
+| `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
+| `.github/workflows/` | GitHub Action that builds both `.nds` files and publishes releases (see [Prebuilt files and releases](#prebuilt-files-and-releases)) |
 
 ## Requirements
 
@@ -78,6 +79,10 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 
 All commands are for PowerShell, from the repo root (`C:\Projects\DSiRPC`).
 Adjust the paths if you cloned somewhere else.
+
+Steps 2 and 3 build the two DSi files. If you'd rather not build them, download
+`nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` from the repo's Releases
+page instead (see [Prebuilt files and releases](#prebuilt-files-and-releases)).
 
 ### 1. Python environment
 
@@ -145,6 +150,27 @@ Discord once they are pushed. How each folder is made is described in
 Allow Python through the Windows firewall on private networks, or the DSi's
 UDP packets never reach the scripts.
 
+## Prebuilt files and releases
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds both `.nds`
+files on GitHub with the same Docker images as the commands above. It runs when
+a push to `main` changes `nds-bootstrap/` or `launcher/`, on pull requests, and
+on demand (Actions tab > **Build DSi files** > **Run workflow**). Each run keeps
+the files as two artifacts, `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
+GitHub downloads as zips.
+
+To publish a release with both files attached, push a tag that starts with `v`:
+
+```
+git tag v0.1.0
+```
+```
+git push origin v0.1.0
+```
+
+The release is named after the tag, gets notes generated from the commits, and
+has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
+
 ## Playing
 
 1. **Launcher:** open it in DSi mode and wait for `ASSOCIATED`. It shows the
@@ -155,13 +181,13 @@ UDP packets never reach the scripts.
    launch something from its game list. If the wrong game boots, launch
    Platinum from TWiLight once, then use our build again.
 3. **PC:** within about 15 seconds of the game starting, the DSi sends a hello
-   packet every second. Run `dsi_battle_rpc.py`. It finds the DSi on its own.
+   packet every second. Run `dsirpc.py`. It finds the DSi on its own.
 
 Only one PC tool can use UDP port 4244 at a time.
 
 | Tool | Use |
 |---|---|
-| `dsi_battle_rpc.py` | The Rich Presence. `--dry-run` prints instead of sending, `--file ram_dump.bin` uses a RAM dump instead of the DSi |
+| `dsirpc.py` | The Rich Presence. `--dry-run` prints instead of sending, `--file ram_dump.bin` uses a RAM dump instead of the DSi |
 | `dsi_status.py` | Everything readable, in plain text. `--watch 5` refreshes, `--json` for raw data |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
 | `launcher/pc/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
@@ -174,13 +200,9 @@ Only one PC tool can use UDP port 4244 at a time.
       instead of two (planned in [launcher/CHAINLOAD.md](launcher/CHAINLOAD.md)).
 - [ ] Location artwork for the big image, and more overworld states (running,
       biking, surfing, browsing the PC). Leads are in [docs/research.md](docs/research.md).
-- [ ] Show the rival's real name in rival battles (read from the save) instead
-      of the trainer-class name.
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
       the DSi on a schedule.
 - [ ] Support other games and versions (only Platinum USA Rev 1 today).
-- [ ] Make clean nds-bootstrap debug builds compile (see
-      [DEBUGGING.md](nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/DEBUGGING.md)).
 - Platinum's own Wi-Fi features are disabled while playing through DSiRPC.
 
 Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).

@@ -10,6 +10,7 @@ this folder is unchanged upstream code.
 | File | Change |
 |---|---|
 | `retail/cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick()` from `myIrqHandlerVBlank` (not in the `ALTERNATIVE`/`TWLSDK` variants). Also fixes four compile errors in upstream's debug-only code (`fatTableCache`, `getBootFileCluster` arguments, `calledViaIPC`, `nocashMessage.h`). |
+| `retail/common/source/my_fat.c`, `retail/common/source/my_sd.c` | Fix compile errors in upstream's debug-only code with GCC 14: `#include "nocashMessage.h"` (only when `DEBUG` is defined) and `(u32)` casts on the pointers passed to `dbg_hexa()` in `my_fat.c`. Non-debug builds are byte-identical. |
 | `retail/cardenginei/arm7/Makefile` | Adds `source/rpcprobe` to `SOURCES`. Builds with `-Os` instead of `-O2` to stay inside the 61 KB ARM7 region. |
 | `retail/bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips switching the Wi-Fi board to old DS mode, so the launcher's DSi-mode connection survives into the game. As a result, the game's own Wi-Fi doesn't work. |
 | `retail/bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for Pokémon Platinum USA Rev 1 (`CPUE`, rev 1) only, and only if the expected instructions are found. It makes `CommManager_InitializeSearchParty` (`0x02037D48`) return immediately and `CommManager_GetAvailableConnections` (`0x02037DA0`) return 0. This removes the "A communication error has occurred" screen after Continue. |
@@ -30,7 +31,7 @@ this folder is unchanged upstream code.
 
 ## Updating to a newer nds-bootstrap
 
-Copy the `rpcprobe/` folder over, then re-apply the changes to the four
+Copy the `rpcprobe/` folder over, then re-apply the changes to the six
 modified files by hand. They're small; to see them exactly, diff each file
 against upstream commit `f5f9ea48`. Before trusting a new upstream version, check that
 the Platinum patch's instruction check still matches and that

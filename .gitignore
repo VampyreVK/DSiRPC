@@ -179,5 +179,17 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
-*.bin
+# RAM dumps at the repo root (they contain your save data). Root only:
+# nds-bootstrap tracks hundreds of .bin files it needs to build.
+/*.bin
 PokemonPlatinumRPC.cfg
+
+# --- DSiRPC ---
+# Personal config: SD card config (your IPs) and the launcher's handoff file
+RPCPROBE.CFG
+RPCHAND.TXT
+# Editor settings
+.vscode/
+# DS build outputs (launcher and spikes; nds-bootstrap has its own .gitignore)
+*.nds
+*.elf

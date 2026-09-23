@@ -1,36 +1,21 @@
 """
-dsi_memory.py - read the real DSi's RAM through DSiRPC's stage 5 protocol.
+dsi_memory.py - read the real DSi's RAM through DSiRPC's memory request protocol.
 
-DsiRam looks like the 4 MB melonDS dump that PlatinumParser expects
+DsiRam looks like the 4 MB RAM dump that PlatinumParser expects
 (len() and slicing by offset from 0x02000000), but it only fetches the parts
 that actually get read. Fetched data is cached in 64-byte blocks until
 clear() is called, so one parse sees one consistent-ish snapshot and the next
 parse starts fresh.
 
-The protocol client lives in the DSiRPC repo (stage5-memory/pc/dsirpc_client.py).
-It is found automatically when this suite sits in DSiRPC/vendor/; otherwise
-set DSIRPC_CLIENT_DIR to the folder that holds dsirpc_client.py.
+The UDP protocol client itself is core/dsirpc_client.py.
 """
 
-import os
-import sys
-
-
-def _load_client_class():
-    try:
-        from dsirpc_client import DSiClient
-    except ImportError:
-        here = os.path.dirname(os.path.abspath(__file__))
-        default = os.path.normpath(os.path.join(here, "..", "..", "..", "stage5-memory", "pc"))
-        sys.path.insert(0, os.environ.get("DSIRPC_CLIENT_DIR", default))
-        from dsirpc_client import DSiClient
-    return DSiClient
+from .dsirpc_client import DSiClient
 
 
 def connect(port=4244, dsi_ip=None, timeout=1.0, verbose=False, max_wait=15.0):
     """Opens the UDP socket and waits for a hello from the DSi (unless dsi_ip
     is given). Returns the client, or None if the DSi never said hello."""
-    DSiClient = _load_client_class()
     client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout, verbose=verbose)
     if not client.wait_for_dsi(max_wait):
         return None
@@ -39,7 +24,7 @@ def connect(port=4244, dsi_ip=None, timeout=1.0, verbose=False, max_wait=15.0):
 
 class DsiRam:
     BASE = 0x02000000
-    SIZE = 0x400000  # main RAM, same as a melonDS dump
+    SIZE = 0x400000  # main RAM, same as a full RAM dump
     BLOCK = 64
 
     def __init__(self, client):

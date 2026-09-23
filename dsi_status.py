@@ -2,14 +2,14 @@
 dsi_status.py - read Pokemon Platinum's state and print it in plain English.
 
 Reads from the real DSi over DSiRPC (the modified nds-bootstrap must be
-running the game), or from a melonDS RAM dump with --file. Everything the
+running the game), or from a 4 MB RAM dump (e.g. from melonDS) with --file. Everything the
 parser knows is printed, including values whose meaning is still a guess,
 so it's easy to see what holds up while playing.
 
 Usage:
   python dsi_status.py                       # read the DSi once
   python dsi_status.py --watch 5             # re-read every 5 seconds
-  python dsi_status.py --file ram_dump.bin   # parse a melonDS dump instead
+  python dsi_status.py --file ram_dump.bin   # parse a RAM dump instead
   python dsi_status.py --json                # print the parsed data as JSON
   python dsi_status.py --dsi-ip 192.168.2.195 --port 4244
 
@@ -97,7 +97,7 @@ def print_report(d, source):
 
 def main():
     ap = argparse.ArgumentParser(description="Print Pokemon Platinum's state from the DSi or a RAM dump")
-    ap.add_argument("--file", help="parse this melonDS RAM dump instead of reading the DSi")
+    ap.add_argument("--file", help="parse a 4 MB RAM dump (e.g. from melonDS) instead of reading the DSi")
     ap.add_argument("--dsi-ip", help="skip waiting for a hello packet")
     ap.add_argument("--port", type=int, default=4244, help="port= in RPCPROBE.CFG")
     ap.add_argument("--timeout", type=float, default=1.0, help="seconds to wait for each reply")

@@ -36,7 +36,7 @@ from core.parser import PlatinumParser
 from utils.config import Config
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SPRITES = "https://vampyrevk.github.io/melonDS-RPC-Suite/Assets"
+SPRITES = "https://vampyrevk.github.io/DSiRPC/Assets"
 
 WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x464, 0x470
 
@@ -148,7 +148,7 @@ def build_presence(d):
 def main():
     ap = argparse.ArgumentParser(description="Test Discord Rich Presence from the DSi")
     ap.add_argument("--client-id", help="Discord application ID (default: discord_client_id in PokemonPlatinumRPC.cfg)")
-    ap.add_argument("--file", help="use this melonDS RAM dump instead of the DSi")
+    ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
     ap.add_argument("--dsi-ip", help="skip waiting for a hello packet")
     ap.add_argument("--port", type=int, default=4244, help="port= in RPCPROBE.CFG")
     ap.add_argument("--interval", type=float, default=5.0, help="seconds between reads (Discord allows about one update per 5 s)")

@@ -5,7 +5,7 @@ from . import platinum_data as pdata
 
 class PlatinumParser:
     ANCHOR_POINTER = 0x02101D40
-    # Absolute base RAM physical offset translation (For MelonDS TCP dumps mapping to NDS memory)
+    # Absolute base RAM physical offset translation (index 0 of a RAM dump = 0x02000000)
     # Base NDS Ram starts at 0x02000000. So we subtract 0x02000000 to get array indices.
     RAM_OFFSET = 0x02000000
 
@@ -95,7 +95,7 @@ class PlatinumParser:
     def prefetch(self, ranges):
         """Tells a sparse RAM source (core.dsi_memory.DsiRam) what is about to
         be read, so it can fetch it in as few requests as possible. A full
-        melonDS dump has nothing to prefetch."""
+        RAM dump has nothing to prefetch."""
         if hasattr(self.ram, 'prefetch'):
             self.ram.prefetch([(address - self.RAM_OFFSET, length) for address, length in ranges
                                if self.is_ram_pointer(address)])

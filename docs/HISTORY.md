@@ -275,6 +275,26 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-26 (link check): **Why reads got slow, and quick battle reads.** Full reads in
+  the Maylene fight took 1 to 15 s, against about 0.7 s before the stutter
+  fix. The likely cause is that fix itself: draining at most one frame and
+  128 bytes per VBlank tops out around 7.7 KB/s, below what the home
+  network's broadcast traffic can reach, so the DSi's wifi chip drops frames,
+  memory requests included, and each lost request costs the PC a one-second
+  timeout (a full read is about 20 requests). Nothing about battles
+  specifically. New: `core/dsirpc_client.py --stats` (a link check that
+  compares what the PC sent with the DSi's `req`/`rx` counters), and the
+  hub's `DsiSource` reads only the battlers during a battle, one request
+  every 0.3 s, falling back to a full read when the battle changes shape.
+  The client now also records hellos that arrive while it waits for a reply
+  (they used to be dropped unseen). The `vb=` docs now say what's normal
+  (about 76, a reply or hello tick). Next: CMD53 block reads on the DSi
+  side, once the link check confirms the drops.
+- 2026-09-26 (night): **Moves in step with the damage.** The overlay showed
+  a move as soon as its PP dropped, but the game only takes the HP after
+  the animation, so the damage often came a read or more later. Damaging
+  moves are now held until the target's HP drops and play together with
+  the hit (misses play after 5 s of reads, status moves right away).
 - 2026-09-26 (evening): **Last-move record checked, steadier trainer names.**
   A Maylene fight with `dsi_status.py --watch 2` showed `B+0x527C` working
   for your side (0 until the first move, then Fire Blast right after its PP

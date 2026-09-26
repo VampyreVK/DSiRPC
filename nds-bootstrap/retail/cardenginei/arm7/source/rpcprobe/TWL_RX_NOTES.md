@@ -59,8 +59,22 @@ make it stutter. The byte budget above caps that; the `vb=` hello field
 reports the longest tick. The trade-off is that junk traffic now takes
 longer to clear, so requests can wait a little longer behind it.
 
-If it ever needs to be faster, the upgrade is CMD53 block transfers
-(DSWiFi's `wifi_card_read_func1_block` / `wifi_card_write_func1_block`).
+The numbers: one CMD52 is about 19 µs (a 256-byte hello or reply write takes
+about 76 scanlines, 4.8 ms), so 128 bytes per VBlank is about 2.4 ms a tick
+and at most one frame and about 7.7 KB per second. Background traffic is
+mostly broadcast and multicast frames of one to a few 128-byte blocks, at
+somewhere around 20 to 60 frames a second on a home network, which can be
+more than that. When the drain falls behind, the chip's receive buffers
+fill and it drops frames, including memory requests; the PC then waits out a
+one-second timeout per lost request. `core/dsirpc_client.py --stats` measures
+this from the PC side.
+
+The upgrade is CMD53 block transfers (DSWiFi's `wifi_card_read_func1_block`
+/ `wifi_card_write_func1_block`): one command per packet and the data read
+32 bits at a time from the controller's FIFO, instead of one command per
+byte. DSWiFi moves that data with NDMA; a polled FIFO loop (the code DSWiFi
+has commented out next to its NDMA calls) would avoid sharing an NDMA
+channel with nds-bootstrap. It hasn't been tried on hardware yet.
 
 ## Not handled
 

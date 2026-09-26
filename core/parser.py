@@ -82,6 +82,10 @@ class PlatinumParser:
     # foe's entry hasn't been seen change yet.
     BATTLE_OFFSET_LAST_MOVES = 0x527C
     SIZE_BATTLE_MON = 0xC0
+    BATTLE_SIDES = ('yours', 'foe', 'yours (2nd)', 'foe (2nd)')  # BattleMon slots 0-3
+    # The parts of a BattleMon that decode_battle_mon() looks at, as
+    # (offset, length). The hub's quick in-battle reads fetch only these.
+    BATTLE_MON_FIELDS = ((0x00, 2), (0x0C, 8), (0x26, 0x2E), (0x6C, 4), (0x7E, 1))
     MUSIC_ID = 0x021BEB04             # u16
     TEXTBOX_ACTIVE = 0x021C04E3       # u8, 2 while an NPC text box is open
     POS_MIRROR = 0x021C5CCC           # fx32 x, y (height), z; the tile is the upper u16
@@ -232,6 +236,17 @@ class PlatinumParser:
             'gender': {0: 'M', 1: 'F'}.get(raw[0x7E] & 0x0F, 'genderless'),
         }
 
+    def battle_mon(self, raw, slot, last_moves):
+        """BattleMon `slot` (0-3) decoded, with its side and the last move it
+        used (`last_moves`: the 8 bytes at BATTLE_OFFSET_LAST_MOVES). None if
+        it isn't a real Pokemon."""
+        mon = self.decode_battle_mon(raw) if len(raw) == self.SIZE_BATTLE_MON else None
+        if mon:
+            mon['side'] = self.BATTLE_SIDES[slot]
+            last = struct.unpack_from('<H', last_moves, 2 * slot)[0] if len(last_moves) >= 2 * slot + 2 else 0
+            mon['last_move'] = pdata.MOVES[last] if 0 < last < len(pdata.MOVES) else None
+        return mon
+
     def parse(self):
         """Parses the RAM dump for configured values."""
         self.parsed_data.clear()
@@ -343,14 +358,11 @@ class PlatinumParser:
         battle = {'pointer': hex(battle_ptr), 'music_says_battle': music in pdata.BATTLE_MUSIC,
                   'active': False, 'trainer': None, 'mons': []}
         if self.is_ram_pointer(battle_ptr):
-            sides = ['yours', 'foe', 'yours (2nd)', 'foe (2nd)']
-            for i, side in enumerate(sides):
+            last_moves = self.read_bytes(battle_ptr + self.BATTLE_OFFSET_LAST_MOVES, 8)
+            for i in range(len(self.BATTLE_SIDES)):
                 raw = self.read_bytes(battle_ptr + self.BATTLE_OFFSET_MONS + i * self.SIZE_BATTLE_MON, self.SIZE_BATTLE_MON)
-                mon = self.decode_battle_mon(raw) if len(raw) == self.SIZE_BATTLE_MON else None
+                mon = self.battle_mon(raw, i, last_moves)
                 if mon:
-                    mon['side'] = side
-                    last = self.read_u16(battle_ptr + self.BATTLE_OFFSET_LAST_MOVES + 2 * i)
-                    mon['last_move'] = pdata.MOVES[last] if 0 < last < len(pdata.MOVES) else None
                     battle['mons'].append(mon)
             sides_found = {m['side'] for m in battle['mons']}
             battle['active'] = 'yours' in sides_found and 'foe' in sides_found

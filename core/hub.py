@@ -13,10 +13,12 @@ off a StateHub instead of talking to the DSi itself.
     hub.stop()
 
 A source is anything with read() -> parsed dict or None (see core/parser.py
-for the dict), plus an optional status text and forget_dsi(). Sources here:
+for the dict), plus an optional status text, forget_dsi() and next_delay()
+(seconds until the next read, to override the hub's interval). Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
-                 goes quiet)
+                 goes quiet, reads only the battlers a few times a second
+                 during a battle)
     FileSource   a 4 MB RAM dump, for offline testing
     core/demo.py DemoSource, made-up scenes for working on the overlay
 
@@ -25,6 +27,7 @@ diff_events().
 """
 
 import logging
+import struct
 import threading
 import time
 
@@ -44,7 +47,22 @@ class Snapshot:
 
 
 class DsiSource:
-    """Reads the real DSi through core/dsirpc_client.py."""
+    """Reads the real DSi through core/dsirpc_client.py.
+
+    A full read is about 20 requests, and each one the DSi's wifi chip drops
+    costs a second-long timeout, so during a battle only the battlers are
+    read (one request: the fields decode_battle_mon() needs, the last moves,
+    the music and the battle pointer), every FAST_INTERVAL seconds.
+    Everything else is carried over from the last full read. A full read is
+    done again straight away when a battler stops decoding, the music or the
+    battle pointer changes (the battle is ending or another one started), or
+    several quick reads in a row get no reply, and at least every
+    BATTLE_FULL_EVERY seconds as a safety net."""
+
+    FAST_INTERVAL = 0.3
+    FAST_TIMEOUT = 0.6
+    FAST_MISSES = 5
+    BATTLE_FULL_EVERY = 60.0
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0):
         from .dsirpc_client import DSiClient
@@ -56,6 +74,9 @@ class DsiSource:
         self.ram = DsiRam(self.client)
         self.failed = False
         self.trainers = TrainerMemory()
+        self.last = None        # the latest state returned
+        self.last_full = 0.0    # time.time() of the last full read
+        self.fast_misses = 0
 
     @property
     def status(self):
@@ -65,11 +86,34 @@ class DsiSource:
             return f"DSi at {self.client.dsi_ip} isn't answering"
         return f"DSi at {self.client.dsi_ip}"
 
+    def _in_battle(self):
+        return bool(self.last and self.last['battle']['active'])
+
+    def next_delay(self):
+        return self.FAST_INTERVAL if self._in_battle() else None
+
     def read(self):
         if self.client.dsi_ip is None:
             # Short wait so the hub thread can still be stopped quickly.
             if not self.client.wait_for_dsi(max_wait=1.0):
                 return None
+        if self._in_battle() and time.time() - self.last_full < self.BATTLE_FULL_EVERY:
+            try:
+                data = self._read_battlers(self.last)
+                self.fast_misses = 0
+            except (TimeoutError, RuntimeError):
+                self.fast_misses += 1
+                if self.fast_misses < self.FAST_MISSES:
+                    return None  # dropped; the next try is only FAST_INTERVAL away
+                data = None
+            if data is not None:
+                self.failed = False
+                self.last = data
+                return data
+        return self._read_full()
+
+    def _read_full(self):
+        self.fast_misses = 0
         try:
             self.ram.clear()
             data = self.trainers.apply(PlatinumParser(self.ram, self.charmap).parse())
@@ -77,8 +121,42 @@ class DsiSource:
             if not self.failed:
                 logging.warning(f"Read failed: {e}")
             self.failed = True
+            self.last = None
             return None
         self.failed = data is None
+        self.last = data
+        self.last_full = time.time()
+        return data
+
+    def _read_battlers(self, last):
+        """The last state with its battlers read again. None if a full read
+        is needed instead."""
+        P = PlatinumParser
+        ptr = int(last['battle']['pointer'], 16)
+        slots = [P.BATTLE_SIDES.index(m['side']) for m in last['battle']['mons']]
+        ranges = []
+        for i in slots:
+            base = ptr + P.BATTLE_OFFSET_MONS + i * P.SIZE_BATTLE_MON
+            ranges += [(base + off, n) for off, n in P.BATTLE_MON_FIELDS]
+        ranges += [(ptr + P.BATTLE_OFFSET_LAST_MOVES, 8), (P.MUSIC_ID, 2), (P.BATTLE_POINTER, 4)]
+        got = self.client.read_ranges(ranges, timeout=self.FAST_TIMEOUT, retries=1)
+        last_moves, music, ptr_now = got[-3], got[-2], got[-1]
+        if struct.unpack('<I', ptr_now)[0] != ptr or struct.unpack('<H', music)[0] != last['misc']['music_id']:
+            return None
+
+        parser = P(b"", self.charmap)
+        mons, k = [], 0
+        for i in slots:
+            raw = bytearray(P.SIZE_BATTLE_MON)
+            for off, n in P.BATTLE_MON_FIELDS:
+                raw[off:off + n] = got[k]
+                k += 1
+            mon = parser.battle_mon(bytes(raw), i, last_moves)
+            if mon is None:
+                return None
+            mons.append(mon)
+        data = dict(last)
+        data['battle'] = dict(last['battle'], mons=mons)
         return data
 
     def forget_dsi(self):
@@ -227,7 +305,11 @@ class StateHub:
                 except Exception as e:
                     logging.exception(f"Hub listener failed: {e}")
 
-            self._stop.wait(max(0.0, self.interval - (time.time() - t0)))
+            delay = self.interval
+            next_delay = getattr(self.source, 'next_delay', None)
+            if next_delay and next_delay() is not None:
+                delay = next_delay()
+            self._stop.wait(max(0.0, delay - (time.time() - t0)))
 
         for fn in self._closers:
             try:

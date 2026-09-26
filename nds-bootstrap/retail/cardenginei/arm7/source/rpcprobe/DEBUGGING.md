@@ -25,7 +25,11 @@ Watch them with `launcher/pc/hello_listener.py`.
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent. If this is 0 and requests time out, the PC can't find the DSi's MAC. |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. If hellos stop right after this goes up, that's the group-key renewal problem. |
-| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). Single digits are normal. Values in the tens mean rpcprobe is taking enough ARM7 time to make the game stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). About 76 is normal: that's a tick that sends a hello or a reply (a 256-byte mailbox write at roughly 19 µs per SDIO command, about 4.8 ms), and play was smooth at that on hardware. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+
+If hellos arrive but reads are slow or time out now and then, run the link
+check on the PC: `core\dsirpc_client.py --stats 60` (see DOCUMENTATION.md,
+section 5). It compares what the PC sent with the `req` and `rx` counters.
 
 No hellos at all means one of the startup steps failed. Check, in order:
 

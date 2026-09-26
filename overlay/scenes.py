@@ -12,7 +12,10 @@ The Overlay object keeps the animation state (HP bars sliding to their new
 value, the battle transition, the toast queue) between frames.
 
 Moves used in battle are worked out from PP: when one of a battler's moves
-loses PP between two reads, that battler just used it. The game's own
+loses PP between two reads, that battler just used it. The game takes the
+PP when the move starts and the HP only after its animation, which can be
+a read or two later, so a damaging move is held back until the target's HP
+drops and then plays together with the hit (see _hold_move). The game's own
 "last move used" record (the parser's last_move) is only trusted as a
 backup after it has agreed with the PP twice, since it has only been
 checked on hardware for your side so far.
@@ -89,6 +92,8 @@ class Overlay:
         self.last_move_agreed = 0  # times the game's last-move record matched a PP drop
         self.msg_queue = []        # (from_ms, line 1, line 2): messages waiting their turn
         self.next_msg_at = 0       # things seen in the same read play one after another
+        self.held = []             # moves seen (PP spent) whose hit hasn't shown up yet
+        self.read_at = None        # when the data being drawn was read (Snapshot.updated)
 
     # -- state -----------------------------------------------------------------
 
@@ -132,6 +137,7 @@ class Overlay:
 
     def draw(self, canvas, snap, t_ms, dt_ms):
         d = snap.state if snap.online else None
+        self.read_at = snap.updated
         in_battle = bool(d and d['battle']['active'])
         want_battle = in_battle if self.view == 'auto' else (self.view == 'battle' and in_battle)
 
@@ -144,7 +150,7 @@ class Overlay:
             if p >= 1 and want_battle != self.showing_battle:
                 self.showing_battle = want_battle
                 self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
-                self.msg_queue = []
+                self.msg_queue, self.held = [], []
                 self.battle_since = t_ms if want_battle else None
                 if want_battle:
                     self.msg = (*self._battle_lines(d), t_ms + 4500)
@@ -323,6 +329,7 @@ class Overlay:
     FAINT_MS = 550
     MSG_MS = 3200
     MOVE_GAP_MS = 1400
+    MISS_AFTER_S = 5.0   # a held move whose target hasn't lost HP by then (in read time) plays anyway
 
     def draw_battle(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
@@ -401,12 +408,22 @@ class Overlay:
         current = {f'foe{k}': m for k, m in enumerate(foes)}
         if yours:
             current['you0'] = yours[0]
+        # Moves by the Pokemon that are still in.
+        for key, m in current.items():
+            st = self.battlers.get(key)
+            if st is not None and st['ident'] == (m['species_id'], m['nickname']):
+                self._check_move(key, m, st, wild, t_ms)
+
+        # Switches. A held move aimed at the one that left (it fainted and
+        # was replaced between two reads) plays first.
         fresh = set()
         for key, m in current.items():
             ident = (m['species_id'], m['nickname'])
             st = self.battlers.get(key)
             if st is None or st['ident'] != ident:
                 switched = st is not None
+                if switched:
+                    self._release_target(key, t_ms)
                 self.battlers[key] = {'ident': ident, 'hp': m['curr_hp'], 'entered': t_ms if switched else None,
                                       'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999,
                                       'moves': list(m.get('moves') or []), 'pp': list(m.get('pp') or []),
@@ -418,8 +435,6 @@ class Overlay:
                     self._say(f"{who} {_upper(m['nickname'])}!", "", t_ms)
                 elif switched:
                     self._say(f"Go! {m['nickname']}!", "", t_ms)
-                continue
-            self._check_move(key, m, st, wild, t_ms)
 
         # Damage after moves, so a hit that shows up in the same read as the
         # move lands when the move's animation reaches the target.
@@ -431,7 +446,13 @@ class Overlay:
                 attacker = self.battlers.get('you0' if key.startswith('foe') else 'foe0')
                 move = attacker and attacker['used']
                 st['hp_before'] = st['hp']   # the HP box holds this until the hit lands
-                if move and t_ms - move[1] < 4000:
+                impact = self._release_hit(key, t_ms)
+                if impact is not None:
+                    # The move that did it was being held: it plays now and
+                    # the HP drops as its animation reaches the target.
+                    st['hit'] = max(t_ms + 150, impact)
+                elif move and t_ms - move[1] < 4000:
+                    # Another hit from a move that just played (multi-hit, ...).
                     st['hit'] = max(t_ms + 150, move[2])
                 else:
                     # No move seen (or it was a while ago): the attacker lunges.
@@ -449,18 +470,18 @@ class Overlay:
                 else:
                     self._say(f"{m['nickname']} fainted!", "", st['faint'])
             st['hp'] = m['curr_hp']
+        self._release_rest(t_ms)
 
     def _check_move(self, key, m, st, wild, t_ms):
         """Works out whether this battler used a move since the last read."""
         moves, pp = list(m.get('moves') or []), list(m.get('pp') or [])
         st['log'] = [e for e in st['log'] if t_ms - e[1] < 8000]   # (move, when, seen via PP)
-        used = None
+        used = slot = None
         if moves == st['moves'] and len(pp) == len(st['pp']):
             for i, (now, before) in enumerate(zip(pp, st['pp'])):
                 if now < before:
-                    used = moves[i]
+                    used, slot = moves[i], i
                     st['log'].append((used, t_ms, True))
-                    st['picked'] = i
                     break
         st['moves'], st['pp'] = moves, pp
 
@@ -476,21 +497,58 @@ class Overlay:
                 used = last
                 st['log'].append((used, t_ms, False))
         if used:
-            self._on_move(key, m, used, wild, t_ms)
+            self._hold_move(key, m, used, wild, slot)
 
-    def _on_move(self, key, m, move, wild, t_ms):
-        """Message, lunge and animation for a move being used. When several
-        moves turn up in one read (the reads are a couple of seconds apart),
-        each gets its turn, MOVE_GAP_MS apart."""
-        start = self._say(*self._move_lines(key, m, move, wild), t_ms)
-        mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
+    def _hold_move(self, key, m, move, wild, slot):
+        """Keeps a move until it can play in step with the game: a damaging
+        move waits for its target's HP to drop (_release_hit), a status move
+        plays right away, and a damaging move that never lands (a miss,
+        Protect, a Substitute) plays after MISS_AFTER_S (_release_rest)."""
+        category = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
         target = 'foe0' if key.startswith('you') else 'you0'
-        fx = Effect(mtype, category, key, target, start + 250)
+        self.held = self.held[-5:] + [{'key': key, 'target': target, 'move': move, 'slot': slot,
+                                       'status': category == 'Status', 'read_at': self.read_at,
+                                       'lines': self._move_lines(key, m, move, wild)}]
+
+    def _release_hit(self, target, t_ms):
+        """The target just lost HP: plays the oldest held damaging move aimed
+        at it. Returns when it reaches the target, or None."""
+        for h in self.held:
+            if not h['status'] and h['target'] == target:
+                self.held.remove(h)
+                return self._on_move(h, t_ms)
+        return None
+
+    def _release_target(self, target, t_ms):
+        """The target left: plays every held move aimed at it."""
+        for h in [h for h in self.held if h['target'] == target]:
+            self.held.remove(h)
+            self._on_move(h, t_ms)
+
+    def _release_rest(self, t_ms):
+        for h in list(self.held):
+            waited = (self.read_at or 0) - (h['read_at'] or 0)
+            if h['status'] or waited >= self.MISS_AFTER_S:
+                self.held.remove(h)
+                self._on_move(h, t_ms)
+
+    def _on_move(self, h, t_ms):
+        """Message, lunge and animation for a held move `h`. When several
+        things turn up in one read, each gets its turn, MOVE_GAP_MS apart.
+        Returns when the animation reaches the target."""
+        key, move = h['key'], h['move']
+        start = self._say(*h['lines'], t_ms)
+        mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
+        fx = Effect(mtype, category, key, h['target'], start + 250)
         self.effects = self.effects[-3:] + [fx]
-        st = self.battlers[key]
-        st['used'] = (move, start, fx.impact)
-        if category == 'Physical':
-            st['lunge'] = start + 100   # at its furthest as the effect starts
+        st = self.battlers.get(key)
+        if st is not None:
+            st['used'] = (move, start, fx.impact)
+            if h['slot'] is not None:
+                st['picked'] = h['slot']
+            if category == 'Physical':
+                st['lunge'] = start + 100   # at its furthest as the effect starts
+        return fx.impact
 
     def _say(self, l1, l2, at):
         """Queues a message for the box, no earlier than `at` and MOVE_GAP_MS

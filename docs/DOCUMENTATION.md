@@ -249,6 +249,9 @@ share. It owns the state hub (`core/hub.py`), so it's the one process
 talking to the DSi; `--discord` runs the Rich Presence inside it through
 `rpc/presence_connector.py`, with the same rules as `dsirpc.py`. Options
 and keys are in the README ([Stream overlay window](../README.md#stream-overlay-window)).
+During a battle the hub reads only the battlers, about three times a
+second, instead of the whole state every `--interval` seconds (see
+`DsiSource` in the module table), so HP and moves show up quickly.
 
 - **Party view:** location and playtime, six slots (animated sprite, name,
   gender, level, HP bar sliding to its new value, status tag, a sparkle for
@@ -268,9 +271,15 @@ and keys are in the README ([Stream overlay window](../README.md#stream-overlay-
   status moves glow around the user), physical moves with a lunge; the
   target blinks and shakes when its HP drops, and a fainted one sinks into
   its platform. Moves are worked out from PP: a move whose PP went down
-  since the last read was just used. Things seen in the same read play one
-  after another (`MOVE_GAP_MS` apart), and the HP box holds the old value
-  until the hit lands. The game's own last-move record (`B+0x527C`, so far
+  since the last read was just used. The game takes the PP when a move
+  starts but the HP only after its animation, often a read or two later, so
+  a damaging move is held until its target's HP drops and then plays
+  together with the hit. Status moves play right away; a damaging move whose
+  target loses no HP within `MISS_AFTER_S` (5 s, in read time) plays anyway
+  (a miss, Protect, a Substitute), and one aimed at a Pokémon that was
+  replaced in between plays before the switch message. Things seen in the
+  same read play one after another (`MOVE_GAP_MS` apart), and the HP box
+  holds the old value until the hit lands. The game's own last-move record (`B+0x527C`, so far
   checked on hardware for your side only) is only a backup, for moves PP can't show (Struggle,
   moves called by Metronome), and only after it has matched the PP twice.
   The message box shows the intro (from the battle music, the same kinds as
@@ -302,6 +311,20 @@ should print `21 06 C0 DE DE C0 06 21`, which proves the reads come from real
 game memory. `-v` also prints hellos and timeouts. Large reads are split
 automatically.
 
+Link check (close the other PC tools first, they share the port):
+
+```
+.venv\Scripts\python.exe core\dsirpc_client.py --stats 60
+```
+
+It sends a small read every 0.25 s for 60 s and prints how many came back
+and how fast, next to the DSi's own counters from the hellos: how many of
+those requests the game side answered (`req`), how many frames it drained
+in total (`rx`, other devices' broadcasts included) and how far apart the
+hellos were. Requests the DSi never answered were dropped inside its wifi
+chip (unicast frames lost over the air are resent by the wifi itself), which
+happens when the in-game side can't drain the chip as fast as frames arrive.
+
 ### `launcher/pc/hello_listener.py`
 
 Prints hello packets (UDP 4244). This is the first thing to run when you
@@ -319,7 +342,7 @@ numbers mean.
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
-| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. In a battle, `DsiSource` reads only the battlers (one request: the BattleMon fields the parser decodes, the last moves, the music and the battle pointer) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
 | `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
@@ -410,7 +433,7 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. Watch this if hellos die at regular intervals. |
-| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). Single digits are normal. Values in the tens mean rpcprobe is taking enough ARM7 time to make the game stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). About 76 is normal: that's a tick that sends a hello or a reply (a 256-byte mailbox write at roughly 19 µs per SDIO command, about 4.8 ms), and play was smooth at that on hardware. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 ### Memory request (PC -> DSi)
 
@@ -678,6 +701,7 @@ Folder names are case-sensitive on GitHub Pages.
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
+| Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's wifi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic (at most one frame and 128 bytes per VBlank). Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. The real fix is faster draining on the DSi side (section 12); in battles the overlay's hub already reads only the battlers. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
 | "A communication error has occurred" after Continue | Stock nds-bootstrap, or not the USA Rev 1 ROM, so the patch didn't apply |
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
@@ -720,9 +744,15 @@ section 8).
 - **USA Rev 1 only.** Other revisions and regions need their own patch
   addresses and memory map.
 - **Latency.** At most `RPCPROBE_RX_BYTES_PER_VBLANK` (128) received bytes
-  per VBlank, with CMD52 byte-at-a-time SDIO, so the game doesn't stutter. A CMD53 block-transfer upgrade path is noted in
+  and one frame per VBlank, with CMD52 byte-at-a-time SDIO, so the game
+  doesn't stutter. That caps draining at about 7.7 KB/s, which a busy home
+  network's broadcast traffic can exceed; the wifi chip then drops frames,
+  requests included, and a full read that used to take about 0.7 s can take
+  10 s or more (seen in a 2026-09-26 gym battle). The fix is the CMD53
+  block-transfer upgrade noted in
   [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md),
-  but at about 0.7 s per full read it isn't needed for Rich Presence.
+  which would drain much faster for far less ARM7 time. Until then, the
+  overlay's hub reads only the battlers during a battle.
 - **Live position** reads 0 in some indoor maps. The presence doesn't use it.
 - **Not read yet:** bag contents, PC boxes, event flags, running/biking
   state, NPC positions, and map artwork (the planned area icons). IVs and

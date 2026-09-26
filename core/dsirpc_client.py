@@ -23,9 +23,12 @@ Usage, from the repo root:
   python core/dsirpc_client.py --read 0x02000BBC:8 0x02101D40:4
   python core/dsirpc_client.py --read 0x02000BBC:8 --repeat 10 --interval 1
   python core/dsirpc_client.py --dsi-ip 192.168.2.195 --read 0x02000000:64
+  python core/dsirpc_client.py --stats 60                  # link check, see link_stats()
 """
 
 import argparse
+import collections
+import re
 import socket
 import struct
 import sys
@@ -44,6 +47,7 @@ class DSiClient:
         self.verbose = verbose
         self.seq = 0
         self.last_hello = None
+        self.hellos = collections.deque(maxlen=600)  # (time received, text)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
 
@@ -51,6 +55,7 @@ class DSiClient:
         """Anything that isn't the reply we're waiting for (mostly hellos)."""
         if data.startswith(b"DSiRPC hello"):
             self.last_hello = data.decode(errors="replace")
+            self.hellos.append((time.time(), self.last_hello))
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
@@ -71,7 +76,7 @@ class DSiClient:
             self._handle_other(data, addr)
         return self.dsi_ip is not None
 
-    def _request_once(self, ranges, retries=3):
+    def _request_once(self, ranges, retries=3, timeout=None):
         self.seq = (self.seq + 1) & 0xFFFF
         pkt = struct.pack(">cHB", b"R", self.seq, len(ranges))
         for a, n in ranges:
@@ -79,14 +84,14 @@ class DSiClient:
 
         for attempt in range(retries):
             self.sock.sendto(pkt, (self.dsi_ip, self.port))
-            deadline = time.time() + self.timeout
+            deadline = time.time() + (timeout or self.timeout)
             while time.time() < deadline:
                 self.sock.settimeout(max(0.01, deadline - time.time()))
                 try:
                     data, addr = self.sock.recvfrom(2048)
                 except socket.timeout:
                     break
-                if len(data) >= 5 and data[0:1] == b"D":
+                if len(data) >= 5 and data[0:1] == b"D" and not data.startswith(b"DSiRPC"):
                     _, seq, count, status = struct.unpack(">cHBB", data[:5])
                     if seq != self.seq:
                         continue  # late reply to an older request
@@ -106,8 +111,10 @@ class DSiClient:
                 print(f"  timeout (attempt {attempt + 1}/{retries})")
         raise TimeoutError("no reply from the DSi")
 
-    def read_ranges(self, ranges):
-        """[(addr, length), ...] -> [bytes, ...]. Splits into as many requests as needed."""
+    def read_ranges(self, ranges, timeout=None, retries=3):
+        """[(addr, length), ...] -> [bytes, ...]. Splits into as many requests
+        as needed. Each request waits `timeout` seconds for its reply (the
+        client's default if None) and is sent up to `retries` times."""
         pieces = []  # (index into ranges, addr, len)
         for i, (a, n) in enumerate(ranges):
             while n > 0:
@@ -122,7 +129,7 @@ class DSiClient:
             nonlocal batch, batch_bytes
             if not batch:
                 return
-            got = self._request_once([(a, n) for _, a, n in batch])
+            got = self._request_once([(a, n) for _, a, n in batch], retries, timeout)
             for (i, _, _), data in zip(batch, got):
                 results[i] += data
             batch, batch_bytes = [], 0
@@ -133,6 +140,89 @@ class DSiClient:
             batch_bytes += p[2]
         flush()
         return results
+
+
+def _hello_fields(text):
+    return {k: v for k, v in re.findall(r"(\w+)=(\S+)", text)}
+
+
+def _listen_until(c, until):
+    """Takes in hellos (and drops late replies) until `until`, so their
+    arrival times are accurate."""
+    while True:
+        left = until - time.time()
+        if left <= 0:
+            return
+        c.sock.settimeout(left)
+        try:
+            data, addr = c.sock.recvfrom(2048)
+        except socket.timeout:
+            return
+        if data.startswith(b"DSiRPC"):  # replies (late ones) are dropped
+            c._handle_other(data, addr)
+
+
+def link_stats(c, seconds, rate=4.0):
+    """Link check: sends a small read `rate` times a second for `seconds`
+    and prints how many came back and how fast, next to what the DSi's own
+    hello counters say: `req` (requests it answered), `rx` (every frame it
+    drained from the wifi chip, other devices' broadcasts included) and the
+    spacing of the hellos (about 1 s normally; the DSi puts a hello off while
+    it's part way through draining a big frame, so a longer spacing means it
+    was busy draining). Unicast frames lost over the air are resent by the
+    wifi itself, so a request the DSi never answered was almost certainly
+    dropped inside the DSi's wifi chip."""
+    c.hellos.clear()
+    sends = []  # (time sent, answered, latency)
+    t_end = time.time() + seconds
+    print(f"Sending a small read every {1.0 / rate:g} s (or when the last one times out) for {seconds:g} s...")
+    while time.time() < t_end:
+        t0 = time.time()
+        try:
+            c.read_ranges([(0x02000BBC, 8)], retries=1)
+            sends.append((t0, True, time.time() - t0))
+        except (TimeoutError, RuntimeError):
+            sends.append((t0, False, None))
+        _listen_until(c, t0 + 1.0 / rate)
+    _listen_until(c, time.time() + 2.5)  # one more hello, so the counters cover the last requests
+
+    answered = [lat for _, ok, lat in sends if ok]
+    lost = len(sends) - len(answered)
+    print(f"\nReads: {len(sends)} sent, {len(answered)} answered, {lost} lost "
+          f"({100.0 * lost / max(1, len(sends)):.0f}%)")
+    if answered:
+        lat = sorted(answered)
+        median, p90 = lat[len(lat) // 2], lat[min(len(lat) - 1, int(0.9 * len(lat)))]
+        print(f"Reply time: median {median * 1000:.0f} ms, 90% under {p90 * 1000:.0f} ms, "
+              f"worst {lat[-1] * 1000:.0f} ms")
+
+    hellos = [(t, _hello_fields(text)) for t, text in c.hellos]
+    hellos = [(t, f) for t, f in hellos if 'rx' in f and 'req' in f]
+    if len(hellos) < 2:
+        print("Not enough hellos with counters to compare (is this the stage 5 build?)")
+        return
+    (t0, f0), (t1, f1) = hellos[0], hellos[-1]
+    span = t1 - t0
+    d_req = (int(f1['req']) - int(f0['req'])) & 0xFFFF
+    d_rx = (int(f1['rx']) - int(f0['rx'])) & 0xFFFF
+    sent_in_span = sum(1 for t, _, _ in sends if t0 <= t < t1)
+    ok_in_span = sum(1 for t, ok, _ in sends if ok and t0 <= t < t1)
+    gaps = [b[0] - a[0] for a, b in zip(hellos, hellos[1:])]
+    vb = max(int(f.get('vb', 0)) for _, f in hellos)
+    print(f"DSi side over {span:.0f} s: answered {d_req} of the {sent_in_span} requests sent in that time; "
+          f"we got {ok_in_span} replies")
+    print(f"Frames drained: {d_rx / span:.1f}/s ({(d_rx - d_req) / span:.1f}/s not ours)")
+    print(f"Hello spacing: average {sum(gaps) / len(gaps):.2f} s, longest {max(gaps):.2f} s; longest tick vb={vb}")
+    lost_in = sent_in_span - d_req
+    lost_out = d_req - ok_in_span
+    tol = max(2, 0.05 * sent_in_span)  # requests in flight at either end of the window
+    if lost_in > tol:
+        print(f"-> {lost_in} requests never reached the game side: the DSi isn't draining its wifi "
+              "chip as fast as frames arrive, so the chip drops some.")
+    if lost_out > tol:
+        print(f"-> {lost_out} replies were sent but never arrived (lost on the way back).")
+    if lost_in <= tol and lost_out <= tol:
+        print("-> Hardly anything lost.")
 
 
 def hexdump(addr, data):
@@ -160,12 +250,18 @@ def main():
     ap.add_argument("--interval", type=float, default=1.0)
     ap.add_argument("--timeout", type=float, default=1.0)
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--stats", type=float, metavar="SECONDS",
+                    help="link check: send small reads for this long and report losses and delays")
     args = ap.parse_args()
 
     c = DSiClient(port=args.port, dsi_ip=args.dsi_ip, timeout=args.timeout, verbose=args.verbose)
     if not c.wait_for_dsi():
         print("No hello from the DSi within 15 s - is the game running after the handoff?")
         sys.exit(1)
+
+    if args.stats:
+        link_stats(c, args.stats)
+        return
 
     ok = fail = 0
     for i in range(args.repeat):

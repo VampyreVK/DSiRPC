@@ -17,8 +17,10 @@ extern u16 probeReqEapol;      // EAPOL frames seen (router key renewals)
 // when the handoff starts sending.
 void ProbeReq_Announce(void);
 
-// Reads at most one waiting packet from the chip and handles it (ARP
-// request for our IP, or a memory request). Call once per VBlank.
-void ProbeReq_Service(void);
+// Drains part of at most one waiting packet from the chip
+// (RPCPROBE_RX_BYTES_PER_VBLANK bytes), and handles it once it's complete
+// (ARP request for our IP, or a memory request). Call once per VBlank.
+// Returns 1 if it sent something (a reply) this call, else 0.
+int ProbeReq_Service(void);
 
 #endif // PROBE_REQ_H

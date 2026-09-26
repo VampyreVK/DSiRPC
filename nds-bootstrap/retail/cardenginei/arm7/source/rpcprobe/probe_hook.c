@@ -29,6 +29,8 @@
 u8 probeStatusByte = 0;
 
 #define HO_REG_GPIO_WIFI   (*(vu16*)0x04004C04) // bit 8 set = old DS wifi mode
+#define HO_REG_VCOUNT      (*(vu16*)0x04000006) // current scanline, 0-262
+#define HO_LINES_PER_FRAME 263
 #define HO_TICKS_PER_STEP  60 // ~1 second between steps/packets
 #define HO_MAX_SEND_FAILS  3
 // nds-bootstrap is built with DSIRPC_KEEP_DSI_WIFI, so the board normally
@@ -48,7 +50,8 @@ static TwlWifiProbeResult hoProbe = { 0, 0 };
 static int hoLastSend = 0;
 static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-static u8 hoFrame[136];
+static u8 hoFrame[144];
+static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
 
 static int putDec(char *p, u16 v) {
 	char tmp[5];
@@ -109,8 +112,8 @@ static void handoffProbe(void) {
 
 static void handoffSend(void) {
 	// "DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X" plus, with requests
-	// on, " rx=N req=N arp=N eap=N" - at most 96 bytes.
-	char msg[96];
+	// on, " rx=N req=N arp=N eap=N", then " vb=N" - at most 97 bytes.
+	char msg[104];
 	int n = 0;
 	n += putStr(&msg[n], "DSiRPC hello #");
 	n += putDec(&msg[n], hoSent);
@@ -132,6 +135,12 @@ static void handoffSend(void) {
 	n += putStr(&msg[n], " eap=");
 	n += putDec(&msg[n], probeReqEapol);
 #endif
+	// Longest VBlank tick since the last hello, in scanlines (one is about
+	// 64 us; a whole frame is 263). Big values mean rpcprobe is eating
+	// enough ARM7 time to make the game stutter.
+	n += putStr(&msg[n], " vb=");
+	n += putDec(&msg[n], hoTickMaxLines);
+	hoTickMaxLines = 0;
 
 	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
 	int r = TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen);
@@ -146,11 +155,16 @@ static void handoffSend(void) {
 }
 
 void Probe_VBlankTick(void) {
+	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
+	int sentThisTick = 0;
 #if RPCPROBE_REQUESTS
-	if (hoStage == HO_RUN) ProbeReq_Service();
+	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service();
 #endif
 	if (hoTimer) {
 		hoTimer--;
+	} else if (hoStage == HO_RUN && (sentThisTick || TwlWifi_RxBusy())) {
+		// Keep each tick short: no hello in a tick that already sent a reply,
+		// or while a packet is half read. Try again next VBlank.
 	} else {
 		hoTimer = HO_TICKS_PER_STEP;
 		switch (hoStage) {
@@ -163,4 +177,9 @@ void Probe_VBlankTick(void) {
 	}
 
 	probeStatusByte = 0x80 | (u8)(hoStage << 4) | (u8)(hoSent & 0x0F);
+
+	u16 lineEnd = HO_REG_VCOUNT & 0x1FF;
+	u16 lines = (lineEnd >= lineStart) ? lineEnd - lineStart
+	                                   : lineEnd + HO_LINES_PER_FRAME - lineStart;
+	if (lines > hoTickMaxLines) hoTickMaxLines = lines;
 }

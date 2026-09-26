@@ -55,8 +55,9 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 |---|---|
 | `dsirpc.py` | The Rich Presence: reads the DSi every 5 s and updates Discord |
 | `dsi_status.py` | Prints everything that can be read, in plain text (for testing) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), game parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`) |
-| `rpc/`, `utils/` | Discord (pypresence) wrapper, config reader |
+| `dsirpc_overlay.py`, `overlay/` | A pixel-art window with your party and battles, for OBS or a screen share (see [Stream overlay window](#stream-overlay-window)) |
+| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), game parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), demo data (`demo.py`) |
+| `rpc/`, `utils/` | Discord (pypresence) wrapper and the hub's presence connector, config reader |
 | `Assets/` | Sprites served by GitHub Pages for Discord, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher that connects to Wi-Fi before the game boots |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](nds-bootstrap/DSIRPC_CHANGES.md) |
@@ -98,8 +99,8 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-The sprite scripts in `Assets/` also need Pillow (`.venv\Scripts\python.exe -m pip install pillow`),
-but you only need that if you regenerate sprites.
+This installs pypresence for Discord, and pygame-ce and Pillow for the overlay
+window (the sprite scripts in `Assets/` use Pillow too).
 
 ### 2. nds-bootstrap (the in-game memory server)
 
@@ -189,14 +190,43 @@ has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
    game is closed it clears the presence after about 30 s and waits for the
    DSi again, so restarting the game (or Discord) needs nothing on the PC.
 
-Only one PC tool can use UDP port 4244 at a time.
+Only one PC tool can use UDP port 4244 at a time. To have the overlay window
+and the Rich Presence together, run `dsirpc_overlay.py --discord` instead of
+`dsirpc.py`.
 
 | Tool | Use |
 |---|---|
 | `dsirpc.py` | The Rich Presence. `--dry-run` prints instead of sending, `--file ram_dump.bin` uses a RAM dump instead of the DSi |
 | `dsi_status.py` | Everything readable, in plain text. `--watch 5` refreshes, `--json` for raw data |
+| `dsirpc_overlay.py` | The stream overlay window. `--discord` also runs the Rich Presence, `--demo` plays made-up scenes |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
 | `launcher/pc/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
+
+## Stream overlay window
+
+`dsirpc_overlay.py` opens a window that shows your party, and switches to a
+battle view (both Pokémon, HP boxes, a message box) when a battle starts, in a
+pixel-art style inspired by the DS games. Banners pop up for shiny
+encounters, level-ups, fainting and new badges. It draws at the DS's
+256x192 and scales up by a whole number, so the pixels stay crisp. Add it to
+OBS with **Window Capture**, or share the window in Discord.
+
+```
+.venv\Scripts\python.exe dsirpc_overlay.py --discord
+```
+
+| Option | Use |
+|---|---|
+| `--discord` | Also run the Rich Presence (don't run `dsirpc.py` at the same time) |
+| `--demo` | Made-up scenes (battles, a shiny, a level-up) for styling without the DSi. **N** skips to the next scene |
+| `--name Vivi` | With `--demo`: the trainer name to show |
+| `--file ram_dump.bin` | Show a RAM dump |
+| `--scale 4` | Window size as a multiple of 256x192 (default 3). Keys **1**-**6** change it live |
+| `--chroma 00FF00` | Fill the background with a key colour, for OBS's Chroma Key filter |
+| `--dsi-ip`, `--interval` | As for `dsirpc.py`; `--interval` is seconds between reads (default 2) |
+
+**V** switches the view between automatic, party only and battle only. The
+colours are all in `THEME` at the top of `overlay/ui.py`.
 
 ## Known issues and roadmap
 
@@ -209,9 +239,9 @@ Only one PC tool can use UDP port 4244 at a time.
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
       the DSi on a schedule.
 - [ ] Support other games and versions (only Platinum USA Rev 1 today).
-- [ ] A state hub: one process that polls the DSi and feeds Discord, OBS
-      stream overlays (party, battle, encounter and shiny counters) and
-      later tools. Work happens on the `state-hub` branch.
+- [ ] More for the state hub (`core/hub.py`, used by the overlay window):
+      encounter and shiny counters, a Nuzlocke mode, browser-source panels
+      for OBS.
 - Platinum's own Wi-Fi features are disabled while playing through DSiRPC.
 
 Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).

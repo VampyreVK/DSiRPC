@@ -29,15 +29,21 @@ int TwlWifi_SendLlcFrame(const u8 dstMac[6], const u8 srcMac[6], const u8 *llcFr
 // 1 if the chip has a received packet waiting in its mailbox.
 int TwlWifi_RxPending(void);
 
-// Reads one waiting packet out of the chip's mailbox. The whole packet is
+// Reads a waiting packet out of the chip's mailbox, at most `budget` bytes
+// per call (0 = no limit), so a big frame is drained over several calls
+// (one per VBlank) instead of stalling one VBlank. The whole packet is
 // always drained from the chip; bytes past `bufSize` are read and dropped.
-// On success returns the packet's full mailbox length (header included) and
-// fills `buf` with the start of it; returns 0 if nothing was waiting,
-// negative on SDIO error. Layout of `buf` (see mbox_hdr_rx_data_packet in
-// DSWiFi's common/common_twl_defs.h):
+// Returns the packet's full mailbox length (header included) on the call
+// that finishes it, with `buf` holding the start of it. Returns 0 if
+// nothing was waiting or the packet isn't finished yet, negative on SDIO
+// error (the partial packet is abandoned). Layout of `buf` (see
+// mbox_hdr_rx_data_packet in DSWiFi's common/common_twl_defs.h):
 //   [0] type (2-5 = data)  [2..3] length (LE)  [6] RSSI
 //   [8..13] dst MAC  [14..19] src MAC  [20..21] length (BE)
 //   [22..27] LLC/SNAP  [28..29] ethertype (BE)  [30...] payload
-int TwlWifi_ReadPacket(u8 *buf, u16 bufSize);
+int TwlWifi_ReadPacket(u8 *buf, u16 bufSize, u16 budget);
+
+// 1 while a packet has been partly read. Don't send in the meantime.
+int TwlWifi_RxBusy(void);
 
 #endif // TWL_WIFI_H

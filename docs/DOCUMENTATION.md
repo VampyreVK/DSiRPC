@@ -241,6 +241,36 @@ new field holds up while playing.
 
 A read of everything is about 3.3 KB, which took 0.7 s on hardware.
 
+### `dsirpc_overlay.py` (the stream overlay window)
+
+A pygame window that draws a 256x192 canvas every frame and scales it up by
+a whole number (nearest neighbour), for OBS Window Capture or a screen
+share. It owns the state hub (`core/hub.py`), so it's the one process
+talking to the DSi; `--discord` runs the Rich Presence inside it through
+`rpc/presence_connector.py`, with the same rules as `dsirpc.py`. Options
+and keys are in the README ([Stream overlay window](../README.md#stream-overlay-window)).
+
+- **Party view:** location and playtime, six slots (animated sprite, name,
+  gender, level, HP bar sliding to its new value, status tag, a sparkle for
+  shinies), and a footer with your trainer facing and walking the way you do,
+  badges and Pokédex counts.
+- **Battle view:** shown while `battle.active`, with a bar-wipe transition.
+  Foe sprite(s) on the far platform (up to two), your Pokémon's back sprite,
+  HP boxes, and a message box whose first line comes from the battle music
+  (the same kinds as in section 6).
+- **Waiting view:** while the hub is offline.
+- **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
+  level-up, fainted, badge, new Pokédex catch).
+
+Sprites come from `Assets/` and are converted in memory (`overlay/sprites.py`):
+the 2x GIFs are halved to native pixels and un-mirrored where needed, and
+the trainer sheets are halved and split by direction. Foe sprites use the
+`Pokemon-Overworld` GIFs (the same animated front sprites without a
+diorama). Cutting the diorama out of `Pokemon-Battle-NormalLarge` is only a
+fallback, because GIF palette quantization changes the grass colours for
+some sprites. Text uses a pixel font drawn in code (`overlay/font.py`), and
+the palette is `THEME` in `overlay/ui.py`.
+
 ### `core/dsirpc_client.py` (raw memory reads)
 
 ```
@@ -269,6 +299,10 @@ numbers mean.
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. |
+| `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
+| `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
+| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation), `ui.py` (palette, panels, HP bars), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
 ---
 
@@ -339,7 +373,7 @@ to be configured.
 ASCII text:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
 ```
 
 | Field | Meaning |
@@ -352,6 +386,7 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. Watch this if hellos die at regular intervals. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). Single digits are normal. Values in the tens mean rpcprobe is taking enough ARM7 time to make the game stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 ### Memory request (PC -> DSi)
 
@@ -622,6 +657,7 @@ Folder names are case-sensitive on GitHub Pages.
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
+| The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives, one SDIO command per byte. Big broadcast frames from other devices used to be drained in one go, several milliseconds at a time. They're now drained 128 bytes per VBlank. Check the `vb=` field in the hellos (section 7). Also compare with `dsirpc.py` stopped: if the stutter only happens while it polls, the replies are the cost. The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | `sd:/_nds/nds-bootstrap.ini` points at the last game TWiLight launched |
 | Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
 | Presence stays up for a while after closing the game | Expected: `dsirpc.py` waits for about 30 s without data before clearing it |
@@ -657,8 +693,8 @@ section 8).
   before the DSi-mode rework, and it hasn't been retested since.
 - **USA Rev 1 only.** Other revisions and regions need their own patch
   addresses and memory map.
-- **Latency.** One received packet per VBlank, with CMD52 byte-at-a-time
-  SDIO. A CMD53 block-transfer upgrade path is noted in
+- **Latency.** At most `RPCPROBE_RX_BYTES_PER_VBLANK` (128) received bytes
+  per VBlank, with CMD52 byte-at-a-time SDIO, so the game doesn't stutter. A CMD53 block-transfer upgrade path is noted in
   [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md),
   but at about 0.7 s per full read it isn't needed for Rich Presence.
 - **Live position** reads 0 in some indoor maps. The presence doesn't use it.
@@ -666,10 +702,10 @@ section 8).
   state, NPC positions, and map artwork (the planned area icons). IVs and
   EVs are in the decrypted party data but not decoded yet. Leads and
   offsets are in research.md.
-- **Next: a state hub** (planned, on the `state-hub` branch). One process
-  polls the DSi and feeds Discord, OBS stream overlays and later tools.
-  Only one process can own UDP 4244, so everything has to hang off that
-  one poller.
+- **State hub:** `core/hub.py` exists and drives the overlay window.
+  Still to come: encounter and shiny counters, a Nuzlocke mode, and
+  browser-source panels for OBS. Only one process can own UDP 4244,
+  so all of it has to hang off the hub.
 
 ---
 
@@ -679,6 +715,7 @@ section 8).
 |---|---|
 | `README.md` | Overview, setup, build and everyday use |
 | `dsirpc.py`, `dsi_status.py` | The Rich Presence and the status tool |
+| `dsirpc_overlay.py`, `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |

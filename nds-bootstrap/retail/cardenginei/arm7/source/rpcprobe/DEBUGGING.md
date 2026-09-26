@@ -11,7 +11,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 255.255.255.255, port 4244:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
 ```
 
 Watch them with `launcher/pc/hello_listener.py`.
@@ -25,6 +25,7 @@ Watch them with `launcher/pc/hello_listener.py`.
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent. If this is 0 and requests time out, the PC can't find the DSi's MAC. |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. If hellos stop right after this goes up, that's the group-key renewal problem. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). Single digits are normal. Values in the tens mean rpcprobe is taking enough ARM7 time to make the game stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 No hellos at all means one of the startup steps failed. Check, in order:
 
@@ -93,7 +94,9 @@ Two things to know:
   interrupts, and SD access from the VBlank interrupt in the middle of that
   hangs the game (seen as a white screen).
 - **Everything runs inside the VBlank interrupt,** so each tick has to stay
-  short. The receive path handles at most one packet per VBlank.
+  short. The receive path reads at most `RPCPROBE_RX_BYTES_PER_VBLANK`
+  bytes per VBlank, and no hello goes out in a tick that already sent a
+  reply. `vb=` in the hellos shows the longest tick.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

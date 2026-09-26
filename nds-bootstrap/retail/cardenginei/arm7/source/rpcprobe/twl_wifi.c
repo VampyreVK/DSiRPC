@@ -52,6 +52,11 @@
 
 static u8 txBuf[TX_BUF_SIZE] __attribute__((aligned(4)));
 
+// Receive state, so a packet can be drained across several calls.
+static u8  rxActive = 0;   // 1 while a packet is partly read
+static u16 rxFullLen = 0;  // its mailbox length, rounded to 0x80
+static u16 rxPos = 0;      // bytes read so far
+
 static void sdioAck(void) {
 	SDIO_REG16(SDIO_IRQ_STAT0) = 0;
 	SDIO_REG16(SDIO_IRQ_STAT1) = 0;
@@ -147,28 +152,47 @@ int TwlWifi_RxPending(void) {
 	return status & 0x01; // bit 0: mailbox 0 has data
 }
 
-int TwlWifi_ReadPacket(u8 *buf, u16 bufSize) {
-	if (!TwlWifi_RxPending()) return 0;
+int TwlWifi_RxBusy(void) {
+	return rxActive;
+}
 
-	// Lookahead: byte 0 type, byte 1 ack present, bytes 2-3 length.
-	u8 look[4];
-	for (int i = 0; i < 4; i++) {
-		u16 r = 0;
-		if (readByte(1, F1_RX_LOOKAHEAD0 + i, &r) < 0) return -5;
-		look[i] = r & 0xFF;
+int TwlWifi_ReadPacket(u8 *buf, u16 bufSize, u16 budget) {
+	if (!rxActive) {
+		if (!TwlWifi_RxPending()) return 0;
+
+		// Lookahead: byte 0 type, byte 1 ack present, bytes 2-3 length.
+		u8 look[4];
+		for (int i = 0; i < 4; i++) {
+			u16 r = 0;
+			if (readByte(1, F1_RX_LOOKAHEAD0 + i, &r) < 0) return -5;
+			look[i] = r & 0xFF;
+		}
+		u16 len = look[2] | (look[3] << 8);
+		if (len > 0x2000) return -6; // lookahead makes no sense; don't guess
+
+		rxFullLen = (len + 6 + 0x7F) & ~0x7F;
+		rxPos = 0;
+		rxActive = 1;
 	}
-	u16 len = look[2] | (look[3] << 8);
-	if (len > 0x2000) return -6; // lookahead makes no sense; don't guess
 
 	// Same mailbox window we write to: the packet is read as a run of
 	// addresses ending on the last mailbox address (DSWiFi's block path,
-	// wifi_card_mbox0_readbytes, reads 0x4000 - fullLen the same way).
-	u16 fullLen = (len + 6 + 0x7F) & ~0x7F;
-	u32 addr = MBOX0_END - fullLen;
-	for (u16 i = 0; i < fullLen; i++) {
+	// wifi_card_mbox0_readbytes, reads 0x4000 - fullLen the same way). The
+	// chip only treats the message as consumed once that last address is
+	// read, so the run can be split across calls.
+	u32 addr = MBOX0_END - rxFullLen;
+	u16 stop = rxFullLen;
+	if (budget && rxFullLen - rxPos > budget) stop = rxPos + budget;
+	for (; rxPos < stop; rxPos++) {
 		u16 r = 0;
-		if (readByte(1, addr + i, &r) < 0) return -7;
-		if (i < bufSize) buf[i] = r & 0xFF;
+		if (readByte(1, addr + rxPos, &r) < 0) {
+			rxActive = 0;
+			return -7;
+		}
+		if (rxPos < bufSize) buf[rxPos] = r & 0xFF;
 	}
-	return fullLen;
+	if (rxPos < rxFullLen) return 0; // more next time
+
+	rxActive = 0;
+	return rxFullLen;
 }

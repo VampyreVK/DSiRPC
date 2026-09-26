@@ -22,7 +22,7 @@ u16, destination MAC, source MAC, big-endian length, then LLC/SNAP and the
 IP packet. The mailbox's extended window ends at `0x4000`, and writing the
 last byte at `0x3FFF` marks the end of the message.
 
-## Receiving (`TwlWifi_RxPending` / `TwlWifi_ReadPacket`)
+## Receiving (`TwlWifi_RxPending` / `TwlWifi_ReadPacket` / `TwlWifi_RxBusy`)
 
 1. If `0x400` bit 0 is clear, nothing is waiting.
 2. Read the lookahead at `0x408`: byte 0 = type, byte 1 = "ack present",
@@ -31,21 +31,33 @@ last byte at `0x3FFF` marks the end of the message.
    at the last mailbox address (starting at `0x4000 - full_len`), one CMD52
    per byte. The whole packet is always drained, even the part that doesn't
    fit the buffer. This mirrors the send path and works on hardware.
+   The chip only treats the message as consumed when its last address is
+   read, so `TwlWifi_ReadPacket` reads at most a byte budget per call
+   (`RPCPROBE_RX_BYTES_PER_VBLANK`, 128) and continues the same packet on
+   the next VBlank. `TwlWifi_RxBusy` is 1 while a packet is half read;
+   nothing is sent in the meantime.
 4. Types 2-5 are data. The data header starts at byte 6: RSSI, unknown,
    dst MAC, src MAC, big-endian length, LLC/SNAP, ethertype, then the
    payload. Types 0 (HTC) and 1 (WMI) are chip control messages, which are
    drained and ignored.
 
 `probe_req.c` handles the payload: ARP for our IP, `'R'` memory requests on
-`port=`, and counting EAPOL (`0x888E`) frames.
+port 4244, and counting EAPOL (`0x888E`) frames.
 
 ## Cost and upgrade path
 
 Every frame the chip receives has to be drained, including other LAN
 broadcasts, at one CMD52 per byte (128+ commands per frame). On a busy home
-network that means ~56 packets a second, close to the 60 per second
-one-per-VBlank limit, so a request can wait behind broadcast traffic
-(~15-400 ms per request measured). That's fine for Rich Presence.
+network that means ~56 packets a second, so a request can wait behind
+broadcast traffic (~15-400 ms per request measured). That's fine for Rich
+Presence.
+
+All of it runs inside the ARM7's VBlank interrupt. A big frame (a 1.5 KB
+broadcast is about 1,540 commands) used to be drained in one interrupt,
+which blocks the game's own ARM7 work for several milliseconds and can
+make it stutter. The byte budget above caps that; the `vb=` hello field
+reports the longest tick. The trade-off is that junk traffic now takes
+longer to clear, so requests can wait a little longer behind it.
 
 If it ever needs to be faster, the upgrade is CMD53 block transfers
 (DSWiFi's `wifi_card_read_func1_block` / `wifi_card_write_func1_block`).

@@ -73,6 +73,8 @@ static void putLlc(u8 *p, u16 ethertype) {
 }
 
 // ARP packet (28 bytes) after an LLC/SNAP header, then send.
+static u8 sentThisTick = 0; // set by anything that transmits during ProbeReq_Service()
+
 static void sendArp(u16 op, const u8 dstMac[6], const u8 targetMac[6], const u8 targetIp[4]) {
 	const u8 *myMac = rpcProbeHandoff.dsiMac;
 	const u8 *myIp = rpcProbeHandoff.dsiIp;
@@ -88,6 +90,7 @@ static void sendArp(u16 op, const u8 dstMac[6], const u8 targetMac[6], const u8 
 	memcpy(&a[18], targetMac, 6);
 	memcpy(&a[24], targetIp, 4);
 	TwlWifi_SendLlcFrame(dstMac, myMac, txFrame, 8 + 28);
+	sentThisTick = 1;
 }
 
 void ProbeReq_Announce(void) {
@@ -130,6 +133,7 @@ static void sendUdpReply(const u8 dstMac[6], const u8 dstIp[4], u16 dstPort, u16
 	udp[6] = 0; udp[7] = 0; // no UDP checksum (valid for IPv4)
 
 	TwlWifi_SendLlcFrame(dstMac, rpcProbeHandoff.dsiMac, txFrame, 8 + 20 + udpLen);
+	sentThisTick = 1;
 }
 
 static void handleRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
@@ -191,26 +195,27 @@ static void handleIpv4(const u8 *srcMac, const u8 *ip, int len) {
 	handleRequest(srcMac, &ip[12], get16(&udp[0]), udp + 8, udpLen - 8);
 }
 
-void ProbeReq_Service(void) {
-	int n = TwlWifi_ReadPacket(rxBuf, sizeof(rxBuf));
-	if (n <= 0) return;
+int ProbeReq_Service(void) {
+	sentThisTick = 0;
+	int n = TwlWifi_ReadPacket(rxBuf, sizeof(rxBuf), RPCPROBE_RX_BYTES_PER_VBLANK);
+	if (n <= 0) return 0; // nothing waiting, or still draining a packet
 	probeReqRxFrames++;
 
 	u8 type = rxBuf[0];
-	if (type < 2 || type > 5) return; // chip control message, not data
+	if (type < 2 || type > 5) return 0; // chip control message, not data
 
 	u16 len = rxBuf[2] | (rxBuf[3] << 8); // bytes after the 6-byte mailbox header
 	if (rxBuf[1]) {                        // "ack present": trailer at the end
 		u8 ackLen = rxBuf[4];
 		if (ackLen < len) len -= ackLen;
 	}
-	if (len < 24) return;
+	if (len < 24) return 0;
 
 	// Only what actually fit in rxBuf can be looked at.
 	int avail = (n < RX_BUF_SIZE ? n : RX_BUF_SIZE) - 30;
 	int payloadLen = len - 24;
 	if (payloadLen > avail) payloadLen = avail;
-	if (payloadLen <= 0) return;
+	if (payloadLen <= 0) return 0;
 
 	const u8 *srcMac = &rxBuf[14];
 	const u8 *payload = &rxBuf[30];
@@ -220,6 +225,7 @@ void ProbeReq_Service(void) {
 		case ETHERTYPE_EAPOL: probeReqEapol++; break;
 		default: break;
 	}
+	return sentThisTick;
 }
 
 #endif // RPCPROBE_REQUESTS

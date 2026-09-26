@@ -1,1 +1,4 @@
 pypresence>=4.3
+# The overlay window (dsirpc_overlay.py)
+pygame-ce>=2.5
+Pillow>=10

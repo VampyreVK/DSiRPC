@@ -275,6 +275,18 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-25: **Stutter fix and a stream overlay window.** The in-game side
+  used to drain every frame the Wi-Fi chip received (including other
+  devices' broadcasts, up to ~1.5 KB) in one VBlank interrupt, one SDIO
+  command per byte, which could hold up the game's own ARM7 work for
+  several milliseconds. It now drains at most 128 bytes per VBlank
+  (`RPCPROBE_RX_BYTES_PER_VBLANK`), no hello goes out in a tick that
+  already sent a reply, and the hellos report the longest tick as `vb=`
+  (scanlines). Built and checked against a simulated chip mailbox; needs a
+  hardware check. The DS's ~59.83 Hz refresh is normal and wasn't the
+  cause. Also new: `core/hub.py` (the state hub), `core/demo.py`, and
+  `dsirpc_overlay.py`, a pixel-art party/battle window for OBS that can run
+  the Rich Presence too (`--discord`).
 - 2026-09-23 (night): **Zero-config SD card and a persistent presence.**
   The in-game side now broadcasts its hellos to 255.255.255.255, so it no
   longer needs the PC's IP. `RPCPROBE.CFG` and all the code reading it are

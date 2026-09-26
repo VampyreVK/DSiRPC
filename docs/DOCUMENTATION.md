@@ -270,8 +270,8 @@ and keys are in the README ([Stream overlay window](../README.md#stream-overlay-
   its platform. Moves are worked out from PP: a move whose PP went down
   since the last read was just used. Things seen in the same read play one
   after another (`MOVE_GAP_MS` apart), and the HP box holds the old value
-  until the hit lands. The game's own last-move record (`B+0x527C`, not yet
-  checked on hardware) is only a backup, for moves PP can't show (Struggle,
+  until the hit lands. The game's own last-move record (`B+0x527C`, so far
+  checked on hardware for your side only) is only a backup, for moves PP can't show (Struggle,
   moves called by Metronome), and only after it has matched the PP twice.
   The message box shows the intro (from the battle music, the same kinds as
   in section 6), moves, switches and faints for a few seconds, and otherwise
@@ -361,7 +361,11 @@ The battle kind comes from the music ID:
 `<name>` comes from the trainer value at battle `+0x3C6`, which is actually
 the trainer **class** (see section 9). For rival battles (class `0x3F`) it
 is the name you gave your rival in the intro, read from the save
-(`S+0x27FC`), so a renamed rival shows up under their real name.
+(`S+0x27FC`), so a renamed rival shows up under their real name. The class
+can read something else for a moment (it once dropped the name while
+Maylene sent out Lucario), so `core.parser.TrainerMemory` keeps the name
+read most often during a battle; `dsirpc.py` and the hub both use it.
+`dsi_status.py` shows the raw value per read, with the class in hex.
 
 | Field | Content | Example |
 |---|---|---|
@@ -565,9 +569,9 @@ section 6).
 
 | Offset | Field |
 |---|---|
-| `B+0x3C6` | Trainer class of the opponent (u16 as read; values match the decomp's trainer classes, e.g. `0x3E` Roark, `0x3F` rival, `0x45` Cynthia). Names are in `platinum_data.TRAINER_SPRITES`. |
+| `B+0x3C6` | Trainer class of the opponent (u16 as read, falling back to the low byte when the u16 isn't a known class; values match the decomp's trainer classes, e.g. `0x3E` Roark, `0x3F` rival, `0x45` Cynthia). Names are in `platinum_data.TRAINER_SPRITES`. |
 | `B+0x4F40` | 4 x BattleMon (0xC0 each, unencrypted): yours, foe, your 2nd, foe's 2nd |
-| `B+0x527C` | Last move used by each battler, 4 x u16 in the same order (the decomp's `BattleContext.movePrevByBattler`). Worked out from the struct layout, **not yet checked on hardware**; see research.md section 11. The parser returns it as each battler's `last_move`. |
+| `B+0x527C` | Last move used by each battler, 4 x u16 in the same order (the decomp's `BattleContext.movePrevByBattler`). Worked out from the struct layout. Checked on hardware for your side (0 until your first move, then Fire Blast right after it was used); the foe's entry hasn't been seen change yet. See research.md section 11. The parser returns it as each battler's `last_move`. |
 
 Within a BattleMon: species `+0x00`, moves `+0x0C`, form in the low 5 bits of
 `+0x26` with shiny at bit 5, current PP `+0x2C` (4 x u8), PP Ups `+0x30`

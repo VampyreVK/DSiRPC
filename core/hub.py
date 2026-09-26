@@ -28,7 +28,7 @@ import logging
 import threading
 import time
 
-from .parser import PlatinumParser
+from .parser import PlatinumParser, TrainerMemory
 
 
 class Snapshot:
@@ -55,6 +55,7 @@ class DsiSource:
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
         self.ram = DsiRam(self.client)
         self.failed = False
+        self.trainers = TrainerMemory()
 
     @property
     def status(self):
@@ -71,7 +72,7 @@ class DsiSource:
                 return None
         try:
             self.ram.clear()
-            data = PlatinumParser(self.ram, self.charmap).parse()
+            data = self.trainers.apply(PlatinumParser(self.ram, self.charmap).parse())
         except (TimeoutError, RuntimeError) as e:
             if not self.failed:
                 logging.warning(f"Read failed: {e}")

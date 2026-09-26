@@ -275,6 +275,15 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-26 (evening): **Last-move record checked, steadier trainer names.**
+  A Maylene fight with `dsi_status.py --watch 2` showed `B+0x527C` working
+  for your side (0 until the first move, then Fire Blast right after its PP
+  dropped). The foes never moved, so their entry is still unchecked. The
+  trainer name now stays put for the whole battle (`TrainerMemory`, the
+  name read most often), the class falls back to its low byte if the u16
+  isn't a known class, and `dsi_status.py` prints the raw class in hex.
+  Also seen: reads in battle sometimes took 10 to 15 s for 3.5 KB, with
+  "no reply" timeouts, which is slower than usual and needs a look.
 - 2026-09-26 (later): **Moves in the overlay.** The overlay now shows which
   move each side used ("The foe's MACHOKE used KARATE CHOP!") with a
   pixel animation in the move type's style (`overlay/effects.py`), a lunge

@@ -38,7 +38,7 @@ from pypresence import ActivityType
 
 from core import platinum_data as pdata
 from core.charmap import parse_charmap_txt
-from core.parser import PlatinumParser
+from core.parser import PlatinumParser, TrainerMemory
 from utils.config import Config
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -193,6 +193,7 @@ def main():
     last_sent = None      # what Discord is showing (None = nothing)
     live = False          # the game answered recently
     failures = 0
+    trainers = TrainerMemory()
 
     try:
         while True:
@@ -209,7 +210,7 @@ def main():
             try:
                 if hasattr(ram, "clear"):
                     ram.clear()
-                data = PlatinumParser(ram, charmap).parse()
+                data = trainers.apply(PlatinumParser(ram, charmap).parse())
             except (TimeoutError, RuntimeError) as e:
                 if failures == 0:
                     logging.warning(f"Read failed: {e}")

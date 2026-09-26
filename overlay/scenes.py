@@ -14,8 +14,8 @@ value, the battle transition, the toast queue) between frames.
 Moves used in battle are worked out from PP: when one of a battler's moves
 loses PP between two reads, that battler just used it. The game's own
 "last move used" record (the parser's last_move) is only trusted as a
-backup after it has agreed with the PP twice, since its offset hasn't been
-checked on hardware yet.
+backup after it has agreed with the PP twice, since it has only been
+checked on hardware for your side so far.
 """
 
 import math

@@ -3,6 +3,41 @@ import logging
 
 from . import platinum_data as pdata
 
+class TrainerMemory:
+    """Keeps the opponent's name steady for a whole battle.
+
+    The trainer class at battle +0x3C6 can read something else for a moment
+    (seen once while a Gym Leader sent out her last Pokemon), so each battle
+    shows the name it has read most often. Give it every parsed state, in
+    order; a new battle starts after two good reads without one (or a new
+    battle pointer)."""
+
+    def __init__(self):
+        self.votes = {}
+        self.pointer = None
+        self.idle = 0
+
+    def apply(self, data):
+        if not data:
+            return data  # a failed read says nothing about the battle
+        battle = data['battle']
+        if not battle['active']:
+            self.idle += 1
+            if self.idle >= 2:
+                self.votes = {}
+            return data
+        if self.idle >= 2 or battle['pointer'] != self.pointer:
+            self.votes = {}
+        self.idle = 0
+        self.pointer = battle['pointer']
+        name = battle.get('trainer')
+        if name and not name.startswith('sprite'):
+            self.votes[name] = self.votes.get(name, 0) + 1
+        if self.votes:
+            battle['trainer'] = max(self.votes, key=self.votes.get)  # a tie keeps the first one read
+        return data
+
+
 class PlatinumParser:
     ANCHOR_POINTER = 0x02101D40
     # Absolute base RAM physical offset translation (index 0 of a RAM dump = 0x02000000)
@@ -43,7 +78,8 @@ class PlatinumParser:
     BATTLE_OFFSET_MONS = 0x4F40       # 4 BattleMons: you, foe, your 2nd, foe's 2nd
     # u16 x4, the move each battler used last (BattleContext.movePrevByBattler).
     # Worked out from the decomp's struct layout relative to the BattleMons
-    # above (see docs/research.md); not yet checked on hardware.
+    # above (see docs/research.md). Checked on hardware for your side; the
+    # foe's entry hasn't been seen change yet.
     BATTLE_OFFSET_LAST_MOVES = 0x527C
     SIZE_BATTLE_MON = 0xC0
     MUSIC_ID = 0x021BEB04             # u16
@@ -321,6 +357,8 @@ class PlatinumParser:
             if battle['active']:
                 sprite = self.read_u16(battle_ptr + self.BATTLE_OFFSET_TRAINER_SPRITE)
                 battle['trainer_class'] = sprite
+                if sprite not in pdata.TRAINER_SPRITES and (sprite & 0xFF) in pdata.TRAINER_SPRITES:
+                    sprite &= 0xFF  # it may only be a u8; ignore the byte after it
                 if sprite == self.TRAINER_CLASS_RIVAL and self.parsed_data.get('rival_name'):
                     battle['trainer'] = self.parsed_data['rival_name']  # whatever the rival was named
                 else:

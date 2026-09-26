@@ -27,7 +27,7 @@ import queue
 import threading
 
 import pygame
-from PIL import Image, ImageChops, ImageFilter, ImageOps, ImageSequence
+from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageSequence
 
 # Where process_diorama.py puts a sprite on its 160x160 canvas: centred on
 # x=80, bottom edge at y=126. The overlay places the foe on the platform the
@@ -108,6 +108,25 @@ def _strip_diorama(frames, bg):
     return out
 
 
+# Platform recolouring: (saturation, per-channel multiply, add) per terrain,
+# and (multiply, add) per time of day, matching backdrop.py's tints.
+PLATFORM_LOOK = {
+    'snow': (0.15, (0.9, 0.95, 1.0), (110, 116, 124)),
+    'cave': (0.3, (0.72, 0.6, 0.5), (8, 4, 0)),
+    'indoor': (0.2, (0.92, 0.86, 0.78), (40, 34, 24)),
+}
+TIME_LOOK = {
+    'evening': ((0.92, 0.78, 0.72), (18, 4, 0)),
+    'night': ((0.45, 0.5, 0.72), (0, 0, 10)),
+}
+
+
+def _tint(img, mul, add):
+    r, g, b, a = img.split()
+    chans = [c.point(lambda v, m=m, k=k: max(0, min(255, int(v * m + k)))) for c, m, k in zip((r, g, b), mul, add)]
+    return Image.merge('RGBA', (*chans, a))
+
+
 class SpriteBank:
     def __init__(self, assets_dir):
         self.assets = assets_dir
@@ -137,8 +156,10 @@ class SpriteBank:
         """character 'Lucas' or 'Dawn', direction 'down'/'left'/'right'/'up'."""
         return self.get(('trainer', character, direction))
 
-    def platform(self):
-        return self.get(('platform',))
+    def platform(self, place='field', when='day'):
+        """The grass platform, recoloured for the terrain ('field', 'snow',
+        'cave', 'indoor') and time of day (see backdrop.py)."""
+        return self.get(('platform', place, when))
 
     def get(self, key):
         anim = self._anims.get(key)
@@ -211,8 +232,15 @@ class SpriteBank:
             # The sheets are drawn at 2x (every pixel doubled); halve to native.
             return _crop_union(_halve(frames)), [150] * 4
         if kind == 'platform':
+            _, place, when = key
             img = Image.open(self._path('Pokemon-Battle-NormalLarge', 'BattleBackgroundNormal.png')).convert('RGBA')
             box = img.getchannel('A').getbbox()
             self.platform_box = box
-            return [img.crop(box)], [1000]
+            img = img.crop(box)
+            if place in PLATFORM_LOOK:
+                sat, mul, add = PLATFORM_LOOK[place]
+                img = _tint(ImageEnhance.Color(img).enhance(sat), mul, add)
+            if when in TIME_LOOK:
+                img = _tint(img, *TIME_LOOK[when])
+            return [img], [1000]
         return None

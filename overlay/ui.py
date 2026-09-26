@@ -45,6 +45,16 @@ STATUS_TAGS = {
     'Fainted': ('FNT', (208, 64, 64)),
 }
 
+# Move button colours by type (the usual colours for each type).
+TYPE_COLORS = {
+    'Normal': (168, 168, 120), 'Fighting': (192, 48, 40), 'Flying': (168, 144, 240),
+    'Poison': (160, 64, 160), 'Ground': (224, 192, 104), 'Rock': (184, 160, 56),
+    'Bug': (168, 184, 32), 'Ghost': (112, 88, 152), 'Steel': (184, 184, 208),
+    'Fire': (240, 128, 48), 'Water': (104, 144, 240), 'Grass': (120, 200, 80),
+    'Electric': (248, 208, 48), 'Psychic': (248, 88, 136), 'Ice': (152, 216, 216),
+    'Dragon': (112, 56, 248), 'Dark': (112, 88, 72), '???': (104, 160, 144),
+}
+
 # One colour per badge, in badge order (Coal ... Beacon). Simple gems, not the
 # real badge art.
 BADGE_COLORS = [(152, 120, 104), (96, 184, 96), (200, 168, 112), (88, 144, 232),
@@ -99,6 +109,25 @@ def textbox(surf, rect):
           hi=t['box_frame_hi'], lo=darken(t['box_frame'], 16), radius=3)
     panel(surf, (x + 4, y + 4, w - 8, h - 8), fill=t['box_fill'], border=darken(t['box_frame'], 20),
           hi=(255, 255, 255), lo=(216, 216, 224), radius=2)
+
+
+def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None):
+    """One move, coloured by its type, with PP on the right. name=None draws
+    an empty slot."""
+    x, y, w, h = rect
+    if name is None:
+        panel(surf, rect, fill=(120, 132, 140), border=(72, 80, 88), hi=(150, 160, 168), lo=(104, 112, 120))
+        font.draw(surf, "-", (x + 6, y + 5), (200, 204, 208), (72, 80, 88))
+        return
+    c = TYPE_COLORS.get(mtype, (150, 150, 150))
+    panel(surf, rect, fill=c, border=darken(c, 80), hi=lighten(c, 60), lo=darken(c, 30))
+    font.draw(surf, name, (x + 6, y + 5), (248, 248, 248), darken(c, 90))
+    if pp is not None and pp_max:
+        frac = pp / pp_max
+        col = (248, 248, 248) if frac > 0.5 else (248, 224, 96) if frac > 0.25 else (248, 160, 72) if pp else (248, 96, 88)
+        text = f"{pp}/{pp_max}"
+        mini.draw(surf, text, (x + w - 5 - mini.width(text), y + 7), col)
+        mini.draw(surf, "PP", (x + w - 16 - mini.width(text), y + 7), lighten(c, 70))
 
 
 def hp_color(frac):

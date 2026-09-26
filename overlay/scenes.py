@@ -12,10 +12,13 @@ The Overlay object keeps the animation state (HP bars sliding to their new
 value, the battle transition, the toast queue) between frames.
 """
 
+import math
+
 import pygame
 
 from core import platinum_data as pdata
 from . import ui
+from .backdrop import Backdrop, period, terrain, weather_kind
 from .font import PixelFont
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
 
@@ -56,6 +59,10 @@ class Overlay:
         self.last_pos = None
         self.shiny_intro_until = 0
         self._scaled = {}
+        self.backdrop = Backdrop()
+        self.battle_since = None   # when the battle view appeared (intro slide-in)
+        self.battlers = {}         # 'foe0' / 'foe1' / 'you0' -> animation state
+        self.msg = None            # (line 1, line 2, until_ms) for the message box
 
     # -- state -----------------------------------------------------------------
 
@@ -71,7 +78,7 @@ class Overlay:
                 self.shiny_intro_until = t_ms + 2500
             elif kind == 'level_up':
                 self.toast(f"{e['mon']['nickname']} grew to Lv. {e['mon']['level']}!")
-            elif kind == 'fainted':
+            elif kind == 'fainted' and not self.showing_battle:  # battles say it in the message box
                 self.toast(f"{e['mon']['nickname']} fainted!")
             elif kind == 'badge_earned':
                 self.toast(f"Got the {e['badges'][-1]} Badge!", sparkly=True)
@@ -110,6 +117,10 @@ class Overlay:
             p = (t_ms - self.wipe_start) / (WIPE_MS / 2)
             if p >= 1 and want_battle != self.showing_battle:
                 self.showing_battle = want_battle
+                self.battlers, self.msg = {}, None
+                self.battle_since = t_ms if want_battle else None
+                if want_battle:
+                    self.msg = (*self._battle_lines(d), t_ms + 4500)
             if p >= 2:
                 self.wipe_start = None
             else:
@@ -270,64 +281,180 @@ class Overlay:
                            t['text_light_shadow'], align='right')
 
     # -- battle view -----------------------------------------------------------
+    #
+    # Layout: the far platform sits on the ground just below the horizon, the
+    # near one at the bottom left, half behind the message box. Both
+    # Pokemon stand on their platform at the spot process_diorama.py uses
+    # for the Discord images.
+
+    FAR_PLATFORM = (190, 106)   # centre x, bottom y
+    NEAR_PLATFORM = (70, 162)
+    INTRO_MS = 650
+    SWITCH_MS = 450
+    LUNGE_MS = 300
+    HIT_MS = 520
+    FAINT_MS = 550
+    MSG_MS = 3200
 
     def draw_battle(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
         b = d['battle']
-        if t['chroma']:
-            canvas.fill(t['chroma'])
-        else:
-            ui.bands(canvas, (0, 0, W, 100), t['sky'])
-            ui.bands(canvas, (0, 100, W, 46), t['ground'])
-            pygame.draw.line(canvas, ui.lighten(t['ground'][0], 30), (0, 100), (W - 1, 100))
+        place = terrain(d['location'])
+        when = period(d['misc'].get('clock'))
+        self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
 
-        foe_x, foe_y = 182, 81  # where the foe stands; refined below once the platform has loaded
-        plat = self.sprites.platform()
-        if plat:
-            p = plat.frames[0]
-            px, py = 190 - p.get_width() // 2, 106 - p.get_height()
-            canvas.blit(p, (px, py))
-            canvas.blit(p, (70 - p.get_width() // 2, 182 - p.get_height()))
-            box = self.sprites.platform_box
-            if box:
-                # Same spot on the platform as process_diorama.py uses for the
-                # Discord images: centred on x=80, bottom at y=126 of its canvas.
-                foe_x = px + DIORAMA_CENTER_X - box[0]
-                foe_y = py + DIORAMA_BOTTOM - box[1]
+        foes = [m for m in b['mons'] if m['side'].startswith('foe')][:2]
+        yours = [m for m in b['mons'] if m['side'].startswith('yours')][:1]
+        self._track_battlers(d, foes, yours, t_ms)
 
-        foes = [m for m in b['mons'] if m['side'].startswith('foe')]
-        yours = [m for m in b['mons'] if m['side'].startswith('yours')]
+        # Intro: each side slides in from its edge with its platform.
+        intro = 1.0
+        if self.battle_since is not None:
+            intro = ui.ease_out(min(1.0, (t_ms - self.battle_since) / self.INTRO_MS))
+        far_dx = int((intro - 1) * 200)
+        near_dx = int((1 - intro) * 200)
 
-        # Foe(s) on the far platform.
+        plat = self.sprites.platform(place, when)
+        box = self.sprites.platform_box
+        spots = {}
+        for side, (cx, bottom), dx in (('foe', self.FAR_PLATFORM, far_dx), ('you', self.NEAR_PLATFORM, near_dx)):
+            if plat and box:
+                p = plat.frames[0]
+                px, py = cx - p.get_width() // 2 + dx, bottom - p.get_height()
+                canvas.blit(p, (px, py))
+                spots[side] = (px + DIORAMA_CENTER_X - box[0], py + DIORAMA_BOTTOM - box[1])
+            else:
+                spots[side] = (cx - 8 + dx, bottom - 25)
+
+        # Foes (up to two), then your Pokemon from behind.
         offsets = [0] if len(foes) < 2 else [-26, 26]
-        for k, m in enumerate(foes[:2]):
+        for k, m in enumerate(foes):
+            x, y = spots['foe']
             anim = self.sprites.front(m['species_id'], m['shiny'])
-            if anim:
-                f = self._fit(anim.frame(t_ms + k * 300), 96, 96)
-                canvas.blit(f, (foe_x + offsets[k] - f.get_width() // 2, foe_y - f.get_height()))
+            self._draw_battler(canvas, f'foe{k}', anim, x + offsets[k], y, 96, t_ms, k * 300, direction=-1)
             if m['shiny'] and t_ms < self.shiny_intro_until:
                 for j in range(5):
-                    ui.sparkle(canvas, foe_x - 20 + offsets[k] + (j * 13) % 40, foe_y - 54 + (j * 17) % 45, t_ms + j * 70)
-
-        # Your Pokemon from behind, standing on the near platform.
+                    ui.sparkle(canvas, x - 20 + offsets[k] + (j * 13) % 40, y - 54 + (j * 17) % 45, t_ms + j * 70)
         if yours:
             m = yours[0]
+            x, y = spots['you']
             anim = self.sprites.back(m['species_id'], m['shiny'])
-            if anim:
-                f = self._fit(anim.frame(t_ms), 84, 84)
-                canvas.blit(f, (70 - f.get_width() // 2, 150 - f.get_height()))
+            self._draw_battler(canvas, 'you0', anim, x, y, 84, t_ms, 0, direction=1)
 
-        # HP boxes.
-        for k, m in enumerate(foes[:2]):
-            self._foe_box(canvas, m, 4, 8 + k * 30, dt_ms, k)
+        self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
+
+        # HP boxes slide in after the Pokemon.
+        hud = 1.0
+        if self.battle_since is not None:
+            hud = ui.ease_out(max(0.0, min(1.0, (t_ms - self.battle_since - 350) / 400)))
+        for k, m in enumerate(foes):
+            self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k)
         if yours:
-            self._your_box(canvas, yours[0], 136, 106, dt_ms)
+            self._your_box(canvas, yours[0], 136 + int((1 - hud) * 130), 104, dt_ms)
 
-        # Message box.
-        ui.textbox(canvas, (0, 146, W, H - 146))
-        l1, l2 = self._battle_lines(d, foes, yours)
-        self.font.draw(canvas, l1, (12, 156), t['text'], t['text_shadow'])
-        self.font.draw(canvas, l2, (12, 170), t['text'], t['text_shadow'])
+        # Bottom: a message for a few seconds after something happens,
+        # otherwise your Pokemon's moves.
+        if self.msg and t_ms < self.msg[2]:
+            ui.textbox(canvas, (0, 146, W, H - 146))
+            self.font.draw(canvas, self.msg[0], (12, 156), t['text'], t['text_shadow'])
+            self.font.draw(canvas, self.msg[1], (12, 170), t['text'], t['text_shadow'])
+        else:
+            self._move_panel(canvas, yours[0] if yours else None)
+
+    def _track_battlers(self, d, foes, yours, t_ms):
+        """Notices switches, damage and fainting, and starts the animations
+        and messages for them."""
+        trainer = _upper(d['battle'].get('trainer'))
+        wild = not trainer
+        current = {f'foe{k}': m for k, m in enumerate(foes)}
+        if yours:
+            current['you0'] = yours[0]
+        for key, m in current.items():
+            ident = (m['species_id'], m['nickname'])
+            st = self.battlers.get(key)
+            if st is None or st['ident'] != ident:
+                switched = st is not None
+                self.battlers[key] = {'ident': ident, 'hp': m['curr_hp'], 'entered': t_ms if switched else None,
+                                      'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999}
+                if switched and key.startswith('foe'):
+                    who = f"{trainer} sent out" if trainer else "Go,"
+                    self.msg = (f"{who} {_upper(m['nickname'])}!", "", t_ms + self.MSG_MS)
+                elif switched:
+                    self.msg = (f"Go! {m['nickname']}!", "", t_ms + self.MSG_MS)
+                continue
+            if m['curr_hp'] < st['hp']:
+                # The attacker lunges, then the one that lost HP blinks.
+                st['hit'] = t_ms + 150
+                attacker = 'you0' if key.startswith('foe') else 'foe0'
+                if attacker in self.battlers:
+                    self.battlers[attacker]['lunge'] = t_ms
+            if m['curr_hp'] > 0:
+                st['faint'] = None
+            elif st['hp'] > 0:
+                st['faint'] = t_ms
+                if key.startswith('foe'):
+                    owner = "The wild" if wild else "The foe's"
+                    self.msg = (f"{owner} {_upper(m['nickname'])}", "fainted!", t_ms + self.MSG_MS)
+                else:
+                    self.msg = (f"{m['nickname']} fainted!", "", t_ms + self.MSG_MS)
+            st['hp'] = m['curr_hp']
+
+    def _draw_battler(self, canvas, key, anim, feet_x, feet_y, max_size, t_ms, phase, direction):
+        """direction: -1 for foes (they face left, slide in from the left),
+        +1 for your side."""
+        if not anim:
+            return
+        st = self.battlers.get(key, {})
+        f = self._fit(anim.frame(t_ms + phase), max_size, max_size)
+        dx = dy = 0
+        if st.get('entered') is not None:
+            p = min(1.0, (t_ms - st['entered']) / self.SWITCH_MS)
+            dx += int((1 - ui.ease_out(p)) * 140) * (1 if direction > 0 else -1)
+        if st.get('lunge') is not None:
+            p = (t_ms - st['lunge']) / self.LUNGE_MS
+            if 0 <= p < 1:
+                push = math.sin(math.pi * p) * 8
+                dx += int(push * direction)
+                dy -= int(push * direction / 2)
+        visible = True
+        if st.get('hit') is not None:
+            q = t_ms - st['hit']
+            if 0 <= q < self.HIT_MS:
+                visible = (q // 65) % 2 == 0
+                if q < 300:
+                    dx += 2 if (q // 40) % 2 else -2
+        sink = 0
+        if st.get('faint') is not None:
+            p = (t_ms - st['faint']) / self.FAINT_MS
+            if p >= 1:
+                return
+            sink = int(max(0.0, p) * f.get_height())
+        if not visible:
+            return
+        x = feet_x - f.get_width() // 2 + dx
+        y = feet_y - f.get_height() + dy + sink
+        clip = canvas.get_clip()
+        canvas.set_clip((0, 0, W, feet_y + dy))  # a fainting Pokemon sinks into its platform
+        canvas.blit(f, (x, y))
+        canvas.set_clip(clip)
+
+    def _move_panel(self, canvas, mon):
+        t = ui.THEME
+        ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
+                 hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
+        moves = (mon or {}).get('moves') or []
+        pps = (mon or {}).get('pp') or []
+        ups = (mon or {}).get('pp_ups') or []
+        for i in range(4):
+            rect = (5 + (i % 2) * 124, 150 + (i // 2) * 20, 122, 18)
+            if i >= len(moves):
+                ui.move_button(canvas, self.font, self.mini, rect, None)
+                continue
+            info = pdata.MOVE_INFO.get(moves[i])
+            mtype, base = (info[0], info[2]) if info else (None, None)
+            pp = pps[i] if i < len(pps) else None
+            pp_max = base + (base // 5) * (ups[i] if i < len(ups) else 0) if base else None
+            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max)
 
     def _foe_box(self, canvas, m, x, y, dt_ms, k):
         t = ui.THEME
@@ -351,8 +478,10 @@ class Overlay:
         self.font.draw(canvas, f"{int(round(hp))}/{m['max_hp']}", (x + 110, y + 25),
                        t['text'], t['text_shadow'], align='right')
 
-    def _battle_lines(self, d, foes, yours):
+    def _battle_lines(self, d):
         b = d['battle']
+        foes = [m for m in b['mons'] if m['side'].startswith('foe')]
+        yours = [m for m in b['mons'] if m['side'].startswith('yours')]
         music = d['misc']['music_id']
         trainer = _upper(b.get('trainer'))
         foe = _upper(foes[0]['nickname']) if foes else 'the foe'

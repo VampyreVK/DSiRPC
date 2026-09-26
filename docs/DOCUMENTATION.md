@@ -255,9 +255,17 @@ and keys are in the README ([Stream overlay window](../README.md#stream-overlay-
   shinies), and a footer with your trainer facing and walking the way you do,
   badges and Pokédex counts.
 - **Battle view:** shown while `battle.active`, with a bar-wipe transition.
-  Foe sprite(s) on the far platform (up to two), your Pokémon's back sprite,
-  HP boxes, and a message box whose first line comes from the battle music
-  (the same kinds as in section 6).
+  The background (`overlay/backdrop.py`) is drawn in code: the sky follows the
+  DS clock (morning, day, evening, night with stars), with drifting clouds,
+  hills and swaying grass. Caves, buildings and snowy areas get their own
+  look, guessed from the location name, and the save's weather ID adds rain,
+  storms, snow, sand, hail, ash or fog. Both Pokémon stand on their platform
+  at the spot `process_diorama.py` uses (x=80, bottom y=126 of its canvas);
+  up to two foes are shown. They slide in at the start and on a switch; when
+  one loses HP the other lunges and it blinks and shakes; a fainted one sinks
+  into its platform. The message box shows the intro (from the battle
+  music, the same kinds as in section 6), switches and faints for a few
+  seconds, and otherwise your Pokémon's moves, coloured by type with PP.
 - **Waiting view:** while the hub is offline.
 - **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
   level-up, fainted, badge, new Pokédex catch).
@@ -295,14 +303,14 @@ numbers mean.
 | `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. |
 | `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `dsi_status.py`; `dsirpc.py` uses `DSiClient` directly and waits indefinitely). |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
-| `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs. Generated from the pret/pokeplatinum decompilation. |
+| `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
-| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation), `ui.py` (palette, panels, HP bars), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
+| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
 ---
 
@@ -496,7 +504,7 @@ aren't read yet are in [research.md](research.md).
 | `S+0xB4` | Party Pokémon 1-6 | 236 bytes each (encrypted, see below) |
 | `S+0x1294` | Player location | s32 x5: map ID, warp ID, x, z, facing (0 up, 1 down, 2 left, 3 right) |
 | `S+0x12A8` | Entrance location (the RA notes call it "previous map") | same layout |
-| `S+0x12FA` | Weather | u16 |
+| `S+0x12FA` | Weather | u16, IDs in `platinum_data.WEATHER` |
 | `S+0x133C` | Pokédex magic | `0xBEEFCAFE` |
 | `S+0x1340` | Pokédex caught | 493 bits, bit n-1 = national #n |
 | `S+0x1380` | Pokédex seen | same layout |
@@ -549,7 +557,8 @@ section 6).
 | `B+0x4F40` | 4 x BattleMon (0xC0 each, unencrypted): yours, foe, your 2nd, foe's 2nd |
 
 Within a BattleMon: species `+0x00`, moves `+0x0C`, form in the low 5 bits of
-`+0x26` with shiny at bit 5, current PP `+0x2C`, level `+0x34`, nickname
+`+0x26` with shiny at bit 5, current PP `+0x2C` (4 x u8), PP Ups `+0x30`
+(4 x u8; max PP = base + base / 5 x PP Ups), level `+0x34`, nickname
 `+0x36`, HP `+0x4C` (s32), max HP `+0x50`, status `+0x6C`, held item `+0x78`,
 gender `+0x7E` (low nibble: 0 male, 1 female).
 

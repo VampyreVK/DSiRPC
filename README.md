@@ -205,8 +205,10 @@ and the Rich Presence together, run `dsirpc_overlay.py --discord` instead of
 ## Stream overlay window
 
 `dsirpc_overlay.py` opens a window that shows your party, and switches to a
-battle view (both Pokémon, HP boxes, a message box) when a battle starts, in a
-pixel-art style inspired by the DS games. Banners pop up for shiny
+battle view when a battle starts, in a pixel-art style inspired by the DS
+games. The battle background follows the DS clock, the location (field,
+cave, indoors, snow) and the weather; Pokémon slide in, lunge, flash when hit
+and sink when they faint; and the bottom box shows your moves by type with PP. Banners pop up for shiny
 encounters, level-ups, fainting and new badges. It draws at the DS's
 256x192 and scales up by a whole number, so the pixels stay crisp. Add it to
 OBS with **Window Capture**, or share the window in Discord.

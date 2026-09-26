@@ -175,6 +175,7 @@ class PlatinumParser:
         if not (1 <= species <= 493 and 1 <= level <= 100 and 0 < max_hp < 1000 and 0 <= hp <= max_hp):
             return None
         moves = struct.unpack_from('<4H', raw, 0x0C)
+        pp, pp_ups = raw[0x2C:0x30], raw[0x30:0x34]  # ppCur[4], ppUps[4]
         status = struct.unpack_from('<I', raw, 0x6C)[0]
         return {
             'species_id': species,
@@ -185,6 +186,8 @@ class PlatinumParser:
             'max_hp': max_hp,
             'status': self.status_text(status),
             'moves': [self.name(pdata.MOVES, m) for m in moves if m],
+            'pp': [pp[k] for k, m in enumerate(moves) if m],
+            'pp_ups': [pp_ups[k] for k, m in enumerate(moves) if m],
             'shiny': bool(raw[0x26] >> 5 & 1),
             'gender': {0: 'M', 1: 'F'}.get(raw[0x7E] & 0x0F, 'genderless'),
         }

@@ -275,6 +275,15 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-26: **Livelier battles in the overlay.** Hardware check of the
+  stutter fix: smooth in play, with `vb=` steady around 76 scanlines (about
+  4.8 ms, once a second, most likely the tick that sends the hello). The
+  battle view now has a background drawn in code (time of day, clouds, hills,
+  terrain from the location name, weather from the save), both Pokémon placed
+  like `process_diorama.py` does, slide-in, lunge, hit and faint animations,
+  and a move panel with type colours and PP. The parser now reads each
+  battler's current PP and PP Ups (BattleMon `+0x2C`/`+0x30`), and
+  `platinum_data` has move types and weather names from the decomp.
 - 2026-09-25: **Stutter fix and a stream overlay window.** The in-game side
   used to drain every frame the Wi-Fi chip received (including other
   devices' broadcasts, up to ~1.5 KB) in one VBlank interrupt, one SDIO

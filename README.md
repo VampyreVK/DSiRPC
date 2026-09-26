@@ -208,7 +208,9 @@ and the Rich Presence together, run `dsirpc_overlay.py --discord` instead of
 battle view when a battle starts, in a pixel-art style inspired by the DS
 games. The battle background follows the DS clock, the location (field,
 cave, indoors, snow) and the weather; Pokémon slide in, lunge, flash when hit
-and sink when they faint; and the bottom box shows your moves by type with PP. Banners pop up for shiny
+and sink when they faint; every move either side uses gets its "X used MOVE!" line and a
+type-coloured animation; and the bottom box shows your moves by type with PP, the last one
+used highlighted. Banners pop up for shiny
 encounters, level-ups, fainting and new badges. It draws at the DS's
 256x192 and scales up by a whole number, so the pixels stay crisp. Add it to
 OBS with **Window Capture**, or share the window in Discord.

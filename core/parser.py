@@ -41,6 +41,10 @@ class PlatinumParser:
     BATTLE_POINTER = 0x021BFB0C       # not cleared after a battle, so check the data too
     BATTLE_OFFSET_TRAINER_SPRITE = 0x3C6  # the opponent's trainer class (RA calls it a sprite ID)
     BATTLE_OFFSET_MONS = 0x4F40       # 4 BattleMons: you, foe, your 2nd, foe's 2nd
+    # u16 x4, the move each battler used last (BattleContext.movePrevByBattler).
+    # Worked out from the decomp's struct layout relative to the BattleMons
+    # above (see docs/research.md); not yet checked on hardware.
+    BATTLE_OFFSET_LAST_MOVES = 0x527C
     SIZE_BATTLE_MON = 0xC0
     MUSIC_ID = 0x021BEB04             # u16
     TEXTBOX_ACTIVE = 0x021C04E3       # u8, 2 while an NPC text box is open
@@ -228,6 +232,7 @@ class PlatinumParser:
         if self.is_ram_pointer(battle_ptr):
             wanted.append((battle_ptr + self.BATTLE_OFFSET_TRAINER_SPRITE, 2))
             wanted.append((battle_ptr + self.BATTLE_OFFSET_MONS, 4 * self.SIZE_BATTLE_MON))
+            wanted.append((battle_ptr + self.BATTLE_OFFSET_LAST_MOVES, 8))
         self.prefetch(wanted)
 
         # 2. Extract Trainer Name
@@ -308,6 +313,8 @@ class PlatinumParser:
                 mon = self.decode_battle_mon(raw) if len(raw) == self.SIZE_BATTLE_MON else None
                 if mon:
                     mon['side'] = side
+                    last = self.read_u16(battle_ptr + self.BATTLE_OFFSET_LAST_MOVES + 2 * i)
+                    mon['last_move'] = pdata.MOVES[last] if 0 < last < len(pdata.MOVES) else None
                     battle['mons'].append(mon)
             sides_found = {m['side'] for m in battle['mons']}
             battle['active'] = 'yours' in sides_found and 'foe' in sides_found

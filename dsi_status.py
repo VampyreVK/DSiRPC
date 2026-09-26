@@ -47,7 +47,11 @@ def describe_mon(mon, with_item=True):
         parts.append(f"holding {mon['item']}")
     text = "  ".join(parts)
     if mon.get('moves'):
-        text += "\n       moves: " + ", ".join(mon['moves'])
+        pp = mon.get('pp') or []
+        moves = [f"{m} ({pp[i]} PP)" if i < len(pp) else m for i, m in enumerate(mon['moves'])]
+        text += "\n       moves: " + ", ".join(moves)
+    if 'last_move' in mon:
+        text += f"\n       last used: {mon['last_move'] or '-'}"
     if mon.get('checksum_ok') is False:
         text += "\n       (checksum mismatch: probably read while the game was changing it, try again)"
     return text

@@ -10,6 +10,12 @@ scenes.py - what the overlay draws on its 256x192 canvas:
 
 The Overlay object keeps the animation state (HP bars sliding to their new
 value, the battle transition, the toast queue) between frames.
+
+Moves used in battle are worked out from PP: when one of a battler's moves
+loses PP between two reads, that battler just used it. The game's own
+"last move used" record (the parser's last_move) is only trusted as a
+backup after it has agreed with the PP twice, since its offset hasn't been
+checked on hardware yet.
 """
 
 import math
@@ -19,6 +25,7 @@ import pygame
 from core import platinum_data as pdata
 from . import ui
 from .backdrop import Backdrop, period, terrain, weather_kind
+from .effects import Effect
 from .font import PixelFont
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
 
@@ -45,6 +52,20 @@ def _facing(d):
     return d['location'].get('facing') or 'down'
 
 
+def _opponent(d):
+    """(wild, trainer name or None). The trainer class read can come back
+    unknown ('sprite 0x..') or hold a leftover value in wild battles, so the
+    battle music decides wild vs trainer when it can."""
+    name = d['battle'].get('trainer')
+    name = _upper(name) if name and not name.startswith('sprite') else None
+    music = d['misc'].get('music_id')
+    if music == WILD:
+        return True, None
+    if music in (GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR):
+        return False, name
+    return name is None, name
+
+
 class Overlay:
     def __init__(self, sprites):
         self.sprites = sprites
@@ -63,6 +84,11 @@ class Overlay:
         self.battle_since = None   # when the battle view appeared (intro slide-in)
         self.battlers = {}         # 'foe0' / 'foe1' / 'you0' -> animation state
         self.msg = None            # (line 1, line 2, until_ms) for the message box
+        self.effects = []          # move animations playing (effects.Effect)
+        self.boxes = {}            # battler key -> where its sprite was drawn this frame
+        self.last_move_agreed = 0  # times the game's last-move record matched a PP drop
+        self.msg_queue = []        # (from_ms, line 1, line 2): messages waiting their turn
+        self.next_msg_at = 0       # things seen in the same read play one after another
 
     # -- state -----------------------------------------------------------------
 
@@ -117,7 +143,8 @@ class Overlay:
             p = (t_ms - self.wipe_start) / (WIPE_MS / 2)
             if p >= 1 and want_battle != self.showing_battle:
                 self.showing_battle = want_battle
-                self.battlers, self.msg = {}, None
+                self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
+                self.msg_queue = []
                 self.battle_since = t_ms if want_battle else None
                 if want_battle:
                     self.msg = (*self._battle_lines(d), t_ms + 4500)
@@ -295,6 +322,7 @@ class Overlay:
     HIT_MS = 520
     FAINT_MS = 550
     MSG_MS = 3200
+    MOVE_GAP_MS = 1400
 
     def draw_battle(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
@@ -341,6 +369,7 @@ class Overlay:
             anim = self.sprites.back(m['species_id'], m['shiny'])
             self._draw_battler(canvas, 'you0', anim, x, y, 84, t_ms, 0, direction=1)
 
+        self.effects = [e for e in self.effects if e.draw(canvas, t_ms, self.boxes)]
         self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
 
         # HP boxes slide in after the Pokemon.
@@ -348,56 +377,141 @@ class Overlay:
         if self.battle_since is not None:
             hud = ui.ease_out(max(0.0, min(1.0, (t_ms - self.battle_since - 350) / 400)))
         for k, m in enumerate(foes):
-            self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k)
+            self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k, self._hp_now(f'foe{k}', m, t_ms))
         if yours:
-            self._your_box(canvas, yours[0], 136 + int((1 - hud) * 130), 104, dt_ms)
+            self._your_box(canvas, yours[0], 136 + int((1 - hud) * 130), 104, dt_ms, self._hp_now('you0', yours[0], t_ms))
 
         # Bottom: a message for a few seconds after something happens,
         # otherwise your Pokemon's moves.
+        while self.msg_queue and self.msg_queue[0][0] <= t_ms:
+            start, l1, l2 = self.msg_queue.pop(0)
+            self.msg = (l1, l2, start + self.MSG_MS)
         if self.msg and t_ms < self.msg[2]:
             ui.textbox(canvas, (0, 146, W, H - 146))
             self.font.draw(canvas, self.msg[0], (12, 156), t['text'], t['text_shadow'])
             self.font.draw(canvas, self.msg[1], (12, 170), t['text'], t['text_shadow'])
         else:
-            self._move_panel(canvas, yours[0] if yours else None)
+            picked = self.battlers.get('you0', {}).get('picked')
+            self._move_panel(canvas, yours[0] if yours else None, picked)
 
     def _track_battlers(self, d, foes, yours, t_ms):
-        """Notices switches, damage and fainting, and starts the animations
-        and messages for them."""
-        trainer = _upper(d['battle'].get('trainer'))
-        wild = not trainer
+        """Notices switches, moves, damage and fainting, and starts the
+        animations and messages for them."""
+        wild, trainer = _opponent(d)
         current = {f'foe{k}': m for k, m in enumerate(foes)}
         if yours:
             current['you0'] = yours[0]
+        fresh = set()
         for key, m in current.items():
             ident = (m['species_id'], m['nickname'])
             st = self.battlers.get(key)
             if st is None or st['ident'] != ident:
                 switched = st is not None
                 self.battlers[key] = {'ident': ident, 'hp': m['curr_hp'], 'entered': t_ms if switched else None,
-                                      'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999}
+                                      'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999,
+                                      'moves': list(m.get('moves') or []), 'pp': list(m.get('pp') or []),
+                                      'last_move': m.get('last_move'), 'used': None, 'log': [],
+                                      'picked': None}
+                fresh.add(key)
                 if switched and key.startswith('foe'):
                     who = f"{trainer} sent out" if trainer else "Go,"
-                    self.msg = (f"{who} {_upper(m['nickname'])}!", "", t_ms + self.MSG_MS)
+                    self._say(f"{who} {_upper(m['nickname'])}!", "", t_ms)
                 elif switched:
-                    self.msg = (f"Go! {m['nickname']}!", "", t_ms + self.MSG_MS)
+                    self._say(f"Go! {m['nickname']}!", "", t_ms)
                 continue
+            self._check_move(key, m, st, wild, t_ms)
+
+        # Damage after moves, so a hit that shows up in the same read as the
+        # move lands when the move's animation reaches the target.
+        for key, m in current.items():
+            if key in fresh:
+                continue
+            st = self.battlers[key]
             if m['curr_hp'] < st['hp']:
-                # The attacker lunges, then the one that lost HP blinks.
-                st['hit'] = t_ms + 150
-                attacker = 'you0' if key.startswith('foe') else 'foe0'
-                if attacker in self.battlers:
-                    self.battlers[attacker]['lunge'] = t_ms
+                attacker = self.battlers.get('you0' if key.startswith('foe') else 'foe0')
+                move = attacker and attacker['used']
+                st['hp_before'] = st['hp']   # the HP box holds this until the hit lands
+                if move and t_ms - move[1] < 4000:
+                    st['hit'] = max(t_ms + 150, move[2])
+                else:
+                    # No move seen (or it was a while ago): the attacker lunges.
+                    st['hit'] = t_ms + 150
+                    if attacker:
+                        attacker['lunge'] = t_ms
             if m['curr_hp'] > 0:
                 st['faint'] = None
             elif st['hp'] > 0:
-                st['faint'] = t_ms
+                # Faints once the hit that did it has played.
+                st['faint'] = max(t_ms, st['hit'] + self.HIT_MS) if st['hit'] else t_ms
                 if key.startswith('foe'):
                     owner = "The wild" if wild else "The foe's"
-                    self.msg = (f"{owner} {_upper(m['nickname'])}", "fainted!", t_ms + self.MSG_MS)
+                    self._say(f"{owner} {_upper(m['nickname'])}", "fainted!", st['faint'])
                 else:
-                    self.msg = (f"{m['nickname']} fainted!", "", t_ms + self.MSG_MS)
+                    self._say(f"{m['nickname']} fainted!", "", st['faint'])
             st['hp'] = m['curr_hp']
+
+    def _check_move(self, key, m, st, wild, t_ms):
+        """Works out whether this battler used a move since the last read."""
+        moves, pp = list(m.get('moves') or []), list(m.get('pp') or [])
+        st['log'] = [e for e in st['log'] if t_ms - e[1] < 8000]   # (move, when, seen via PP)
+        used = None
+        if moves == st['moves'] and len(pp) == len(st['pp']):
+            for i, (now, before) in enumerate(zip(pp, st['pp'])):
+                if now < before:
+                    used = moves[i]
+                    st['log'].append((used, t_ms, True))
+                    st['picked'] = i
+                    break
+        st['moves'], st['pp'] = moves, pp
+
+        last, before = m.get('last_move'), st['last_move']
+        st['last_move'] = last
+        if last and last != before:
+            if any(mv == last and via_pp for mv, _, via_pp in st['log']):
+                self.last_move_agreed += 1
+            elif used is None and self.last_move_agreed >= 2 and last in pdata.MOVE_INFO \
+                    and not any(mv == last for mv, _, _ in st['log']):
+                # A move PP didn't show: Struggle, or one called by another
+                # move (Metronome and friends).
+                used = last
+                st['log'].append((used, t_ms, False))
+        if used:
+            self._on_move(key, m, used, wild, t_ms)
+
+    def _on_move(self, key, m, move, wild, t_ms):
+        """Message, lunge and animation for a move being used. When several
+        moves turn up in one read (the reads are a couple of seconds apart),
+        each gets its turn, MOVE_GAP_MS apart."""
+        start = self._say(*self._move_lines(key, m, move, wild), t_ms)
+        mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
+        target = 'foe0' if key.startswith('you') else 'you0'
+        fx = Effect(mtype, category, key, target, start + 250)
+        self.effects = self.effects[-3:] + [fx]
+        st = self.battlers[key]
+        st['used'] = (move, start, fx.impact)
+        if category == 'Physical':
+            st['lunge'] = start + 100   # at its furthest as the effect starts
+
+    def _say(self, l1, l2, at):
+        """Queues a message for the box, no earlier than `at` and MOVE_GAP_MS
+        after the one before. Returns when it will show."""
+        start = max(at, self.next_msg_at)
+        self.next_msg_at = start + self.MOVE_GAP_MS
+        self.msg_queue.append((start, l1, l2))
+        return start
+
+    def _move_lines(self, key, m, move, wild):
+        """'X used MOVE!' split over the two lines of the message box as needed."""
+        if key.startswith('you'):
+            name = m['nickname']
+        else:
+            owner = "The wild" if wild else "The foe's"
+            name = f"{owner} {_upper(m['nickname'])}"
+        mv = _upper(move)
+        for l1, l2 in ((f"{name} used {mv}!", ""), (f"{name} used", f"{mv}!")):
+            if self.font.width(l1) <= W - 24 and self.font.width(l2) <= W - 24:
+                return l1, l2
+        return name, f"used {mv}!"
 
     def _draw_battler(self, canvas, key, anim, feet_x, feet_y, max_size, t_ms, phase, direction):
         """direction: -1 for foes (they face left, slide in from the left),
@@ -433,12 +547,14 @@ class Overlay:
             return
         x = feet_x - f.get_width() // 2 + dx
         y = feet_y - f.get_height() + dy + sink
+        self.boxes[key] = pygame.Rect(x, y, f.get_width(), f.get_height() - sink)
         clip = canvas.get_clip()
         canvas.set_clip((0, 0, W, feet_y + dy))  # a fainting Pokemon sinks into its platform
         canvas.blit(f, (x, y))
         canvas.set_clip(clip)
 
-    def _move_panel(self, canvas, mon):
+    def _move_panel(self, canvas, mon, picked=None):
+        """Your Pokemon's moves; picked: index of the one it used last."""
         t = ui.THEME
         ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
                  hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
@@ -454,24 +570,31 @@ class Overlay:
             mtype, base = (info[0], info[2]) if info else (None, None)
             pp = pps[i] if i < len(pps) else None
             pp_max = base + (base // 5) * (ups[i] if i < len(ups) else 0) if base else None
-            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max)
+            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max, selected=i == picked)
 
-    def _foe_box(self, canvas, m, x, y, dt_ms, k):
+    def _hp_now(self, key, m, t_ms):
+        """The HP to show: the old value until a queued hit lands."""
+        st = self.battlers.get(key, {})
+        if st.get('hit') and t_ms < st['hit'] and st.get('hp_before') is not None:
+            return st['hp_before']
+        return m['curr_hp']
+
+    def _foe_box(self, canvas, m, x, y, dt_ms, k, hp_now):
         t = ui.THEME
         ui.panel(canvas, (x, y, 112, 27))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
         self._level(canvas, m['level'], x + 84, y + 4)
-        hp = self._hp(('foe', k, m['species_id']), m['curr_hp'], m['max_hp'], dt_ms)
+        hp = self._hp(('foe', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
         ui.hp_bar(canvas, self.mini, x + 30, y + 16, 76, hp / max(1, m['max_hp']))
         if m.get('status'):
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
 
-    def _your_box(self, canvas, m, x, y, dt_ms):
+    def _your_box(self, canvas, m, x, y, dt_ms, hp_now):
         t = ui.THEME
         ui.panel(canvas, (x, y, 116, 37))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
         self._level(canvas, m['level'], x + 88, y + 4)
-        hp = self._hp(('yours', m['species_id']), m['curr_hp'], m['max_hp'], dt_ms)
+        hp = self._hp(('yours', m['species_id']), hp_now, m['max_hp'], dt_ms)
         ui.hp_bar(canvas, self.mini, x + 34, y + 16, 76, hp / max(1, m['max_hp']))
         if m.get('status'):
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])

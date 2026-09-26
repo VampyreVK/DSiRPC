@@ -275,6 +275,17 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-26 (later): **Moves in the overlay.** The overlay now shows which
+  move each side used ("The foe's MACHOKE used KARATE CHOP!") with a
+  pixel animation in the move type's style (`overlay/effects.py`), a lunge
+  for physical moves, and the last move you used highlighted in the move
+  panel. Moves are worked out from PP drops between reads, which the parser
+  already had. The parser also reads the game's last-move record
+  (`B+0x527C`, from the decomp's `BattleContext` layout, not yet checked on
+  hardware) as `last_move`, and `dsi_status.py` prints it with each move's
+  PP; the overlay uses it only as a backup once it has agreed with the PP.
+  Wild vs trainer in the battle messages now follows the music, and the
+  demo battles play out move by move.
 - 2026-09-26: **Livelier battles in the overlay.** Hardware check of the
   stutter fix: smooth in play, with `vb=` steady around 76 scanlines (about
   4.8 ms, once a second, most likely the tick that sends the hello). The

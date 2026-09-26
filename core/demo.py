@@ -29,8 +29,9 @@ def _mon(species_id, level, hp, max_hp, gender, nickname=None, shiny=False, stat
     }
 
 
-def _battle_mon(mon, side, hp=None, used=0):
-    """`used`: how much PP each move has spent, for the move panel."""
+def _battle_mon(mon, side, hp=None, uses=(), last_move=None, worn=(0, 0, 0, 0)):
+    """uses: the moves used so far this battle (each spends 1 PP).
+    worn: PP already spent per move before the battle."""
     base = [pdata.MOVE_INFO.get(m, (None, None, 20))[2] for m in mon['moves']]
     return {
         'species_id': mon['species_id'], 'species': mon['species'],
@@ -38,7 +39,8 @@ def _battle_mon(mon, side, hp=None, used=0):
         'curr_hp': mon['curr_hp'] if hp is None else hp, 'max_hp': mon['max_hp'],
         'status': mon['status'], 'moves': mon['moves'], 'shiny': mon['shiny'],
         'gender': mon['gender'], 'side': side,
-        'pp': [max(0, b - used * (i + 1)) for i, b in enumerate(base)], 'pp_ups': [0] * len(base),
+        'pp': [max(0, b - worn[i] - list(uses).count(m)) for i, (m, b) in enumerate(zip(mon['moves'], base))],
+        'pp_ups': [0] * len(base), 'last_move': last_move,
     }
 
 
@@ -52,32 +54,43 @@ PARTY = [
 ]
 
 # Battles: where and when they happen, the foe(s) in order (seconds into the
-# scene they appear), and hits as (second, 'foe' or 'you', damage).
+# scene they appear), and the moves used as (second, 'you' or 'foe', move,
+# damage to the other side), in turns with a pause between them (when the
+# move panel shows). Like the game, a move spends its PP first, the HP drops
+# HIT_DELAY later (after the animation), and the battler's "last move used"
+# updates LAST_DELAY after that.
+HIT_DELAY, LAST_DELAY = 0.8, 0.2
+LEAD_WORN = (3, 6, 0, 1)   # PP your lead had already spent, so the panel shows a mix
+
 BATTLES = {
     'wild': dict(place='Route 203', clock='14:03', weather=0, music=WILD_MUSIC, trainer=None,
                  foes=[(0, _mon(396, 10, 29, 29, 'M', moves=('Tackle', 'Growl', 'Quick Attack')))],
-                 hits=[(3, 'foe', 9), (4.5, 'you', 5), (6.5, 'foe', 10), (8, 'you', 4), (10, 'foe', 12)]),
+                 moves=[(2, 'you', 'Bubble', 9), (3.5, 'foe', 'Tackle', 5),
+                        (9, 'you', 'Peck', 10), (10.5, 'foe', 'Growl', 0),
+                        (13, 'you', 'Bubble', 12)]),
     'shiny': dict(place='Route 212', clock='18:40', weather=2, music=WILD_MUSIC, trainer=None,
                   foes=[(0, _mon(77, 14, 38, 38, 'F', shiny=True, moves=('Ember', 'Tackle')))],
-                  hits=[(4, 'foe', 7), (6, 'you', 6)]),
+                  moves=[(4.5, 'you', 'Growl', 0), (6, 'foe', 'Ember', 6)]),
     'rival': dict(place='Route 205', clock='21:15', weather=0, music=RIVAL_MUSIC, trainer='rival',
                   foes=[(0, _mon(387, 17, 51, 51, 'M', moves=('Razor Leaf', 'Bite', 'Withdraw'))),
-                        (8, _mon(396, 16, 44, 44, 'M', moves=('Wing Attack', 'Quick Attack')))],
-                  hits=[(2.5, 'foe', 18), (4, 'you', 8), (5.5, 'foe', 20), (7, 'foe', 13), (10.5, 'foe', 15),
-                        (12, 'you', 6)]),
+                        (15.5, _mon(396, 16, 44, 44, 'M', moves=('Wing Attack', 'Quick Attack')))],
+                  moves=[(2.5, 'you', 'Bubble', 18), (4, 'foe', 'Razor Leaf', 8),
+                         (8.5, 'you', 'Peck', 20), (10, 'foe', 'Withdraw', 0),
+                         (12.5, 'you', 'Bubble', 13),
+                         (18, 'foe', 'Wing Attack', 6), (19.5, 'you', 'Peck', 15)]),
     'snow': dict(place='Route 216', clock='11:20', weather=6, music=WILD_MUSIC, trainer=None,
                  foes=[(0, _mon(459, 32, 88, 88, 'F', moves=('Ice Shard', 'Razor Leaf')))],
-                 hits=[(3, 'foe', 20), (5, 'you', 9)]),
+                 moves=[(3, 'foe', 'Ice Shard', 9), (4.5, 'you', 'Peck', 20)]),
     'legend': dict(place='Turnback Cave', clock='16:00', weather=0, music=0x0, trainer=None,
                    foes=[(0, _mon(487, 47, 190, 190, 'genderless', moves=('Shadow Force', 'Dragon Claw')))],
-                   hits=[(4, 'foe', 30), (6, 'you', 12)]),
+                   moves=[(4, 'you', 'Bubble', 30), (5.5, 'foe', 'Shadow Force', 12)]),
 }
 
 # (name, seconds) in playing order. The short overworld stretches between
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
-    ('overworld', 10), ('wild', 13), ('overworld', 3), ('shiny', 9), ('overworld', 3),
-    ('rival', 14), ('overworld', 3), ('snow', 8), ('overworld', 3), ('legend', 9),
+    ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
+    ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
     ('levelup', 8), ('offline', 6),
 ]
 
@@ -156,13 +169,22 @@ class DemoSource:
         d['misc']['music_id'] = cfg['music']
         started, foe = [(s, m) for s, m in cfg['foes'] if s <= into][-1]
         foe = copy.deepcopy(foe)
-        foe_hp = foe['max_hp'] - sum(dmg for s, who, dmg in cfg['hits'] if who == 'foe' and started <= s <= into)
-        your_hp = lead['curr_hp'] - sum(dmg for s, who, dmg in cfg['hits'] if who == 'you' and s <= into)
-        lead['curr_hp'] = max(1, your_hp)
+        # Moves by the foe that's out now, and all of yours.
+        mine = [(s, mv, dmg) for s, who, mv, dmg in cfg['moves'] if who == 'you' and s <= into]
+        theirs = [(s, mv, dmg) for s, who, mv, dmg in cfg['moves'] if who == 'foe' and started <= s <= into]
+        foe_hp = foe['max_hp'] - sum(dmg for s, _, dmg in mine if s >= started and s + HIT_DELAY <= into)
+        lead['curr_hp'] = max(1, lead['curr_hp'] - sum(dmg for s, _, dmg in theirs if s + HIT_DELAY <= into))
+
+        def last(used):
+            done = [mv for s, mv, _ in used if s + HIT_DELAY + LAST_DELAY <= into]
+            return done[-1] if done else None
+
         trainer = d['rival_name'] if cfg['trainer'] == 'rival' else None
         d['battle'].update(active=True, trainer=trainer, music_says_battle=True,
-                           mons=[_battle_mon(lead, 'yours', used=int(into // 4)),
-                                 _battle_mon(foe, 'foe', max(0, foe_hp))])
+                           mons=[_battle_mon(lead, 'yours', uses=[mv for _, mv, _ in mine], last_move=last(mine),
+                                             worn=LEAD_WORN),
+                                 _battle_mon(foe, 'foe', max(0, foe_hp), uses=[mv for _, mv, _ in theirs],
+                                             last_move=last(theirs))])
         if trainer:
             d['battle']['trainer_class'] = 0x3F
         return d

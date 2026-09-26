@@ -261,11 +261,23 @@ and keys are in the README ([Stream overlay window](../README.md#stream-overlay-
   look, guessed from the location name, and the save's weather ID adds rain,
   storms, snow, sand, hail, ash or fog. Both Pokémon stand on their platform
   at the spot `process_diorama.py` uses (x=80, bottom y=126 of its canvas);
-  up to two foes are shown. They slide in at the start and on a switch; when
-  one loses HP the other lunges and it blinks and shakes; a fainted one sinks
-  into its platform. The message box shows the intro (from the battle
-  music, the same kinds as in section 6), switches and faints for a few
-  seconds, and otherwise your Pokémon's moves, coloured by type with PP.
+  up to two foes are shown. They slide in at the start and on a switch. Each
+  move either side uses shows as "X used MOVE!" with an animation in the
+  move's type style (`overlay/effects.py`: flames, bubbles, leaves,
+  lightning, ice shards, rocks, rings, wisps, claw streaks, hit sparks;
+  status moves glow around the user), physical moves with a lunge; the
+  target blinks and shakes when its HP drops, and a fainted one sinks into
+  its platform. Moves are worked out from PP: a move whose PP went down
+  since the last read was just used. Things seen in the same read play one
+  after another (`MOVE_GAP_MS` apart), and the HP box holds the old value
+  until the hit lands. The game's own last-move record (`B+0x527C`, not yet
+  checked on hardware) is only a backup, for moves PP can't show (Struggle,
+  moves called by Metronome), and only after it has matched the PP twice.
+  The message box shows the intro (from the battle music, the same kinds as
+  in section 6), moves, switches and faints for a few seconds, and otherwise
+  your Pokémon's moves, coloured by type with PP, the last one used
+  highlighted. Wild vs trainer comes from the music first, since the trainer
+  class read can be unknown.
 - **Waiting view:** while the hub is offline.
 - **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
   level-up, fainted, badge, new Pokédex catch).
@@ -310,7 +322,7 @@ numbers mean.
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
-| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
+| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
 ---
 
@@ -555,6 +567,7 @@ section 6).
 |---|---|
 | `B+0x3C6` | Trainer class of the opponent (u16 as read; values match the decomp's trainer classes, e.g. `0x3E` Roark, `0x3F` rival, `0x45` Cynthia). Names are in `platinum_data.TRAINER_SPRITES`. |
 | `B+0x4F40` | 4 x BattleMon (0xC0 each, unencrypted): yours, foe, your 2nd, foe's 2nd |
+| `B+0x527C` | Last move used by each battler, 4 x u16 in the same order (the decomp's `BattleContext.movePrevByBattler`). Worked out from the struct layout, **not yet checked on hardware**; see research.md section 11. The parser returns it as each battler's `last_move`. |
 
 Within a BattleMon: species `+0x00`, moves `+0x0C`, form in the low 5 bits of
 `+0x26` with shiny at bit 5, current PP `+0x2C` (4 x u8), PP Ups `+0x30`

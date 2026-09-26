@@ -111,16 +111,19 @@ def textbox(surf, rect):
           hi=(255, 255, 255), lo=(216, 216, 224), radius=2)
 
 
-def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None):
+def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None, selected=False):
     """One move, coloured by its type, with PP on the right. name=None draws
-    an empty slot."""
+    an empty slot. selected: the move used last (lighter, white border)."""
     x, y, w, h = rect
     if name is None:
         panel(surf, rect, fill=(120, 132, 140), border=(72, 80, 88), hi=(150, 160, 168), lo=(104, 112, 120))
         font.draw(surf, "-", (x + 6, y + 5), (200, 204, 208), (72, 80, 88))
         return
     c = TYPE_COLORS.get(mtype, (150, 150, 150))
-    panel(surf, rect, fill=c, border=darken(c, 80), hi=lighten(c, 60), lo=darken(c, 30))
+    if selected:
+        panel(surf, rect, fill=lighten(c, 24), border=(248, 248, 248), hi=lighten(c, 80), lo=darken(c, 10))
+    else:
+        panel(surf, rect, fill=c, border=darken(c, 80), hi=lighten(c, 60), lo=darken(c, 30))
     font.draw(surf, name, (x + 6, y + 5), (248, 248, 248), darken(c, 90))
     if pp is not None and pp_max:
         frac = pp / pp_max

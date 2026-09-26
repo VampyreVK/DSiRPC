@@ -263,16 +263,19 @@ numbers mean.
 | Module | What it does |
 |---|---|
 | `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. |
-| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits for the DSi. |
+| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `dsi_status.py`; `dsirpc.py` uses `DSiClient` directly and waits indefinitely). |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs. Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
-| `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size`. |
+| `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
 
 ---
 
 ## 6. Discord Rich Presence behaviour
+
+Nothing is shown while the game isn't running. Section 5 covers when the
+presence appears and when it's taken down.
 
 ### In the overworld (activity type: Playing)
 
@@ -621,6 +624,7 @@ Folder names are case-sensitive on GitHub Pages.
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
 | Wrong game boots | `sd:/_nds/nds-bootstrap.ini` points at the last game TWiLight launched |
 | Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
+| Presence stays up for a while after closing the game | Expected: `dsirpc.py` waits for about 30 s without data before clearing it |
 | Blank image in Discord | Asset not pushed yet, wrong folder case, or a missing ID |
 | "checksum mismatch" in `dsi_status.py` | The read overlapped the game editing that Pokémon; the next read is usually fine |
 
@@ -659,7 +663,13 @@ section 8).
   but at about 0.7 s per full read it isn't needed for Rich Presence.
 - **Live position** reads 0 in some indoor maps. The presence doesn't use it.
 - **Not read yet:** bag contents, PC boxes, event flags, running/biking
-  state and map artwork (the planned area icons). Leads are in research.md.
+  state, NPC positions, and map artwork (the planned area icons). IVs and
+  EVs are in the decrypted party data but not decoded yet. Leads and
+  offsets are in research.md.
+- **Next: a state hub** (planned, on the `state-hub` branch). One process
+  polls the DSi and feeds Discord, OBS stream overlays and later tools.
+  Only one process can own UDP 4244, so everything has to hang off that
+  one poller.
 
 ---
 

@@ -275,6 +275,21 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-23 (night): **Zero-config SD card and a persistent presence.**
+  The in-game side now broadcasts its hellos to 255.255.255.255, so it no
+  longer needs the PC's IP. `RPCPROBE.CFG` and all the code reading it are
+  gone (the ARM7 engine is about 1.3 KB smaller), and the launcher
+  broadcasts its test packets too. The only SD file left is the launcher's
+  own `RPCHAND.TXT`. `dsirpc.py` now runs until stopped: it waits for the
+  DSi, connects to Discord only while the game answers, clears the
+  presence after about 30 s of silence and waits again. Both were built and
+  tested against a simulated DSi in the cloud.
+- 2026-09-23 (night): **Renames, CI and two fixes.** `dsi_battle_rpc.py`
+  became `dsirpc.py` and `Affinity/` became `art-source/`. A GitHub Action
+  (`.github/workflows/build.yml`) builds both `.nds` files and publishes a
+  release for `v*` tags. Clean debug builds compile again (GCC 14 fixes in
+  upstream's debug-only `my_fat.c`/`my_sd.c` code), and rival battles show
+  the name you gave your rival (`S+0x27FC`).
 - 2026-09-23 (evening): **Repo restructured into DSiRPC.** The
   melonDS-RPC-Suite repo became the main repo (its git history and `Assets/`
   paths are unchanged, so GitHub Pages keeps working after the rename to

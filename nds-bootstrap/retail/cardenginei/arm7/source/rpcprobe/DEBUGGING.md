@@ -88,8 +88,8 @@ Two things to know:
 
 ## Rules the in-game code has to follow
 
-- **The SD card is only touched on the very first VBlank** (loading the
-  two files). Later, the game reads its save from the SD card outside
+- **The SD card is only touched on the very first VBlank** (loading
+  `RPCHAND.TXT`). Later, the game reads its save from the SD card outside
   interrupts, and SD access from the VBlank interrupt in the middle of that
   hangs the game (seen as a white screen).
 - **Everything runs inside the VBlank interrupt,** so each tick has to stay

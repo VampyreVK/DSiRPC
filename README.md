@@ -209,6 +209,9 @@ Only one PC tool can use UDP port 4244 at a time.
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
       the DSi on a schedule.
 - [ ] Support other games and versions (only Platinum USA Rev 1 today).
+- [ ] A state hub: one process that polls the DSi and feeds Discord, OBS
+      stream overlays (party, battle, encounter and shiny counters) and
+      later tools. Work happens on the `state-hub` branch.
 - Platinum's own Wi-Fi features are disabled while playing through DSiRPC.
 
 Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).

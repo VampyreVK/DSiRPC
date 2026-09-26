@@ -233,4 +233,5 @@ Discord side: the image fields accept HTTPS URLs. The project serves its GIFs fr
 - DS clock: RA says weekday `01` = Sunday, but the dump (2026-05-07, a Thursday) reads 4, which means 0 = Sunday. Seconds are probably at `0x021BF5F0` (NitroSDK RTCTime is hour, minute, second; the dump reads 27).
 - Battle `+0x3C6`: if it really is the trainer class from a `TrainerHeader`, that field is a u8 followed by the sprite byte, so reading a u16 could pick up extra bits. Check in a trainer battle.
 - Discord reportedly rejects image URLs hosted on Discord's own media CDN (Gemini, untested).
+- NPC positions (for an overlay map): the decomp's FieldSystem holds a MapObjectManager, and each MapObject stores its local ID, graphics ID, facing, tile coordinates and a fixed-point 3D position. The offsets from `[0x021C07DC]` haven't been worked out.
 - Prior art named by the Claude guide (GitHub isn't reachable from here to check): dude22072/PokeStats (Lua, said to have Platinum party offsets), EverOddish/PokeStreamer-Tools (`auto_layout_gen4_gen5.lua`, a Gen IV/V pointer table), JimB16/PokePlat (older Platinum disassembly), kwsch/PKHeX (SAV4/PK4 code).

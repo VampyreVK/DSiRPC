@@ -6,26 +6,48 @@
 // wifi_card_mbox0_sendbytes), and mbox_hdr_tx_data_packet from
 // common/common_twl_defs.h.
 //
-// Only CMD52 (one byte per SDIO command, polled) is used. That's slow - a
-// small packet is ~128 commands - but it needs no DMA and no block-transfer
-// state, so there's very little that can be left half-configured.
+// Packets are moved with CMD53 block transfers (RPCPROBE_RX_CMD53 and
+// RPCPROBE_TX_CMD53, from the non-NDMA path of DSWiFi's
+// wifi_sdio_send_command and its wifi_card_read_func1_block /
+// wifi_card_write_func1_block): one command per packet, the data moved 32
+// bits at a time through the controller's FIFO by the CPU (no NDMA, which
+// nds-bootstrap uses for the SD card). The small register reads use CMD52
+// (one byte per SDIO command, polled), and so does anything CMD53 can't do:
+// if it fails, that direction falls back to CMD52 for good (see
+// TwlWifi_RxMode / TwlWifi_TxMode).
 
 #include <nds/ndstypes.h>
 #include <string.h>
+#include "rpcprobe_build.h"
 #include "twl_wifi.h"
 
 // DSi SDIO controller 2 (the wifi one; the SD card is controller 1).
 #define TMIO2_BASE          0x04004A00u
-#define SDIO_REG16(off)     (*(vu16 *)(TMIO2_BASE + (off)))
+#ifndef SDIO_REG16
+#define SDIO_REG16(off)          (*(vu16 *)(TMIO2_BASE + (off)))
+#define SDIO_FIFO32_READ()       (*(vu32 *)(TMIO2_BASE + SDIO_DATA32_FIFO))
+#define SDIO_FIFO32_WRITE(v)     (*(vu32 *)(TMIO2_BASE + SDIO_DATA32_FIFO) = (v))
+#endif
 
 #define SDIO_CMD            0x000
 #define SDIO_CMD_PARAM0     0x004
 #define SDIO_CMD_PARAM1     0x006
+#define SDIO_STOP           0x008
+#define SDIO_BLK_CNT16      0x00A
 #define SDIO_RESP0          0x00C
 #define SDIO_IRQ_STAT0      0x01C
 #define SDIO_IRQ_STAT1      0x01E
+#define SDIO_BLK_LEN16      0x026
+#define SDIO_DATA_CTL       0x0D8
+#define SDIO_IRQ32          0x100
+#define SDIO_BLK_LEN32      0x104
+#define SDIO_BLK_CNT32      0x108
+#define SDIO_DATA32_FIFO    0x10C
 
 #define STAT0_CMDRESPEND    0x0001
+#define STAT0_DATAEND       0x0004
+#define STAT1_RXRDY         0x0100
+#define STAT1_TXRQ          0x0200
 #define STAT1_CMD_BUSY      0x4000
 // ILL_ACCESS | CMDTIMEOUT | TXUNDERRUN | RXOVERFLOW | DATATIMEOUT |
 // STOPBIT_ERR | CRCFAIL | CMD_IDX_ERR
@@ -33,6 +55,26 @@
 
 // CMD52 (IO_RW_DIRECT), 48-bit response: cmd index 52 | response type 4 << 8
 #define CMD52_RAW           0x0434
+// CMD53 (IO_RW_EXTENDED) block read, as DSWiFi's cmd53_read: cmd index 53 |
+// 48-bit response (4 << 8) | data (bit 11) | read (bit 12) | multiple blocks
+// (bit 13) | bit 14 ("secure", set by DSWiFi for every CMD53).
+#define CMD53_READ_RAW      0x7C35
+// ... and block write, as DSWiFi's cmd53_write: the same without bit 12.
+#define CMD53_WRITE_RAW     0x6C35
+
+// SD_DATA32_IRQ: bit 1 = 32-bit FIFO, bit 8 = a block is waiting in the FIFO
+// (read only), bit 10 = clear the FIFO, bit 11 = enable that as an IRQ.
+// 0x0C02 is what DSWiFi writes before a block read, 0x1402 before a block
+// write (bit 12 = FIFO-has-room IRQ enable), 0x0402 its idle value.
+#define IRQ32_BLOCK_READY   0x0100
+#define IRQ32_READ          0x0C02
+#define IRQ32_WRITE         0x1402
+#define IRQ32_IDLE          0x0402
+// SD_STOP_INTERNAL_ACTION as DSWiFi's wifi_sdio_stop() sets it.
+#define STOP_VALUE          0x0100
+// The mailbox block size DSWiFi set for function 1 when the launcher
+// brought the chip up (and the size every mailbox packet is rounded to).
+#define MBOX_BLOCK          0x80
 
 // Polling limit per command. Kept short on purpose: if the chip is gone we
 // want to give up within a VBlank, not stall the game.
@@ -56,6 +98,17 @@ static u8 txBuf[TX_BUF_SIZE] __attribute__((aligned(4)));
 static u8  rxActive = 0;   // 1 while a packet is partly read
 static u16 rxFullLen = 0;  // its mailbox length, rounded to 0x80
 static u16 rxPos = 0;      // bytes read so far
+static u8  rxLook[4];      // its lookahead (mailbox header bytes 0-3)
+
+// 53 while received packets are read with CMD53, 52 once that's off (the
+// build switch) or has failed CMD53_MAX_ERRORS times.
+static u8  rxMode = RPCPROBE_RX_CMD53 ? 53 : 52;
+static u16 rxCmd53Errors = 0;
+#define CMD53_MAX_ERRORS    3
+
+// The same for sending.
+static u8  txMode = RPCPROBE_TX_CMD53 ? 53 : 52;
+static u16 txCmd53Errors = 0;
 
 static void sdioAck(void) {
 	SDIO_REG16(SDIO_IRQ_STAT0) = 0;
@@ -101,13 +154,139 @@ static int writeByte(u32 func, u32 addr, u8 val) {
 	return cmd52(BIT(31) | (func << 28) | ((addr & 0x1FFFF) << 9) | val, NULL);
 }
 
+// Reads `blocks` mailbox blocks ending at MBOX0_END with one CMD53. The
+// first `bufSize` bytes go to `buf`, the rest are read and dropped.
+// Returns 0 on success, negative on error; `*done` is the number of blocks
+// that came across either way.
+static int cmd53ReadBlocks(u16 blocks, u8 *buf, u16 bufSize, u16 *done) {
+	*done = 0;
+	u32 t = 0;
+	while (SDIO_REG16(SDIO_IRQ_STAT1) & STAT1_CMD_BUSY) {
+		if (++t > CMD_POLL_LIMIT) return -1;
+	}
+
+	u32 addr = MBOX0_END - blocks * MBOX_BLOCK;
+	// Function 1, block mode (bit 27), incrementing address (bit 26).
+	u32 args = (1u << 28) | (1u << 27) | (1u << 26) | ((addr & 0x1FFFF) << 9) | blocks;
+	SDIO_REG16(SDIO_STOP) = STOP_VALUE;
+	sdioAck();
+	SDIO_REG16(SDIO_CMD_PARAM0) = args & 0xFFFF;
+	SDIO_REG16(SDIO_CMD_PARAM1) = args >> 16;
+	SDIO_REG16(SDIO_BLK_LEN16) = MBOX_BLOCK;
+	SDIO_REG16(SDIO_BLK_CNT16) = blocks;
+	SDIO_REG16(SDIO_BLK_LEN32) = MBOX_BLOCK;
+	SDIO_REG16(SDIO_BLK_CNT32) = blocks;
+	SDIO_REG16(SDIO_DATA_CTL) = 0x0002; // 32-bit data
+	SDIO_REG16(SDIO_IRQ32) = IRQ32_READ;
+	SDIO_REG16(SDIO_CMD) = CMD53_READ_RAW;
+
+	u16 got = 0;
+	int result = -3; // timed out
+	t = 0;
+	while (1) {
+		u16 stat1 = SDIO_REG16(SDIO_IRQ_STAT1);
+		if (stat1 & STAT1_ERR_MASK) {
+			result = -2;
+			break;
+		}
+		if (*done < blocks && (SDIO_REG16(SDIO_IRQ32) & IRQ32_BLOCK_READY)) {
+			SDIO_REG16(SDIO_IRQ_STAT1) = SDIO_REG16(SDIO_IRQ_STAT1) & ~STAT1_RXRDY;
+			for (int i = 0; i < MBOX_BLOCK / 4; i++) {
+				u32 w = SDIO_FIFO32_READ();
+				for (int k = 0; k < 4; k++, got++) {
+					if (got < bufSize) buf[got] = (u8)(w >> (8 * k));
+				}
+			}
+			(*done)++;
+			t = 0;
+		}
+		if (*done == blocks) {
+			u16 want = STAT0_CMDRESPEND | STAT0_DATAEND;
+			if ((SDIO_REG16(SDIO_IRQ_STAT0) & want) == want) {
+				result = 0;
+				break;
+			}
+		}
+		if (++t > CMD_POLL_LIMIT) break;
+	}
+
+	sdioAck();
+	SDIO_REG16(SDIO_STOP) = STOP_VALUE;
+	SDIO_REG16(SDIO_IRQ32) = IRQ32_IDLE; // FIFO emptied, its IRQ off again
+	if (result < 0) {
+		// End whatever the card thinks is still going: the SDIO way to
+		// abort a function's transfer is writing its number to the CCCR's
+		// I/O Abort register (0x06).
+		writeByte(0, 0x06, 1);
+	}
+	return result;
+}
+
+// Writes `blocks` mailbox blocks from `buf` (4-byte aligned) with one CMD53,
+// ending at MBOX0_END. Returns 0 on success, negative on error; `*done` is
+// the number of blocks that went out either way.
+static int cmd53WriteBlocks(const u8 *buf, u16 blocks, u16 *done) {
+	*done = 0;
+	u32 t = 0;
+	while (SDIO_REG16(SDIO_IRQ_STAT1) & STAT1_CMD_BUSY) {
+		if (++t > CMD_POLL_LIMIT) return -1;
+	}
+
+	u32 addr = MBOX0_END - blocks * MBOX_BLOCK;
+	// Write (bit 31), function 1, block mode, incrementing address.
+	u32 args = BIT(31) | (1u << 28) | (1u << 27) | (1u << 26) | ((addr & 0x1FFFF) << 9) | blocks;
+	SDIO_REG16(SDIO_STOP) = STOP_VALUE;
+	sdioAck();
+	SDIO_REG16(SDIO_CMD_PARAM0) = args & 0xFFFF;
+	SDIO_REG16(SDIO_CMD_PARAM1) = args >> 16;
+	SDIO_REG16(SDIO_BLK_LEN16) = MBOX_BLOCK;
+	SDIO_REG16(SDIO_BLK_CNT16) = blocks;
+	SDIO_REG16(SDIO_BLK_LEN32) = MBOX_BLOCK;
+	SDIO_REG16(SDIO_BLK_CNT32) = blocks;
+	SDIO_REG16(SDIO_DATA_CTL) = 0x0002; // 32-bit data
+	SDIO_REG16(SDIO_IRQ32) = IRQ32_WRITE;
+	SDIO_REG16(SDIO_CMD) = CMD53_WRITE_RAW;
+
+	const u32 *w = (const u32 *)buf;
+	int result = -3; // timed out
+	t = 0;
+	while (1) {
+		u16 stat1 = SDIO_REG16(SDIO_IRQ_STAT1);
+		if (stat1 & STAT1_ERR_MASK) {
+			result = -2;
+			break;
+		}
+		// The controller asks for each block with TXRQ.
+		if (*done < blocks && (stat1 & STAT1_TXRQ)) {
+			SDIO_REG16(SDIO_IRQ_STAT1) = SDIO_REG16(SDIO_IRQ_STAT1) & ~STAT1_TXRQ;
+			for (int i = 0; i < MBOX_BLOCK / 4; i++) SDIO_FIFO32_WRITE(*w++);
+			(*done)++;
+			t = 0;
+		}
+		if (*done == blocks) {
+			u16 want = STAT0_CMDRESPEND | STAT0_DATAEND;
+			if ((SDIO_REG16(SDIO_IRQ_STAT0) & want) == want) {
+				result = 0;
+				break;
+			}
+		}
+		if (++t > CMD_POLL_LIMIT) break;
+	}
+
+	sdioAck();
+	SDIO_REG16(SDIO_STOP) = STOP_VALUE;
+	SDIO_REG16(SDIO_IRQ32) = IRQ32_IDLE;
+	if (result < 0) writeByte(0, 0x06, 1); // I/O Abort, function 1
+	return result;
+}
+
 int TwlWifi_Probe(TwlWifiProbeResult *out) {
 	int r = readByte(0, 0x00, &out->revResp);
 	if (r < 0) return r;
 	return readByte(0, 0x02, &out->ioEnableResp);
 }
 
-int TwlWifi_SendLlcFrame(const u8 dstMac[6], const u8 srcMac[6], const u8 *llcFrame, u16 llcLen) {
+int TwlWifi_SendLlcFrame(const u8 dstMac[6], const u8 srcMac[6], const u8 *llcFrame, u16 llcLen, int fast) {
 	u16 dataLen = 16 + llcLen;
 	u16 total = 6 + dataLen;
 	u16 rounded = (total + 0x7F) & ~0x7F;
@@ -134,10 +313,29 @@ int TwlWifi_SendLlcFrame(const u8 dstMac[6], const u8 srcMac[6], const u8 *llcFr
 
 	// Write the packet so its last byte lands on the last address of the
 	// mailbox window - that's what tells the chip the message is complete.
-	u32 addr = MBOX0_END - rounded;
-	for (u16 i = 0; i < rounded; i++) {
-		int r = writeByte(1, addr + i, p[i]);
-		if (r < 0) return r;
+	int sent = 0;
+#if RPCPROBE_TX_CMD53
+	if (fast && txMode == 53) {
+		u16 done = 0;
+		int r = cmd53WriteBlocks(p, rounded / MBOX_BLOCK, &done);
+		if (r == 0) {
+			sent = 1;
+		} else {
+			if (++txCmd53Errors >= CMD53_MAX_ERRORS) txMode = 52;
+			// Part of it went out: the chip has a broken message, so don't
+			// send it again on top. Nothing went out: send it byte by byte.
+			if (done) return r;
+		}
+	}
+#else
+	(void)fast;
+#endif
+	if (!sent) {
+		u32 addr = MBOX0_END - rounded;
+		for (u16 i = 0; i < rounded; i++) {
+			int r = writeByte(1, addr + i, p[i]);
+			if (r < 0) return r;
+		}
 	}
 
 	// Bit 16 of HOST_INT_STATUS (bit 0 of its third byte) = TX overflow.
@@ -154,6 +352,26 @@ int TwlWifi_RxPending(void) {
 
 int TwlWifi_RxBusy(void) {
 	return rxActive;
+}
+
+int TwlWifi_RxMode(void) {
+	return rxMode;
+}
+
+int TwlWifi_RxCmd53Errors(void) {
+	return rxCmd53Errors;
+}
+
+int TwlWifi_TxMode(void) {
+	return txMode;
+}
+
+int TwlWifi_TxCmd53Errors(void) {
+	return txCmd53Errors;
+}
+
+void TwlWifi_TxGiveUpCmd53(void) {
+	txMode = 52;
 }
 
 int TwlWifi_ReadPacket(u8 *buf, u16 bufSize, u16 budget) {
@@ -173,7 +391,28 @@ int TwlWifi_ReadPacket(u8 *buf, u16 bufSize, u16 budget) {
 		rxFullLen = (len + 6 + 0x7F) & ~0x7F;
 		rxPos = 0;
 		rxActive = 1;
+		memcpy(rxLook, look, 4);
 	}
+
+#if RPCPROBE_RX_CMD53
+	// The whole packet in one CMD53. Its first 4 bytes must repeat the
+	// lookahead; anything else means the transfer can't be trusted.
+	if (rxMode == 53 && rxPos == 0) {
+		u16 done = 0;
+		int r = cmd53ReadBlocks(rxFullLen / MBOX_BLOCK, buf, bufSize, &done);
+		if (r == 0 && bufSize >= 4 && memcmp(buf, rxLook, 4) == 0) {
+			rxActive = 0;
+			return rxFullLen;
+		}
+		if (++rxCmd53Errors >= CMD53_MAX_ERRORS) rxMode = 52;
+		if (r == 0 || done) {
+			// Some or all of the packet came across, wrong: it's gone.
+			rxActive = 0;
+			return -8;
+		}
+		// Nothing came across: read this one byte by byte below.
+	}
+#endif
 
 	// Same mailbox window we write to: the packet is read as a run of
 	// addresses ending on the last mailbox address (DSWiFi's block path,

@@ -50,7 +50,7 @@ static TwlWifiProbeResult hoProbe = { 0, 0 };
 static int hoLastSend = 0;
 static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-static u8 hoFrame[144];
+static u8 hoFrame[192];
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
 
 static int putDec(char *p, u16 v) {
@@ -112,8 +112,9 @@ static void handoffProbe(void) {
 
 static void handoffSend(void) {
 	// "DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X" plus, with requests
-	// on, " rx=N req=N arp=N eap=N", then " vb=N" - at most 97 bytes.
-	char msg[104];
+	// on, " rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N", then
+	// " vb=N" - at most 143 bytes.
+	char msg[152];
 	int n = 0;
 	n += putStr(&msg[n], "DSiRPC hello #");
 	n += putDec(&msg[n], hoSent);
@@ -134,6 +135,16 @@ static void handoffSend(void) {
 	n += putDec(&msg[n], probeReqArpReplies);
 	n += putStr(&msg[n], " eap=");
 	n += putDec(&msg[n], probeReqEapol);
+	n += putStr(&msg[n], " rxm=");
+	n += putDec(&msg[n], (u16)TwlWifi_RxMode());
+	n += putStr(&msg[n], " e53=");
+	n += putDec(&msg[n], (u16)TwlWifi_RxCmd53Errors());
+	n += putStr(&msg[n], " txm=");
+	n += putDec(&msg[n], (u16)TwlWifi_TxMode());
+	n += putStr(&msg[n], " t53=");
+	n += putDec(&msg[n], (u16)TwlWifi_TxCmd53Errors());
+	n += putStr(&msg[n], " rep=");
+	n += putDec(&msg[n], probeReqRepeats);
 #endif
 	// Longest VBlank tick since the last hello, in scanlines (one is about
 	// 64 us; a whole frame is 263). Big values mean rpcprobe is eating
@@ -143,7 +154,11 @@ static void handoffSend(void) {
 	hoTickMaxLines = 0;
 
 	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
-	int r = TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen);
+	// Every RPCPROBE_HELLO_CMD52_EVERY-th hello (the first included) goes
+	// out with CMD52, so the PC keeps hearing from the DSi even if CMD53
+	// sends silently went nowhere.
+	int fast = (hoSent % RPCPROBE_HELLO_CMD52_EVERY) != 0;
+	int r = TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen, fast);
 	hoLastSend = r;
 
 	hoSent++;

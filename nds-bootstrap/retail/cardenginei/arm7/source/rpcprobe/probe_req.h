@@ -12,6 +12,7 @@ extern u16 probeReqRxFrames;   // packets drained from the chip (any kind)
 extern u16 probeReqRequests;   // memory requests answered
 extern u16 probeReqArpReplies; // ARP replies sent
 extern u16 probeReqEapol;      // EAPOL frames seen (router key renewals)
+extern u16 probeReqRepeats;    // requests the PC sent again (it didn't get the reply)
 
 // Broadcast a gratuitous ARP so the PC learns our MAC right away. Call once
 // when the handoff starts sending.

@@ -22,11 +22,11 @@ this folder is unchanged upstream code.
 | File | Role |
 |---|---|
 | `probe_hook.c/.h` | VBlank state machine: load `/RPCHAND.TXT`, probe the chip, broadcast hellos, service requests |
-| `twl_wifi.c/.h` | Minimal CMD52 SDIO access to the DSi's Atheros chip (cut down from BlocksDS DSWiFi, MIT) |
+| `twl_wifi.c/.h` | Minimal SDIO access to the DSi's Atheros chip (cut down from BlocksDS DSWiFi, MIT): CMD53 block transfers for sending and receiving frames, CMD52 for register reads (and as the fallback each direction switches to by itself if CMD53 fails) |
 | `probe_req.c/.h` | Answers memory requests and ARP, counts EAPOL |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `/RPCHAND.TXT` (written by the launcher); defines the UDP port, 4244 |
-| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` switch (0 = hello packets only) |
+| `rpcprobe_build.h` | Build switches: `RPCPROBE_REQUESTS` (0 = hello packets only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (0 = CMD52 only for that direction), how often a hello still goes out with CMD52, and the per-VBlank receive limits |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide and chip notes |
 
 ## Updating to a newer nds-bootstrap

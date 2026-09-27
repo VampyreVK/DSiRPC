@@ -275,6 +275,43 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-27 (night): **CMD53 sending works on hardware; double battles
+  fixed.** Link check with the CMD53 send build: `txm=53 t53=0 rep=0`, 227
+  of 228 answered (the one lost never reached the DSi), median reply 15 ms.
+  Overlay and presence fixes: foes now face left (the overworld GIFs face
+  right and are mirrored for the foe), the foe's first Pokémon in a double
+  battle is on the right as in the game, and your second Pokémon is shown
+  too (on the right, with two smaller HP boxes; the presence says "X and Y
+  are fighting ..." and lists both on hover). Moves in doubles land on
+  whichever Pokémon on the other side lost HP, and a spread move lands on
+  both.
+- 2026-09-27 (evening): **CMD53 receiving works on hardware; CMD53 sending
+  added.** Link check with the CMD53 receive build: `rxm=53 e53=0`, 231 of
+  231 requests answered, median reply 16 ms (90% under 22 ms, worst 39 ms),
+  about 32 frames a second of other traffic drained. Sending now uses CMD53
+  block writes as well (replies, ARP replies, and 9 hellos in 10), which
+  should take the reply tick from about 76 scanlines to a few. Every 10th
+  hello still goes out with CMD52 as a heartbeat, and if the PC has to
+  re-send the same request twice, sending falls back to CMD52 for the
+  session (the chip gives no delivery report, so that's the only sign of a
+  CMD53 send that silently went nowhere). New hello fields `txm=`, `t53=`,
+  `rep=`, also shown by `dsirpc_client.py --stats`. Checked against the
+  simulated controller and chip (normal, never-asks-for-data and
+  swallowed-frame cases), built with devkitARM (cardenginei ARM7 49,196 of
+  62,464 bytes). Needs a hardware test.
+- 2026-09-27 (later): **Faster DSi reads: CMD53 receiving.** The in-game
+  side now reads each received frame with one CMD53 block transfer (the
+  CPU emptying the controller's 32-bit FIFO, no NDMA) instead of one CMD52
+  per byte, and drains up to 8 frames or 2 KB a VBlank, stopping after
+  anything that sends a reply. That should take roughly a fiftieth of the
+  SDIO time per frame, so the chip no longer overflows on a busy network.
+  If CMD53 fails three times (an error, a timeout, or data that doesn't
+  match the frame's lookahead), it switches back to CMD52 for the session;
+  the hellos report `rxm=53/52` and `e53=`, and `dsirpc_client.py --stats`
+  prints them. Switch: `RPCPROBE_RX_CMD53` in `rpcprobe_build.h`. Checked
+  against a simulated controller and chip (normal, never-delivers and
+  scrambled-data cases) and built with devkitARM (cardenginei ARM7 48,436
+  of 62,464 bytes). Needs a hardware test.
 - 2026-09-27: **Wild battles and move order.** Wild encounters could be
   called trainer battles: in battle the trainer class value is never empty
   on hardware, and at the very start the music can still be the encounter

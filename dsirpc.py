@@ -86,7 +86,7 @@ def battle_presence(d):
     battle = d['battle']
     mons = {m['side']: m for m in battle['mons']}
     mine, foe = mons['yours'], mons['foe']
-    foe2 = mons.get('foe (2nd)')
+    mine2, foe2 = mons.get('yours (2nd)'), mons.get('foe (2nd)')
     music = d['misc']['music_id']
     trainer = battle['trainer'] if battle['trainer'] and not battle['trainer'].startswith('sprite') else None
 
@@ -114,18 +114,24 @@ def battle_presence(d):
         details = "In a battle"
         owner = "The foe's"
 
-    state = f"{mon_name(mine)} is fighting {foe['species']}"
+    if mine2:
+        state = f"{mon_name(mine)} and {mon_name(mine2)} are fighting {foe['species']}"
+    else:
+        state = f"{mon_name(mine)} is fighting {foe['species']}"
     if foe2:
         state += f" and {foe2['species']}"
+    small_text = f"{d['trainer_name']}'s {mon_name(mine)} (Lv {mine['level']}, {mine['curr_hp']}/{mine['max_hp']} HP)"
+    if mine2:
+        small_text += f" and {mon_name(mine2)} (Lv {mine2['level']}, {mine2['curr_hp']}/{mine2['max_hp']} HP)"
 
     return {
         'activity_type': ActivityType.COMPETING,
         'details': details,
-        'state': state,
+        'state': state[:128],
         'large_image': front_sprite(foe['species_id'], foe.get('shiny')),
         'large_text': f"{owner} {foe['species']} (Lv {foe['level']}, {foe['curr_hp']}/{foe['max_hp']} HP)",
         'small_image': back_sprite(mine['species_id'], mine.get('shiny')),
-        'small_text': f"{d['trainer_name']}'s {mon_name(mine)} (Lv {mine['level']}, {mine['curr_hp']}/{mine['max_hp']} HP)",
+        'small_text': small_text[:128],  # Discord's limit
     }
 
 

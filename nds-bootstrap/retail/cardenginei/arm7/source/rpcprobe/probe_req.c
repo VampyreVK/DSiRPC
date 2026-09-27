@@ -89,7 +89,7 @@ static void sendArp(u16 op, const u8 dstMac[6], const u8 targetMac[6], const u8 
 	memcpy(&a[14], myIp, 4);
 	memcpy(&a[18], targetMac, 6);
 	memcpy(&a[24], targetIp, 4);
-	TwlWifi_SendLlcFrame(dstMac, myMac, txFrame, 8 + 28);
+	TwlWifi_SendLlcFrame(dstMac, myMac, txFrame, 8 + 28, 1);
 	sentThisTick = 1;
 }
 
@@ -132,12 +132,37 @@ static void sendUdpReply(const u8 dstMac[6], const u8 dstIp[4], u16 dstPort, u16
 	put16(&udp[4], udpLen);
 	udp[6] = 0; udp[7] = 0; // no UDP checksum (valid for IPv4)
 
-	TwlWifi_SendLlcFrame(dstMac, rpcProbeHandoff.dsiMac, txFrame, 8 + 20 + udpLen);
+	TwlWifi_SendLlcFrame(dstMac, rpcProbeHandoff.dsiMac, txFrame, 8 + 20 + udpLen, 1);
 	sentThisTick = 1;
+}
+
+// The last request answered, to notice the PC sending one again: the PC
+// client re-sends a request (same seq) when no reply came within its
+// timeout. Twice in a row, with CMD53 sending, means those replies aren't
+// getting out, so sending goes back to CMD52.
+static u8  lastReqIp[4];
+static u16 lastReqPort = 0;
+static u16 lastReqSeq = 0;
+static u8  lastReqValid = 0;
+static u8  reqRepeats = 0;
+u16 probeReqRepeats = 0;
+
+static void noteRequest(const u8 *srcIp, u16 srcPort, u16 seq) {
+	if (lastReqValid && seq == lastReqSeq && srcPort == lastReqPort && memcmp(srcIp, lastReqIp, 4) == 0) {
+		probeReqRepeats++;
+		if (++reqRepeats >= 2 && TwlWifi_TxMode() == 53) TwlWifi_TxGiveUpCmd53();
+		return;
+	}
+	reqRepeats = 0;
+	lastReqSeq = seq;
+	lastReqPort = srcPort;
+	memcpy(lastReqIp, srcIp, 4);
+	lastReqValid = 1;
 }
 
 static void handleRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
 	if (len < 4 || req[0] != 'R') return;
+	noteRequest(srcIp, srcPort, get16(&req[1]));
 
 	u8 *resp = txFrame + 8 + 20 + 8;
 	resp[0] = 'D';
@@ -195,27 +220,25 @@ static void handleIpv4(const u8 *srcMac, const u8 *ip, int len) {
 	handleRequest(srcMac, &ip[12], get16(&udp[0]), udp + 8, udpLen - 8);
 }
 
-int ProbeReq_Service(void) {
-	sentThisTick = 0;
-	int n = TwlWifi_ReadPacket(rxBuf, sizeof(rxBuf), RPCPROBE_RX_BYTES_PER_VBLANK);
-	if (n <= 0) return 0; // nothing waiting, or still draining a packet
+// Handles one received frame (`n` = its full mailbox length).
+static void handleFrame(int n) {
 	probeReqRxFrames++;
 
 	u8 type = rxBuf[0];
-	if (type < 2 || type > 5) return 0; // chip control message, not data
+	if (type < 2 || type > 5) return; // chip control message, not data
 
 	u16 len = rxBuf[2] | (rxBuf[3] << 8); // bytes after the 6-byte mailbox header
 	if (rxBuf[1]) {                        // "ack present": trailer at the end
 		u8 ackLen = rxBuf[4];
 		if (ackLen < len) len -= ackLen;
 	}
-	if (len < 24) return 0;
+	if (len < 24) return;
 
 	// Only what actually fit in rxBuf can be looked at.
 	int avail = (n < RX_BUF_SIZE ? n : RX_BUF_SIZE) - 30;
 	int payloadLen = len - 24;
 	if (payloadLen > avail) payloadLen = avail;
-	if (payloadLen <= 0) return 0;
+	if (payloadLen <= 0) return;
 
 	const u8 *srcMac = &rxBuf[14];
 	const u8 *payload = &rxBuf[30];
@@ -224,6 +247,22 @@ int ProbeReq_Service(void) {
 		case ETHERTYPE_IPV4:  handleIpv4(srcMac, payload, payloadLen); break;
 		case ETHERTYPE_EAPOL: probeReqEapol++; break;
 		default: break;
+	}
+}
+
+int ProbeReq_Service(void) {
+	sentThisTick = 0;
+	int frames = 0, bytes = 0;
+	while (1) {
+		int n = TwlWifi_ReadPacket(rxBuf, sizeof(rxBuf), RPCPROBE_RX_BYTES_PER_VBLANK);
+		if (n <= 0) break; // nothing waiting, still draining a packet (CMD52), or an error
+		handleFrame(n);
+		frames++;
+		bytes += n;
+		// CMD52: one frame per VBlank, as the byte budget allows. CMD53:
+		// keep going while it's cheap, but only one send per VBlank.
+		if (TwlWifi_RxMode() != 53 || sentThisTick) break;
+		if (frames >= RPCPROBE_RX53_FRAMES_PER_VBLANK || bytes >= RPCPROBE_RX53_BYTES_PER_VBLANK) break;
 	}
 	return sentThisTick;
 }

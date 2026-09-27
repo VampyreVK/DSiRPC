@@ -4,9 +4,9 @@ the overlay, in memory. No image files are written.
 
 The GIFs in Assets/ were made for Discord, so each kind needs undoing first:
 
-    Pokemon-Overworld, Shiny-Pokemon-Overworld  animated front sprites, 2x nearest
-                                                upscale -> party icons and the foe
-                                                (halved)
+    Pokemon-Overworld, Shiny-Pokemon-Overworld  animated front sprites facing right,
+                                                2x nearest upscale -> party icons and
+                                                the foe (halved; mirrored for the foe)
     Pokemon-Battle-BackSmall, Shiny-...          2x upscale, mirrored
                                                 -> your battler (halved, un-mirrored)
     Pokemon-Battle-NormalLarge, Shiny-...        1x, mirrored, pasted on the grass
@@ -213,7 +213,10 @@ class SpriteBank:
             _, sid, shiny = key
             icon = self._path('Shiny-Pokemon-Overworld' if shiny else 'Pokemon-Overworld', f'{sid}.gif')
             if os.path.exists(icon):
-                return self._load(('icon', sid, shiny))
+                # The overworld GIFs face right; a foe faces left, towards
+                # your Pokemon.
+                frames, durs = self._load(('icon', sid, shiny))
+                return [ImageOps.mirror(f) for f in frames], durs
             folder = 'Shiny-Battle-NormalLarge' if shiny else 'Pokemon-Battle-NormalLarge'
             frames, durs = _read_gif(self._path(folder, f'{sid}.gif'))
             bg_path = self._path(folder, 'BattleBackgroundNormal.png')

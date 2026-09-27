@@ -213,6 +213,14 @@ def link_stats(c, seconds, rate=4.0):
           f"we got {ok_in_span} replies")
     print(f"Frames drained: {d_rx / span:.1f}/s ({(d_rx - d_req) / span:.1f}/s not ours)")
     print(f"Hello spacing: average {sum(gaps) / len(gaps):.2f} s, longest {max(gaps):.2f} s; longest tick vb={vb}")
+    modes = {'53': "CMD53 block transfers", '52': "CMD52, one byte per command"}
+    if 'rxm' in f1:
+        print(f"The DSi reads its wifi chip with: {modes.get(f1['rxm'], f1['rxm'])}; "
+              f"failed CMD53 reads: {f1.get('e53', '?')}")
+    if 'txm' in f1:
+        d_rep = (int(f1.get('rep', 0)) - int(f0.get('rep', 0))) & 0xFFFF
+        print(f"The DSi sends with: {modes.get(f1['txm'], f1['txm'])}; failed CMD53 writes: {f1.get('t53', '?')}; "
+              f"requests we had to send again: {d_rep} (total {f1.get('rep', '?')})")
     lost_in = sent_in_span - d_req
     lost_out = d_req - ok_in_span
     tol = max(2, 0.05 * sent_in_span)  # requests in flight at either end of the window

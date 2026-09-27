@@ -102,7 +102,7 @@ class Overlay:
         self._scaled = {}
         self.backdrop = Backdrop()
         self.battle_since = None   # when the battle view appeared (intro slide-in)
-        self.battlers = {}         # 'foe0' / 'foe1' / 'you0' -> animation state
+        self.battlers = {}         # 'foe0' / 'foe1' / 'you0' / 'you1' -> animation state
         self.msg = None            # (line 1, line 2, until_ms) for the message box
         self.effects = []          # move animations playing (effects.Effect)
         self.boxes = {}            # battler key -> where its sprite was drawn this frame
@@ -359,7 +359,7 @@ class Overlay:
         self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
 
         foes = [m for m in b['mons'] if m['side'].startswith('foe')][:2]
-        yours = [m for m in b['mons'] if m['side'].startswith('yours')][:1]
+        yours = [m for m in b['mons'] if m['side'].startswith('yours')][:2]
         self._track_battlers(d, foes, yours, t_ms)
 
         # Intro: each side slides in from its edge with its platform.
@@ -381,8 +381,9 @@ class Overlay:
             else:
                 spots[side] = (cx - 8 + dx, bottom - 25)
 
-        # Foes (up to two), then your Pokemon from behind.
-        offsets = [0] if len(foes) < 2 else [-26, 26]
+        # Foes (up to two; the first one is on the right, as in the game),
+        # then your Pokemon from behind.
+        offsets = [0] if len(foes) < 2 else [26, -26]
         for k, m in enumerate(foes):
             x, y = spots['foe']
             anim = self.sprites.front(m['species_id'], m['shiny'])
@@ -390,11 +391,14 @@ class Overlay:
             if m['shiny'] and t_ms < self.shiny_intro_until:
                 for j in range(5):
                     ui.sparkle(canvas, x - 20 + offsets[k] + (j * 13) % 40, y - 54 + (j * 17) % 45, t_ms + j * 70)
-        if yours:
-            m = yours[0]
+        # Yours (up to two; the first one on the left), the right one first
+        # so the first stands in front.
+        offsets = [0] if len(yours) < 2 else [-22, 22]
+        for k in reversed(range(len(yours))):
+            m = yours[k]
             x, y = spots['you']
             anim = self.sprites.back(m['species_id'], m['shiny'])
-            self._draw_battler(canvas, 'you0', anim, x, y, 84, t_ms, 0, direction=1)
+            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y, 84, t_ms, k * 300, direction=1)
 
         self.effects = [e for e in self.effects if e.draw(canvas, t_ms, self.boxes)]
         self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
@@ -408,8 +412,16 @@ class Overlay:
             if entered is not None and t_ms < entered:
                 continue  # not sent out yet (its "sent out" message is still queued)
             self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k, self._hp_now(f'foe{k}', m, t_ms))
-        if yours:
-            self._your_box(canvas, yours[0], 136 + int((1 - hud) * 130), 104, dt_ms, self._hp_now('you0', yours[0], t_ms))
+        for k, m in enumerate(yours):
+            entered = self.battlers.get(f'you{k}', {}).get('entered')
+            if entered is not None and t_ms < entered:
+                continue
+            x = 136 + int((1 - hud) * 130)
+            if len(yours) == 1:
+                self._your_box(canvas, m, x, 104, dt_ms, self._hp_now('you0', m, t_ms))
+            else:
+                # Two smaller boxes (no HP numbers), stacked above the message box.
+                self._your_small_box(canvas, m, x, 91 + k * 27, dt_ms, k, self._hp_now(f'you{k}', m, t_ms))
 
         # Bottom: a message for a few seconds after something happens,
         # otherwise your Pokemon's moves.
@@ -433,8 +445,8 @@ class Overlay:
         the order they happened in the game."""
         wild, trainer = _opponent(d)
         current = {f'foe{k}': m for k, m in enumerate(foes)}
-        if yours:
-            current['you0'] = yours[0]
+        for k, m in enumerate(yours):
+            current[f'you{k}'] = m
         same = {key: m for key, m in current.items()
                 if key in self.battlers and self.battlers[key]['ident'] == _ident(m)}
 
@@ -479,13 +491,17 @@ class Overlay:
     def _took_damage(self, key, m, st, wild, t_ms):
         st['hp_before'] = st['hp']   # the HP box holds this until the hit lands
         ko = self._faint_lines(key, m, wild) if m['curr_hp'] <= 0 < st['hp'] else None
-        aimed = [h for h in self.held if not h['status'] and h['target'] == key]
-        h = next((h for h in aimed if not h['hit']), aimed[-1] if aimed else None)
+        # Held damaging moves from the other side. In a double battle the
+        # target isn't known until its HP drops, so any of them will do.
+        aimed = [h for h in self.held if not h['status'] and h['key'][:3] != key[:3]]
+        h = next((h for h in aimed if not h['hits']), aimed[-1] if aimed else None)
         if h is not None:
             # The move that did it hasn't played yet; the hit (and the
-            # faint) land when it does.
-            h['hit'] = True
-            h['ko'] = h['ko'] or ko
+            # faint) land when it does. A move that hits both (Surf, ...)
+            # collects both.
+            if not h['hits']:
+                h['target'] = key
+            h['hits'].append((key, ko))
             st['hit'] = float('inf')
             return
         attacker = self.battlers.get('you0' if key.startswith('foe') else 'foe0')
@@ -541,13 +557,14 @@ class Overlay:
         category = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
         self.held.append({'key': key, 'target': 'foe0' if key.startswith('you') else 'you0',
                           'move': move, 'slot': slot, 'status': category == 'Status',
-                          'hit': False, 'ko': None, 'read_at': self.read_at or 0.0, 'seq': self.seq,
+                          'hits': [], 'read_at': self.read_at or 0.0, 'seq': self.seq,
                           'priority': pdata.MOVE_PRIORITY.get(move, 0), 'speed': _speed(m),
                           'lines': self._move_lines(key, m, move, wild)})
 
     def _ready(self, h, leaving=None):
         """A held move can play once it has clearly finished in the game."""
-        if h['status'] or h['hit'] or leaving in (h['key'], h['target']):
+        if h['status'] or h['hits'] or leaving in (h['key'], h['target']) \
+                or any(leaving == k for k, _ in h['hits']):
             return True
         # Something happened after it (another move was seen in a later
         # read), or one side fainted or left: it missed or did no damage.
@@ -588,12 +605,14 @@ class Overlay:
                 st['picked'] = h['slot']
             if category == 'Physical':
                 st['lunge'] = start + 100   # at its furthest as the effect starts
-        target = self.battlers.get(h['target'])
-        if h['hit'] and target is not None:
+        for key_hit, ko in h['hits']:
+            target = self.battlers.get(key_hit)
+            if target is None:
+                continue
             target['hit'] = max(t_ms + 150, fx.impact)
-            if h['ko']:
+            if ko:
                 target['faint'] = target['hit'] + self.HIT_MS
-                self._say(*h['ko'], target['faint'])
+                self._say(*ko, target['faint'])
 
     def _say(self, l1, l2, at):
         """Queues a message for the box, no earlier than `at` and MOVE_GAP_MS
@@ -705,6 +724,16 @@ class Overlay:
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
         self.font.draw(canvas, f"{int(round(hp))}/{m['max_hp']}", (x + 110, y + 25),
                        t['text'], t['text_shadow'], align='right')
+
+    def _your_small_box(self, canvas, m, x, y, dt_ms, k, hp_now):
+        """Your side's box in a double battle: like the foe's box."""
+        ui.panel(canvas, (x, y, 116, 27))
+        self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
+        self._level(canvas, m['level'], x + 88, y + 4)
+        hp = self._hp(('yours', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
+        ui.hp_bar(canvas, self.mini, x + 34, y + 16, 76, hp / max(1, m['max_hp']))
+        if m.get('status'):
+            ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
 
     def _battle_lines(self, d):
         b = d['battle']

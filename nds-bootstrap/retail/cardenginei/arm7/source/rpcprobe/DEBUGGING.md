@@ -11,7 +11,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 255.255.255.255, port 4244:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N vb=N
 ```
 
 Watch them with `launcher/pc/hello_listener.py`.
@@ -25,7 +25,12 @@ Watch them with `launcher/pc/hello_listener.py`.
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent. If this is 0 and requests time out, the PC can't find the DSi's MAC. |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. If hellos stop right after this goes up, that's the group-key renewal problem. |
-| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). About 76 is normal: that's a tick that sends a hello or a reply (a 256-byte mailbox write at roughly 19 µs per SDIO command, about 4.8 ms), and play was smooth at that on hardware. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+| `rxm` | How received frames are read from the chip: `53` = CMD53 block transfers (one SDIO command per frame), `52` = one CMD52 per byte (the `RPCPROBE_RX_CMD53` switch is off, or CMD53 failed three times on this console and it switched itself back). |
+| `e53` | CMD53 reads that failed: an SDIO error or timeout, or data that didn't match the frame's header. A few right at the start followed by `rxm=52` means CMD53 doesn't work on this console. |
+| `txm` | How frames are sent: `53` = CMD53 block writes (replies, ARP replies and 9 hellos in 10; every 10th hello always goes out with CMD52 so the PC keeps hearing from the DSi), `52` = CMD52 for everything (`RPCPROBE_TX_CMD53` off, CMD53 writes failed three times, or the PC had to re-send the same request twice in a row, which means CMD53 replies weren't arriving). |
+| `t53` | CMD53 writes that failed (SDIO error or timeout). |
+| `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 If hellos arrive but reads are slow or time out now and then, run the link
 check on the PC: `core\dsirpc_client.py --stats 60` (see DOCUMENTATION.md,

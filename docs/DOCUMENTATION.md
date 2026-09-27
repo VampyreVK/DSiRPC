@@ -263,8 +263,13 @@ second, instead of the whole state every `--interval` seconds (see
   hills and swaying grass. Caves, buildings and snowy areas get their own
   look, guessed from the location name, and the save's weather ID adds rain,
   storms, snow, sand, hail, ash or fog. Both Pokémon stand on their platform
-  at the spot `process_diorama.py` uses (x=80, bottom y=126 of its canvas);
-  up to two foes are shown. They slide in at the start and on a switch. Each
+  at the spot `process_diorama.py` uses (x=80, bottom y=126 of its canvas),
+  foes facing left (the overworld GIFs face right, so they're mirrored). In
+  a double battle both sides show two: the foe's first Pokémon on the right
+  and yours on the left, as in the game, with two smaller HP boxes for yours
+  (no HP numbers). A damaging move's target is whichever Pokémon on the
+  other side loses HP; a move that hits both (Surf and the like) lands on
+  both. They slide in at the start and on a switch. Each
   move either side uses shows as "X used MOVE!" with an animation in the
   move's type style (`overlay/effects.py`: flames, bubbles, leaves,
   lightning, ice shards, rocks, rings, wisps, claw streaks, hit sparks;
@@ -400,11 +405,11 @@ read most often during a battle; `dsirpc.py` and the hub both use it.
 
 | Field | Content | Example |
 |---|---|---|
-| Line 2 | `<your mon> is fighting <foe>` (plus `and <foe 2>` in doubles) | Blucifer is fighting Buizel |
+| Line 2 | `<your mon> is fighting <foe>`; in doubles `<mon> and <mon 2> are fighting <foe> and <foe 2>` | Blucifer is fighting Buizel |
 | Large image | Foe's front sprite on the battle diorama, shiny-aware | `Pokemon-Battle-NormalLarge/418.gif` |
 | Large hover | Owner, species, level, HP | Barry's Buizel (Lv 23, 41/59 HP) |
 | Small image | Your Pokémon's back sprite, shiny-aware | `Shiny-Battle-BackSmall/77.gif` |
-| Small hover | Trainer name, mon, level, HP | Vivia's Blucifer (Lv 36, 52/84 HP) |
+| Small hover | Trainer name, mon, level, HP (both of yours in doubles, cut at Discord's 128 characters) | Vivia's Blucifer (Lv 36, 52/84 HP) |
 
 Discord hides the party fraction while the type is Competing.
 
@@ -428,7 +433,7 @@ to be configured.
 ASCII text:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N vb=N
 ```
 
 | Field | Meaning |
@@ -441,7 +446,12 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N vb=N
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent |
 | `eap` | EAPOL frames seen, meaning the router renewed its keys. Watch this if hellos die at regular intervals. |
-| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). About 76 is normal: that's a tick that sends a hello or a reply (a 256-byte mailbox write at roughly 19 µs per SDIO command, about 4.8 ms), and play was smooth at that on hardware. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+| `rxm` | How received frames are read from the chip: `53` = CMD53 block transfers (one SDIO command per frame), `52` = one CMD52 per byte (the `RPCPROBE_RX_CMD53` switch is off, or CMD53 failed three times on this console and it switched itself back). |
+| `e53` | CMD53 reads that failed: an SDIO error or timeout, or data that didn't match the frame's header. A few right at the start followed by `rxm=52` means CMD53 doesn't work on this console. |
+| `txm` | How frames are sent: `53` = CMD53 block writes (replies, ARP replies and 9 hellos in 10; every 10th hello always goes out with CMD52 so the PC keeps hearing from the DSi), `52` = CMD52 for everything (`RPCPROBE_TX_CMD53` off, CMD53 writes failed three times, or the PC had to re-send the same request twice in a row, which means CMD53 replies weren't arriving). |
+| `t53` | CMD53 writes that failed (SDIO error or timeout). |
+| `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
+| `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 ### Memory request (PC -> DSi)
 
@@ -497,11 +507,11 @@ All paths below are under `nds-bootstrap/retail/`.
 | File | Role |
 |---|---|
 | `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests. |
-| `twl_wifi.c/.h` | Minimal Atheros SDIO access, CMD52 only: chip probe, send one framed packet to the chip's mailbox, check for and read one received packet |
+| `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction) |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP, counts EAPOL |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT`; defines the UDP port (4244) |
-| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only) |
+| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, and the per-VBlank receive limits |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
 
 The original hand-rolled DS-mode Wi-Fi + WPA2 driver (from before the
@@ -714,7 +724,7 @@ Folder names are case-sensitive on GitHub Pages.
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
-| Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's wifi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic (at most one frame and 128 bytes per VBlank). Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. The real fix is faster draining on the DSi side (section 12); in battles the overlay's hub already reads only the battlers. |
+| Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's wifi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
 | "A communication error has occurred" after Continue | Stock nds-bootstrap, or not the USA Rev 1 ROM, so the patch didn't apply |
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
@@ -756,16 +766,19 @@ section 8).
   before the DSi-mode rework, and it hasn't been retested since.
 - **USA Rev 1 only.** Other revisions and regions need their own patch
   addresses and memory map.
-- **Latency.** At most `RPCPROBE_RX_BYTES_PER_VBLANK` (128) received bytes
-  and one frame per VBlank, with CMD52 byte-at-a-time SDIO, so the game
-  doesn't stutter. That caps draining at about 7.7 KB/s, which a busy home
-  network's broadcast traffic can exceed; the wifi chip then drops frames,
-  requests included, and a full read that used to take about 0.7 s can take
-  10 s or more (seen in a 2026-09-26 gym battle). The fix is the CMD53
-  block-transfer upgrade noted in
-  [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md),
-  which would drain much faster for far less ARM7 time. Until then, the
-  overlay's hub reads only the battlers during a battle.
+- **Latency.** With CMD52 byte-at-a-time SDIO, receiving is capped at
+  `RPCPROBE_RX_BYTES_PER_VBLANK` (128) bytes and one frame per VBlank so the
+  game doesn't stutter, about 7.7 KB/s, which a busy home network's
+  broadcast traffic can exceed; the wifi chip then drops frames, requests
+  included, and a full read that used to take about 0.7 s can take 10 s or
+  more (seen in a 2026-09-26 gym battle). The in-game side now reads
+  received frames with CMD53 block transfers instead (one command per
+  frame, up to 8 frames a VBlank; see
+  [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md)),
+  falling back to CMD52 by itself if CMD53 fails. On hardware (2026-09-27)
+  that took a 60 s link check to no lost requests and a 16 ms median reply.
+  Sending uses CMD53 too (on hardware: no replies lost, median 15 ms);
+  `rxm=` and `txm=` in the hellos say what's in use.
 - **Live position** reads 0 in some indoor maps. The presence doesn't use it.
 - **Not read yet:** bag contents, PC boxes, event flags, running/biking
   state, NPC positions, and map artwork (the planned area icons). IVs and

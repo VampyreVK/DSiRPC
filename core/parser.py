@@ -85,7 +85,7 @@ class PlatinumParser:
     BATTLE_SIDES = ('yours', 'foe', 'yours (2nd)', 'foe (2nd)')  # BattleMon slots 0-3
     # The parts of a BattleMon that decode_battle_mon() looks at, as
     # (offset, length). The hub's quick in-battle reads fetch only these.
-    BATTLE_MON_FIELDS = ((0x00, 2), (0x0C, 8), (0x26, 0x2E), (0x6C, 4), (0x7E, 1))
+    BATTLE_MON_FIELDS = ((0x00, 0x1C), (0x26, 0x2E), (0x6C, 0x0C), (0x7E, 1))
     MUSIC_ID = 0x021BEB04             # u16
     TEXTBOX_ACTIVE = 0x021C04E3       # u8, 2 while an NPC text box is open
     POS_MIRROR = 0x021C5CCC           # fx32 x, y (height), z; the tile is the upper u16
@@ -221,6 +221,11 @@ class PlatinumParser:
         moves = struct.unpack_from('<4H', raw, 0x0C)
         pp, pp_ups = raw[0x2C:0x30], raw[0x30:0x34]  # ppCur[4], ppUps[4]
         status = struct.unpack_from('<I', raw, 0x6C)[0]
+        # Speed stat at +0x06 and its stage (statBoosts[3], 0-12, 6 = no
+        # change) at +0x1B, for guessing who moved first. The OT ID at +0x74
+        # tells wild Pokemon apart: they're made with the player's ID.
+        speed, speed_stage = struct.unpack_from('<H', raw, 0x06)[0], raw[0x1B]
+        ot_id = struct.unpack_from('<I', raw, 0x74)[0]
         return {
             'species_id': species,
             'species': self.name(pdata.SPECIES, species),
@@ -234,6 +239,9 @@ class PlatinumParser:
             'pp_ups': [pp_ups[k] for k, m in enumerate(moves) if m],
             'shiny': bool(raw[0x26] >> 5 & 1),
             'gender': {0: 'M', 1: 'F'}.get(raw[0x7E] & 0x0F, 'genderless'),
+            'speed': speed,
+            'speed_stage': speed_stage,
+            'ot_id': ot_id,
         }
 
     def battle_mon(self, raw, slot, last_moves):
@@ -356,7 +364,7 @@ class PlatinumParser:
         # 7. Battle
         music = self.read_u16(self.MUSIC_ID)
         battle = {'pointer': hex(battle_ptr), 'music_says_battle': music in pdata.BATTLE_MUSIC,
-                  'active': False, 'trainer': None, 'mons': []}
+                  'active': False, 'wild': False, 'trainer': None, 'mons': []}
         if self.is_ram_pointer(battle_ptr):
             last_moves = self.read_bytes(battle_ptr + self.BATTLE_OFFSET_LAST_MOVES, 8)
             for i in range(len(self.BATTLE_SIDES)):
@@ -366,6 +374,10 @@ class PlatinumParser:
                     battle['mons'].append(mon)
             sides_found = {m['side'] for m in battle['mons']}
             battle['active'] = 'yours' in sides_found and 'foe' in sides_found
+            # Wild Pokemon are made with the player's own trainer ID (TID and
+            # SID as one u32); a trainer's Pokemon get a random one.
+            player_id = self.parsed_data['trainer_id'] | self.parsed_data['secret_id'] << 16
+            battle['wild'] = any(m['ot_id'] == player_id for m in battle['mons'] if m['side'].startswith('foe'))
             if battle['active']:
                 sprite = self.read_u16(battle_ptr + self.BATTLE_OFFSET_TRAINER_SPRITE)
                 battle['trainer_class'] = sprite
@@ -375,6 +387,8 @@ class PlatinumParser:
                     battle['trainer'] = self.parsed_data['rival_name']  # whatever the rival was named
                 else:
                     battle['trainer'] = pdata.TRAINER_SPRITES.get(sprite, f'sprite {sprite:#x}')
+                if battle['wild']:
+                    battle['trainer'] = None  # whatever the class field says, there's no trainer
         self.parsed_data['battle'] = battle
 
         # 8. Odds and ends

@@ -18,14 +18,14 @@ from . import platinum_data as pdata
 WILD_MUSIC, TRAINER_MUSIC, RIVAL_MUSIC = 0x45C, 0x45F, 0x464
 
 
-def _mon(species_id, level, hp, max_hp, gender, nickname=None, shiny=False, status=None, moves=()):
+def _mon(species_id, level, hp, max_hp, gender, nickname=None, shiny=False, status=None, moves=(), speed=30):
     species = pdata.SPECIES[species_id]
     return {
         'species_id': species_id, 'species': species,
         'nickname': nickname or species.upper(), 'level': level,
         'curr_hp': hp, 'max_hp': max_hp, 'status': status, 'item': 'None',
         'moves': list(moves), 'nature': 'Hardy', 'gender': gender,
-        'shiny': shiny, 'egg': False, 'checksum_ok': True,
+        'shiny': shiny, 'egg': False, 'checksum_ok': True, 'speed': speed,
     }
 
 
@@ -41,6 +41,7 @@ def _battle_mon(mon, side, hp=None, uses=(), last_move=None, worn=(0, 0, 0, 0)):
         'gender': mon['gender'], 'side': side,
         'pp': [max(0, b - worn[i] - list(uses).count(m)) for i, (m, b) in enumerate(zip(mon['moves'], base))],
         'pp_ups': [0] * len(base), 'last_move': last_move,
+        'speed': mon.get('speed', 30), 'speed_stage': 6, 'ot_id': 0,
     }
 
 
@@ -137,7 +138,7 @@ class DemoSource:
             'direction_raw': 1,
             'pokedex': {'obtained': True, 'seen': 24, 'caught': 11},
             'battle': {'pointer': '0x0', 'music_says_battle': False, 'active': False,
-                       'trainer': None, 'mons': []},
+                       'wild': False, 'trainer': None, 'mons': []},
             'misc': {'music_id': 0x3F0, 'music': None, 'textbox_open': False,
                      'clock': '2026-09-25 14:03'},
         }
@@ -180,7 +181,7 @@ class DemoSource:
             return done[-1] if done else None
 
         trainer = d['rival_name'] if cfg['trainer'] == 'rival' else None
-        d['battle'].update(active=True, trainer=trainer, music_says_battle=True,
+        d['battle'].update(active=True, wild=cfg['trainer'] is None, trainer=trainer, music_says_battle=True,
                            mons=[_battle_mon(lead, 'yours', uses=[mv for _, mv, _ in mine], last_move=last(mine),
                                              worn=LEAD_WORN),
                                  _battle_mon(foe, 'foe', max(0, foe_hp), uses=[mv for _, mv, _ in theirs],

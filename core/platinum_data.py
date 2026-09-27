@@ -1379,3 +1379,15 @@ WEATHER = {
     32: 'Route 212 South (seasonal)', 33: 'Route 213 (seasonal)', 34: 'Route 216 (seasonal)',
     35: 'Acuity Lakefront (seasonal)', 36: 'Snowpoint City (seasonal)',
 }
+
+# Move priority (moves not listed are 0), from the decomp's res/moves/*/data.json.
+# Higher goes first in a turn; speed decides within the same priority.
+MOVE_PRIORITY = {
+    'Helping Hand': 5, 'Magic Coat': 4, 'Snatch': 4, 'Detect': 3, 'Endure': 3,
+    'Follow Me': 3, 'Protect': 3, 'Feint': 2, 'Aqua Jet': 1, 'Bide': 1,
+    'Bullet Punch': 1, 'Extreme Speed': 1, 'Fake Out': 1, 'Ice Shard': 1,
+    'Mach Punch': 1, 'Quick Attack': 1, 'Shadow Sneak': 1, 'Sucker Punch': 1,
+    'Vacuum Wave': 1, 'Vital Throw': -1, 'Focus Punch': -3, 'Avalanche': -4,
+    'Revenge': -4, 'Counter': -5, 'Mirror Coat': -5, 'Roar': -6, 'Whirlwind': -6,
+    'Trick Room': -7,
+}

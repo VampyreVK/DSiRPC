@@ -202,7 +202,7 @@ def diff_events(old, new):
                        'trainer': nb.get('trainer'), 'foes': foes})
         for m in foes:
             if m['shiny']:
-                events.append({'type': 'shiny_encounter', 'mon': m, 'wild': not nb.get('trainer')})
+                events.append({'type': 'shiny_encounter', 'mon': m, 'wild': bool(nb.get('wild'))})
     elif ob['active'] and not nb['active']:
         events.append({'type': 'battle_end'})
 

@@ -87,7 +87,10 @@ def print_report(d, source):
     music = misc['music'] or 'unknown track'
     if battle['active']:
         kind = music if battle['music_says_battle'] else f"battle? music says: {music}"
-        trainer = f"   trainer: {battle['trainer']} (class {battle['trainer_class']:#06x})" if misc['music_id'] != 0x45C else ""
+        if battle.get('wild'):
+            trainer = "   wild (the foe has your trainer ID)"
+        else:
+            trainer = f"   trainer: {battle['trainer']} (class {battle['trainer_class']:#06x})"
         print(f"Battle     {kind}{trainer}")
         for mon in battle['mons']:
             print(f"  {mon['side']:<12} {describe_mon(mon, with_item=False)}")

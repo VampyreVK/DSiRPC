@@ -90,7 +90,9 @@ def battle_presence(d):
     music = d['misc']['music_id']
     trainer = battle['trainer'] if battle['trainer'] and not battle['trainer'].startswith('sprite') else None
 
-    if music == WILD:
+    # The parser's wild flag (the foe has your trainer ID) is more reliable
+    # than the music, which can still be the encounter jingle at the start.
+    if battle.get('wild', music == WILD):
         details = "Encountering a wild Pokémon"
         owner = "A wild"
     elif music == GYM:

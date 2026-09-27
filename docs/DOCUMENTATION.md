@@ -279,14 +279,20 @@ second, instead of the whole state every `--interval` seconds (see
   (a miss, Protect, a Substitute), and one aimed at a Pokémon that was
   replaced in between plays before the switch message. Things seen in the
   same read play one after another (`MOVE_GAP_MS` apart), and the HP box
-  holds the old value until the hit lands. The game's own last-move record (`B+0x527C`, so far
+  holds the old value until the hit lands. Held moves play in the order they
+  happened: by the read they were seen in, and within one read a Pokémon
+  that fainted goes first (it can't move after being knocked out), then
+  higher move priority (`platinum_data.MOVE_PRIORITY`), then higher speed
+  (with its stat stage and paralysis), then yours. A held damaging move is
+  also over once a later move has been seen or either side has fainted or
+  left, and its faint message follows its hit. The game's own last-move record (`B+0x527C`, so far
   checked on hardware for your side only) is only a backup, for moves PP can't show (Struggle,
   moves called by Metronome), and only after it has matched the PP twice.
   The message box shows the intro (from the battle music, the same kinds as
   in section 6), moves, switches and faints for a few seconds, and otherwise
   your Pokémon's moves, coloured by type with PP, the last one used
-  highlighted. Wild vs trainer comes from the music first, since the trainer
-  class read can be unknown.
+  highlighted. Wild vs trainer comes from the parser's `wild` flag (see
+  section 9), falling back to the music.
 - **Waiting view:** while the hub is offline.
 - **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
   level-up, fainted, badge, new Pokédex catch).
@@ -369,7 +375,9 @@ presence appears and when it's taken down.
 
 ### In battle (activity type: Competing)
 
-The battle kind comes from the music ID:
+Wild battles are recognised by the foe's OT ID (the parser's `wild` flag,
+section 9), whatever the music says; for the rest, the battle kind comes
+from the music ID:
 
 | Music | Line 1 | Large hover prefix |
 |---|---|---|
@@ -600,7 +608,12 @@ Within a BattleMon: species `+0x00`, moves `+0x0C`, form in the low 5 bits of
 `+0x26` with shiny at bit 5, current PP `+0x2C` (4 x u8), PP Ups `+0x30`
 (4 x u8; max PP = base + base / 5 x PP Ups), level `+0x34`, nickname
 `+0x36`, HP `+0x4C` (s32), max HP `+0x50`, status `+0x6C`, held item `+0x78`,
-gender `+0x7E` (low nibble: 0 male, 1 female).
+gender `+0x7E` (low nibble: 0 male, 1 female), speed `+0x06` with its stat
+stage at `+0x1B` (statBoosts[3], 0-12, 6 = unchanged), and the OT ID at
+`+0x74` (u32). Wild Pokémon are made with the player's own trainer ID
+(TID and SID as one u32, `S+0x8C`) and a trainer's Pokémon get a random
+one, so a foe with the player's ID means a wild battle (`battle.wild`;
+the trainer is then `None`).
 
 ### Fixed addresses
 

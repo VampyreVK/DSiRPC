@@ -275,6 +275,20 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-27: **Wild battles and move order.** Wild encounters could be
+  called trainer battles: in battle the trainer class value is never empty
+  on hardware, and at the very start the music can still be the encounter
+  jingle. The parser now sets `battle.wild` when a foe has the player's own
+  trainer ID (how the game makes wild Pokémon, per the decomp), and the
+  overlay, the presence and `dsi_status.py` use it. The overlay's intro
+  line also keeps following the data while it's shown. Moves could play
+  out of order, a foe attacking after its own "fainted!": with several
+  things in one read, the hit on the foe was matched first and its faint
+  queued before the foe's own move. Moves now play in the order they
+  happened (by read, then a fainted Pokémon first, then priority and
+  speed), faints follow the hit that caused them, and a replacement is
+  only shown once its "sent out" message plays. Checked with scripted
+  reads that reproduce the bug on the old code.
 - 2026-09-26 (link check): **Why reads got slow, and quick battle reads.** Full reads in
   the Maylene fight took 1 to 15 s, against about 0.7 s before the stutter
   fix. The likely cause is that fix itself: draining at most one frame and

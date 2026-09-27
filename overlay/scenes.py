@@ -15,7 +15,10 @@ Moves used in battle are worked out from PP: when one of a battler's moves
 loses PP between two reads, that battler just used it. The game takes the
 PP when the move starts and the HP only after its animation, which can be
 a read or two later, so a damaging move is held back until the target's HP
-drops and then plays together with the hit (see _hold_move). The game's own
+drops and then plays together with the hit. Held moves play in the order
+they happened (see _play_ready): by the read they were seen in, and within
+one read by who must have gone first (a Pokemon that fainted moved before
+the hit that knocked it out), then by move priority and speed. The game's own
 "last move used" record (the parser's last_move) is only trusted as a
 backup after it has agreed with the PP twice, since it has only been
 checked on hardware for your side so far.
@@ -55,12 +58,26 @@ def _facing(d):
     return d['location'].get('facing') or 'down'
 
 
+def _ident(m):
+    return m['species_id'], m['nickname']
+
+
+def _speed(m):
+    """Speed with its stat stage (0-12, 6 = no change) and paralysis."""
+    stage = m.get('speed_stage', 6)
+    mult = (2 + stage - 6) / 2 if stage >= 6 else 2 / (2 + 6 - stage)
+    return m.get('speed', 0) * mult * (0.25 if m.get('status') == 'Paralyzed' else 1)
+
+
 def _opponent(d):
-    """(wild, trainer name or None). The trainer class read can come back
-    unknown ('sprite 0x..') or hold a leftover value in wild battles, so the
-    battle music decides wild vs trainer when it can."""
+    """(wild, trainer name or None). The parser's `wild` flag (the foe has
+    the player's trainer ID) decides; without it, the battle music does when
+    it can, since the trainer class read can be unknown ('sprite 0x..')."""
     name = d['battle'].get('trainer')
     name = _upper(name) if name and not name.startswith('sprite') else None
+    if 'wild' in d['battle']:
+        wild = bool(d['battle']['wild'])
+        return wild, None if wild else name
     music = d['misc'].get('music_id')
     if music == WILD:
         return True, None
@@ -92,7 +109,9 @@ class Overlay:
         self.last_move_agreed = 0  # times the game's last-move record matched a PP drop
         self.msg_queue = []        # (from_ms, line 1, line 2): messages waiting their turn
         self.next_msg_at = 0       # things seen in the same read play one after another
-        self.held = []             # moves seen (PP spent) whose hit hasn't shown up yet
+        self.held = []             # moves seen (PP spent) that haven't played yet
+        self.seq = 0               # order moves were seen in
+        self.intro_until = 0       # the intro message follows the data until then
         self.read_at = None        # when the data being drawn was read (Snapshot.updated)
 
     # -- state -----------------------------------------------------------------
@@ -153,7 +172,8 @@ class Overlay:
                 self.msg_queue, self.held = [], []
                 self.battle_since = t_ms if want_battle else None
                 if want_battle:
-                    self.msg = (*self._battle_lines(d), t_ms + 4500)
+                    self.intro_until = t_ms + 4500
+                    self.msg = (*self._battle_lines(d), self.intro_until)
             if p >= 2:
                 self.wipe_start = None
             else:
@@ -384,12 +404,19 @@ class Overlay:
         if self.battle_since is not None:
             hud = ui.ease_out(max(0.0, min(1.0, (t_ms - self.battle_since - 350) / 400)))
         for k, m in enumerate(foes):
+            entered = self.battlers.get(f'foe{k}', {}).get('entered')
+            if entered is not None and t_ms < entered:
+                continue  # not sent out yet (its "sent out" message is still queued)
             self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k, self._hp_now(f'foe{k}', m, t_ms))
         if yours:
             self._your_box(canvas, yours[0], 136 + int((1 - hud) * 130), 104, dt_ms, self._hp_now('you0', yours[0], t_ms))
 
         # Bottom: a message for a few seconds after something happens,
         # otherwise your Pokemon's moves.
+        if self.msg and self.msg[2] == self.intro_until and t_ms < self.intro_until:
+            # Until something else is said, the intro follows the data (the
+            # music at the very start can still be the encounter jingle).
+            self.msg = (*self._battle_lines(d), self.intro_until)
         while self.msg_queue and self.msg_queue[0][0] <= t_ms:
             start, l1, l2 = self.msg_queue.pop(0)
             self.msg = (l1, l2, start + self.MSG_MS)
@@ -402,75 +429,84 @@ class Overlay:
             self._move_panel(canvas, yours[0] if yours else None, picked)
 
     def _track_battlers(self, d, foes, yours, t_ms):
-        """Notices switches, moves, damage and fainting, and starts the
-        animations and messages for them."""
+        """Notices moves, damage, fainting and switches, and plays them in
+        the order they happened in the game."""
         wild, trainer = _opponent(d)
         current = {f'foe{k}': m for k, m in enumerate(foes)}
         if yours:
             current['you0'] = yours[0]
-        # Moves by the Pokemon that are still in.
-        for key, m in current.items():
-            st = self.battlers.get(key)
-            if st is not None and st['ident'] == (m['species_id'], m['nickname']):
-                self._check_move(key, m, st, wild, t_ms)
+        same = {key: m for key, m in current.items()
+                if key in self.battlers and self.battlers[key]['ident'] == _ident(m)}
 
-        # Switches. A held move aimed at the one that left (it fainted and
-        # was replaced between two reads) plays first.
-        fresh = set()
-        for key, m in current.items():
-            ident = (m['species_id'], m['nickname'])
-            st = self.battlers.get(key)
-            if st is None or st['ident'] != ident:
-                switched = st is not None
-                if switched:
-                    self._release_target(key, t_ms)
-                self.battlers[key] = {'ident': ident, 'hp': m['curr_hp'], 'entered': t_ms if switched else None,
-                                      'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999,
-                                      'moves': list(m.get('moves') or []), 'pp': list(m.get('pp') or []),
-                                      'last_move': m.get('last_move'), 'used': None, 'log': [],
-                                      'picked': None}
-                fresh.add(key)
-                if switched and key.startswith('foe'):
-                    who = f"{trainer} sent out" if trainer else "Go,"
-                    self._say(f"{who} {_upper(m['nickname'])}!", "", t_ms)
-                elif switched:
-                    self._say(f"Go! {m['nickname']}!", "", t_ms)
+        # 1. Moves used since the last read (PP drops), held until they can
+        #    play in order.
+        for key, m in same.items():
+            self._check_move(key, m, self.battlers[key], wild, t_ms)
 
-        # Damage after moves, so a hit that shows up in the same read as the
-        # move lands when the move's animation reaches the target.
-        for key, m in current.items():
-            if key in fresh:
-                continue
+        # 2. Damage, put down to the held move that did it.
+        for key, m in same.items():
             st = self.battlers[key]
             if m['curr_hp'] < st['hp']:
-                attacker = self.battlers.get('you0' if key.startswith('foe') else 'foe0')
-                move = attacker and attacker['used']
-                st['hp_before'] = st['hp']   # the HP box holds this until the hit lands
-                impact = self._release_hit(key, t_ms)
-                if impact is not None:
-                    # The move that did it was being held: it plays now and
-                    # the HP drops as its animation reaches the target.
-                    st['hit'] = max(t_ms + 150, impact)
-                elif move and t_ms - move[1] < 4000:
-                    # Another hit from a move that just played (multi-hit, ...).
-                    st['hit'] = max(t_ms + 150, move[2])
-                else:
-                    # No move seen (or it was a while ago): the attacker lunges.
-                    st['hit'] = t_ms + 150
-                    if attacker:
-                        attacker['lunge'] = t_ms
+                self._took_damage(key, m, st, wild, t_ms)
             if m['curr_hp'] > 0:
                 st['faint'] = None
-            elif st['hp'] > 0:
-                # Faints once the hit that did it has played.
-                st['faint'] = max(t_ms, st['hit'] + self.HIT_MS) if st['hit'] else t_ms
-                if key.startswith('foe'):
-                    owner = "The wild" if wild else "The foe's"
-                    self._say(f"{owner} {_upper(m['nickname'])}", "fainted!", st['faint'])
-                else:
-                    self._say(f"{m['nickname']} fainted!", "", st['faint'])
             st['hp'] = m['curr_hp']
-        self._release_rest(t_ms)
+
+        # 3. Switches. Whatever the one that left did, or had done to it,
+        #    plays before its replacement comes out.
+        for key, m in current.items():
+            if key in same:
+                continue
+            switched = key in self.battlers
+            if switched:
+                self._play_ready(t_ms, leaving=key)
+            self.battlers[key] = {'ident': _ident(m), 'hp': m['curr_hp'], 'entered': None,
+                                  'hit': None, 'lunge': None, 'faint': None if m['curr_hp'] > 0 else t_ms - 9999,
+                                  'moves': list(m.get('moves') or []), 'pp': list(m.get('pp') or []),
+                                  'last_move': m.get('last_move'), 'used': None, 'log': [],
+                                  'picked': None}
+            if switched:
+                if key.startswith('foe'):
+                    who = f"{trainer} sent out" if trainer else "Go,"
+                    line = f"{who} {_upper(m['nickname'])}!"
+                else:
+                    line = f"Go! {m['nickname']}!"
+                self.battlers[key]['entered'] = self._say(line, "", t_ms)
+
+        # 4. Play whatever is ready, in order.
+        self._play_ready(t_ms)
+
+    def _took_damage(self, key, m, st, wild, t_ms):
+        st['hp_before'] = st['hp']   # the HP box holds this until the hit lands
+        ko = self._faint_lines(key, m, wild) if m['curr_hp'] <= 0 < st['hp'] else None
+        aimed = [h for h in self.held if not h['status'] and h['target'] == key]
+        h = next((h for h in aimed if not h['hit']), aimed[-1] if aimed else None)
+        if h is not None:
+            # The move that did it hasn't played yet; the hit (and the
+            # faint) land when it does.
+            h['hit'] = True
+            h['ko'] = h['ko'] or ko
+            st['hit'] = float('inf')
+            return
+        attacker = self.battlers.get('you0' if key.startswith('foe') else 'foe0')
+        used = attacker and attacker['used']
+        if used and t_ms - used[1] < 4000:
+            # Another hit from a move that just played (multi-hit, ...).
+            st['hit'] = max(t_ms + 150, used[2])
+        else:
+            # No move seen (or it was a while ago): the attacker lunges.
+            st['hit'] = t_ms + 150
+            if attacker:
+                attacker['lunge'] = t_ms
+        if ko:
+            st['faint'] = st['hit'] + self.HIT_MS
+            self._say(*ko, st['faint'])
+
+    def _faint_lines(self, key, m, wild):
+        if key.startswith('foe'):
+            owner = "The wild" if wild else "The foe's"
+            return f"{owner} {_upper(m['nickname'])}", "fainted!"
+        return f"{m['nickname']} fainted!", ""
 
     def _check_move(self, key, m, st, wild, t_ms):
         """Works out whether this battler used a move since the last read."""
@@ -500,42 +536,46 @@ class Overlay:
             self._hold_move(key, m, used, wild, slot)
 
     def _hold_move(self, key, m, move, wild, slot):
-        """Keeps a move until it can play in step with the game: a damaging
-        move waits for its target's HP to drop (_release_hit), a status move
-        plays right away, and a damaging move that never lands (a miss,
-        Protect, a Substitute) plays after MISS_AFTER_S (_release_rest)."""
+        """Keeps a move until it's ready to play (see _ready)."""
+        self.seq += 1
         category = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
-        target = 'foe0' if key.startswith('you') else 'you0'
-        self.held = self.held[-5:] + [{'key': key, 'target': target, 'move': move, 'slot': slot,
-                                       'status': category == 'Status', 'read_at': self.read_at,
-                                       'lines': self._move_lines(key, m, move, wild)}]
+        self.held.append({'key': key, 'target': 'foe0' if key.startswith('you') else 'you0',
+                          'move': move, 'slot': slot, 'status': category == 'Status',
+                          'hit': False, 'ko': None, 'read_at': self.read_at or 0.0, 'seq': self.seq,
+                          'priority': pdata.MOVE_PRIORITY.get(move, 0), 'speed': _speed(m),
+                          'lines': self._move_lines(key, m, move, wild)})
 
-    def _release_hit(self, target, t_ms):
-        """The target just lost HP: plays the oldest held damaging move aimed
-        at it. Returns when it reaches the target, or None."""
-        for h in self.held:
-            if not h['status'] and h['target'] == target:
-                self.held.remove(h)
-                return self._on_move(h, t_ms)
-        return None
+    def _ready(self, h, leaving=None):
+        """A held move can play once it has clearly finished in the game."""
+        if h['status'] or h['hit'] or leaving in (h['key'], h['target']):
+            return True
+        # Something happened after it (another move was seen in a later
+        # read), or one side fainted or left: it missed or did no damage.
+        if any(o['read_at'] > h['read_at'] for o in self.held):
+            return True
+        for k in (h['key'], h['target']):
+            st = self.battlers.get(k)
+            if st is None or st['hp'] <= 0:
+                return True
+        return (self.read_at or 0.0) - h['read_at'] >= self.MISS_AFTER_S
 
-    def _release_target(self, target, t_ms):
-        """The target left: plays every held move aimed at it."""
-        for h in [h for h in self.held if h['target'] == target]:
-            self.held.remove(h)
-            self._on_move(h, t_ms)
+    def _order(self, h):
+        """Moves play by the read they were seen in. Within one read: a
+        Pokemon that has fainted went before the hit that knocked it out,
+        then higher priority, then higher speed, then yours."""
+        st = self.battlers.get(h['key'])
+        fainted = st is not None and st['hp'] <= 0
+        return (h['read_at'], not fainted, -h['priority'], -h['speed'], not h['key'].startswith('you'), h['seq'])
 
-    def _release_rest(self, t_ms):
-        for h in list(self.held):
-            waited = (self.read_at or 0) - (h['read_at'] or 0)
-            if h['status'] or waited >= self.MISS_AFTER_S:
-                self.held.remove(h)
-                self._on_move(h, t_ms)
+    def _play_ready(self, t_ms, leaving=None):
+        self.held.sort(key=self._order)
+        while self.held and self._ready(self.held[0], leaving):
+            self._play(self.held.pop(0), t_ms)
 
-    def _on_move(self, h, t_ms):
-        """Message, lunge and animation for a held move `h`. When several
-        things turn up in one read, each gets its turn, MOVE_GAP_MS apart.
-        Returns when the animation reaches the target."""
+    def _play(self, h, t_ms):
+        """Message, lunge and animation for a held move, then its hit (and
+        faint) on the target. When several things are ready at once, each
+        gets its turn, MOVE_GAP_MS apart."""
         key, move = h['key'], h['move']
         start = self._say(*h['lines'], t_ms)
         mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
@@ -548,7 +588,12 @@ class Overlay:
                 st['picked'] = h['slot']
             if category == 'Physical':
                 st['lunge'] = start + 100   # at its furthest as the effect starts
-        return fx.impact
+        target = self.battlers.get(h['target'])
+        if h['hit'] and target is not None:
+            target['hit'] = max(t_ms + 150, fx.impact)
+            if h['ko']:
+                target['faint'] = target['hit'] + self.HIT_MS
+                self._say(*h['ko'], target['faint'])
 
     def _say(self, l1, l2, at):
         """Queues a message for the box, no earlier than `at` and MOVE_GAP_MS
@@ -577,6 +622,8 @@ class Overlay:
         if not anim:
             return
         st = self.battlers.get(key, {})
+        if st.get('entered') is not None and t_ms < st['entered']:
+            return  # not sent out yet
         f = self._fit(anim.frame(t_ms + phase), max_size, max_size)
         dx = dy = 0
         if st.get('entered') is not None:
@@ -664,20 +711,20 @@ class Overlay:
         foes = [m for m in b['mons'] if m['side'].startswith('foe')]
         yours = [m for m in b['mons'] if m['side'].startswith('yours')]
         music = d['misc']['music_id']
-        trainer = _upper(b.get('trainer'))
+        wild, trainer = _opponent(d)
         foe = _upper(foes[0]['nickname']) if foes else 'the foe'
-        if music == WILD or (not trainer and music not in (GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR)):
+        if wild:
             l1 = f"A wild {foe} appeared!"
         elif music == RIVAL:
-            l1 = f"You are challenged by Rival {trainer}!"
+            l1 = f"You are challenged by Rival {trainer}!" if trainer else "You are challenged by your rival!"
         elif music == GYM:
-            l1 = f"You are challenged by Gym Leader {trainer}!"
+            l1 = f"You are challenged by Gym Leader {trainer}!" if trainer else "You are challenged by a Gym Leader!"
         elif music == CHAMPION:
             l1 = "You are challenged by Champion CYNTHIA!"
         elif music == ELITE_FOUR:
-            l1 = f"You are challenged by Elite Four {trainer}!"
+            l1 = f"You are challenged by Elite Four {trainer}!" if trainer else "You are challenged by the Elite Four!"
         else:
-            l1 = "You are challenged by a Trainer!"
+            l1 = f"You are challenged by {trainer}!" if trainer else "You are challenged by a Trainer!"
         mine = yours[0]['nickname'] if yours else 'you'
         return l1, f"What will {mine} do?"
 

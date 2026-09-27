@@ -296,7 +296,20 @@ second, instead of the whole state every `--interval` seconds (see
   The message box shows the intro (from the battle music, the same kinds as
   in section 6), moves, switches and faints for a few seconds, and otherwise
   your Pokémon's moves, coloured by type with PP, the last one used
-  highlighted. Wild vs trainer comes from the parser's `wild` flag (see
+  highlighted and a tab on each damaging move with its type multiplier
+  against the foe (the first foe in doubles) when it isn't 1: `X4`, `X2`,
+  `X1/2`, `X1/4`, `X0`. That uses the foe's types and the decomp's type
+  chart (`platinum_data.TYPE_CHART`, with Foresight lifting the Ghost
+  immunities); abilities such as Levitate aren't counted. Stat changes and
+  some conditions show as chips under each HP box (the box grows a row):
+  `ATK↑2` in red, `SPE↓1` in blue, and `CNF`, `LOVE`, `SEED`, `CURSE`,
+  `SUB`, `NGHT`. Conditions also get a looping marker on the Pokémon
+  (`overlay/markers.py`): Z's for sleep, sparks for paralysis, bubbles for
+  poison, flames for a burn, ice crystals and a blue tint when frozen,
+  circling stars when confused, hearts when infatuated, sprouts for Leech
+  Seed and a purple flame for a curse. In doubles, chips on your side make
+  your boxes taller, and the upper one can then cover part of the foes'
+  platform. Wild vs trainer comes from the parser's `wild` flag (see
   section 9), falling back to the music.
 - **Waiting view:** while the hub is offline.
 - **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
@@ -335,6 +348,9 @@ in total (`rx`, other devices' broadcasts included) and how far apart the
 hellos were. Requests the DSi never answered were dropped inside its wifi
 chip (unicast frames lost over the air are resent by the wifi itself), which
 happens when the in-game side can't drain the chip as fast as frames arrive.
+With CMD53 sending it also splits the `vb=` values: every 10th hello still
+goes out with CMD52, so the hello after it shows that slow tick (about 76);
+the others show what everything else costs.
 
 ### `launcher/pc/hello_listener.py`
 
@@ -353,10 +369,10 @@ numbers mean.
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
-| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. In a battle, `DsiSource` reads only the battlers (one request: the BattleMon fields the parser decodes, the last moves, the music and the battle pointer) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
-| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
+| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
 ---
 
@@ -623,7 +639,14 @@ stage at `+0x1B` (statBoosts[3], 0-12, 6 = unchanged), and the OT ID at
 `+0x74` (u32). Wild Pokémon are made with the player's own trainer ID
 (TID and SID as one u32, `S+0x8C`) and a trainer's Pokémon get a random
 one, so a foe with the player's ID means a wild battle (`battle.wild`;
-the trainer is then `None`).
+the trainer is then `None`). Also decoded, from the decomp's layout and not
+yet checked on hardware: types `+0x24`/`+0x25` (IDs in `platinum_data.TYPES`
+order; the same twice for a single type), stat stages `+0x18` (8 x s8, 0-12,
+6 = unchanged, in `platinum_data.STAT_STAGES` order), `statusVolatile`
+`+0x70` (confusion bits 0-2, infatuation 16-19, Substitute 24, Nightmare
+27, Curse 28, Foresight 29) and `moveEffectsMask` `+0x80` (Leech Seed bit
+2). The parser returns them as `types`, `stages` (only the changed ones,
+-6..+6) and `conditions`.
 
 ### Fixed addresses
 

@@ -275,6 +275,18 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-09-27 (late): **Stat changes, conditions and type hints in the overlay.**
+  The parser now decodes each battler's types, stat stages, and a few
+  volatile conditions (confusion, infatuation, Substitute, Nightmare, Curse,
+  Foresight, Leech Seed) from the BattleMon, using the decomp's layout (not
+  yet checked on hardware), and `dsi_status.py` prints them. The overlay
+  shows stat changes and those conditions as chips under the HP boxes,
+  loops a marker on each Pokémon for its status or condition, tints a
+  frozen one blue, and tags each of your damaging moves with its type
+  multiplier against the foe (type chart from the decomp). The quick battle
+  read grew to 108 bytes a battler (two requests in a single battle). The
+  demo shows a few of these. The link check now reports `vb=` without the
+  CMD52 heartbeat hellos as well.
 - 2026-09-27 (night): **CMD53 sending works on hardware; double battles
   fixed.** Link check with the CMD53 send build: `txm=53 t53=0 rep=0`, 227
   of 228 answered (the one lost never reached the DSi), median reply 15 ms.

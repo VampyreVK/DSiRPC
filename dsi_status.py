@@ -52,6 +52,11 @@ def describe_mon(mon, with_item=True):
         text += "\n       moves: " + ", ".join(moves)
     if 'last_move' in mon:
         text += f"\n       last used: {mon['last_move'] or '-'}"
+    if 'types' in mon:
+        stages = ", ".join(f"{k} {v:+d}" for k, v in mon.get('stages', {}).items()) or "none"
+        text += f"\n       type: {'/'.join(mon['types'])}   stat changes: {stages}"
+        if mon.get('conditions'):
+            text += f"   also: {', '.join(mon['conditions'])}"
     if mon.get('checksum_ok') is False:
         text += "\n       (checksum mismatch: probably read while the game was changing it, try again)"
     return text

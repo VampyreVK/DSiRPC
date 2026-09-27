@@ -85,7 +85,7 @@ class PlatinumParser:
     BATTLE_SIDES = ('yours', 'foe', 'yours (2nd)', 'foe (2nd)')  # BattleMon slots 0-3
     # The parts of a BattleMon that decode_battle_mon() looks at, as
     # (offset, length). The hub's quick in-battle reads fetch only these.
-    BATTLE_MON_FIELDS = ((0x00, 0x1C), (0x26, 0x2E), (0x6C, 0x0C), (0x7E, 1))
+    BATTLE_MON_FIELDS = ((0x00, 0x54), (0x6C, 0x18))
     MUSIC_ID = 0x021BEB04             # u16
     TEXTBOX_ACTIVE = 0x021C04E3       # u8, 2 while an NPC text box is open
     POS_MIRROR = 0x021C5CCC           # fx32 x, y (height), z; the tile is the upper u16
@@ -226,6 +226,16 @@ class PlatinumParser:
         # tells wild Pokemon apart: they're made with the player's ID.
         speed, speed_stage = struct.unpack_from('<H', raw, 0x06)[0], raw[0x1B]
         ot_id = struct.unpack_from('<I', raw, 0x74)[0]
+        # Types (+0x24, +0x25; the same twice for a single type), stat
+        # stages (+0x18, see pdata.STAT_STAGES; only the changed ones, as
+        # -6..+6), and the conditions worth showing from statusVolatile
+        # (+0x70) and moveEffectsMask (+0x80).
+        types = list(dict.fromkeys(pdata.TYPES[t] for t in raw[0x24:0x26] if t < len(pdata.TYPES)))
+        stages = {name: raw[0x18 + i] - 6 for i, name in enumerate(pdata.STAT_STAGES)
+                  if i and raw[0x18 + i] <= 12 and raw[0x18 + i] != 6}
+        volatile, effects = struct.unpack_from('<I', raw, 0x70)[0], struct.unpack_from('<I', raw, 0x80)[0]
+        conditions = [n for n, mask in pdata.VOLATILE_CONDITIONS.items() if volatile & mask]
+        conditions += [n for n, mask in pdata.MOVE_EFFECTS.items() if effects & mask]
         return {
             'species_id': species,
             'species': self.name(pdata.SPECIES, species),
@@ -242,6 +252,9 @@ class PlatinumParser:
             'speed': speed,
             'speed_stage': speed_stage,
             'ot_id': ot_id,
+            'types': types,
+            'stages': stages,
+            'conditions': conditions,
         }
 
     def battle_mon(self, raw, slot, last_moves):

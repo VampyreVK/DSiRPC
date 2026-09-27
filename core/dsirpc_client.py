@@ -196,8 +196,10 @@ def link_stats(c, seconds, rate=4.0):
         print(f"Reply time: median {median * 1000:.0f} ms, 90% under {p90 * 1000:.0f} ms, "
               f"worst {lat[-1] * 1000:.0f} ms")
 
-    hellos = [(t, _hello_fields(text)) for t, text in c.hellos]
-    hellos = [(t, f) for t, f in hellos if 'rx' in f and 'req' in f]
+    hellos = [(t, _hello_fields(text), text) for t, text in c.hellos]
+    numbered = [(int(m.group(1)), int(f.get('vb', 0))) for _, f, text in hellos
+                for m in [re.search(r"#(\d+)", text)] if m]
+    hellos = [(t, f) for t, f, _ in hellos if 'rx' in f and 'req' in f]
     if len(hellos) < 2:
         print("Not enough hellos with counters to compare (is this the stage 5 build?)")
         return
@@ -221,6 +223,16 @@ def link_stats(c, seconds, rate=4.0):
         d_rep = (int(f1.get('rep', 0)) - int(f0.get('rep', 0))) & 0xFFFF
         print(f"The DSi sends with: {modes.get(f1['txm'], f1['txm'])}; failed CMD53 writes: {f1.get('t53', '?')}; "
               f"requests we had to send again: {d_rep} (total {f1.get('rep', '?')})")
+    if f1.get('txm') == '53':
+        # Each hello's vb covers the ticks since the hello before it,
+        # including that hello's own send. Every 10th hello (#0, #10, ...)
+        # still goes out with CMD52, so the hello after it shows that slow
+        # tick; the others show what the rest of the ticks cost.
+        after_cmd52 = [vb for num, vb in numbered if num % 10 == 1]
+        rest = sorted(vb for num, vb in numbered if num % 10 != 1)
+        if rest:
+            print(f"Longest tick apart from the CMD52 heartbeat hellos: vb={rest[-1]} (typical {rest[len(rest) // 2]}); "
+                  f"with one: vb={max(after_cmd52) if after_cmd52 else '-'}")
     lost_in = sent_in_span - d_req
     lost_out = d_req - ok_in_span
     tol = max(2, 0.05 * sent_in_span)  # requests in flight at either end of the window

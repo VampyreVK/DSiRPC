@@ -111,9 +111,15 @@ def textbox(surf, rect):
           hi=(255, 255, 255), lo=(216, 216, 224), radius=2)
 
 
-def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None, selected=False):
+EFFECT_LABELS = {4: ("X4", (72, 184, 88)), 2: ("X2", (72, 184, 88)), 0.5: ("X1/2", (200, 128, 48)),
+                 0.25: ("X1/4", (200, 128, 48)), 0: ("X0", (88, 88, 96))}
+
+
+def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None, selected=False, effect=None):
     """One move, coloured by its type, with PP on the right. name=None draws
-    an empty slot. selected: the move used last (lighter, white border)."""
+    an empty slot. selected: the move used last (lighter, white border).
+    effect: its type multiplier against the foe (a label in the top right
+    corner unless it's 1)."""
     x, y, w, h = rect
     if name is None:
         panel(surf, rect, fill=(120, 132, 140), border=(72, 80, 88), hi=(150, 160, 168), lo=(104, 112, 120))
@@ -131,6 +137,15 @@ def move_button(surf, font, mini, rect, name, mtype=None, pp=None, pp_max=None, 
         text = f"{pp}/{pp_max}"
         mini.draw(surf, text, (x + w - 5 - mini.width(text), y + 7), col)
         mini.draw(surf, "PP", (x + w - 16 - mini.width(text), y + 7), lighten(c, 70))
+    label = EFFECT_LABELS.get(effect)
+    if label:
+        text, lc = label
+        lw = mini.width(text) + 4
+        lx = x + w - 3 - lw
+        # A tab on the top edge, clear of the PP line below it.
+        pygame.draw.rect(surf, darken(lc, 60), (lx - 1, y, lw + 2, 7))
+        pygame.draw.rect(surf, lc, (lx, y + 1, lw, 5))
+        mini.draw(surf, text, (lx + 2, y + 1), (248, 248, 248))
 
 
 def hp_color(frac):
@@ -159,17 +174,56 @@ def hp_bar(surf, mini, x, y, width, frac):
         pygame.draw.line(surf, hi, (bx, y + 2), (bx + fill - 1, y + 2))
 
 
-def status_tag(surf, mini, x, y, status):
-    tag = STATUS_TAGS.get(status)
-    if not tag:
-        return 0
-    text, color = tag
+def chip(surf, mini, x, y, text, color):
+    """A small coloured label (9 px tall) with mini-font text. Returns its width."""
     w = mini.width(text) + 5
     pygame.draw.rect(surf, darken(color, 50), (x, y, w, 9))
     pygame.draw.rect(surf, color, (x + 1, y + 1, w - 2, 7))
     pygame.draw.line(surf, lighten(color, 50), (x + 1, y + 1), (x + w - 2, y + 1))
     mini.draw(surf, text, (x + 3, y + 2), (248, 248, 248))
     return w
+
+
+def status_tag(surf, mini, x, y, status):
+    tag = STATUS_TAGS.get(status)
+    if not tag:
+        return 0
+    text, color = tag
+    return chip(surf, mini, x, y, text, color)
+
+
+# Stat stage chips: raised in red, lowered in blue (the colours the games'
+# stat-change animations use). Conditions from the parser's `conditions`
+# get their own short labels.
+STAGE_UP, STAGE_DOWN = (216, 88, 64), (64, 112, 216)
+CONDITION_TAGS = {
+    'Confused': ('CNF', (200, 152, 48)), 'Infatuated': ('LOVE', (232, 104, 168)),
+    'Leech Seed': ('SEED', (96, 168, 72)), 'Cursed': ('CURSE', (104, 72, 136)),
+    'Substitute': ('SUB', (144, 128, 104)), 'Nightmare': ('NGHT', (80, 72, 120)),
+}
+
+
+def stage_chips(mon):
+    """[(text, colour), ...] for a battler's stat stages and conditions."""
+    out = [(f"{name}{'↑' if v > 0 else '↓'}{abs(v)}", STAGE_UP if v > 0 else STAGE_DOWN)
+           for name, v in (mon.get('stages') or {}).items()]
+    out += [CONDITION_TAGS[c] for c in mon.get('conditions') or [] if c in CONDITION_TAGS]
+    return out
+
+
+def chip_rows(mini, chips, width):
+    """Splits chips into rows that fit `width`."""
+    rows, row, used = [], [], 0
+    for text, color in chips:
+        w = mini.width(text) + 5 + 2
+        if row and used + w > width:
+            rows.append(row)
+            row, used = [], 0
+        row.append((text, color))
+        used += w
+    if row:
+        rows.append(row)
+    return rows
 
 
 def gender_symbol(font, gender):

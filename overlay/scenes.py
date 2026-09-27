@@ -29,7 +29,7 @@ import math
 import pygame
 
 from core import platinum_data as pdata
-from . import ui
+from . import markers, ui
 from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
 from .font import PixelFont
@@ -67,6 +67,20 @@ def _speed(m):
     stage = m.get('speed_stage', 6)
     mult = (2 + stage - 6) / 2 if stage >= 6 else 2 / (2 + 6 - stage)
     return m.get('speed', 0) * mult * (0.25 if m.get('status') == 'Paralyzed' else 1)
+
+
+def _effectiveness(mtype, foe):
+    """The type multiplier of a `mtype` move against `foe` (from its types;
+    abilities like Levitate aren't counted). None if unknown."""
+    if not mtype or not foe or not foe.get('types'):
+        return None
+    mult = 1
+    identified = 'Identified' in (foe.get('conditions') or [])
+    for t in foe['types']:
+        if identified and (mtype, t) in pdata.FORESIGHT_IGNORES:
+            continue
+        mult *= pdata.TYPE_CHART.get((mtype, t), 1)
+    return mult
 
 
 def _opponent(d):
@@ -387,7 +401,8 @@ class Overlay:
         for k, m in enumerate(foes):
             x, y = spots['foe']
             anim = self.sprites.front(m['species_id'], m['shiny'])
-            self._draw_battler(canvas, f'foe{k}', anim, x + offsets[k], y, 96, t_ms, k * 300, direction=-1)
+            self._draw_battler(canvas, f'foe{k}', anim, x + offsets[k], y, 96, t_ms, k * 300, direction=-1,
+                               tint=markers.FROZEN_TINT if m.get('status') == 'Frozen' else None)
             if m['shiny'] and t_ms < self.shiny_intro_until:
                 for j in range(5):
                     ui.sparkle(canvas, x - 20 + offsets[k] + (j * 13) % 40, y - 54 + (j * 17) % 45, t_ms + j * 70)
@@ -398,7 +413,18 @@ class Overlay:
             m = yours[k]
             x, y = spots['you']
             anim = self.sprites.back(m['species_id'], m['shiny'])
-            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y, 84, t_ms, k * 300, direction=1)
+            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y, 84, t_ms, k * 300, direction=1,
+                               tint=markers.FROZEN_TINT if m.get('status') == 'Frozen' else None)
+
+        # Condition markers (sleep, paralysis, confusion, ...) on everyone
+        # who's out and standing.
+        for key, m in [(f'foe{k}', m) for k, m in enumerate(foes)] + [(f'you{k}', m) for k, m in enumerate(yours)]:
+            st, rect = self.battlers.get(key, {}), self.boxes.get(key)
+            if rect is None or m['curr_hp'] <= 0 or st.get('faint') is not None:
+                continue
+            if st.get('entered') is not None and t_ms < st['entered'] + self.SWITCH_MS:
+                continue
+            markers.draw(canvas, rect, m, t_ms, self.font)
 
         self.effects = [e for e in self.effects if e.draw(canvas, t_ms, self.boxes)]
         self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
@@ -407,21 +433,28 @@ class Overlay:
         hud = 1.0
         if self.battle_since is not None:
             hud = ui.ease_out(max(0.0, min(1.0, (t_ms - self.battle_since - 350) / 400)))
+        # Foe boxes top left, stacked; a box grows a row of chips for stat
+        # changes and conditions when there are any.
+        y = 6
         for k, m in enumerate(foes):
             entered = self.battlers.get(f'foe{k}', {}).get('entered')
             if entered is not None and t_ms < entered:
                 continue  # not sent out yet (its "sent out" message is still queued)
-            self._foe_box(canvas, m, 4 + int((hud - 1) * 130), 6 + k * 30, dt_ms, k, self._hp_now(f'foe{k}', m, t_ms))
-        for k, m in enumerate(yours):
+            y += 3 + self._foe_box(canvas, m, 4 + int((hud - 1) * 130), y, dt_ms, k, self._hp_now(f'foe{k}', m, t_ms))
+        # Yours bottom right, stacked upwards from just above the message box.
+        x = 136 + int((1 - hud) * 130)
+        bottom = 145 if len(yours) > 1 else 141
+        for k in reversed(range(len(yours))):
+            m = yours[k]
             entered = self.battlers.get(f'you{k}', {}).get('entered')
             if entered is not None and t_ms < entered:
                 continue
-            x = 136 + int((1 - hud) * 130)
             if len(yours) == 1:
-                self._your_box(canvas, m, x, 104, dt_ms, self._hp_now('you0', m, t_ms))
+                h = self._your_box(canvas, m, x, bottom, dt_ms, self._hp_now('you0', m, t_ms))
             else:
-                # Two smaller boxes (no HP numbers), stacked above the message box.
-                self._your_small_box(canvas, m, x, 91 + k * 27, dt_ms, k, self._hp_now(f'you{k}', m, t_ms))
+                # Two smaller boxes (no HP numbers).
+                h = self._your_small_box(canvas, m, x, bottom, dt_ms, k, self._hp_now(f'you{k}', m, t_ms))
+            bottom -= h + 1
 
         # Bottom: a message for a few seconds after something happens,
         # otherwise your Pokemon's moves.
@@ -438,7 +471,7 @@ class Overlay:
             self.font.draw(canvas, self.msg[1], (12, 170), t['text'], t['text_shadow'])
         else:
             picked = self.battlers.get('you0', {}).get('picked')
-            self._move_panel(canvas, yours[0] if yours else None, picked)
+            self._move_panel(canvas, yours[0] if yours else None, picked, foes[0] if foes else None)
 
     def _track_battlers(self, d, foes, yours, t_ms):
         """Notices moves, damage, fainting and switches, and plays them in
@@ -635,9 +668,9 @@ class Overlay:
                 return l1, l2
         return name, f"used {mv}!"
 
-    def _draw_battler(self, canvas, key, anim, feet_x, feet_y, max_size, t_ms, phase, direction):
+    def _draw_battler(self, canvas, key, anim, feet_x, feet_y, max_size, t_ms, phase, direction, tint=None):
         """direction: -1 for foes (they face left, slide in from the left),
-        +1 for your side."""
+        +1 for your side. tint: colour to multiply the sprite by (frozen)."""
         if not anim:
             return
         st = self.battlers.get(key, {})
@@ -672,13 +705,18 @@ class Overlay:
         x = feet_x - f.get_width() // 2 + dx
         y = feet_y - f.get_height() + dy + sink
         self.boxes[key] = pygame.Rect(x, y, f.get_width(), f.get_height() - sink)
+        if tint:
+            f = f.copy()
+            f.fill((*tint, 255), special_flags=pygame.BLEND_RGBA_MULT)
         clip = canvas.get_clip()
         canvas.set_clip((0, 0, W, feet_y + dy))  # a fainting Pokemon sinks into its platform
         canvas.blit(f, (x, y))
         canvas.set_clip(clip)
 
-    def _move_panel(self, canvas, mon, picked=None):
-        """Your Pokemon's moves; picked: index of the one it used last."""
+    def _move_panel(self, canvas, mon, picked=None, foe=None):
+        """Your Pokemon's moves; picked: index of the one it used last. Each
+        damaging move gets its type multiplier against `foe` (the first
+        foe in a double battle)."""
         t = ui.THEME
         ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
                  hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
@@ -694,7 +732,9 @@ class Overlay:
             mtype, base = (info[0], info[2]) if info else (None, None)
             pp = pps[i] if i < len(pps) else None
             pp_max = base + (base // 5) * (ups[i] if i < len(ups) else 0) if base else None
-            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max, selected=i == picked)
+            effect = _effectiveness(mtype, foe) if info and info[1] != 'Status' else None
+            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max,
+                           selected=i == picked, effect=effect)
 
     def _hp_now(self, key, m, t_ms):
         """The HP to show: the old value until a queued hit lands."""
@@ -703,19 +743,38 @@ class Overlay:
             return st['hp_before']
         return m['curr_hp']
 
+    def _chips(self, canvas, m, x, y, width):
+        """Rows of stat-change and condition chips from (x, y). Returns the
+        height they take (0 without any)."""
+        rows = ui.chip_rows(self.mini, ui.stage_chips(m), width)
+        for r, row in enumerate(rows):
+            cx = x
+            for text, color in row:
+                cx += ui.chip(canvas, self.mini, cx, y + r * 10, text, color) + 2
+        return len(rows) * 10
+
+    def _box_rows(self, m, width):
+        return len(ui.chip_rows(self.mini, ui.stage_chips(m), width))
+
     def _foe_box(self, canvas, m, x, y, dt_ms, k, hp_now):
-        t = ui.THEME
-        ui.panel(canvas, (x, y, 112, 27))
+        """Draws the foe's box with its top at y. Returns its height."""
+        h = 27 + 10 * self._box_rows(m, 104)
+        ui.panel(canvas, (x, y, 112, h))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
         self._level(canvas, m['level'], x + 84, y + 4)
         hp = self._hp(('foe', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
         ui.hp_bar(canvas, self.mini, x + 30, y + 16, 76, hp / max(1, m['max_hp']))
         if m.get('status'):
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
+        self._chips(canvas, m, x + 5, y + 26, 104)
+        return h
 
-    def _your_box(self, canvas, m, x, y, dt_ms, hp_now):
+    def _your_box(self, canvas, m, x, bottom, dt_ms, hp_now):
+        """Draws your box with its bottom edge at `bottom`. Returns its height."""
         t = ui.THEME
-        ui.panel(canvas, (x, y, 116, 37))
+        h = 37 + 10 * self._box_rows(m, 106)
+        y = bottom - h
+        ui.panel(canvas, (x, y, 116, h))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
         self._level(canvas, m['level'], x + 88, y + 4)
         hp = self._hp(('yours', m['species_id']), hp_now, m['max_hp'], dt_ms)
@@ -724,16 +783,23 @@ class Overlay:
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
         self.font.draw(canvas, f"{int(round(hp))}/{m['max_hp']}", (x + 110, y + 25),
                        t['text'], t['text_shadow'], align='right')
+        self._chips(canvas, m, x + 5, y + 36, 106)
+        return h
 
-    def _your_small_box(self, canvas, m, x, y, dt_ms, k, hp_now):
-        """Your side's box in a double battle: like the foe's box."""
-        ui.panel(canvas, (x, y, 116, 27))
+    def _your_small_box(self, canvas, m, x, bottom, dt_ms, k, hp_now):
+        """Your side's box in a double battle: like the foe's box, with its
+        bottom edge at `bottom`. Returns its height."""
+        h = 27 + 10 * self._box_rows(m, 106)
+        y = bottom - h
+        ui.panel(canvas, (x, y, 116, h))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
         self._level(canvas, m['level'], x + 88, y + 4)
         hp = self._hp(('yours', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
         ui.hp_bar(canvas, self.mini, x + 34, y + 16, 76, hp / max(1, m['max_hp']))
         if m.get('status'):
             ui.status_tag(canvas, self.mini, x + 5, y + 15, m['status'])
+        self._chips(canvas, m, x + 5, y + 26, 106)
+        return h
 
     def _battle_lines(self, d):
         b = d['battle']

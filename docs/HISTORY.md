@@ -275,6 +275,26 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-05 (morning): **One-app launch, and RA finds Platinum.** On
+  hardware, RetroAchievements worked for Mario Kart DS (its set was already
+  in `ra/`) but not for Platinum: "no game called this game there". The
+  header title is read from `0x023FFE00`, which holds the header under
+  emulators but not under nds-bootstrap on a DSi or 3DS, and with no game
+  files folder set there was nothing else to go by. DSiRPC now looks the
+  game code up in GameTDB's title list (`core/game_titles.py`, `CPUE` is
+  "Pokemon: Platinum Version") when the header can't be read, for
+  RetroAchievements and RALibretro's cache alike, and setup's set picker
+  does the same. A deadlock waiting in `RALink.update()` (signing in again
+  while running) was fixed too. The launcher got three changes: it retries
+  the connection up to 3 times, and counts a try as failed when no IPv4
+  address arrives (DSWiFi reports "Associated" once an IPv6 address is
+  ready, which is how the first try ended with `0.0.0.0`); START opens a
+  file browser to pick the game; and the launcher then points
+  `nds-bootstrap.ini` at it (its existing save, the last game's per-game
+  values reset, its cheat files removed) and starts our nds-bootstrap
+  directly with hbmenu's bootstub and nds-bootloader, now in
+  `launcher/loader/` and built by the same BlocksDS command. The ini and
+  save-path logic was tested on a PC; the chainload still needs hardware.
 - 2026-10-05 (late night): **RetroAchievements, for real.** The tray app
   worked on hardware. Games without their own presence now show a picture
   of the console as Discord's small image (`Assets/Consoles`, picked in the

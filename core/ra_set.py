@@ -30,6 +30,12 @@ MEDIA = "https://media.retroachievements.org"
 NINTENDO_DS = 18
 NINTENDO_DSI = 78
 
+# RetroAchievements adds pseudo-achievements from this ID up to sets it sends
+# a client it doesn't know (like "Warning: Unknown Emulator", 0 points, and
+# already unlocked). They aren't part of the game's set: rcheevos' own client
+# leaves them out of the counts and never sends them, and so does DSiRPC.
+WARNING_ID = 101000001
+
 
 class SetFileError(Exception):
     pass
@@ -74,6 +80,8 @@ class RaSet:
 
     def _add(self, achievements, leaderboards, subset, set_type):
         for a in achievements:
+            if int(a["ID"]) >= WARNING_ID:
+                continue
             self.achievements.append({
                 "id": int(a["ID"]),
                 "title": a.get("Title", ""),

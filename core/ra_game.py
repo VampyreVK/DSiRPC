@@ -27,10 +27,12 @@ Achievements that read memory DSiRPC can't reach (the ARM9's data TCM,
 """
 
 import logging
+import os
 import queue
 import re
 import time
 
+from . import game_titles
 from . import games
 from . import ra_cache
 from . import ra_set
@@ -78,6 +80,7 @@ class RaGame:
         self.rich_presence = None
         self.header_title = None
         self.header_tries = 0
+        self.match_titles = []       # titles core/ra_link.py looked the game up by
         self.game_hash = None
         self.unlocked = set()        # achievement IDs: from RetroAchievements, plus this session's
         self.session = False         # RetroAchievements knows we're playing
@@ -149,6 +152,8 @@ class RaGame:
         except (TimeoutError, RuntimeError):
             return
         self.header_title = title if title and code == self.code else ""
+        if not self.header_title:
+            logging.debug(f"{self.code}: no game header at 0x023FFE00 (read {title!r}, {code!r})")
 
     def _resolve(self):
         """Finds the set: ra/ first, then RetroAchievements (on the link's
@@ -168,18 +173,34 @@ class RaGame:
         elif not local:
             self._try_racache()
 
+    def _titles(self):
+        """The titles to match against the RA cache's sets: the header's, else
+        the ones core/ra_link.py used, else GameTDB's (if already downloaded)."""
+        if self.header_title:
+            return [self.header_title]
+        if self.match_titles:
+            return self.match_titles
+        return game_titles.titles(self.code, os.path.join(self.ra_dir, "cache"), download=False)
+
     def _try_racache(self):
         s = self.settings
-        if not (s.racache and s.auto_import and self.header_title):
+        titles = self._titles() if s.racache and s.auto_import else []
+        if not titles:
             if not self.set and not self.note:
                 self.note = "no set file in ra/"
             return
         sets = ra_cache.scan(s.racache)
-        pick = ra_cache.auto_pick(self.header_title, sets)
+        pick, n = None, 0
+        for title in titles:
+            pick = ra_cache.auto_pick(title, sets)
+            if pick:
+                break
+            n = n or len(ra_cache.candidates(title, sets))
         if not pick:
-            n = len(ra_cache.candidates(self.header_title, sets))
-            self.note = (f"{n} possible sets in the RA cache: pick one with 'dsirpc.py setup'" if n
-                         else "no set file in ra/")
+            if n:
+                self.note = f"{n} possible sets in the RA cache: pick one with 'dsirpc.py setup'"
+            elif not self.note:
+                self.note = "no set file in ra/"
             return
         dest = ra_cache.import_set(pick, self.code, self.ra_dir)
         if dest:
@@ -249,8 +270,11 @@ class RaGame:
                     self.note = value
             elif kind == "noset":  # RetroAchievements has none: maybe the RA cache does
                 if not self.set:
+                    logging.info(f"RetroAchievements: {games.name(self.game)}: {value}")
                     self.note = value
                     self._try_racache()
+            elif kind == "titles":
+                self.match_titles = value
             elif kind == "hash":
                 self.game_hash = value
 

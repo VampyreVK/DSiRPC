@@ -31,5 +31,7 @@ own state):
 - `<game code>.json`: the set for that game code
 - `games.txt` (optional): lines like `AMCE 12711` to use `12711.json` for `AMCE`
 - `cache/`: RetroAchievements' lists of DS and DSi games (for matching
-  titles, kept a week), which of your game files is which game
-  (`roms.json`), and unlocks waiting to be sent (`pending_unlocks.json`)
+  titles, kept a week), GameTDB's list of DS game titles by game code
+  (`dstdb.txt`, for games whose header can't be read, kept a month), which
+  of your game files is which game (`roms.json`), and unlocks waiting to be
+  sent (`pending_unlocks.json`)

@@ -23,9 +23,10 @@ that's just **Setup.bat**), every play session is:
 1. On the PC, double-click **DSiRPC.bat**. DSiRPC sits in the tray (by the
    clock) and waits for the DSi; with "Start with Windows" on, it's already
    there. Turn off any other Rich Presence plugin (like Vencord CustomRPC).
-2. On the DSi, open `dsirpc-launcher.nds` **in DSi mode** and wait for `ASSOCIATED`.
-3. Press **START**. This exits but keeps the Wi-Fi connected.
-4. From your menu, launch **our** nds-bootstrap build, which boots the game.
+2. On the DSi, open `dsirpc-launcher.nds` **in DSi mode** and wait for `ASSOCIATED`
+   (it tries up to 3 times on its own).
+3. Press **START** and pick the game. The launcher starts **our** nds-bootstrap
+   build with it, and the Wi-Fi stays connected.
 
 Discord only shows something while the game is running. Right-click the tray
 icon to turn the Discord presence or the overlay window on and off, or to
@@ -36,7 +37,7 @@ pick the console picture Discord shows.
 ```
 DSi launcher (BlocksDS)          connects in DSi mode with the WPA2 settings saved
         |                        in DSi connection slots 4-6, writes RPCHAND.TXT
-        | START (stays connected)
+        | START: pick a game (stays connected)
         v
 our nds-bootstrap  --boots-->  Pokémon Platinum
   ARM7 VBlank hook (rpcprobe)
@@ -67,7 +68,7 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 | `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt, for achievements and rich presence |
 | `tools/` | Developer and testing tools (see [Tools](#tools)), and the charmap table generator (`tools/charmap/`) |
 | `Assets/` | Sprites served by GitHub Pages for Discord, plus the scripts that made them |
-| `launcher/` | The DSi-mode launcher that connects to Wi-Fi before the game boots |
+| `launcher/` | The DSi-mode launcher that connects to Wi-Fi, then starts our nds-bootstrap with the game you pick |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](nds-bootstrap/DSIRPC_CHANGES.md) |
 | `docs/` | [DOCUMENTATION.md](docs/DOCUMENTATION.md) (technical reference), [research.md](docs/research.md) (verified research notes), [HISTORY.md](docs/HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
@@ -124,9 +125,10 @@ docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro
 ```
 
 The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
-your SD card, keeping it separate from TWiLight Menu++'s own copy (for example
-`sd:/_nds/dsirpc/nds-bootstrap-dsirpc.nds`), so you always know which one you
-are launching. The build prints a few harmless `fatal: not a git repository`
+your SD card as `nds-bootstrap-dsirpc.nds`, in its own folder away from
+TWiLight Menu++'s copy (for example `sd:/_nds/dsirpc/nds-bootstrap-dsirpc.nds`),
+so you always know which one you are launching. The launcher looks for it
+under that name in its own folder. The build prints a few harmless `fatal: not a git repository`
 lines; that's nds-bootstrap looking for its version tag.
 
 ### 3. Launcher
@@ -135,8 +137,9 @@ lines; that's nds-bootstrap looking for its version tag.
 docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint make skylyrac/blocksds:slim-latest
 ```
 
-The output is `launcher\dsirpc-launcher.nds`. Copy it anywhere on the SD card.
-It must be started in **DSi mode**.
+The output is `launcher\dsirpc-launcher.nds`. Copy it next to our nds-bootstrap
+build (`sd:/_nds/dsirpc/` in the example above). It must be started in
+**DSi mode**.
 
 Nothing else needs setting up on the SD card. The launcher writes its own
 `RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
@@ -193,13 +196,17 @@ has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
 
 ## Playing
 
-1. **Launcher:** open it in DSi mode and wait for `ASSOCIATED`. It shows the
-   DSi's IP and writes `RPCHAND.TXT`. **START** exits and stays connected;
-   **SELECT** disconnects first.
-2. **Game:** launch our nds-bootstrap build. It boots the game named in
-   `sd:/_nds/nds-bootstrap.ini`, which TWiLight Menu++ rewrites whenever you
-   launch something from its game list. If the wrong game boots, launch
-   Platinum from TWiLight once, then use our build again.
+1. **Launcher:** open it in DSi mode and wait for `ASSOCIATED`. If it can't
+   connect, or gets no IPv4 address from DHCP (`0.0.0.0`), it tries again by
+   itself, up to 3 times. It shows the DSi's IP and writes `RPCHAND.TXT`.
+2. **Game:** press **START** and pick the game's `.nds` (the browser opens in
+   the launcher's folder: **A** opens or picks, **B** goes up). The launcher
+   points `sd:/_nds/nds-bootstrap.ini` at it, with its existing save, and
+   starts our nds-bootstrap build, still connected. A game you've never
+   started from TWiLight Menu++ has no save file yet: start it there once
+   first. **SELECT** disconnects and exits; **Y** exits connected, back to
+   your menu, if you'd rather start our build from there (it then boots the
+   game the ini names). Details: [launcher/README.md](launcher/README.md).
 3. **PC:** within about 15 seconds of the game starting, the DSi broadcasts a
    hello packet every second, and DSiRPC (started before or after the game)
    finds the DSi on its own. The tray icon's dot turns green and Discord
@@ -256,8 +263,10 @@ Each game's achievements and rich presence come in a *set*, which lives in
   running and downloads its set by itself, keeping it up to date. With a
   folder of your game files (for example the ones you play in RALibretro),
   it hashes the matching file the way RA emulators do and knows the exact
-  game and version; without one, it goes by the title in the game's header
-  and only takes a set when exactly one game clearly matches. Setup can pick
+  game and version; without one, it goes by the game's title (from its
+  header, or from GameTDB's list by its game code when the header can't be
+  read, as under nds-bootstrap on a DSi or 3DS) and only takes a set when
+  exactly one game clearly matches. Setup can pick
   one for the rest (search by name).
 - **RALibretro's cache**: RALibretro keeps the set of every game you've played
   in it, and DSiRPC can copy them from there, without an account.
@@ -317,7 +326,8 @@ party only and battle only. The colours are all in `THEME` at the top of
 - [ ] Fix graphical glitches present in Pokémon Platinum (for example, the
       first time the pause menu opens).
 - [ ] Launch our nds-bootstrap straight from the launcher, so it's one app
-      instead of two (planned in [launcher/CHAINLOAD.md](launcher/CHAINLOAD.md)).
+      instead of two: built (START picks the game, [launcher/CHAINLOAD.md](launcher/CHAINLOAD.md)),
+      to be confirmed on hardware.
 - [ ] Location artwork for the big image, and more overworld states (running,
       biking, surfing, browsing the PC). Leads are in [docs/research.md](docs/research.md).
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
@@ -361,5 +371,8 @@ Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTA
 
 DSiRPC's own code is MIT licensed (see [LICENSE](LICENSE)). The
 `nds-bootstrap/` folder is GPLv3 (see [nds-bootstrap/LICENSE](nds-bootstrap/LICENSE)).
+`launcher/loader/` (devkitPro's nds-bootloader and NDS Homebrew Menu's
+bootstub) is GPLv2 or later, and so is the built `dsirpc-launcher.nds`,
+which includes it.
 Pokémon is © Nintendo / Creatures Inc. / GAME FREAK inc. This is an
 unofficial fan project and isn't affiliated with or endorsed by them.

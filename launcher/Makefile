@@ -20,3 +20,21 @@ LIBDIRS		:= $(BLOCKSDS)/libs/dswifi \
 			   $(BLOCKSDS)/libs/libnds
 
 include $(BLOCKSDS)/sys/default_makefiles/rom_arm9/Makefile
+
+# The loader the launcher starts nds-bootstrap with (loader/, see
+# CHAINLOAD.md). It's built first and embedded by source/loader_blobs.s.
+
+LOADER_BINS	:= loader/build/load.bin loader/build/bootstub.bin
+
+$(BUILDDIR)/source/loader_blobs.s.o: $(LOADER_BINS)
+
+loader/build/load.bin: $(wildcard loader/source/*) loader/arm9code/mpu_reset.s \
+		       loader/bootstub.s loader/load.ld loader/Makefile
+	@$(MAKE) --no-print-directory -C loader
+
+loader/build/bootstub.bin: loader/build/load.bin
+
+.PHONY: clean-loader
+clean: clean-loader
+clean-loader:
+	@$(MAKE) --no-print-directory -C loader clean

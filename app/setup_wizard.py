@@ -197,6 +197,19 @@ def _sign_in(cfg):
         return True
 
 
+def _token_problem(cfg):
+    """Why RetroAchievements turns down the saved login token, or None (also
+    when it can't be reached to ask)."""
+    from core.ra_api import RAClient, RAError, RANetworkError
+    try:
+        RAClient().login(cfg.ra_username, token=cfg.ra_token)
+    except RANetworkError:
+        return None
+    except RAError as e:
+        return str(e)
+    return None
+
+
 def step_ra(cfg):
     heading(3, "RetroAchievements (optional)")
     say("DSiRPC checks your games' achievements while you play and tells you when you unlock "
@@ -208,7 +221,12 @@ def step_ra(cfg):
         "DSiRPC saves that token in dsirpc.cfg, never your password.")
     say()
     if cfg.ra_signed_in:
-        say(f"You're signed in as {cfg.ra_username}.")
+        problem = _token_problem(cfg)
+        if problem:
+            say(f"Error: the saved RetroAchievements login for {cfg.ra_username} doesn't work "
+                f"anymore (RetroAchievements said: {problem}). Type 'new' to sign in again.")
+        else:
+            say(f"You're signed in as {cfg.ra_username}.")
         answer = ask("Press Enter to stay signed in, type 'new' to sign in again or '-' to sign out")
         if answer == "-":
             cfg.ra_username = cfg.ra_token = ""
@@ -411,8 +429,17 @@ class _SetPicker:
         rom = self._rom_choice(code)
         if rom:
             choices.append(rom)
-        choices += self._ra_choices(header_title)
-        choices += self._cache_choices(header_title)
+        # Without the header's title (it can't be read under nds-bootstrap on
+        # a DSi or 3DS), GameTDB's titles for the game code
+        from core import game_titles
+        from core.ra_link import CACHE_DIR
+        titles = [header_title] if header_title else game_titles.titles(code, CACHE_DIR)
+        for title in titles or [""]:
+            found = self._ra_choices(title) + self._cache_choices(title)
+            if found:
+                header_title = title
+                break
+        choices += found
         while True:
             if choices:
                 say("Which set is it?")

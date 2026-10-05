@@ -48,8 +48,9 @@ runs as a tray icon (`DSiRPC.bat`) after a one-time `Setup.bat`.
  ---                                                      --
  dsirpc-launcher.nds (BlocksDS + DSWiFi)
    connects in DSi mode with the saved slot 4-6 WPA2
-   settings, writes sd:/RPCHAND.TXT (IP, MAC, gateway),
-   START = exit without disconnecting
+   settings (up to 3 tries), writes sd:/RPCHAND.TXT (IP, MAC,
+   gateway), START = pick a game: points nds-bootstrap.ini at
+   it and starts our nds-bootstrap, without disconnecting
         |
         v
  our nds-bootstrap build  --boots-->  Pokémon Platinum
@@ -127,11 +128,14 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 
 | File | Where | Notes |
 |---|---|---|
-| `dsirpc-launcher.nds` | Anywhere you can launch from | Must be started in **DSi mode** |
-| Our `nds-bootstrap-nightly.nds` | Wherever you launch it from | Keep it separate from TWiLight's stock copy so the two don't get mixed up |
+| `dsirpc-launcher.nds` | Next to our nds-bootstrap build, e.g. `sd:/_nds/dsirpc/` | Must be started in **DSi mode** |
+| Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 
-That's all. There's no config file: the Wi-Fi settings come from the DSi's
+The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
+`SAV_PATH`, and the last game's per-game values) when you pick a game it
+doesn't already name ([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
+Apart from that there's no config file: the Wi-Fi settings come from the DSi's
 own saved connections, and the in-game side broadcasts its hellos, so it
 never needs the PC's IP. Replies to memory requests go back to whichever PC
 asked. An `RPCPROBE.CFG` left over from an older version is ignored and can
@@ -186,17 +190,29 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
 
 ## 4. Every-session flow
 
-1. **Launcher (DSi mode).** Wait for `ASSOCIATED`. The screen shows the IP,
-   gateway, mask and MAC. Three test packets are broadcast on UDP 4242, which
+1. **Launcher (DSi mode).** Wait for `ASSOCIATED`. A try that can't connect
+   within 30 s, or gets no IPv4 address within 10 s after associating, is
+   retried, up to 3 tries. (DSWiFi reports "Associated" as soon as an IPv4
+   *or IPv6* address is ready, so it could finish with `0.0.0.0` while DHCP
+   was still going.) The screen shows the IP, gateway, mask and MAC. Three
+   test packets are broadcast on UDP 4242, which
    `spikes/stage1-listen/pc/listener.py` can pick up. The launcher writes
    `RPCHAND.TXT`.
-2. **START.** Exits without disconnecting and returns to your menu. SELECT
-   disconnects cleanly first; use it when you're not going to play.
-3. **Launch our nds-bootstrap build.** It boots the game named in
-   `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`). TWiLight rewrites that file
-   whenever you launch something from its game list, so if you last launched
-   a different game there, that game boots instead. Launch Platinum from
-   TWiLight once to fix it.
+2. **START: pick the game.** A file browser opens in the launcher's folder
+   (A opens or picks, B goes up a folder, START goes back). The launcher
+   finds our nds-bootstrap next to itself, or asks for it with the same
+   browser. Unless `sd:/_nds/nds-bootstrap.ini` already names the game, it
+   sets `NDS_PATH` and `SAV_PATH` (the game's existing save, in whichever of
+   TWiLight's save places it is, with its per-game save slot), resets the
+   last game's manual, donor-SDK and MPU-patch values, and deletes the last
+   game's cheat files. A game with no save yet has to be started from
+   TWiLight once. Then it installs a bootstub and nds-bootloader and exits
+   into them, which boots our nds-bootstrap with `argv[0]` set to its path,
+   without disconnecting ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
+3. **Or SELECT / Y.** SELECT disconnects cleanly and exits; use it when
+   you're not going to play. Y exits connected, back to your menu, the
+   two-step way: launching our nds-bootstrap build from there boots the game
+   the ini names (the last one TWiLight or the launcher set up).
 4. **In game.** On the first VBlank the ARM7 side reads `RPCHAND.TXT`.
    A couple of seconds later it probes the chip and starts serving. It sends a
    gratuitous ARP so the PC learns its MAC, then broadcasts one hello packet
@@ -295,7 +311,8 @@ and Enter keeps it, so it's safe to run again:
    sets from it on its own, `auto_import`). Then, for the game the DSi runs
    now (it listens 10 s, or reads `logs\state.json` if DSiRPC holds the
    port) and any game code you type, it lists the possible sets: the one for
-   your game file, RetroAchievements games whose title matches the header's,
+   your game file, RetroAchievements games whose title matches the game's
+   (its header's, or GameTDB's for the game code),
    and RALibretro's cached sets; you can also search RetroAchievements by
    name. The one you pick is saved as `ra/<code>.json`.
 6. Start with Windows.
@@ -527,11 +544,12 @@ numbers mean.
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
-| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title, finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. `RaSettings` holds the `[ra]` choices |
+| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. `RaSettings` holds the `[ra]` choices |
 | `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup |
 | `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
 | `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
 | `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
+| `core/game_titles.py` | DS game titles by game code from GameTDB's list (`dstdb.txt`, downloaded into `ra/cache/` and refreshed monthly): `titles(code, cache_dir)` gives the code's title, the same game's US and European titles, then `core/games.py`'s name, for title matching when the header can't be read |
 | `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
 | `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
 | `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`) |
@@ -628,15 +646,22 @@ without them.
 **Finding the set.** `ra/<code>.json` (or a `ra/games.txt` mapping) first.
 Signed in, RetroAchievements next (`core/ra_link.py`): by the hash of your
 game file when there's a `roms` folder, else by the set file's game ID, else
-by the header title against RetroAchievements' list of DS and DSi games
+by the game's title against RetroAchievements' list of DS and DSi games
 (`systemgames`, kept a week in `ra/cache/`), with the rules below; the set
 is downloaded into `ra/<code>.json` (again when that copy is over a day
 old). Without an account, or when RetroAchievements has nothing, and with
 `racache` set, DSiRPC looks in the emulator's cache once per session
 (`core/ra_cache.py`). The DSi can't give the RA game ID (RA
-identifies DS games by a hash of the whole ROM), so the game's header title
-is matched against the sets' titles, letters and digits only, accents
-dropped: 3 if they're the same (`MARIOKART DS` and "Mario Kart DS"), 2 if
+identifies DS games by a hash of the whole ROM), so the game's title is
+matched against the sets' titles. That's the title in the game's header
+copy at `0x023FFE00` when it's there: it is under emulators, but not under
+nds-bootstrap on a DSi or 3DS (nds-bootstrap keeps the header at
+`0x027FFE00`, past the 4 MB rpcprobe reads, and with the DSi's bigger RAM
+that isn't a mirror of `0x023FFE00`). Without it, the titles come from
+GameTDB's list by the game code the hellos give (`core/game_titles.py`:
+`CPUE` is "Pokemon: Platinum Version"), then the same game's US and European
+titles, then `core/games.py`'s name, each tried until one matches clearly.
+Titles are compared letters and digits only, accents dropped: 3 if they're the same (`MARIOKART DS` and "Mario Kart DS"), 2 if
 the set's title starts with it (`POKEMON PL` and "Pokémon Platinum
 Version"), 1 if its letters appear in order. A set is copied to `ra/` on its
 own only with a score of 2 or more that no other set shares, and never a
@@ -1093,7 +1118,11 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
 | The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives, one SDIO command per byte. Big broadcast frames from other devices used to be drained in one go, several milliseconds at a time. They're now drained 128 bytes per VBlank. Check the `vb=` field in the hellos (section 7). Also compare with DSiRPC stopped: if the stutter only happens while it polls, the replies are the cost. The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
-| Wrong game boots | `sd:/_nds/nds-bootstrap.ini` points at the last game TWiLight launched |
+| Wrong game boots | Started our nds-bootstrap from the menu (launcher's Y): it boots what `sd:/_nds/nds-bootstrap.ini` names, the last game TWiLight or the launcher set up. Use START in the launcher |
+| The launcher shows IP `0.0.0.0` | An older launcher (DHCP hadn't answered yet); the current one waits for an IPv4 address and retries |
+| "This game has no save file yet" | Start the game once from TWiLight Menu++, which makes the save, then use the launcher |
+| "Where is our nds-bootstrap?" | Our build isn't next to the launcher as `nds-bootstrap-dsirpc.nds` (or there are several `nds-bootstrap*.nds` there): pick it, or move it there |
+| Picking a game goes back to TWiLight, or the screen stays black | Starting nds-bootstrap directly didn't work on this console (launcher/CHAINLOAD.md); Y in the launcher still exits connected the two-step way |
 | Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
 | Presence stays up for a while after closing the game | Expected: DSiRPC waits for about 30 s without data before clearing it |
 | "DSiRPC is already running" | Another DSiRPC (look in the tray, by the clock) or a tool from `tools/` holds UDP 4244 |
@@ -1134,11 +1163,12 @@ section 8).
   hardware. No leaderboards.
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
-- **Two-step launch.** START returns to the menu instead of launching our
-  nds-bootstrap directly. The one-app chainload (hbmenu bootstub +
-  nds-bootloader, correct `argv[0]`, optionally rewriting the ini) is
-  researched in [launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md) but not
-  built.
+- **One-app launch is new.** START in the launcher now starts our
+  nds-bootstrap directly (hbmenu's bootstub + nds-bootloader, correct
+  `argv[0]`, the ini rewritten for the picked game; see
+  [launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)). It still has to be
+  confirmed on hardware; Y keeps the two-step way. TWiLight's per-game
+  settings other than the save slot aren't applied to a game picked there.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group
   handshake after the launcher exits. So far it hasn't caused problems; the
   `eap` counter is the early warning.
@@ -1190,7 +1220,7 @@ section 8).
 | `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `launcher/` | The DSi-mode launcher (`source/main.c`), chainload plan |
+| `launcher/` | The DSi-mode launcher (`source/`: connecting, the file browser, the ini, starting nds-bootstrap) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
 | `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
 | `docs/DOCUMENTATION.md` | This file |
 | `docs/research.md` | Verified research notes beyond this map, plus leads |

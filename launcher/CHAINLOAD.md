@@ -1,71 +1,67 @@
-# Making START launch our nds-bootstrap directly (one-ROM flow)
+# Starting our nds-bootstrap straight from the launcher (one-app flow)
 
-Status: researched, **not built yet**. The handoff itself works on hardware
-(the connection survives into the game), so this is the next step for a
-one-app flow.
+Status: **built** (`source/chainload.c`, `loader/`), still to be tested on
+hardware. The handoff itself works on hardware (the connection survives into
+the game). If starting nds-bootstrap directly fails, the launcher's **Y**
+still exits connected, back to the menu.
 
 ## Why it needs a loader
 
 BlocksDS has no "launch this other .nds" function. Its `exit()` only follows
 the *exit-to-loader protocol*: if a valid bootstub sits at the bootstub
-address, `exit()` jumps into it. Today that bootstub belongs to whatever
-launched the launcher (TWiLight), which is why START returns there.
+address, `exit()` jumps into it. Whatever launched the launcher (TWiLight)
+put its own bootstub there, which is why exiting returns to the menu.
 
 So the launcher installs its **own** bootstub, pointed at our nds-bootstrap,
 then calls `exit(0)`. This is how NDS Homebrew Menu (hbmenu) itself launches
-programs. BlocksDS's own exit-to-loader tests use hbmenu 0.11.0, so the
-protocol on both sides already matches.
+programs, and BlocksDS's own exit-to-loader tests use hbmenu's bootstub, so
+the protocol on both sides matches.
 
 ## Pieces
 
-1. **`bootstub.bin`**: hbmenu's `bootstub/bootstub.s` (GPLv2+). It's
-   plain, self-contained ARM assembly whose header matches BlocksDS's
-   `struct __bootstub` exactly: `"bootstub"` signature, ARM9 reboot offset,
-   ARM7 reboot offset, loader size.
-2. **`load.bin`**: devkitPro's `nds-bootloader`. This is the ARM7 loader
-   that reads an .nds off the DSi SD card by starting cluster and boots it
-   with argv. The current master branch needs libnds 2 ("calico"). Our
-   `devkitpro/devkitarm:20241104` image appears to have libnds 1.x (it builds
-   nds-bootstrap, which uses 1.x APIs), so use the last `nds-bootloader` tag
-   from before calico. The repo's tags run up to v0.9.0; which one is the
-   last pre-calico tag still needs checking.
-3. **Launcher code** (`source/main.c`), on START:
-   - `stat("sd:/_nds/dsirpc/nds-bootstrap-dsirpc.nds")`. In BlocksDS,
-     `st_ino` is the file's starting FAT cluster, which is what the loader
-     needs.
+1. **`bootstub.bin`**: hbmenu's `bootstub/bootstub.s` (GPLv2+), plain ARM
+   assembly whose header matches BlocksDS's `struct __bootstub`: `"bootstub"`
+   signature, ARM9 reboot offset, ARM7 reboot offset, loader size.
+2. **`load.bin`**: devkitPro's `nds-bootloader`, the ARM7 loader that reads an
+   .nds off the DSi SD card by its starting cluster and boots it with argv.
+   Its master branch needs libnds 2 ("calico"), so `loader/` has commit
+   `35f54d8`, the last one before that, built with BlocksDS's toolchain (a
+   small `blocksds_compat.c` supplies the few C library calls it needs).
+3. **Launcher code** (`source/chainload.c`), once the game is picked and the
+   ini written:
+   - `stat()` our nds-bootstrap. In BlocksDS, `st_ino` is the file's starting
+     FAT cluster, which is what the loader needs.
    - Copy `bootstub.bin`, then `load.bin` right after it, into the bootstub
-     area (`__system_bootstub`, `0x0CFF4000` in DSi mode). Convert the two
-     reboot offsets to absolute addresses, as hbmenu's `installBootStub()`
-     does.
+     area. The ARM9 writes it through `__system_bootstub` (the `0x0CFF4000`
+     mirror in DSi mode), because its DTCM covers `0x02FF4000`. Turn the two
+     reboot offsets into addresses at `0x02FF4000`, where it runs from, as
+     hbmenu's `installBootStub()` does.
    - Fill in the loader header: `storedFileCluster` = that cluster,
-     `wantToPatchDldi` = 0, `hasTwlSd` = 1, `isTwlMode` = 1. Pack argv[0]
-     at `argStart`.
-   - Set `bootsize` to cover `load.bin` **plus** the argv block. hbmenu sets
-     it to `load_bin_size` alone, which would drop our argv when the stub
-     copies the loader.
-   - `DC_FlushAll()`, then `exit(0)`.
-4. Embed both .bin files with BlocksDS's `BINDIRS := data`. Each one becomes
-   a `*_bin.h` header with the bytes as an array.
+     `initDisc` = 1, `wantToPatchDLDI` = 0, `dsiSD` = 1, `dsiMode` = 1. Put
+     argv[0] (nds-bootstrap's own path) at `argStart`, and its length with
+     the terminator in `argSize`.
+   - Set `bootsize` to cover `load.bin` **plus** argv. hbmenu sets it to the
+     loader's size alone, which would drop argv when the stub copies the
+     loader.
+   - `DC_FlushAll()`, then `exit(0)`. Like the old START, nothing
+     disconnects the Wi-Fi.
+4. Both .bin files are embedded with `.incbin` (`source/loader_blobs.s`).
+   The Makefile builds `loader/` first, so it's still one `make` (and one
+   Docker command) for everything.
 
 ## Traps
 
 - **argv[0] must be our build's real path.** nds-bootstrap loads its
   cardengine binaries from its *own* file via argv[0]. If that's missing, it
   falls back to `sd:/_nds/nds-bootstrap-nightly.nds`, which could be a stock
-  nightly. That's the "handoff must use our bootstrap" issue, so give our
-  build its own name and folder.
+  nightly. That's the "handoff must use our bootstrap" issue, so our build
+  has its own name and folder, next to the launcher.
 - **The loader's reset** sets `REG_POWCNT` to sound-only. That should be
   harmless: DSWiFi's DSi mode never turns that bit on, and the connection
-  worked. The chosen `nds-bootloader` version still needs a check that it
-  doesn't touch `REG_GPIO_WIFI` (`0x04004C04`). Current master doesn't.
+  already survived TWiLight's loader, a fork of the same code. The loader
+  doesn't touch `REG_GPIO_WIFI` (`0x04004C04`) or the SDIO Wi-Fi registers.
 - **The ini is shared with TWiLight** (`sd:/_nds/nds-bootstrap.ini`). The
-  launcher could rewrite `NDS_PATH`/`SAV_PATH` before launching, so it always
-  boots Platinum no matter what TWiLight last wrote.
-
-## Build flow once implemented
-
-1. devkitARM image: build `load.bin` (one command).
-2. Assemble `bootstub.s` → `bootstub.bin`. This can run in the same devkitARM
-   container, since it's just `arm-none-eabi-as` + `objcopy`.
-3. Copy both into `launcher/data/`, then run the normal BlocksDS
-   build.
+  launcher rewrites `NDS_PATH`, `SAV_PATH` and the last game's per-game
+  values before starting nds-bootstrap (`source/bootstrap_ini.c`, described
+  in [README.md](README.md#the-game-the-ini-and-your-save)), and only an
+  existing save is ever used.

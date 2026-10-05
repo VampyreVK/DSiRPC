@@ -8,9 +8,11 @@ When a game starts (core/ra_game.py calls prepare()):
   1. Which RA game is it? With a folder of game files (`roms`), the file
      with the same game code is hashed the way RA emulators do
      (core/ra_hash.py) and RetroAchievements says which game that is: the
-     exact answer. Otherwise the set file in ra/ says, or the title in the
-     game's header is matched against RetroAchievements' list of DS and DSi
-     games (core/ra_cache.py's rules: only one clear match counts).
+     exact answer. Otherwise the set file in ra/ says, or the game's title is
+     matched against RetroAchievements' list of DS and DSi games
+     (core/ra_cache.py's rules: only one clear match counts). The title is
+     the one in the game's header when that can be read, else GameTDB's for
+     the game code (core/game_titles.py).
   2. Its set (achievements, rich presence) is downloaded into ra/<code>.json,
      unless the copy there is less than a day old.
   3. A session is started, which also says which achievements you already
@@ -33,6 +35,7 @@ import threading
 import time
 import types
 
+from . import game_titles
 from . import ra_cache
 from . import ra_set
 from .ra_api import RAClient, RAError, RANetworkError
@@ -57,7 +60,7 @@ class RALink:
         self._cv = threading.Condition()
         self._stopping = False
         self._pending = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()   # update() holds it while _load_pending() takes it
         self._thread = threading.Thread(target=self._run, name="RetroAchievements", daemon=True)
         self._thread.start()
         if self.signed_in:
@@ -111,8 +114,9 @@ class RALink:
 
     def prepare(self, game, local_set):
         """Works out the game, gets its set and starts a session, then posts
-        ('set', (RaSet, hash)), ('hash', hash), ('session', unlocked IDs),
-        ('noset', why) or ('note', text) to game.inbox."""
+        ('set', (RaSet, hash)), ('hash', hash), ('titles', [title]),
+        ('session', unlocked IDs), ('noset', why) or ('note', text) to
+        game.inbox."""
         self._later(0, self._prepare, game, local_set, 0)
 
     def _rom_hash(self, code):
@@ -146,6 +150,13 @@ class RALink:
         except OSError:
             pass
         return slim
+
+    def titles(self, game):
+        """The titles to look a game up by: its header's, else GameTDB's for
+        its code (core/game_titles.py)."""
+        if game.header_title:
+            return [game.header_title]
+        return game_titles.titles(game.code, self.cache_dir)
 
     def candidates(self, header_title):
         """[(score, game)] RetroAchievements games whose title could be the
@@ -189,19 +200,25 @@ class RALink:
                 game.inbox.put(("hash", game_hash))
             if not game_id and local:
                 game_id = local.id
-            if not game_id and game.header_title:
-                ranked, pick = self.candidates(game.header_title)
+            titles = [] if game_id else self.titles(game)
+            if titles:
+                game.inbox.put(("titles", titles))
+            maybe = []
+            for title in titles:
+                ranked, pick = self.candidates(title)
                 if pick:
                     game_id = pick.id
-                    logging.info(f"RetroAchievements: {code} '{game.header_title}' is {pick.title} "
+                    logging.info(f"RetroAchievements: {code} '{title}' is {pick.title} "
                                  f"(game {pick.id}), going by its title")
-                elif ranked:
-                    game.inbox.put(("noset", f"{len(ranked)} games there could be this one: "
-                                             "pick it with 'dsirpc.py setup'"))
-                    return
+                    break
+                maybe = maybe or ranked
+            if not game_id and maybe:
+                game.inbox.put(("noset", f"{len(maybe)} games there could be this one: "
+                                         "pick it with 'dsirpc.py setup'"))
+                return
             if not game_id:
-                what = f"'{game.header_title}'" if game.header_title else "this game"
-                game.inbox.put(("noset", f"no game called {what} there"))
+                game.inbox.put(("noset", f"no game called '{titles[0]}' there" if titles
+                                else f"can't tell what {code} is called"))
                 return
             stale = local is None or local.id != game_id or \
                 time.time() - os.path.getmtime(local.path) > REFRESH_SET_AFTER

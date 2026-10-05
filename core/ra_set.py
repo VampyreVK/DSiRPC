@@ -65,13 +65,14 @@ class RaSet:
         self.leaderboards = []
         if "Sets" in root:
             for s in root["Sets"]:
-                self._add(s.get("Achievements") or [], s.get("Leaderboards") or [], s.get("Title"))
+                self._add(s.get("Achievements") or [], s.get("Leaderboards") or [], s.get("Title"),
+                          (s.get("Type") or "core").lower())
         else:
-            self._add(root.get("Achievements") or [], root.get("Leaderboards") or [], None)
+            self._add(root.get("Achievements") or [], root.get("Leaderboards") or [], None, "core")
         if not self.title:
             raise SetFileError("no game title in the file: is it a RetroAchievements set?")
 
-    def _add(self, achievements, leaderboards, subset):
+    def _add(self, achievements, leaderboards, subset, set_type):
         for a in achievements:
             self.achievements.append({
                 "id": int(a["ID"]),
@@ -83,6 +84,8 @@ class RaSet:
                 "official": int(a.get("Flags") or 3) == 3,
                 "badge_url": _media_url(a.get("BadgeURL") or a.get("BadgeName"), "Badge"),
                 "subset": subset,
+                # core, bonus, specialty or exclusive (the last two need their own ROM hash)
+                "set_type": set_type,
             })
         for lb in leaderboards:
             self.leaderboards.append({
@@ -97,6 +100,12 @@ class RaSet:
     @property
     def official_achievements(self):
         return [a for a in self.achievements if a["official"]]
+
+    @property
+    def playable_achievements(self):
+        """The official achievements of the core set and bonus sets: the ones
+        that count for any version of the game."""
+        return [a for a in self.official_achievements if a["set_type"] in ("core", "bonus")]
 
     @property
     def points(self):

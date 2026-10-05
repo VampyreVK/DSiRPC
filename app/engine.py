@@ -5,6 +5,8 @@ engine.py - what runs while DSiRPC runs, whichever way it's started
   the state hub (core/hub.py)        the one thing talking to the DSi
   the Discord Rich Presence          rpc/presence_connector.py, a hub listener
   the overlay window (optional)      overlay/app.py, drawn from the hub
+  RetroAchievements                  core/ra_link.py (signed in) and
+                                     core/ra_game.py, run by the hub's source
 
 The hub reads every 5 s while only Discord needs the data (Discord takes an
 update about every 5 s anyway), and every 2 s with the battlers a few times a
@@ -27,6 +29,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.path.join(ROOT, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "dsirpc.log")
 STATE_FILE = os.path.join(LOG_DIR, "state.json")
+ACHIEVEMENTS_LOG = os.path.join(LOG_DIR, "achievements.log")
 
 
 def setup_logging(console=True, verbose=False):
@@ -56,30 +59,43 @@ class Engine:
     STATE_EVERY = 30.0
 
     def __init__(self, cfg, file=None, game=None, demo=False, demo_name=None, dsi_ip=None, port=4244,
-                 interval=None, client_id=None, dry_run=False, discord=True, check_images=True):
+                 interval=None, client_id=None, dry_run=False, discord=True, check_images=True, ra=True):
         from core.charmap import parse_charmap_txt
         from core.hub import DsiSource, FileSource, StateHub
+        from core.ra_game import RaSettings
         from rpc.presence_connector import DiscordConnector
 
         self.cfg = cfg
         self.client_id = client_id
         self.fixed_interval = interval
+        self.ra_enabled = ra
+        self.dry_run = dry_run
+        self.ra_settings = RaSettings()
+        self._apply_ra_settings()
+        self.ra_link = None
         charmap = parse_charmap_txt(os.path.join(ROOT, "PokeGen4Charmap.txt"))
         if demo:
             from core.demo import DemoSource
             base = FileSource(charmap, file).state if file else None
             source, self.fixed_interval = DemoSource(base, name=demo_name), 0.5
         elif file:
-            source, self.fixed_interval = FileSource(charmap, file, game), interval or 1.0
+            source, self.fixed_interval = FileSource(charmap, file, game, self.ra_settings), interval or 1.0
         else:
+            if ra and cfg.ra_signed_in:
+                from core.ra_link import RALink
+                self.ra_link = RALink(cfg.ra_username, cfg.ra_token, cfg.ra_roms or None, self.ra_settings)
             try:
-                source = DsiSource(charmap, port=port, dsi_ip=dsi_ip, racache=self._racache())
+                source = DsiSource(charmap, port=port, dsi_ip=dsi_ip, ra_link=self.ra_link,
+                                   ra_settings=self.ra_settings)
             except OSError as e:
+                if self.ra_link:
+                    self.ra_link.stop()
                 raise PortInUse(f"UDP port {port} is already in use ({e})") from e
         self.source = source
         self.hub = StateHub(source, interval=self.fixed_interval or self.DISCORD_INTERVAL)
         self.discord = DiscordConnector(self._client_id_for, dry_run=dry_run, enabled=discord,
                                         check_images=check_images)
+        self._apply_console_icon()
         self.hub.add_listener(self.discord.on_update)
         self.hub.add_closer(self.discord.close)
         self.hub.add_listener(self._on_update)
@@ -97,8 +113,26 @@ class Engine:
 
     # -- settings ----------------------------------------------------------
 
-    def _racache(self):
-        return self.cfg.racache if self.cfg.racache and self.cfg.ra_auto_import else None
+    def _apply_ra_settings(self):
+        """dsirpc.cfg's [ra] into the settings the RetroAchievements side
+        reads (the same object, so a reload takes effect right away)."""
+        c, s = self.cfg, self.ra_settings
+        sending = self.ra_enabled and not self.dry_run  # a dry run sends nothing anywhere
+        s.achievements = c.ra_achievements and self.ra_enabled
+        s.submit = c.ra_submit and sending
+        s.profile = c.ra_profile and sending
+        s.racache = c.racache or None
+        s.auto_import = c.ra_auto_import
+        s.interval = c.ra_interval
+
+    def _apply_console_icon(self):
+        from rpc import generic_presence
+        self.discord.console = generic_presence.console_icon(self.cfg.console_icon)
+
+    def set_console_icon(self, key):
+        """The picture from Assets/Consoles for Discord's small image ('' for none)."""
+        self.cfg.console_icon = key or ""
+        self._apply_console_icon()
 
     def _client_id_for(self, code, platinum):
         return self.client_id or self.cfg.client_id_for(code, platinum)
@@ -118,8 +152,17 @@ class Engine:
         self._cfg_mtime = m
         from utils.config import Config
         self.cfg = Config(self.cfg.path)
-        if hasattr(self.source, 'racache'):
-            self.source.racache = self._racache()
+        self._apply_ra_settings()
+        self._apply_console_icon()
+        if self.ra_link:
+            self.ra_link.update(self.cfg.ra_username, self.cfg.ra_token, self.cfg.ra_roms or None)
+        elif self.cfg.ra_signed_in and self.ra_enabled and hasattr(self.source, 'ra_link'):
+            # Just signed in (setup): connect, and start the game's RA side over with it.
+            from core.ra_link import RALink
+            self.ra_link = RALink(self.cfg.ra_username, self.cfg.ra_token, self.cfg.ra_roms or None,
+                                  self.ra_settings)
+            self.source.ra_link = self.ra_link
+            self.source.ra_code = None
         logging.info(f"Reloaded {self.cfg.path}")
 
     def save_config(self):
@@ -141,6 +184,23 @@ class Engine:
         return snap.status or "Starting"
 
     @property
+    def ra_game(self):
+        return getattr(self.source, 'ra_game', None)
+
+    def ra_status(self):
+        """One line for the tray about RetroAchievements."""
+        ra = self.ra_game
+        who = f"{self.ra_link.username}" if self.ra_link and self.ra_link.signed_in else "not signed in"
+        if not ra or not self.online:
+            return f"RetroAchievements: {who}"
+        if not ra.set:
+            return f"RetroAchievements: {ra.note or 'looking for the set'}"
+        p = ra.progress
+        if p:
+            return f"RetroAchievements: {p[0]} of {p[1]} unlocked ({who})"
+        return f"RetroAchievements: {ra.total} achievements ({who})"
+
+    @property
     def online(self):
         return self.hub.snapshot().online
 
@@ -148,9 +208,26 @@ class Engine:
     def overlay_on(self):
         return self.overlay_thread is not None and self.overlay_thread.is_alive()
 
+    def _log_achievements(self, events):
+        lines = []
+        for e in events:
+            if e.get('type') == 'achievement':
+                p = e.get('progress')
+                lines.append(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\t{e['game']}\t{e['id']}\t{e['title']}\t"
+                             f"{e['points']} points\t{'sent' if e['sent'] else 'not sent'}"
+                             + (f"\t{p[0]}/{p[1]}" if p else "") + "\n")
+        if lines:
+            try:
+                os.makedirs(LOG_DIR, exist_ok=True)
+                with open(ACHIEVEMENTS_LOG, "a", encoding="utf-8") as f:
+                    f.writelines(lines)
+            except OSError:
+                pass
+
     def _on_update(self, snap, events):
         self._check_config()
-        view = (self.headline(), self.discord.status, snap.online, self.overlay_on)
+        self._log_achievements(events)
+        view = (self.headline(), self.discord.status, snap.online, self.overlay_on, self.ra_status())
         changed = view != self._last_view
         if changed:
             if self._last_view is None or view[0] != self._last_view[0]:
@@ -176,6 +253,7 @@ class Engine:
             'game': game,
             'title': (state.get('title') if is_other(state) else "Pokemon Platinum") if state else None,
             'header_title': state.get('header_title') if is_other(state) else None,
+            'ra_game_id': self.ra_game.game_id if self.ra_game else 0,
             'discord': self.discord.status,
         }
         try:
@@ -199,6 +277,8 @@ class Engine:
         if self._started:
             self.hub.stop()
             self._started = False
+        if self.ra_link:
+            self.ra_link.stop()
         try:
             os.remove(STATE_FILE)
         except OSError:
@@ -220,6 +300,8 @@ class Engine:
             self.source.fast_battles = on
         if not self.fixed_interval:
             self.hub.interval = self.OVERLAY_INTERVAL if on else self.DISCORD_INTERVAL
+        if hasattr(self.source, 'parse_interval'):
+            self.source.parse_interval = self.hub.interval
 
     def _make_window(self):
         from overlay.app import OverlayWindow

@@ -1,6 +1,7 @@
 """
 config.py - DSiRPC's settings, in dsirpc.cfg at the repo root (gitignored;
-see dsirpc.cfg.sample). 'dsirpc.py setup' writes it.
+see dsirpc.cfg.sample). 'dsirpc.py setup' writes it. Keep the file to
+yourself: with RetroAchievements signed in, it holds your login token.
 
 An older PokemonPlatinumRPC.cfg is still read when there's no dsirpc.cfg, and
 its settings move to dsirpc.cfg the first time anything is saved.
@@ -57,9 +58,22 @@ class Config:
         self.overlay = False
         self.overlay_scale = 3
         self.chroma = ""
+        # The picture in Assets/Consoles shown as Discord's small image for
+        # games without their own presence ('' for none)
+        self.console_icon = "DSiXL"
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
+        # RetroAchievements account: the token from signing in (never the password)
+        self.ra_username = ""
+        self.ra_token = ""
+        # A folder of your game files (.nds), to tell RetroAchievements
+        # exactly which game and version you play
+        self.ra_roms = ""
+        self.ra_profile = True         # what you play shows on your RA profile
+        self.ra_achievements = True    # check achievements
+        self.ra_submit = False         # send unlocks to RetroAchievements (softcore)
+        self.ra_interval = 1.0         # seconds between achievement checks
 
         self._load_config()
 
@@ -106,9 +120,26 @@ class Config:
             except ValueError:
                 pass
             self.chroma = _clean(a.get("chroma", ""))
+            if "console_icon" in a:
+                self.console_icon = _clean(a.get("console_icon", ""))
         if "ra" in parser:
-            self.racache = _clean(parser["ra"].get("racache", ""))
-            self.ra_auto_import = _bool(parser["ra"].get("auto_import"), self.ra_auto_import)
+            r = parser["ra"]
+            self.racache = _clean(r.get("racache", ""))
+            self.ra_auto_import = _bool(r.get("auto_import"), self.ra_auto_import)
+            self.ra_username = _clean(r.get("username", ""))
+            self.ra_token = _clean(r.get("token", ""))
+            self.ra_roms = _clean(r.get("roms", ""))
+            self.ra_profile = _bool(r.get("profile"), self.ra_profile)
+            self.ra_achievements = _bool(r.get("achievements"), self.ra_achievements)
+            self.ra_submit = _bool(r.get("submit_unlocks"), self.ra_submit)
+            try:
+                self.ra_interval = max(0.25, min(10.0, float(_clean(r.get("interval", "")) or self.ra_interval)))
+            except ValueError:
+                pass
+
+    @property
+    def ra_signed_in(self):
+        return bool(self.ra_username and self.ra_token)
 
     def save(self):
         """Writes every setting to self.path (dsirpc.cfg), with comments."""
@@ -116,7 +147,9 @@ class Config:
             return "yes" if v else "no"
         apps = "".join(f"{code}: {cid}\n" for code, cid in sorted(self.discord_apps.items())
                        if code != "DEFAULT")
-        text = f"""# DSiRPC settings ('dsirpc.py setup' writes this file; see dsirpc.cfg.sample)
+        text = f"""# DSiRPC settings ('dsirpc.py setup' writes this file; see dsirpc.cfg.sample).
+# Keep it to yourself: when you're signed in to RetroAchievements, it holds
+# your login token.
 
 [connection]
 # The Discord application for Pokemon Platinum, and for any game without its
@@ -137,11 +170,32 @@ overlay: {yn(self.overlay)}
 # colour (RRGGBB) for its background
 overlay_scale: {self.overlay_scale}
 chroma: {self.chroma}
+# The picture from Assets/Consoles that Discord shows as the small image for
+# games without their own presence (file name without the extension; empty
+# for none). The tray menu's "Console icon" changes it.
+console_icon: {self.console_icon}
 
 [ra]
+# Your RetroAchievements account. Setup signs in with your password once and
+# keeps only the token RetroAchievements gives back.
+username: {self.ra_username}
+token: {self.ra_token}
+# A folder with your game files (.nds), e.g. RALibretro's games folder: the
+# file with the same game code tells RetroAchievements exactly which game
+# and version you play. Optional.
+roms: {self.ra_roms}
+# Show what you play (and its rich presence) on your RetroAchievements profile
+profile: {yn(self.ra_profile)}
+# Check achievements while you play, and say when one unlocks
+achievements: {yn(self.ra_achievements)}
+# Send unlocks to RetroAchievements (always softcore). Off: they only show here.
+submit_unlocks: {yn(self.ra_submit)}
+# Seconds between achievement checks
+interval: {self.ra_interval:g}
 # An RA emulator's folder (e.g. RALibretro's), or its RACache folder. When a
-# game has no set file in ra/, DSiRPC looks for its set there and copies it
-# into ra/ if exactly one clearly matches (auto_import).
+# game has no set file in ra/ (and RetroAchievements can't send one), DSiRPC
+# looks for its set there and copies it into ra/ if exactly one clearly
+# matches (auto_import).
 racache: {self.racache}
 auto_import: {yn(self.ra_auto_import)}
 """

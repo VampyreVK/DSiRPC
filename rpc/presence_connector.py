@@ -33,6 +33,7 @@ class DiscordConnector:
         self.dry_run = dry_run
         self.enabled = enabled
         self.check_images = check_images
+        self.console = None   # (name, image URL): the small image for games without their own presence
         self.rpc = None
         self.start = None
         self.start_key = None
@@ -53,7 +54,7 @@ class DiscordConnector:
         """(presence, game code, is Platinum) for a state."""
         if is_other(state):
             started = state.get('started')
-            presence = generic.from_state(state, check_images=self.check_images)
+            presence = generic.from_state(state, check_images=self.check_images, console=self.console)
             key = ('other', (state.get('game') or {}).get('code'), started)
             if self.start_key != key:
                 self.start, self.start_key = int(started or time.time()), key

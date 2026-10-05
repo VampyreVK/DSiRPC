@@ -5,8 +5,10 @@ Right-click the icon for the menu:
 
     Playing Mario Kart DS              what's running (or what it waits for)
     Discord: showing Mario Kart DS     what Discord shows
+    RetroAchievements: 12 of 132 ...   achievements (signed in, or not)
     ---
     Discord presence                   on/off
+    Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
     Start with Windows                 on/off
     ---
@@ -117,6 +119,14 @@ def run_tray(cfg, **engine_args):
                     icon.notify("No data from the DSi for 30 s. DSiRPC waits for it to come back.", "DSiRPC")
                 elif e['type'] == 'game_changed':
                     icon.notify(f"Now playing {e['title']}", "DSiRPC")
+                elif e['type'] == 'achievement':
+                    p = e.get('progress')
+                    body = f"{e['title']} ({e['points']} points)\n{e['description']}"
+                    if p:
+                        body += f"\n{p[0]} of {p[1]} in {e['game']}"
+                    if not e['sent']:
+                        body += "\n(not sent to RetroAchievements)"
+                    icon.notify(body[:255], "Achievement unlocked!")
 
     def toggle_discord(icon_, item):
         on = not engine.discord.enabled
@@ -135,6 +145,21 @@ def run_tray(cfg, **engine_args):
         engine.cfg.overlay = on
         engine.save_config()
 
+    def console_item(key, label):
+        def pick(icon_, item):
+            engine.set_console_icon(key)
+            engine.save_config()
+
+        def checked(item):
+            return (engine.cfg.console_icon or "").lower() == key.lower()
+        return Item(label, pick, checked=checked, radio=True)
+
+    def console_menu():
+        from rpc.generic_presence import console_icons
+        items = [console_item(key, label) for key, label, _ in console_icons()]
+        items.append(console_item("", "None (RetroAchievements icon)"))
+        return Menu(*items)
+
     def toggle_startup(icon_, item):
         try:
             startup.set_enabled(not startup.is_enabled())
@@ -152,8 +177,10 @@ def run_tray(cfg, **engine_args):
     menu = Menu(
         Item(lambda i: engine.headline(), None, enabled=False),
         Item(lambda i: f"Discord: {engine.discord.status}", None, enabled=False),
+        Item(lambda i: engine.ra_status(), None, enabled=False),
         Menu.SEPARATOR,
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
+        Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
         Item("Start with Windows", toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),

@@ -1,5 +1,6 @@
 # DSiRPC settings. 'dsirpc.py setup' (Setup.bat) writes dsirpc.cfg for you;
-# this is the same file by hand. dsirpc.cfg is gitignored.
+# this is the same file by hand. dsirpc.cfg is gitignored: keep it to
+# yourself, since with RetroAchievements signed in it holds your login token.
 
 [connection]
 # The Discord application for Pokemon Platinum, and for any game without its
@@ -23,10 +24,31 @@ overlay: no
 # colour (RRGGBB) for its background
 overlay_scale: 3
 chroma:
+# The picture from Assets/Consoles that Discord shows as the small image for
+# games without their own presence (file name without the extension; empty
+# for none). The tray menu's "Console icon" changes it.
+console_icon: DSiXL
 
 [ra]
+# Your RetroAchievements account: setup signs in with your password once and
+# keeps only the token RetroAchievements gives back. Empty: not signed in.
+username:
+token:
+# A folder with your game files (.nds), e.g. RALibretro's games folder: the
+# file with the same game code tells RetroAchievements exactly which game and
+# version you play. Optional.
+roms:
+# Show what you play (and its rich presence) on your RetroAchievements profile
+profile: yes
+# Check achievements while you play, and say when one unlocks
+achievements: yes
+# Send unlocks to RetroAchievements (always softcore). Off: they only show here.
+submit_unlocks: no
+# Seconds between achievement checks
+interval: 1
 # An RA emulator's folder (e.g. RALibretro's), or its RACache folder. When a
-# game has no set file in ra/, DSiRPC looks for its set there and copies it
-# into ra/ if exactly one clearly matches (auto_import).
+# game has no set file in ra/ (and RetroAchievements can't send one), DSiRPC
+# looks for its set there and copies it into ra/ if exactly one clearly
+# matches (auto_import).
 racache:
 auto_import: yes

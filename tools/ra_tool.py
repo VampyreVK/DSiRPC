@@ -17,6 +17,7 @@ not while DSiRPC runs):
   python tools/ra_tool.py rp CPUE                  # its rich presence, read from the DSi once
   python tools/ra_tool.py rp CPUE --every 5        # ...and again every 5 s (Ctrl+C to stop)
   python tools/ra_tool.py rp CPUE --file ram_dump.bin
+  python tools/ra_tool.py hash "C:\Games\Mario Kart DS.nds"   # its RA hash, and which RA game that is
 """
 
 import argparse
@@ -184,6 +185,27 @@ def cmd_rp(args):
     return 0
 
 
+def cmd_hash(args):
+    from core.ra_hash import nds_hash, game_code, HashError
+    try:
+        h = nds_hash(args.file)
+    except (OSError, HashError) as e:
+        print(f"Can't hash it: {e}")
+        return 1
+    print(f"{args.file}: game code {game_code(args.file) or '?'}, RetroAchievements hash {h}")
+    from core.ra_api import RAClient, RAError
+    try:
+        game_id = RAClient().game_id_for_hash(h)
+    except RAError as e:
+        print(f"Couldn't ask RetroAchievements which game that is: {e}")
+        return 1
+    if game_id:
+        print(f"RetroAchievements game {game_id}: https://retroachievements.org/game/{game_id}")
+    else:
+        print("RetroAchievements doesn't know this hash (a version it doesn't support, or a modified file).")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description="Manage DSiRPC's RetroAchievements set files (ra/)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -198,11 +220,13 @@ def main():
     r.add_argument("code")
     r.add_argument("--every", type=float, help="read again every N seconds")
     r.add_argument("--file", help="a 4 MB RAM dump instead of the DSi")
+    h = sub.add_parser("hash", help="a game file's RetroAchievements hash, and which RA game it is")
+    h.add_argument("file", help="a .nds file")
     for p in (a, r):
         p.add_argument("--dsi-ip", help="the IP the launcher shows; skips waiting for a hello packet")
         p.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
     args = ap.parse_args()
-    return {"add": cmd_add, "list": cmd_list, "info": cmd_info, "rp": cmd_rp}[args.cmd](args)
+    return {"add": cmd_add, "list": cmd_list, "info": cmd_info, "rp": cmd_rp, "hash": cmd_hash}[args.cmd](args)
 
 
 if __name__ == "__main__":

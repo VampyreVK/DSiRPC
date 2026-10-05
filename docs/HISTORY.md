@@ -275,6 +275,29 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-05 (late night): **RetroAchievements, for real.** The tray app
+  worked on hardware. Games without their own presence now show a picture
+  of the console as Discord's small image (`Assets/Consoles`, picked in the
+  tray's new Console icon menu), with the RetroAchievements line moved to
+  the box art's hover text. Then the RA side: every game, Platinum too, gets
+  a `RaGame` (`core/ra_game.py`) that checks the set's achievements with
+  rcheevos about once a second, reading only the values the set needs
+  (`SparseRam`, one request for Mario Kart DS's 100-odd values). Signing in
+  (setup; only the login token is kept) lets DSiRPC download sets by itself
+  (`core/ra_link.py`): by the RA hash of a matching game file on the PC
+  (`core/ra_hash.py`, a port of rcheevos' DS hash, identical on every test
+  file), else by title against RetroAchievements' DS/DSi game list. It also
+  starts sessions and pings every 2 minutes with the rich presence, which
+  shows on the RA profile, and, only when chosen in setup, sends unlocks as
+  softcore, with a pending file and retries. The requests (`core/ra_api.py`)
+  are encoded byte for byte like rcheevos' and carry an honest User-Agent
+  (`DSiRPC/0.3.0 ... rcheevos/12.5`). Because the game is read once a second
+  rather than every frame, achievements about split-second moments can
+  unlock late, not at all or by mistake, which setup says before offering to
+  send unlocks. Setup.bat and the setup wizard were reworded to be less
+  cryptic. Tested against a stand-in RA server (signature checks, an outage
+  mid-unlock, a ROM hash, title matching) and the fake DSi; not yet against
+  retroachievements.org or on hardware.
 - 2026-10-05 (night): **One program, a tray icon and a setup.** The
   generic presence worked on hardware (Mario Kart DS, RA game 12711, with
   its rich presence and the game's name in Discord). Then the PC side was

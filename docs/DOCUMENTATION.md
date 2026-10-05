@@ -15,7 +15,9 @@ nds-bootstrap then boots Platinum and keeps using that connection to answer
 the game state (trainer, party, location, facing, battle), decrypts and
 parses it, and pushes it to Discord as Rich Presence with animated sprites.
 Pokémon Platinum (USA, Rev 1) gets the full presence; any other DS game shows
-its name, box art and RetroAchievements rich presence. On Windows, DSiRPC
+its name, box art and RetroAchievements rich presence. Every game's
+RetroAchievements achievements are checked while you play (softcore unlocks
+sent only if you choose so). On Windows, DSiRPC
 runs as a tray icon (`DSiRPC.bat`) after a one-time `Setup.bat`.
 
 ---
@@ -161,11 +163,14 @@ matches short names.
   bold "Playing/Competing in ..." name comes from the application's name in
   the Discord Developer Portal. For other games, `[discord_apps]` can name an
   application per game code and a `default` one (section 6).
-- Games with a RetroAchievements set file in `ra/` get their RA rich presence
-  (section 6). Setup copies sets from RALibretro's `RACache` (and DSiRPC can
-  do it on its own, `racache` and `auto_import` in `[ra]`); `tools/ra_tool.py`
-  does it by hand. The rcheevos library that evaluates them is prebuilt in
-  `third_party/rcheevos/` (Windows x64).
+- Games with a RetroAchievements set in `ra/` get their achievements checked
+  and their RA rich presence (section 6, "RetroAchievements"). Signed in
+  (setup), DSiRPC downloads sets by itself; it can also copy them from
+  RALibretro's `RACache` (`racache` and `auto_import` in `[ra]`), and
+  `tools/ra_tool.py` adds them by hand. The rcheevos library that evaluates
+  them is prebuilt in `third_party/rcheevos/` (Windows x64).
+- With RetroAchievements signed in, `dsirpc.cfg` holds your login token
+  (never the password): keep it to yourself.
 - Allow Python through the Windows firewall for UDP on private networks:
   both `pythonw.exe` (the tray) and `python.exe` (the console and tools).
 
@@ -230,7 +235,8 @@ DSi), the Discord Rich Presence as a hub listener
 |---|---|---|
 | `--overlay` | off | Also open the overlay window (run mode) |
 | `--no-discord` | off | Show nothing on Discord |
-| `--dry-run` | off | Log the presence instead of sending it |
+| `--no-ra` | off | No RetroAchievements at all: no achievements, no downloads, nothing sent |
+| `--dry-run` | off | Log the presence instead of sending it, and send nothing to RetroAchievements (no session, pings or unlocks) |
 | `--client-id ID` | from `dsirpc.cfg` | Discord application ID for every game |
 | `--interval S` | `5`, or `2` with the overlay | Seconds between reads. Discord accepts about one update per 5 s. |
 | `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi. With `--dry-run` (and no overlay) it prints the presence once and exits |
@@ -248,13 +254,18 @@ tools below while DSiRPC runs.
 
 The hub reads every 5 s while only Discord needs the data, and every 2 s
 (with the battlers every 0.3 s in a battle, `DsiSource.fast_battles`) while
-the overlay window is open. `logs\state.json` says what's running, refreshed
+the overlay window is open. In between, about once a second
+(`interval` in `[ra]`), it checks the running game's achievements, which
+reads only the few values the set needs (usually one request). `logs\state.json` says what's running, refreshed
 at least every 30 s, so setup can see the game while DSiRPC holds the port.
 Changes to `dsirpc.cfg` (from setup, say) are picked up while it runs.
 
-**The tray** (`app/tray.py`, pystray). The menu shows what's running and what
-Discord shows, then **Discord presence**, **Overlay window** (also a left
-click on the icon) and **Start with Windows** (`app/startup.py`: a
+**The tray** (`app/tray.py`, pystray). The menu shows what's running, what
+Discord shows and the RetroAchievements state (signed in or not, the game's
+progress, or why there's no set), then **Discord presence**, **Console
+icon** (a submenu with every picture in `Assets/Consoles`, plus "None", for
+Discord's small image; section 6), **Overlay window** (also a left click on
+the icon) and **Start with Windows** (`app/startup.py`: a
 `DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
 then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC
@@ -262,25 +273,32 @@ folder** and **Quit**. The Discord and overlay choices are saved in
 `dsirpc.cfg` (`[app]`). The icon is drawn in code (`make_icon()`): a little
 DSi with a dot that's green while the game answers, amber while DSiRPC waits,
 red when Discord can't be reached or there's no application ID. Windows
-notifications say when the DSi connects, goes quiet and switches games.
+notifications say when the DSi connects, goes quiet and switches games, and
+when an achievement unlocks.
 
 **Setup** (`app/setup_wizard.py`). Every question shows the current value,
 and Enter keeps it, so it's safe to run again:
 
-1. Python and packages: the version, each package in `requirements.txt`
+1. Python packages: the version, each package in `requirements.txt`
    (offers `pip install -r requirements.txt` for missing ones) and the
    rcheevos library.
-2. Discord: the application ID for Platinum (and the fallback), and one for
-   other games (`[discord_apps] default`). IDs are checked to be 17-20 digits.
-3. RetroAchievements: RALibretro's folder (or its `RACache`, or
-   `RACache\Data`), listing the DS/DSi sets there (RA consoles 18 and 78),
-   and whether to import sets on their own (`auto_import`).
-4. Set files: listens 10 s for the DSi (or, if DSiRPC is running, reads
-   `logs\state.json`), reads the game's header title, lists the sets whose
-   title matches it best first (`core/ra_cache.py`) and copies the one you
-   pick to `ra/<code>.json`. Then any game code you type, picked from all of
-   them.
-5. Start with Windows.
+2. Discord: how to make an application, the application ID for Platinum
+   (and the fallback), and one for other games (`[discord_apps] default`).
+   IDs are checked to be 17-20 digits.
+3. RetroAchievements (optional): signs in with your username and password
+   (`login2`; the password is read without echo and only the token is
+   kept), then asks whether to show what you play on your profile
+   (`profile`) and, after explaining the limits, whether to send unlocks
+   (`submit_unlocks`, off by default).
+4. Your game files (signed in only): a folder of `.nds` files (`roms`).
+5. Achievement sets: RALibretro's folder (`racache`, and whether to copy
+   sets from it on its own, `auto_import`). Then, for the game the DSi runs
+   now (it listens 10 s, or reads `logs\state.json` if DSiRPC holds the
+   port) and any game code you type, it lists the possible sets: the one for
+   your game file, RetroAchievements games whose title matches the header's,
+   and RALibretro's cached sets; you can also search RetroAchievements by
+   name. The one you pick is saved as `ra/<code>.json`.
+6. Start with Windows.
 
 The result is saved to `dsirpc.cfg`.
 
@@ -471,13 +489,11 @@ game, pass a VBlank counter with `--watch ADDR:4`, or look for one with
 .venv\Scripts\python.exe tools\ra_tool.py add C:\RALibretro\RACache\Data\12711.json
 ```
 
-Manages the RetroAchievements set files in `ra/` by hand (setup does the
-same from RALibretro's folder), which give other games their RA rich
-presence and icon in Discord. A set file is the game data an RA
+Manages the RetroAchievements set files in `ra/` by hand (setup and DSiRPC
+itself usually take care of them). A set file is the game data an RA
 emulator downloads while you're logged in; RALibretro keeps it as
-`RACache\Data\<RA game ID>.json` after you load the game once. DSiRPC only
-reads these files and never contacts RetroAchievements (no logins, no
-unlocks sent).
+`RACache\Data\<RA game ID>.json` after you load the game once. Only `hash`
+talks to RetroAchievements (one `gameid` request, no login).
 
 | Command | What it does |
 |---|---|
@@ -485,6 +501,7 @@ unlocks sent).
 | `list` | The set files in `ra/` |
 | `info CODE` | Title, RA game ID, achievement and leaderboard counts, icon and box art URLs, and whether the rich presence script parses |
 | `rp CODE` | Evaluates the rich presence once against the DSi (`--every 5` keeps going, `--file dump.bin` uses a RAM dump) and prints the text and how many values it read |
+| `hash FILE` | A `.nds` file's game code and RetroAchievements hash, and which RA game that hash is |
 
 `ra/games.txt` can also map a code to a file kept under its RA ID: a line
 `IRBO 123` makes `IRBO` use `ra/123.json`. `add` without `--code`, and `rp`,
@@ -501,20 +518,24 @@ numbers mean.
 | Module | What it does |
 |---|---|
 | `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. |
-| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `tools/dsi_status.py`; the hub uses `DSiClient` directly and waits indefinitely). |
+| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `tools/dsi_status.py`; the hub uses `DSiClient` directly and waits indefinitely). `SparseRam` does the same with exact byte ranges (ranges under 16 bytes apart merged), for the scattered values of an achievement set. |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
-| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma), `[ra]` (racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
+| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
-| `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game) |
-| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Reads the header title (once, trusted only if its code is the hello's), loads the set from `ra/` (or imports it from the RA cache), runs the rich presence reader, and returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', ...}`) |
+| `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
+| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
+| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title, finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. `RaSettings` holds the `[ra]` choices |
+| `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup |
+| `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
+| `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
 | `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
 | `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
 | `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
-| `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): rich presence now, achievements later |
-| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else), `FileSource` (`game=` for another game's dump). In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
+| `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`) |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
@@ -591,8 +612,9 @@ it (`core/other_game.py` reads it, `rpc/generic_presence.py` lays it out):
 |---|---|
 | Name | The game's title (sent as the activity's name; Discord shows it instead of the application's name where it supports that) |
 | Line 1 (and 2) | The RetroAchievements rich presence text, split over both lines at a separator if it's long; without a set file, the title |
-| Large image | The box art from GameTDB (`art.gametdb.com/ds/coverS/<region>/<code>.png`), or the RA icon if there's none |
-| Small image | The RA game icon, hovering "RetroAchievements: N achievements" |
+| Large image | The box art from GameTDB (`art.gametdb.com/ds/coverS/<region>/<code>.png`), or the RA icon if there's none (or the console picture if there's neither) |
+| Large hover | The title, with "RetroAchievements: 12 of 132 unlocked" (signed in) or "RetroAchievements: 132 achievements" |
+| Small image | The console picked in the tray's **Console icon** (`console_icon` in `[app]`; a picture in `Assets/Consoles`, served by GitHub Pages like the sprites), hovering its name ("Nintendo DSi XL"). With "None", the RA game icon, hovering the RetroAchievements line |
 | Timer | Counts up from when the game was first seen this session |
 
 The title comes from the set file, else `core/games.py`'s names, else the
@@ -604,8 +626,14 @@ keep coming (within 15 s) and is cleared like Platinum's after about 30 s
 without them.
 
 **Finding the set.** `ra/<code>.json` (or a `ra/games.txt` mapping) first.
-Without one, and with `racache` set, DSiRPC looks in the emulator's cache
-once per session (`core/ra_cache.py`). The DSi can't give the RA game ID (RA
+Signed in, RetroAchievements next (`core/ra_link.py`): by the hash of your
+game file when there's a `roms` folder, else by the set file's game ID, else
+by the header title against RetroAchievements' list of DS and DSi games
+(`systemgames`, kept a week in `ra/cache/`), with the rules below; the set
+is downloaded into `ra/<code>.json` (again when that copy is over a day
+old). Without an account, or when RetroAchievements has nothing, and with
+`racache` set, DSiRPC looks in the emulator's cache once per session
+(`core/ra_cache.py`). The DSi can't give the RA game ID (RA
 identifies DS games by a hash of the whole ROM), so the game's header title
 is matched against the sets' titles, letters and digits only, accents
 dropped: 3 if they're the same (`MARIOKART DS` and "Mario Kart DS"), 2 if
@@ -614,6 +642,55 @@ Version"), 1 if its letters appear in order. A set is copied to `ra/` on its
 own only with a score of 2 or more that no other set shares, and never a
 hack, homebrew or subset (RA titles with `~...~` or `[Subset`). Anything
 less clear is left to setup, which lists the candidates.
+
+### RetroAchievements
+
+Every game, Platinum included, gets a `RaGame` (`core/ra_game.py`) while it
+runs. With a set, rcheevos (`core/rcheevos.py`) holds the set's rich
+presence script and its achievements: the official ones (flag 3) of the core
+and bonus sets, minus the ones RetroAchievements says you already have, and
+minus any that read absolute addresses past main RAM (the ARM9's data TCM at
+`0x1000000` and up, which the DSi side can't read; achievements behind a
+pointer are kept, and a pointer that lands outside main RAM reads 0).
+
+**Checking.** About once a second (`interval`), `tick()` reads every value
+the set read last time in one batch (`SparseRam`, usually one request),
+runs one rcheevos frame and gets the rich presence text. For rcheevos a
+"frame" is one read: "changed since the last frame" means since the last
+read, and a hit count of 60 frames needs 60 reads. Achievements about
+states that last work as on an emulator; ones about moments shorter than a
+read can unlock late, never, or (when a condition that must not happen is
+missed) when they shouldn't. When the DSi goes quiet for 30 s, the hit
+counts start over, as on a reset.
+
+**Signing in.** Setup's `login2` with your password returns a token, saved
+as `token` in `[ra]`. Every other request sends the user name and token,
+like RA emulators. Requests are form POSTs to
+`https://retroachievements.org/dorequest.php`, encoded exactly as rcheevos
+encodes them (checked byte for byte against rcheevos 12.5's request
+builders), with the User-Agent `DSiRPC/0.3.0 (Windows <version>)
+rcheevos/12.5`: RetroAchievements sees what DSiRPC is, and only counts its
+unlocks as softcore.
+
+**A session.** When a game's set is known, `startsession` (`g` the game ID,
+`h=0` and `m` the hash when there's a game file, `l` the rcheevos version)
+returns the unlocks you already have. Then `ping` every 2 minutes (the first
+after 30 s, and only while the game is being read) with the rich presence
+text in `m`, which is what your profile shows (`profile`; without it the
+pings carry no text). Neither happens with `profile` and `submit_unlocks`
+both off.
+
+**Unlocks.** A triggered achievement is taken out of the runtime, logged
+(`logs/achievements.log`, tab-separated: time, game, ID, title, points, sent
+or not, progress), shown (Windows notification, overlay banner) and, with
+`submit_unlocks` on and signed in, sent with `awardachievement` (`a`, `h=0`,
+`m` when there's a hash, and `v`, the MD5 of the achievement ID, user name
+and hardcore flag; with `o`, the seconds since the unlock, when it's sent
+10 s or more late). Each unlock is written to `ra/cache/pending_unlocks.json`
+first and taken off when RetroAchievements answers; without an answer it's
+retried after 0, 1, 2, 4 ... up to 120 s (as rcheevos' client does), and
+the file is sent again the next time DSiRPC starts with the same account.
+"User already has this achievement" counts as sent.
 
 ---
 
@@ -957,6 +1034,7 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Pokemon-Overworld` | Lead Pokémon (small, overworld) | `process_sprites.py` (margin 4) |
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
 | `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
+| `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg` | Added by hand; any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
 `processed_sprites/`, and `process_diorama.py` overwrites in place, so keep the
@@ -1020,7 +1098,9 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Presence stays up for a while after closing the game | Expected: DSiRPC waits for about 30 s without data before clearing it |
 | "DSiRPC is already running" | Another DSiRPC (look in the tray, by the clock) or a tool from `tools/` holds UDP 4244 |
 | The tray icon's dot is red | Discord isn't running, or there's no application ID (run Setup); the menu's "Discord: ..." line says which |
-| Another game shows only its name | No set file in `ra/`: run Setup with RALibretro's folder while the game runs (section 6, "Finding the set") |
+| Another game shows only its name | No set yet. The tray's RetroAchievements line says why (no clear title match, no connection, ...): run Setup while the game runs and pick its set (section 6, "Finding the set") |
+| An achievement didn't unlock (or unlocked early) | It's checked once a second, not every frame (section 6, "RetroAchievements"). `logs\achievements.log` lists every unlock and whether it was sent |
+| Unlocks say "not sent" | Sending is off (setup, step 3), you're not signed in, or it's a `--dry-run`. Ones that failed to send wait in `ra\cache\pending_unlocks.json` |
 | Blank image in Discord | Asset not pushed yet, wrong folder case, or a missing ID |
 | "checksum mismatch" in `tools/dsi_status.py` | The read overlapped the game editing that Pokémon; the next read is usually fine |
 
@@ -1045,10 +1125,13 @@ section 8).
   in TWiLight Menu++'s per-game settings. The per-frame capture (the ARM9's
   VBlank-start snapshot) passed on hardware on 2026-10-05: not one late read
   in menus, the overworld, battles, boot or across a soft reset.
-- **RetroAchievements is local only, and rich presence only for now.**
-  Achievements aren't evaluated yet: a set can watch far more memory than the
-  per-frame capture's 8 values, and addresses past main RAM (the ARM9's data
-  TCM) can't be read at all. Nothing is sent to RetroAchievements.
+- **Achievements are checked once a second, not every frame.** A set can
+  read far more values than the per-frame capture's 8, so it's read as a
+  whole every second instead (section 6, "RetroAchievements"). The capture
+  could later cover the timing-sensitive values of a set. Addresses past main
+  RAM (the ARM9's data TCM) can't be read at all. Sending unlocks is opt-in
+  and always softcore; RetroAchievements doesn't officially support original
+  hardware. No leaderboards.
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
 - **Two-step launch.** START returns to the menu instead of launching our
@@ -1100,7 +1183,7 @@ section 8).
 | `README.md` | Overview, setup, build and everyday use |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
 | `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
-| `ra/` | RetroAchievements set files (gitignored) |
+| `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent); all gitignored |
 | `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT |
 | `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
@@ -1115,7 +1198,7 @@ section 8).
 | `docs/memory-map/` | RetroAchievements code notes and ProjectPokemon breakpoints |
 | `spikes/` | Stages 1-3, the early experiments |
 | `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
-| `logs/` | `dsirpc.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
+| `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
 | `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, publishes a release for `v*` tags |
 
 ---

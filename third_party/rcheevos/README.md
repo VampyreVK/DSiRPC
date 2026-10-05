@@ -3,7 +3,7 @@
 [rcheevos](https://github.com/RetroAchievements/rcheevos) is RetroAchievements'
 own rule engine, the library emulators use to run achievement sets.
 `core/rcheevos.py` loads it with ctypes to evaluate a game's rich presence
-(and, later, its achievements) against the DSi's memory. MIT licence, see
+and achievements against the DSi's memory. MIT licence, see
 `LICENSE` (copied from the rcheevos repository).
 
 - Version: v12.5.0 (commit `1433173`)
@@ -11,7 +11,10 @@ own rule engine, the library emulators use to run achievement sets.
   needs `KERNEL32.dll` and `msvcrt.dll`.
 
 Only the runtime part is built: no `rc_client`, no ROM hashing and no server
-API, since DSiRPC never talks to RetroAchievements. From an rcheevos checkout:
+API. DSiRPC talks to RetroAchievements itself, in Python (`core/ra_api.py`,
+which builds its requests exactly as rcheevos' `src/rapi` does, and
+`core/ra_hash.py`, a port of rcheevos' DS ROM hash). From an rcheevos
+checkout:
 
 ```
 x86_64-w64-mingw32-gcc -O2 -shared -DRC_SHARED -Iinclude -Isrc src/rcheevos/*.c src/rhash/md5.c src/rc_compat.c src/rc_util.c src/rc_version.c -o rcheevos.dll -static-libgcc -Wl,--no-insert-timestamp

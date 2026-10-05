@@ -6,10 +6,10 @@ your PC, which shows what you're doing on Discord: where you are, your party,
 your badges, and who you're battling, with animated sprites.
 
 > **The full presence is for Pokémon Platinum (USA, Rev 1).** Any other DS
-> game shows its name and box art, plus its
+> game shows its name, box art and a picture of your console, plus its
 > [RetroAchievements](https://retroachievements.org/) rich presence
-> ("Racing in Figure-8 Circuit") if you have its set file (see
-> [ra/README.md](ra/README.md)).
+> ("Racing in Figure-8 Circuit"). Every game's achievements are checked
+> while you play (see [RetroAchievements](#retroachievements)).
 
 | Overworld (Playing) | Battle (Competing) |
 |---|---|
@@ -28,7 +28,8 @@ that's just **Setup.bat**), every play session is:
 4. From your menu, launch **our** nds-bootstrap build, which boots the game.
 
 Discord only shows something while the game is running. Right-click the tray
-icon to turn the Discord presence or the overlay window on and off.
+icon to turn the Discord presence or the overlay window on and off, or to
+pick the console picture Discord shows.
 
 ## How it works
 
@@ -60,10 +61,10 @@ The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Running it](#running-it)) |
 | `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
 | `overlay/` | A pixel-art window with your party and battles, for OBS or a screen share (see [Stream overlay window](#stream-overlay-window)) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements sets, cache and rich presence (`ra_set.py`, `ra_cache.py`, `ra_presence.py`, `rcheevos.py`), demo data (`demo.py`) |
+| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
-| `ra/` | RetroAchievements set files for other games (gitignored, see [ra/README.md](ra/README.md)) |
-| `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt, for rich presence |
+| `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](ra/README.md)) |
+| `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt, for achievements and rich presence |
 | `tools/` | Developer and testing tools (see [Tools](#tools)), and the charmap table generator (`tools/charmap/`) |
 | `Assets/` | Sprites served by GitHub Pages for Discord, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher that connects to Wi-Fi before the game boots |
@@ -101,15 +102,20 @@ packages (pypresence for Discord, pygame-ce and Pillow for the overlay window,
 pystray for the tray icon), then asks a few questions:
 
 1. **Discord application ID**: see [step 4](#4-discord-application).
-2. **RetroAchievements** (optional): RALibretro's folder, for other games'
-   rich presence. It lists the DS/DSi sets you've played there.
-3. **Set files**: for the game the DSi is running right now, and any game
-   code you type, it copies the matching set into `ra/`.
-4. **Start with Windows**: starts DSiRPC in the tray when you sign in.
+2. **RetroAchievements** (optional): signing in, showing what you play on
+   your RA profile, and whether to send your unlocks (see
+   [RetroAchievements](#retroachievements)).
+3. **Your game files** (optional): a folder of `.nds` files, so
+   RetroAchievements knows exactly which game you play.
+4. **Achievement sets**: RALibretro's folder, and a set for the game the DSi
+   is running right now or any game code you type, from RetroAchievements or
+   RALibretro's cache.
+5. **Start with Windows**: starts DSiRPC in the tray when you sign in.
 
-Everything goes in `dsirpc.cfg` (gitignored; `dsirpc.cfg.sample` shows every
-setting). Run Setup.bat again whenever you want to change something; a
-running DSiRPC picks up the changes.
+Everything goes in `dsirpc.cfg` (gitignored, and with RetroAchievements
+signed in it holds your login token, so keep it to yourself;
+`dsirpc.cfg.sample` shows every setting). Run Setup.bat again whenever you
+want to change something; a running DSiRPC picks up the changes.
 
 ### 2. nds-bootstrap (the in-game memory server)
 
@@ -155,6 +161,8 @@ GitHub Pages (Settings > Pages). `.nojekyll`
 makes Pages serve the files as they are. New or changed sprites show up in
 Discord once they are pushed. How each folder is made is described in
 [docs/DOCUMENTATION.md, section 10](docs/DOCUMENTATION.md#10-sprite-assets-pipeline).
+The console pictures in `Assets/Consoles` (the tray's **Console icon**)
+work the same way: any picture pushed there shows up in the menu.
 
 ### 6. Firewall
 
@@ -207,12 +215,13 @@ has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
 
 | How | What |
 |---|---|
-| `DSiRPC.bat` | The tray icon (`dsirpc.py tray`). Right-click it for the status, **Discord presence**, **Overlay window** (a left click toggles it too), **Start with Windows**, **Setup...**, **Open log** and **Quit**. The dot is green while the game answers, amber while it waits for the DSi, red if Discord can't be reached |
+| `DSiRPC.bat` | The tray icon (`dsirpc.py tray`). Right-click it for what's running, what Discord shows and your RetroAchievements progress, then **Discord presence**, **Console icon** (DSi XL, New 3DS or none, for games without their own presence), **Overlay window** (a left click toggles it too), **Start with Windows**, **Setup...**, **Open log** and **Quit**. The dot is green while the game answers, amber while it waits for the DSi, red if Discord can't be reached |
 | `Setup.bat` | First-time setup (`dsirpc.py setup`), safe to run again |
 | `dsirpc.py` | DSiRPC in a console until Ctrl+C, logging what Discord shows |
 | `dsirpc.py --overlay` | ...with the overlay window; closing it stops DSiRPC |
-| `--dry-run` | Prints the presence instead of sending it to Discord |
+| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements |
 | `--no-discord` | Nothing on Discord (for the overlay alone) |
+| `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
 | `--dsi-ip`, `--interval`, `--client-id` | The DSi's IP, seconds between reads (default 5, or 2 with the overlay), a Discord application ID for every game |
 
@@ -226,11 +235,53 @@ For testing and development, run from the repo root:
 | Tool | Use |
 |---|---|
 | `tools/dsi_status.py` | Everything readable from Platinum, in plain text. `--watch 5` refreshes, `--json` for raw data |
-| `tools/ra_tool.py` | RetroAchievements set files by hand: `add`, `list`, `info`, `rp` (local only: nothing is sent to RetroAchievements) |
+| `tools/ra_tool.py` | RetroAchievements set files by hand: `add`, `list`, `info`, `rp`, and `hash` (a game file's RA hash, and which RA game it is) |
 | `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame (step 1 of RetroAchievements support). On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
+
+## RetroAchievements
+
+DSiRPC uses [rcheevos](https://github.com/RetroAchievements/rcheevos),
+RetroAchievements' own library, to check a game's achievements against the
+DSi's memory while you play. When you unlock one you get a notification and
+a banner in the overlay window, and it's added to `logs\achievements.log`.
+
+Each game's achievements and rich presence come in a *set*, which lives in
+`ra/` as `<game code>.json`. Sets come from:
+
+- **RetroAchievements itself**, once you've signed in with Setup.bat (only a
+  login token is saved, never your password). DSiRPC works out which game is
+  running and downloads its set by itself, keeping it up to date. With a
+  folder of your game files (for example the ones you play in RALibretro),
+  it hashes the matching file the way RA emulators do and knows the exact
+  game and version; without one, it goes by the title in the game's header
+  and only takes a set when exactly one game clearly matches. Setup can pick
+  one for the rest (search by name).
+- **RALibretro's cache**: RALibretro keeps the set of every game you've played
+  in it, and DSiRPC can copy them from there, without an account.
+- **By hand**: `tools\ra_tool.py add`.
+
+Signed in, DSiRPC also shows what you're playing (and its rich presence) on
+your RetroAchievements profile, and Discord's hover text shows your progress
+("12 of 132 unlocked"). Sending your unlocks to RetroAchievements is a
+separate choice in setup, off unless you turn it on, and always softcore:
+
+- DSiRPC checks achievements about once a second (`interval` in
+  `dsirpc.cfg`), not every frame like an emulator. Achievements about states
+  that last (a flag set, a cup won) work the same; ones about split-second
+  moments can unlock late, not at all or, rarely, when they shouldn't.
+- RetroAchievements doesn't officially support playing on original hardware.
+  DSiRPC tells it honestly what it is (its User-Agent is `DSiRPC/...
+  rcheevos/12.5`), so RetroAchievements only ever counts these unlocks as
+  softcore.
+- Achievements that read memory DSiRPC can't reach (the ARM9's data TCM) are
+  left out.
+
+Unlocks that can't be sent right away (no internet) are kept in
+`ra/cache/pending_unlocks.json` and sent later. `--no-ra` turns all of this
+off, and `--dry-run` sends nothing.
 
 ## Stream overlay window
 
@@ -243,8 +294,8 @@ type-coloured animation; stat changes show as arrows under the HP boxes and cond
 (sleep, paralysis, confusion, ...) as markers on the Pokémon; and the bottom box shows your
 moves by type with PP, how effective each one is against the foe, and the last one used
 highlighted. Banners pop up for shiny
-encounters, level-ups, fainting and new badges. Other games get a card with
-their name and RetroAchievements rich presence. It draws at the DS's
+encounters, level-ups, fainting, new badges and achievements. Other games
+get a card with their name, RetroAchievements rich presence and progress. It draws at the DS's
 256x192 and scales up by a whole number, so the pixels stay crisp. Add it to
 OBS with **Window Capture**, or share the window in Discord.
 
@@ -274,8 +325,11 @@ party only and battle only. The colours are all in `THEME` at the top of
 - [ ] Support other games and versions: every DS game gets its name, box art
       and RetroAchievements rich presence; only Platinum USA Rev 1 gets the
       full presence and the overlay's party and battle views.
-- [ ] RetroAchievements: softcore achievements, and rich presence on the RA
-      site itself (next).
+- [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets
+      downloaded by themselves, rich presence on the RA profile.
+- [ ] Achievements checked every frame: the per-frame capture
+      (`tools/frame_check.py`) can watch 8 values per frame, which could cover
+      the timing-sensitive parts of a set.
 - [ ] More for the state hub (`core/hub.py`, used by the overlay window):
       encounter and shiny counters, a Nuzlocke mode, browser-source panels
       for OBS.

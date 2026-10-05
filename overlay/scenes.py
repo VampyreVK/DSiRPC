@@ -151,7 +151,17 @@ class Overlay:
             elif kind == 'dex_caught':
                 self.toast(f"Pokédex: {e['caught']} caught!")
             elif kind == 'game_changed':
-                self.toast(f"Now playing {e['title']}")
+                self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
+            elif kind == 'achievement':
+                self.toast(self._fit_line(f"Achievement: {e['title']}", W - 40), sparkly=True)
+
+    def _fit_line(self, text, width):
+        """`text`, cut with … so it's at most `width` pixels wide."""
+        if self.font.width(text) <= width:
+            return text
+        while text and self.font.width(text + '…') > width:
+            text = text[:-1]
+        return text.rstrip() + '…'
 
     def toast(self, text, sparkly=False):
         if len(self.toasts) < 6:
@@ -907,7 +917,13 @@ class Overlay:
             self.font.draw(canvas, "No RetroAchievements set file.", (22, y), (96, 104, 112), t['text_shadow'])
             self.font.draw(canvas, "Add one with dsirpc.py setup.", (22, y + 12), (96, 104, 112), t['text_shadow'])
         code = (d.get('game') or {}).get('code') or '????'
-        foot = f"{code} - RA game {ra.id} - {len(ra.official_achievements)} achievements" if ra else code
+        p = d.get('progress')
+        if ra and p:
+            foot = f"{code} - RA game {ra.id} - {p[0]} of {p[1]} unlocked"
+        elif ra:
+            foot = f"{code} - RA game {ra.id} - {len(ra.playable_achievements)} achievements"
+        else:
+            foot = code
         self.font.draw(canvas, foot, (22, 146), (96, 104, 112), t['text_shadow'])
         ui.sparkle(canvas, 232, 40, t_ms)
 

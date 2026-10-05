@@ -19,9 +19,14 @@ The same from a console, from the repo root:
 
 Pokemon Platinum gets its own presence (rpc/platinum_presence.py): where you
 are, your party, who you're battling, with sprites. Any other game gets its
-name and box art, plus its RetroAchievements rich presence and icon if there's
-a set file for it in ra/ (rpc/generic_presence.py). Nothing is sent to
-RetroAchievements.
+name, box art and a picture of your console, plus its RetroAchievements rich
+presence if there's a set for it (rpc/generic_presence.py).
+
+RetroAchievements (core/ra_game.py, core/ra_link.py): every game's
+achievements are checked while you play, and you're told when one unlocks.
+Signed in (setup), DSiRPC also downloads each game's set, shows what you play
+on your RA profile and, only if you chose that, sends your unlocks (always
+softcore).
 
 DSiRPC waits for the DSi, shows the presence only while the game answers, and
 takes it down after about 30 s without data. Settings are in dsirpc.cfg
@@ -56,7 +61,10 @@ def parse_args(argv=None):
                     help="run here (default), as a tray icon, or first-time setup")
     ap.add_argument("--overlay", action="store_true", help="also open the overlay window (run mode)")
     ap.add_argument("--no-discord", action="store_true", help="don't show anything on Discord")
-    ap.add_argument("--dry-run", action="store_true", help="log the presence instead of sending it to Discord")
+    ap.add_argument("--no-ra", action="store_true",
+                    help="no RetroAchievements: no achievements, no downloads, nothing sent")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="log the presence instead of sending it to Discord, and send nothing to RetroAchievements")
     ap.add_argument("--client-id", help="Discord application ID for every game (instead of dsirpc.cfg's)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
     ap.add_argument("--game", metavar="CODE", help="with --file: the dump's game code, if it isn't Platinum (e.g. AMCE)")
@@ -75,7 +83,7 @@ def parse_args(argv=None):
 def _engine_args(args):
     return dict(file=args.file, game=args.game, demo=args.demo, demo_name=args.name,
                 dsi_ip=args.dsi_ip, port=args.port, interval=args.interval,
-                client_id=args.client_id, dry_run=args.dry_run)
+                client_id=args.client_id, dry_run=args.dry_run, ra=not args.no_ra)
 
 
 def _missing_packages(e):

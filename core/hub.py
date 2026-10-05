@@ -13,8 +13,10 @@ off a StateHub instead of talking to the DSi itself.
     hub.stop()
 
 A source is anything with read() -> state dict or None, plus an optional
-status text, forget_dsi() and next_delay() (seconds until the next read, to
-override the hub's interval). A state is either Platinum's parsed dict (see
+status text, forget_dsi(), next_delay() (seconds until the next read, to
+override the hub's interval) and take_events() (events of its own, like an
+achievement unlocking). Returning the very same state object as last time
+means "nothing new, still there". A state is either Platinum's parsed dict (see
 core/parser.py; it has no 'kind') or, for any other game, the dict from
 core/other_game.py ({'kind': 'other', ...}); is_other() tells them apart.
 Sources here:
@@ -37,6 +39,7 @@ import time
 from . import games
 from .other_game import OtherGame
 from .parser import PlatinumParser, TrainerMemory
+from .ra_game import RaGame, RaSettings
 
 
 def is_other(state):
@@ -71,24 +74,39 @@ class DsiSource:
     read battles like everything else (when nothing shows them live).
 
     Any other game is followed with core/other_game.py: its name, and its
-    RetroAchievements rich presence if there's a set for it. `racache` is an
-    RA emulator's folder to look for sets in (see core/ra_cache.py)."""
+    RetroAchievements rich presence if there's a set for it.
+
+    Every game, Platinum too, gets its RetroAchievements side
+    (core/ra_game.py): its achievements are checked every
+    ra_settings.interval seconds (about once a second), between the parses,
+    which happen every parse_interval seconds. `ra_link` is the connection to
+    RetroAchievements (core/ra_link.py), if you're signed in."""
 
     FAST_INTERVAL = 0.3
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
 
-    def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None):
+    def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
+                 ra_settings=None):
         from .dsirpc_client import DSiClient
-        from .dsi_memory import DsiRam
+        from .dsi_memory import DsiRam, SparseRam
         self.charmap = charmap
-        self.racache = racache
+        self.ra_settings = ra_settings or RaSettings()
+        if racache is not None:
+            self.ra_settings.racache = racache
+        self.ra_link = ra_link
         self.fast_battles = True
+        self.parse_interval = 5.0
+        self.last_parse = 0.0
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
         self.ram = DsiRam(self.client)
+        self.sparse = SparseRam(self.client)
+        self.ra_game = None     # RaGame for the running game
+        self.ra_code = None
+        self._events = []
         self.failed = False
         self.trainers = TrainerMemory()
         self.last = None        # the latest state returned
@@ -111,19 +129,70 @@ class DsiSource:
         """The game the DSi said it's running (None for old builds)."""
         return self.client.game
 
+    @property
+    def racache(self):
+        return self.ra_settings.racache
+
+    @racache.setter
+    def racache(self, value):
+        self.ra_settings.racache = value
+
     def _in_battle(self):
         return bool(self.last and not is_other(self.last) and self.last['battle']['active'])
 
     def next_delay(self):
-        return self.FAST_INTERVAL if self.fast_battles and self._in_battle() else None
+        if self.client.dsi_ip is None:
+            return None
+        now = time.time()
+        delays = []
+        if self.fast_battles and self._in_battle():
+            delays.append(self.FAST_INTERVAL)
+        if self.ra_game and (self.ra_game.runtime or not self.ra_game.set):
+            delays.append(self.ra_game.next_due - now)
+        if games.is_platinum(self.client.game):
+            delays.append(self.last_parse + self.parse_interval - now)
+        return max(0.05, min(delays)) if delays else None
+
+    def take_events(self):
+        events, self._events = self._events, []
+        return events
+
+    def _switch_ra(self, game):
+        """The RetroAchievements side follows the game the DSi runs (old
+        builds that don't say count as Platinum)."""
+        code = (game or {}).get('code') if game else games.PLATINUM_US
+        if code == self.ra_code:
+            return
+        if self.ra_game:
+            self.ra_game.close()
+        self.ra_code = code
+        self.ra_game = RaGame(game or {'code': code, 'version': 0, 'header_crc': 0}, self.sparse,
+                              self.ra_link, self.ra_settings) if code else None
+
+    def _ra_tick(self):
+        ra = self.ra_game
+        if not ra or time.time() < ra.next_due:
+            return
+        ra.next_due = time.time() + self.ra_settings.interval
+        try:
+            ra.tick()
+        except (TimeoutError, RuntimeError) as e:
+            ra.read_ok = False
+            logging.debug(f"RetroAchievements read failed: {e}")
+        except Exception:
+            ra.read_ok = False
+            logging.exception("RetroAchievements check failed")
+        self._events += ra.take_events()
 
     def read(self):
         if self.client.dsi_ip is None:
             # Short wait so the hub thread can still be stopped quickly.
             if not self.client.wait_for_dsi(max_wait=1.0):
                 return None
-        # The Platinum parser only makes sense on Platinum.
         game = self.client.game
+        self._switch_ra(game)
+        self._ra_tick()
+        # The Platinum parser only makes sense on Platinum.
         if not games.is_platinum(game):
             return self._read_other(game)
         if self.other:
@@ -142,6 +211,8 @@ class DsiSource:
                 self.failed = False
                 self.last = data
                 return data
+        elif not is_other(self.last) and time.time() - self.last_parse < self.parse_interval:
+            return self.last  # nothing new yet (this call was for the achievements)
         return self._read_full()
 
     def _read_other(self, game):
@@ -149,24 +220,18 @@ class DsiSource:
             if self.other:
                 self.other.close()
             self.last = None
-            self.other = OtherGame(game, self.ram, self.client, racache=self.racache)
-            logging.info(f"The DSi is running {self.other.describe()}")
-        if not self.other.reader:
+            self.other = OtherGame(game, self.ra_game, self.client)
+            logging.info(f"The DSi is running {games.name(game)}")
+        if not self.other.reading:
             self.client.listen(1.0)  # keep up with the hellos, to notice a switch
-        try:
-            self.ram.clear()
-            data = self.other.read()
-        except (TimeoutError, RuntimeError) as e:
-            if not self.failed:
-                logging.warning(f"Read failed: {e}")
-            self.failed = True
-            return None
-        self.failed = False
+        data = self.other.read()
+        self.failed = data is None and self.ra_game is not None and bool(self.ra_game.runtime)
         self.last = data
         return data
 
     def _read_full(self):
         self.fast_misses = 0
+        self.last_parse = time.time()
         try:
             self.ram.clear()
             data = self.trainers.apply(PlatinumParser(self.ram, self.charmap).parse())
@@ -214,13 +279,18 @@ class DsiSource:
 
     def forget_dsi(self):
         """The DSi went quiet: learn its IP again from the next hello (its
-        DHCP lease can change), unless it was given with --dsi-ip."""
+        DHCP lease can change), unless it was given with --dsi-ip. The game
+        may have been restarted meanwhile, so achievements start over."""
         if not self.pinned_ip:
             self.client.dsi_ip = None
+        if self.ra_game:
+            self.ra_game.reset()
 
     def close(self):
         if self.other:
             self.other.close()
+        if self.ra_game:
+            self.ra_game.close()
         self.client.sock.close()
 
 
@@ -228,16 +298,17 @@ class FileSource:
     """A RAM dump (e.g. ram_dump.bin). Parsed once, then returned every time.
     `game`: the dump's game code, if it isn't Platinum (e.g. 'AMCE')."""
 
-    def __init__(self, charmap, path, game=None):
+    def __init__(self, charmap, path, game=None, ra_settings=None):
         with open(path, "rb") as f:
             ram = f.read()
         self.game = {'code': game.upper(), 'version': 0, 'header_crc': 0} if game else None
         if games.is_platinum(self.game):
             self.state = PlatinumParser(ram, charmap).parse()
         else:
-            other = OtherGame(self.game, ram)
-            self.state = other.read()
-            other.close()
+            ra = RaGame(self.game, ram, None, ra_settings)
+            ra.tick()
+            self.state = OtherGame(self.game, ra).read()
+            ra.close()
         self.status = f"RAM dump {path}"
 
     def read(self):
@@ -351,9 +422,15 @@ class StateHub:
                 data = None
 
             events = []
+            take = getattr(self.source, 'take_events', None)
+            if take:
+                events += take()
             with self._lock:
                 snap = self._snap
-                if data:
+                if data is not None and data is prev and snap.online:
+                    # Nothing new: the source was only checking achievements.
+                    snap = Snapshot(snap.state, True, snap.updated, getattr(self.source, 'status', ''))
+                elif data:
                     if not snap.online:
                         events.append({'type': 'online'})
                     events += diff_events(prev, data)

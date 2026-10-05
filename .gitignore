@@ -182,6 +182,9 @@ cython_debug/
 # RAM dumps at the repo root (they contain your save data). Root only:
 # nds-bootstrap tracks hundreds of .bin files it needs to build.
 /*.bin
+# DSiRPC's settings (dsirpc.py setup writes it; PokemonPlatinumRPC.cfg is the old name)
+dsirpc.cfg
+dsirpc.cfg.tmp
 PokemonPlatinumRPC.cfg
 
 # --- DSiRPC ---
@@ -194,5 +197,8 @@ RPCHAND.TXT
 # DS build outputs (launcher and spikes; nds-bootstrap has its own .gitignore)
 *.nds
 *.elf
-# Test outputs (frame_check.py --save writes there)
+# DSiRPC's log and state file, and test outputs (tools/frame_check.py --save)
 logs/
+# RetroAchievements set files (dsirpc.py setup, tools/ra_tool.py add): RA's game data, kept local
+/ra/*
+!/ra/README.md

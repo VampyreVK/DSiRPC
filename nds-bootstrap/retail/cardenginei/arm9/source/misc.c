@@ -223,6 +223,13 @@ void reset(u32 param, u32 tid2) {
 	REG_IE = 0;
 	REG_IF = ~0;
 
+	#if !defined(TWLSDK) && !defined(DLDI) && !defined(GSDD)
+	// DSiRPC: the game is loaded again, so the per-frame capture's VBlank
+	// hooks can all be used again (dsirpc_watch.c).
+	extern void dsirpcWatchReset(void);
+	dsirpcWatchReset();
+	#endif
+
 	cacheFlush();
 	resetMpu();
 

@@ -174,7 +174,8 @@ static void handoffSend(void) {
 	n += putDec(&msg[n], (u16)TwlWifi_TxCmd53Errors());
 	n += putStr(&msg[n], " rep=");
 	n += putDec(&msg[n], probeReqRepeats);
-	// 1 = the per-frame capture's ARM9 half was found (probe_watch.h).
+	// The per-frame capture's ARM9 half: 0 = none, 1 = found, 2+ = its
+	// VBlank hook is in (probe_watch.h).
 	n += putStr(&msg[n], " a9=");
 	n += putDec(&msg[n], probeWatchArm9);
 #endif

@@ -194,3 +194,5 @@ RPCHAND.TXT
 # DS build outputs (launcher and spikes; nds-bootstrap has its own .gitignore)
 *.nds
 *.elf
+# Test outputs (frame_check.py --save writes there)
+logs/

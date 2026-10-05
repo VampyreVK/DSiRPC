@@ -275,6 +275,36 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-05 (later): **v2: the ARM9 snapshots at the very start of VBlank.**
+  The hardware runs below left a few one-frame blips, all on the VBlank
+  counter Platinum bumps right after its VBlank wait (`src/main.c` in
+  pret/pokeplatinum): the ARM9's read, in its IPC interrupt just after VBlank
+  started, sometimes landed after that bump. Now a hook in front of the
+  game's VBlank interrupt handler (entry 0 of its interrupt table, like
+  nds-bootstrap's IPC sync hook) takes the snapshot before the game's VBlank
+  code runs, into four numbered slots; rpcprobe records them in order, one
+  per VBlank, and reads by itself when there's none. The doorbell now
+  only asks the ARM9 to put the hook in (when a capture starts, or when
+  snapshots stop because the game replaced its handler: a fresh hook each
+  time, up to four, each calling the handler it replaced; a soft reset frees
+  them again, through one call in nds-bootstrap's `reset()`). `a9=` is 1 +
+  hooks put in. `frame_check.py --save NAME` writes `logs/NAME.csv` and
+  `logs/NAME.txt`; `logs/` is git-ignored, and the earlier CSVs are in
+  `logs/v1/`. Tested on the host (both halves, a fake interrupt table,
+  jitter, stalls, missed ticks, handler swaps, list changes; 200,000-frame
+  fuzz runs: one record per tick, never a value twice or out of order) and
+  against a fake DSi, and reviewed (stack and register handling of the ARM
+  hooks checked against the built ELF); not yet on hardware. Sizes: ARM9
+  cardengine 952 bytes over stock (888 free), ARM7 +192 bytes.
+- 2026-10-05: **The ARM9 hand-over works on hardware.** Same screens as
+  before, on Platinum. Menu: 0 late reads in 1,195 frames (the same screen
+  with `--arm7-only`: 574 late, 48%, two by 3 frames). Overworld: 6 in 1,194;
+  battle: 9 in 2,390; boot: 154 in 2,390 (was 27%, up to 17 frames late),
+  every one by exactly one frame. The ARM9 answered every frame (only each
+  run's first record was the ARM7's). The overworld blips all look like one
+  read seeing the counter one count early (+1, +2, 0), which a stale cache
+  can't do, and sit where the ARM9's 192/193 scanline rhythm skips: a race
+  with the game's own update at the start of VBlank, not the cache.
 - 2026-10-04 (night): **The ARM9 reads the captured values now.** New
   `cardenginei/arm9/source/dsirpc_watch.c`: on any IPC sync interrupt, if
   rpcprobe asked, the ARM9 copies the watched values (through its cache, so

@@ -15,8 +15,9 @@ per request; read_ranges() splits bigger jobs automatically.
 Per-frame capture (rpcprobe/probe_watch.h): set_watch() sends a 'W' with up
 to 8 values to read every VBlank, and fetch_frames() drains the records with
 'F'. Same transport and reply header as 'R'. Each record says whether the
-ARM9 read the values (through its cache, so never late; builds whose hellos
-say a9=1) or the ARM7 read main RAM itself (may lag the game's writes).
+ARM9 read the values (through its cache, so never late, at the start of each
+VBlank; builds whose hellos say a9=1 or more) or the ARM7 read main RAM
+itself (may lag the game's writes).
 
 The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
 port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,

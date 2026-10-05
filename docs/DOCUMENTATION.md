@@ -360,9 +360,9 @@ the others show what everything else costs.
 
 Step 1 of RetroAchievements support: checks whether the per-frame capture
 (see [section 7](#7-wire-protocol)) sees every frame. It says whether the
-ARM9 half is there (`a9=` in the hellos), how many records the ARM9 and the
-ARM7 read, and judges the ARM9's records on their own; `--arm7-only` turns
-the ARM9 off for a run, to compare. On Platinum it watches
+ARM9 half is there and its VBlank hook is in (`a9=` in the hellos), how many
+records the ARM9 and the ARM7 read, and judges the ARM9's records on their
+own; `--arm7-only` turns the ARM9 off for a run, to compare. On Platinum it watches
 the game's own VBlank counter (`gSystem.vblankCounter`, `0x021BF6A8`) for
 20 s. The game adds one to it after waiting for a VBlank, so it can go up by
 at most one per frame: +1 (counted) and 0 (not counted: a 30 fps screen like
@@ -371,7 +371,9 @@ of 2 or more means the reads before it were late: by one frame, a race with
 the game's own code at the start of VBlank or the ARM9's data cache; by more,
 only the cache. It prints the counter's rate, the late reads and how late
 they were. Play normally while it runs. `--seconds N` runs longer, and
-`--save FILE.csv` writes every record out for a closer look. On another
+`--save NAME` saves every record to `logs\NAME.csv` and the report to
+`logs\NAME.txt` for a closer look (the `logs` folder sits next to
+`frame_check.py`, and git ignores it). On another
 game, pass a VBlank counter with `--watch ADDR:4`, or look for one with
 `--find-counter ADDR:LEN` (it reads the range twice, 2 s apart, at about
 10 KB/s, so keep the range small). Any extra `--watch` values are reported as
@@ -496,7 +498,7 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N 
 | `txm` | How frames are sent: `53` = CMD53 block writes (replies, ARP replies and 9 hellos in 10; every 10th hello always goes out with CMD52 so the PC keeps hearing from the DSi), `52` = CMD52 for everything (`RPCPROBE_TX_CMD53` off, CMD53 writes failed three times, or the PC had to re-send the same request twice in a row, which means CMD53 replies weren't arriving). |
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
-| `a9` | `1` when rpcprobe found the ARM9 half of the per-frame capture in the ARM9 cardengine, so captured values are read by the ARM9 (through its cache). `0`: an ARM9 cardengine without it (DLDI or GSDD variant, or an older build), so the ARM7 reads main RAM itself. Older builds don't send `a9`. |
+| `a9` | The ARM9 half of the per-frame capture. `1`: rpcprobe found it in the ARM9 cardengine, so captured values are read by the ARM9 (through its cache). `2`: found, and its VBlank hook is in (it goes in when a capture starts). `3` to `5`: the game replaced its VBlank handler and the hook was put back (`a9` is 1 + hooks put in; after four, the ARM7 reads by itself). `0`: an ARM9 cardengine without it (DLDI or GSDD variant, or an older build), so the ARM7 reads main RAM itself. Older builds don't send `a9`. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 ### Memory request (PC -> DSi)
@@ -555,17 +557,33 @@ Who reads the values: the game's writes sit in the ARM9's data cache for a
 while before they reach main RAM (measured on Platinum: a frame late on about
 a third of frames in menus and battles, several frames during loading), so
 the ARM7 reading main RAM sees them late. The ARM9 reads through its cache.
-Each VBlank rpcprobe writes a request number into a 128-byte block in the
-ARM9 cardengine (`common/include/dsirpc_watch_block.h`) and rings the ARM9
-with IPC sync value 3, nds-bootstrap's own do-nothing doorbell. It only rings
-when its last sync value was 0 or 3, so it never replaces one of
-nds-bootstrap's commands (screen swap, colour LUT, reset, in-game menu) that
-the ARM9 hasn't read yet; the ARM9 serves the request on any IPC sync
-interrupt. The ARM9 copies the watched values into the block, writes them back
-from its cache, then writes the request number back as its answer. At the next
-VBlank rpcprobe takes the values if the answer matches, and otherwise reads
-main RAM itself and marks the record. ARM9 values are therefore one VBlank
-older than ARM7 ones would be.
+When it reads matters too: a game can change a value right as VBlank starts
+(Platinum's VBlank counter is one), and a read made a little later lands
+sometimes before that change and sometimes after it. So the ARM9 takes a
+snapshot at the very start of every VBlank interrupt, from a hook in front of
+the game's own VBlank handler (entry 0 of the game's interrupt table, the
+table nds-bootstrap already hooks for IPC sync), before that handler runs.
+The hook goes in only when a capture starts: rpcprobe writes the list into a
+288-byte block in the ARM9 cardengine (`common/include/dsirpc_watch_block.h`)
+and rings the ARM9 with IPC sync value 3, nds-bootstrap's own do-nothing
+doorbell. It only rings when its last sync value was 0 or 3, so it never
+replaces one of nds-bootstrap's commands (screen swap, colour LUT, reset,
+in-game menu) that the ARM9 hasn't read yet; the ARM9 checks its hook on any
+IPC sync interrupt. Each snapshot goes into one of four numbered slots, and
+rpcprobe records them in order, one per VBlank, starting one snapshot behind
+the newest (the ARM9's VBlank and its own start at almost the same moment, so
+the newest may not be there yet). ARM9 values are therefore from the start of
+that VBlank or the one before, never one twice or one skipped. When there's no snapshot to record (the hook isn't in yet, or the game
+had interrupts off for a while), rpcprobe reads main RAM itself and marks the
+record; if that lasts, it rings again, since the game may have replaced its
+VBlank handler. Each re-hook is a fresh hook that keeps calling the handler
+it was put in front of, so a game that puts back a handler it saved earlier
+still gets the right one; after four, rpcprobe reads by itself. Right after
+nds-bootstrap's in-game menu, its last sync value stays 9 (the menu's), so
+rpcprobe can't ring until nds-bootstrap's next card read sets it back to 3;
+until then a hook that's missing stays missing and rpcprobe reads by itself. A soft reset
+(nds-bootstrap's `reset()`) makes all four available again, since the reloaded
+game can't be holding any of them.
 
 `from` is the number (mod 65536) of the first record wanted: 0 after a `'W'`,
 then the one after the last record received. The reply's `count` is the
@@ -596,7 +614,7 @@ All paths below are under `nds-bootstrap/retail/`.
 
 | File | Change |
 |---|---|
-| `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | The ARM9 half of the per-frame capture: `myIrqHandlerIPC` calls `dsirpcWatchService()`, which copies the watched values for rpcprobe when it asked (see [section 7](#7-wire-protocol)). Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. 452 bytes; 1,388 bytes of that cardengine are still free. |
+| `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/misc.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | The ARM9 half of the per-frame capture: a hook in front of the game's VBlank handler snapshots the watched values at the start of every VBlank, and `myIrqHandlerIPC` calls `dsirpcWatchService()`, which puts the hook in when rpcprobe rings (see [section 7](#7-wire-protocol)); `reset()` (`misc.c`) frees the hooks for the reloaded game on a soft reset. Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. 952 bytes; 888 bytes of that cardengine are still free. |
 | `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running) (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
@@ -611,7 +629,7 @@ All paths below are under `nds-bootstrap/retail/`.
 | `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests, and on the first tick reads the game's code, ROM version and header CRC from its header for the hellos. |
 | `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction) |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP (and hands `'W'`/`'F'` to `probe_watch.c`), counts EAPOL |
-| `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), asks it for the values each VBlank, and reads main RAM itself when it doesn't answer. |
+| `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT`; defines the UDP port (4244) |
 | `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, and the per-VBlank receive limits |
@@ -630,7 +648,7 @@ described in [HISTORY.md](HISTORY.md).
   and hang or corrupt things. This caused the white screen and the
   party-menu crash.
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 53,256 of 62,464 bytes are used with the per-frame capture), so every addition counts.
+  (61 KB in total; 53,448 of 62,464 bytes are used with the per-frame capture), so every addition counts.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
   the receive path handles at most one packet per VBlank.
 
@@ -865,8 +883,10 @@ section 8).
   game (Pokémon Black and White, and later) running in DSi mode loads
   `cardenginei_arm7_twlsdk` instead, a 33 KB region without rpcprobe, and its
   own ARM7 code drives the DSi Wi-Fi chip there. Set those games to DS mode
-  in TWiLight Menu++'s per-game settings. The per-frame capture is new and
-  not yet tested on hardware (`frame_check.py`).
+  in TWiLight Menu++'s per-game settings. The per-frame capture's ARM9
+  hand-over passed on hardware (2026-10-05: no late reads in menus); the
+  VBlank-start snapshot that replaced it is not yet tested on hardware
+  (`frame_check.py`).
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
 - **Two-step launch.** START returns to the menu instead of launching our

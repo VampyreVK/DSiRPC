@@ -1625,7 +1625,7 @@ void myIrqHandlerIPC(void) {
 	const int ipcGetSync = IPC_GetSync();
 
 	#if !defined(TWLSDK) && !defined(DLDI)
-	// DSiRPC: hand the watched values to rpcprobe if it asked (dsirpc_watch.c).
+	// DSiRPC: put the per-frame capture's VBlank hook in if it's needed (dsirpc_watch.c).
 	extern void dsirpcWatchService(void);
 	dsirpcWatchService();
 	#endif

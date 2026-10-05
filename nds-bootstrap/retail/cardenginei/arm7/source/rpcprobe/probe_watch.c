@@ -29,12 +29,20 @@
 #define PW_IPC_SYNC_IRQ_REQUEST (1 << 13)
 #define PW_DOORBELL 3 // nds-bootstrap's own DMA doorbell; the ARM9 does nothing else for it
 
-u8 probeWatchArm9 = 0; // 1 once the ARM9 half was found (reported in the hellos)
+// With no ARM9 snapshot to record for this many VBlanks in a row, ring the
+// ARM9 to put its hook (back) in, and again once a second while it lasts.
+#define PW_STALL_RING 2
+#define PW_RING_EVERY 60
+
+// Reported in the hellos as a9=: 0 = no ARM9 half, 1 = found, 2 or more =
+// found and its VBlank hook in (1 + the number of hooks it has put in).
+u8 probeWatchArm9 = 0;
 
 static volatile DsirpcWatchBlock *arm9Block = 0;
-static u8 useArm9 = 0;      // this watch list may use the ARM9 (the PC can say no)
-static u32 reqCounter = 0;  // last request number sent, never 0 once used
-static u32 pendingReq = 0;  // the request the ARM9 is answering, 0 = none
+static u8 useArm9 = 0;    // this watch list may use the ARM9 (the PC can say no)
+static u32 gen = 0;       // number of the current list in the block, never 0 once used
+static u32 want = 0;      // number of the next ARM9 snapshot to record, 0 = not in step yet
+static u16 stall = 0;     // VBlanks in a row with no ARM9 snapshot to record
 
 typedef struct {
 	u32 addr;
@@ -63,7 +71,7 @@ void ProbeWatch_Init(void) {
 			break;
 		}
 	}
-	probeWatchArm9 = arm9Block ? 1 : 0;
+	probeWatchArm9 = arm9Block ? (u8)(1 + arm9Block->hooks) : 0;
 }
 
 // Ring the ARM9, but only over our own doorbell value or none: any other
@@ -78,17 +86,58 @@ static void ringArm9(void) {
 	}
 }
 
+// Copies the next ARM9 snapshot's values (n bytes) to `v` and its scanline
+// to *vc. Returns 1 if there was one to record.
+static int takeArm9(volatile DsirpcWatchBlock *b, u8 *v, int n, u16 *vc) {
+	u32 latest = b->latest;
+	if (!latest) return 0; // the hook hasn't run yet
+	s32 ahead = (s32)(latest - want);
+	int fresh = 0;
+	if (!want || ahead >= 2 || ahead < -1) {
+		// Not in step (just started, or VBlanks went by without us): start
+		// one behind the newest. The ARM9's VBlank and ours start at almost
+		// the same moment, so the newest may or may not be this VBlank's
+		// yet, but the one before it is always there.
+		want = latest > 1 ? latest - 1 : 1;
+		fresh = 1;
+	}
+	while ((s32)(latest - want) >= 0) {
+		volatile DsirpcWatchSlot *s = &b->slots[want % DSIRPC_WATCH_SLOTS];
+		if (s->seq != want) { want = 0; return 0; }        // already overwritten
+		if (s->gen != gen) { want++; fresh = 1; continue; }    // taken with an older list
+		// Coming into step, never start on the newest (for the reason
+		// above): wait a VBlank, and it's the one before the newest.
+		if (fresh && want == latest) return 0;
+		for (int k = 0; k < n; k++) v[k] = s->values[k];
+		*vc = s->vcount;
+		if (s->seq != want) { want = 0; return 0; } // overwritten while copying
+		want++;
+		return 1;
+	}
+	// None newer yet: the ARM9's VBlank interrupt is late this time, or there
+	// are no snapshots for now (the hook is out, or the game has interrupts
+	// off). When they come back, recording carries on from the next one,
+	// which may then be the newest each time (this VBlank's rather than the
+	// one before); the first time the ARM9 is late again, the ARM7 fills in
+	// once and is one behind from then on. Waiting for one behind right
+	// away instead (one more fill-in every time) can skip a snapshot when the
+	// ARM9 is late just then; one fill-in now and then is the better trade.
+	return 0;
+}
+
 void ProbeWatch_Sample(u16 vcount) {
 	if (!watchCount) return;
 	u8 *rec = &ring[(written % ringSlots) * recSize];
 	put16(&rec[0], tick);
 	u8 *v = &rec[REC_HEADER];
 	volatile DsirpcWatchBlock *b = arm9Block;
-	if (b && pendingReq && b->ack == pendingReq) {
-		// The ARM9 answered last VBlank's request: the values as the game
-		// had them then, read through its cache. Its scanline, flag clear.
-		for (int k = 0; k < recSize - REC_HEADER; k++) v[k] = b->values[k];
-		put16(&rec[2], b->vcount & WATCH_REC_VCOUNT);
+	u16 vc9;
+	if (b && useArm9 && takeArm9(b, v, recSize - REC_HEADER, &vc9)) {
+		// The ARM9's snapshot from the start of a VBlank (normally the one
+		// before this), read through its cache before the game's own VBlank
+		// code ran. Its scanline, flag clear.
+		put16(&rec[2], vc9 & WATCH_REC_VCOUNT);
+		stall = 0;
 	} else {
 		for (int i = 0; i < watchCount; i++) {
 			u32 a = watches[i].addr;
@@ -108,19 +157,14 @@ void ProbeWatch_Sample(u16 vcount) {
 		}
 		// Read here, straight from main RAM: may be behind the ARM9's cache.
 		put16(&rec[2], (vcount & WATCH_REC_VCOUNT) | WATCH_REC_ARM7);
+		// No snapshot: the hook isn't in yet, or the game replaced its
+		// VBlank handler (or had interrupts off for a while). Ask the ARM9
+		// to put it (back) in.
+		if (b && useArm9 && ++stall % PW_RING_EVERY == PW_STALL_RING) ringArm9();
 	}
+	if (b) probeWatchArm9 = (u8)(1 + b->hooks);
 	written++;
 	tick++;
-
-	// Ask for the next frame's values.
-	if (b && useArm9) {
-		if (++reqCounter == 0) reqCounter = 1;
-		pendingReq = reqCounter;
-		b->req = pendingReq;
-		ringArm9();
-	} else {
-		pendingReq = 0;
-	}
 }
 
 u16 ProbeWatch_Set(const u8 *req, int len, u8 *count, u8 *status) {
@@ -140,11 +184,14 @@ u16 ProbeWatch_Set(const u8 *req, int len, u8 *count, u8 *status) {
 		if (a < MAINRAM_LO || a >= MAINRAM_HI || s > MAINRAM_HI - a) { *status = 2; return 0; }
 		size += s;
 	}
-	// Valid: replace the list and start the ring over. Whatever the ARM9 is
-	// answering was for the old list, so it's ignored from here on.
+	// Valid: replace the list and start the ring over. The ARM9 stops
+	// first (count 0), and the new list gets a new number, so snapshots of
+	// the old one are never recorded.
 	watchCount = 0;
-	pendingReq = 0;
+	want = 0;
+	stall = 0;
 	volatile DsirpcWatchBlock *b = arm9Block;
+	if (b) b->count = 0;
 	for (int i = 0; i < n; i++) {
 		const u8 *w = &req[4 + 5 * i];
 		watches[i].addr = get32(w);
@@ -154,13 +201,20 @@ u16 ProbeWatch_Set(const u8 *req, int len, u8 *count, u8 *status) {
 			b->sizes[i] = watches[i].size;
 		}
 	}
-	if (b) b->count = n;
 	useArm9 = !(raw & WATCH_ARM7_ONLY);
+	if (b) {
+		if (++gen == 0) gen = 1;
+		b->gen = gen;
+		b->count = useArm9 ? n : 0; // ARM7-only: the ARM9 takes no snapshots at all
+	}
 	recSize = size;
 	ringSlots = WATCH_RING_BYTES / size;
 	written = 0;
 	tick = 0;
 	watchCount = n;
+	// Have the ARM9 put its VBlank hook in now, rather than after the
+	// first VBlanks without snapshots.
+	if (b && useArm9 && n) ringArm9();
 	*status = 0;
 	return 0;
 }

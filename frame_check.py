@@ -25,10 +25,15 @@ frames the capture can then see:
 Late reads are the only problem. The counter's rate (60 or 30 a second) just
 says how fast that screen runs.
 
-Builds whose hellos say a9=1 have the ARM9 read the values (through its own
-cache, so they shouldn't ever be late) and the ARM7 only fills in when the
-ARM9 didn't answer; the report counts both and judges the ARM9's records on
-their own. --arm7-only turns the ARM9 off for a run, to compare.
+Builds whose hellos say a9=1 or more have the ARM9 read the values: through
+its own cache (so never late) and at the very start of each VBlank, before
+the game's own VBlank code, so a value the game changes right then is always
+read on the same side of that change. The ARM7 only fills in when there's no
+ARM9 snapshot to record; the report counts both and judges the ARM9's records
+on their own. --arm7-only turns the ARM9 off for a run, to compare.
+
+--save NAME writes every record to logs/NAME.csv and this report to
+logs/NAME.txt (logs/ is next to this file and git ignores it).
 
 Usage, from the repo root (only one tool can use UDP port 4244 at a time):
   python frame_check.py                          # Platinum: its own VBlank counter, 20 s
@@ -36,7 +41,7 @@ Usage, from the repo root (only one tool can use UDP port 4244 at a time):
   python frame_check.py --watch 0x021BF6A8:4     # any game: the first watch must be a frame counter
   python frame_check.py --watch 0x021BF6A8:4 0x021BF6B4:4   # extra watches: how often they changed
   python frame_check.py --find-counter 0x021BF000:0x1000    # look for frame counters in a range
-  python frame_check.py --save boot.csv           # also write every record to a CSV file
+  python frame_check.py --save boot              # also save logs/boot.csv and logs/boot.txt
   python frame_check.py --arm7-only               # the old way (ARM7 reads main RAM), to compare
 """
 
@@ -44,6 +49,7 @@ import argparse
 import csv
 import sys
 import time
+from pathlib import Path
 
 from core.dsirpc_client import DSiClient, MAX_WATCHES, split_values, _hello_fields
 
@@ -55,6 +61,8 @@ PLATINUM_COUNTER = (0x021BF6A8, 4)
 KNOWN_COUNTERS = {"CPUE": PLATINUM_COUNTER}
 
 FRAME_RATES = (60.0, 30.0)  # what a per-frame counter can go up by, per second
+
+LOGS_DIR = Path(__file__).resolve().parent / "logs"
 
 
 def parse_watch(s):
@@ -183,6 +191,49 @@ def only(records, by_arm7):
     return [r if r is not None and r[4] == by_arm7 else None for r in records]
 
 
+def log_paths(name):
+    """(CSV path, report path) for --save NAME: a bare name (with or without
+    .csv) goes in logs/, a path with a folder in it is used as given."""
+    p = Path(name)
+    if p.suffix.lower() != ".csv":
+        p = p.with_name(p.name + ".csv")
+    if p.parent == Path("."):
+        p = LOGS_DIR / p.name
+    return p, p.with_suffix(".txt")
+
+
+class Tee:
+    """Writes everything to the console and to a file."""
+
+    def __init__(self, stream, f):
+        self.stream, self.f = stream, f
+
+    def write(self, text):
+        self.stream.write(text)
+        self.f.write(text)
+
+    def flush(self):
+        self.stream.flush()
+        self.f.flush()
+
+
+def a9_status(a9):
+    """What a hello's a9= says about the ARM9 half."""
+    if a9 is None:
+        # Builds from before the ARM9 half don't mark their records, but the
+        # ARM7 read all of them.
+        return "not in this build (no a9= in the hellos): every value is read by the ARM7"
+    n = int(a9) if a9.isdigit() else 0
+    if n == 0:
+        return "not found (a9=0): every value will be read by the ARM7"
+    if n == 1:
+        return "found (a9=1)"
+    if n == 2:
+        return "found, VBlank hook in (a9=2)"
+    return (f"found, VBlank hook in (a9={n}: the game replaced its VBlank handler "
+            f"{n - 2} time{'s' if n > 3 else ''} and the hook was put back)")
+
+
 def save_csv(path, watches, records):
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
@@ -204,11 +255,37 @@ def main():
                          "(default: Platinum's VBlank counter)")
     ap.add_argument("--find-counter", type=parse_span, metavar="ADDR:LEN",
                     help="look for frame counters in this range instead (about 10 KB/s, so keep it small)")
-    ap.add_argument("--save", metavar="FILE.csv", help="also write every record to this CSV file")
+    ap.add_argument("--save", metavar="NAME",
+                    help="also save every record to logs/NAME.csv and this report to logs/NAME.txt")
     ap.add_argument("--arm7-only", action="store_true",
                     help="have the ARM7 read every value itself, as before the ARM9 half (to compare)")
     args = ap.parse_args()
 
+    csv_path = report_path = None
+    if args.save:
+        csv_path, report_path = log_paths(args.save)
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        report = open(report_path, "w", encoding="utf-8")
+        sys.stdout = Tee(sys.stdout, report)
+    try:
+        run(args, csv_path)
+    finally:
+        if report_path:
+            sys.stdout.flush()
+            print(f"Saved this report to {shown(report_path)}")
+            sys.stdout = sys.stdout.stream
+            report.close()
+
+
+def shown(path):
+    """A path as short as it can be: relative to the current folder if it's in it."""
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path)
+
+
+def run(args, csv_path):
     c = DSiClient(port=args.port, dsi_ip=args.dsi_ip)
     if not c.wait_for_dsi():
         print("No hello from the DSi within 15 s - is the game running after the handoff?")
@@ -218,13 +295,7 @@ def main():
     code = c.game["code"] if c.game else None
     print(f"Game: {code or 'not reported (older rpcprobe build: per-frame capture needs the new one)'}")
     a9 = _hello_fields(c.last_hello or "").get("a9")
-    if a9 is not None:
-        print("ARM9 half: " + ("found (a9=1)" if a9 == "1" else
-                               "not found (a9=0): every value will be read by the ARM7"))
-    else:
-        # Builds from before the ARM9 half don't mark their records, but the
-        # ARM7 read all of them.
-        print("ARM9 half: not in this build (no a9= in the hellos): every value is read by the ARM7")
+    print("ARM9 half: " + a9_status(a9))
 
     if args.find_counter:
         start, length = args.find_counter
@@ -267,15 +338,18 @@ def main():
     by9 = [r for r in real if not r[4]]
     by7 = [r for r in real if r[4]]
     print(f"Read by the ARM9: {len(by9)}; by the ARM7: {len(by7)}"
-          + (" (it fills in when the ARM9 didn't answer in time)" if by9 and by7 else ""))
+          + (" (it fills in when there's no ARM9 snapshot to record)" if by9 and by7 else ""))
     for name, group in (("ARM9", by9), ("ARM7", by7)):
         if group:
             vc = sorted(r[2] for r in group)
             print(f"  {name} read at scanline {vc[0]}-{vc[-1]} (median {vc[len(vc) // 2]}; 192 is the start of VBlank)")
+    a9_end = _hello_fields(c.last_hello or "").get("a9")
+    if a9 is not None and a9_end != a9:
+        print(f"ARM9 half at the end: {a9_status(a9_end)}")
 
-    if args.save:
-        save_csv(args.save, watches, records)
-        print(f"Saved every record to {args.save}")
+    if csv_path:
+        save_csv(csv_path, watches, records)
+        print(f"Saved every record to {shown(csv_path)}")
 
     # Judge the ARM9's records on their own when there are any: its values are
     # a VBlank older than the ARM7's, so a step between the two isn't a step

@@ -7,14 +7,19 @@
 // Who reads the values: the ARM9, when the ARM9 cardengine carries DSiRPC's
 // half (cardenginei/arm9/source/dsirpc_watch.c). The game's writes sit in
 // the ARM9's data cache for a while, so reading main RAM from the ARM7 can
-// see them a frame or more late; the ARM9 reads through its cache. Each
-// VBlank the ARM7 asks, and the next VBlank it records what the ARM9 handed
-// over (common/include/dsirpc_watch_block.h). When the ARM9 hasn't answered,
-// or the cardengine has no ARM9 half, the ARM7 reads main RAM itself and
-// marks the record (WATCH_REC_ARM7).
+// see them a frame or more late; the ARM9 reads through its cache, at the
+// very start of every VBlank, before the game's own VBlank code runs. The
+// ARM7 records the ARM9's snapshots in order, one per VBlank (common/include/
+// dsirpc_watch_block.h). When there's none to record (the ARM9's
+// hook isn't in yet, the game had interrupts off, or the cardengine has no
+// ARM9 half), the ARM7 reads main RAM itself and marks the record
+// (WATCH_REC_ARM7).
 //
-// Nothing here writes to the game: the watch list and the ring live in
-// rpcprobe's own memory, and the hand-over block in the ARM9 cardengine's.
+// Nothing here writes to the game's memory: the watch list and the ring live
+// in rpcprobe's own memory, and the hand-over block in the ARM9
+// cardengine's. The ARM9's hook is put in front of the game's VBlank
+// interrupt handler (in the game's interrupt table, like nds-bootstrap's own
+// hooks) and calls that handler unchanged.
 //
 // Wire format (big endian, like 'R'; see probe_req.c for the transport):
 //
@@ -34,12 +39,14 @@
 //       between `from` and `first` that the ring had already overwritten.
 //
 //   record: tick u16 | vcount u16 | values...
-//       tick = rpcprobe's VBlank count (one per frame); vcount = the
-//       scanline the values were read on (bits 0-8), plus WATCH_REC_ARM7
-//       (bit 15) when the ARM7 read them from main RAM instead of the ARM9;
-//       values = each watch's bytes as they are in memory (little endian),
-//       in list order. ARM9 values are the ones it read at the previous
-//       VBlank, so they are one frame older than the ARM7's would be.
+//       tick = rpcprobe's VBlank count (one record per frame); vcount = the
+//       scanline the values were read on (bits 0-8; 192 is the start of
+//       VBlank), plus WATCH_REC_ARM7 (bit 15) when the ARM7 read them from
+//       main RAM instead of the ARM9; values = each watch's bytes as they
+//       are in memory (little endian), in list order. ARM9 values are from
+//       the start of this VBlank or the one before (one snapshot after
+//       another, none twice or skipped), so they can be a frame older than
+//       the ARM7's would be.
 //
 // Status: 0 OK, 1 malformed, 2 address outside main RAM, 3 no watch list.
 
@@ -55,7 +62,9 @@
 #define WATCH_REC_ARM7   0x8000 // in a record's vcount
 #define WATCH_REC_VCOUNT 0x01FF
 
-// 1 when the ARM9 half was found (the hellos report it as a9=).
+// The hellos report it as a9=: 0 = no ARM9 half, 1 = found, 2 or more =
+// found and its VBlank hook in (1 + the number of hooks it has put in, so
+// more than 2 means the game replaced its VBlank handler along the way).
 extern u8 probeWatchArm9;
 
 // Looks for the ARM9 half's block. Call once, when the connection is up.

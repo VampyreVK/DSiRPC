@@ -10,6 +10,9 @@
 // (more than REQ_MAX_RANGES ranges or RESP_MAX_DATA bytes in total), 2 = a
 // range falls outside main RAM. On a non-zero status no data follows.
 //
+// 'W' and 'F' (per-frame capture) use the same transport and reply header;
+// their formats are in probe_watch.h.
+//
 // The reply goes back to whoever sent the request (IP, port and next-hop MAC
 // taken from the request), not to a fixed address.
 
@@ -20,6 +23,7 @@
 #if RPCPROBE_REQUESTS
 
 #include "probe_req.h"
+#include "probe_watch.h"
 #include "twl_wifi.h"
 #include "rpcprobe_config.h"
 
@@ -160,9 +164,29 @@ static void noteRequest(const u8 *srcIp, u16 srcPort, u16 seq) {
 	lastReqValid = 1;
 }
 
+// 'W' and 'F' (per-frame capture, probe_watch.h): same reply header as 'R'.
+static void handleWatchRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
+	u8 *resp = txFrame + 8 + 20 + 8;
+	resp[0] = 'D';
+	resp[1] = req[1]; resp[2] = req[2]; // seq, echoed
+	u8 count = 0, status = 0;
+	u16 body = (req[0] == 'W')
+		? ProbeWatch_Set(req, len, &count, &status)
+		: ProbeWatch_Fetch(req, len, &resp[5], RESP_MAX_DATA, &count, &status);
+	resp[3] = count;
+	resp[4] = status;
+	sendUdpReply(srcMac, srcIp, srcPort, 5 + (status == 0 ? body : 0));
+	probeReqRequests++;
+}
+
 static void handleRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
-	if (len < 4 || req[0] != 'R') return;
+	if (len < 4) return;
+	if (req[0] != 'R' && req[0] != 'W' && req[0] != 'F') return;
 	noteRequest(srcIp, srcPort, get16(&req[1]));
+	if (req[0] != 'R') {
+		handleWatchRequest(srcMac, srcIp, srcPort, req, len);
+		return;
+	}
 
 	u8 *resp = txFrame + 8 + 20 + 8;
 	resp[0] = 'D';

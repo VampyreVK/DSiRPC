@@ -2109,7 +2109,7 @@ void myIrqHandlerVBlank(void) {
 		while (REG_VCOUNT == 191) swiDelay(100);
 	} else {
 		#if !defined(ALTERNATIVE) && !defined(TWLSDK)
-		Probe_VBlankTick(); // rpcprobe
+		Probe_VBlankTick(ndsHeader); // rpcprobe
 		#endif
 		break;
 	}

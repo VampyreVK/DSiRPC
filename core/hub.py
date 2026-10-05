@@ -31,6 +31,7 @@ import struct
 import threading
 import time
 
+from . import games
 from .parser import PlatinumParser, TrainerMemory
 
 
@@ -77,6 +78,7 @@ class DsiSource:
         self.last = None        # the latest state returned
         self.last_full = 0.0    # time.time() of the last full read
         self.fast_misses = 0
+        self.other_game = None  # set while the DSi is running something other than Platinum
 
     @property
     def status(self):
@@ -84,6 +86,8 @@ class DsiSource:
             return f"Waiting for the DSi on UDP {self.port}"
         if self.failed:
             return f"DSi at {self.client.dsi_ip} isn't answering"
+        if self.other_game:
+            return f"DSi at {self.client.dsi_ip}: {games.name(self.other_game)}, not Platinum"
         return f"DSi at {self.client.dsi_ip}"
 
     def _in_battle(self):
@@ -97,6 +101,15 @@ class DsiSource:
             # Short wait so the hub thread can still be stopped quickly.
             if not self.client.wait_for_dsi(max_wait=1.0):
                 return None
+        # The Platinum parser only makes sense on Platinum.
+        game = self.client.game
+        if not games.is_platinum(game):
+            if game != self.other_game:
+                logging.info(f"The DSi is running {games.name(game)}: no Platinum data to read")
+            self.other_game, self.last = game, None
+            self.client.listen(1.0)  # keep up with the hellos, to notice a switch back
+            return None
+        self.other_game = None
         if self._in_battle() and time.time() - self.last_full < self.BATTLE_FULL_EVERY:
             try:
                 data = self._read_battlers(self.last)

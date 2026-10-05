@@ -4,6 +4,9 @@
 #ifndef PROBE_HOOK_H
 #define PROBE_HOOK_H
 
-void Probe_VBlankTick(void);
+// ndsHeader: the running game's NDS header (cardengine.c's ndsHeader). Read
+// once, on the first call, for the game code, ROM version and header CRC
+// the hellos report; never written.
+void Probe_VBlankTick(const void *ndsHeader);
 
 #endif // PROBE_HOOK_H

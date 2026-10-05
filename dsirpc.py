@@ -36,6 +36,7 @@ import time
 
 from pypresence import ActivityType
 
+from core import games
 from core import platinum_data as pdata
 from core.charmap import parse_charmap_txt
 from core.parser import PlatinumParser, TrainerMemory
@@ -201,6 +202,7 @@ def main():
     last_sent = None      # what Discord is showing (None = nothing)
     live = False          # the game answered recently
     failures = 0
+    other_game = None     # what the DSi runs when it isn't Platinum
     trainers = TrainerMemory()
 
     try:
@@ -215,13 +217,22 @@ def main():
 
             t0 = time.time()
             data = None
-            try:
-                if hasattr(ram, "clear"):
-                    ram.clear()
-                data = trainers.apply(PlatinumParser(ram, charmap).parse())
-            except (TimeoutError, RuntimeError) as e:
-                if failures == 0:
-                    logging.warning(f"Read failed: {e}")
+            game = client.game if client else None
+            if not games.is_platinum(game):
+                # Another game: nothing to show (the presence is Platinum's).
+                if game != other_game:
+                    print(time.strftime("%H:%M:%S"), f"The DSi is running {games.name(game)}: no Platinum presence")
+                other_game = game
+                client.listen(max(0.0, args.interval - (time.time() - t0)))  # hellos say when that changes
+            else:
+                other_game = None
+                try:
+                    if hasattr(ram, "clear"):
+                        ram.clear()
+                    data = trainers.apply(PlatinumParser(ram, charmap).parse())
+                except (TimeoutError, RuntimeError) as e:
+                    if failures == 0:
+                        logging.warning(f"Read failed: {e}")
 
             if data:
                 failures = 0

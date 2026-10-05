@@ -9,14 +9,21 @@ Speaks the protocol in nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/pro
   Response DSi -> PC:  'D' | seq u16 | count u8 | status u8 | data...
 
 status: 0 OK, 1 malformed/too big, 2 range outside main RAM
-(0x02000000-0x023FFFFF). At most 16 ranges and 192 bytes per request;
-read_ranges() splits bigger jobs automatically.
+(0x02000000-0x023FFFFF), 3 no watch list. At most 16 ranges and 192 bytes
+per request; read_ranges() splits bigger jobs automatically.
+
+Per-frame capture (rpcprobe/probe_watch.h): set_watch() sends a 'W' with up
+to 8 values to read every VBlank, and fetch_frames() drains the records with
+'F'. Same transport and reply header as 'R'. Each record says whether the
+ARM9 read the values (through its cache, so never late; builds whose hellos
+say a9=1) or the ARM7 read main RAM itself (may lag the game's writes).
 
 The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
 port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,
 for example on a network that drops broadcasts), so don't run another tool
 on the same port at the same time (hello_listener.py, dsi_status.py,
-dsirpc.py) - they'd fight over it.
+dsirpc.py) - they'd fight over it. Newer builds also say which game is
+running (gc=, v=, hc=); see DSiClient.game.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -36,7 +43,23 @@ import time
 
 MAX_RANGES = 16
 MAX_DATA = 192
-STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM"}
+MAX_WATCHES = 8
+WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
+REC_ARM7 = 0x8000         # in a record's scanline field: the ARM7 read it
+STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM", 3: "no watch list set"}
+
+
+def game_from_hello(text):
+    """{'code': 'CPUE', 'version': 1, 'header_crc': 0x1234} from a hello, or
+    None if the DSi's build doesn't report the game (older rpcprobe)."""
+    f = _hello_fields(text)
+    if 'gc' not in f:
+        return None
+    try:
+        return {'code': f['gc'], 'version': int(f.get('v', '0'), 16),
+                'header_crc': int(f.get('hc', '0'), 16)}
+    except ValueError:
+        return None
 
 
 class DSiClient:
@@ -47,6 +70,7 @@ class DSiClient:
         self.verbose = verbose
         self.seq = 0
         self.last_hello = None
+        self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
@@ -56,6 +80,7 @@ class DSiClient:
         if data.startswith(b"DSiRPC hello"):
             self.last_hello = data.decode(errors="replace")
             self.hellos.append((time.time(), self.last_hello))
+            self.game = game_from_hello(self.last_hello)
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
@@ -63,6 +88,11 @@ class DSiClient:
                 print(f"  hello: {self.last_hello}")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def listen(self, seconds):
+        """Takes in hellos for `seconds`, so .game and .last_hello stay
+        current while no requests are being sent."""
+        _listen_until(self, time.time() + seconds)
 
     def wait_for_dsi(self, max_wait=15.0):
         """Block until a hello tells us the DSi's IP (if not given)."""
@@ -76,11 +106,12 @@ class DSiClient:
             self._handle_other(data, addr)
         return self.dsi_ip is not None
 
-    def _request_once(self, ranges, retries=3, timeout=None):
+    def _exchange(self, kind, body, retries=3, timeout=None):
+        """Sends `kind` | seq | `body` (sent again, same seq, while no reply
+        comes) and returns the reply's (count, data). Raises RuntimeError if
+        the DSi refused it, TimeoutError if nothing came back."""
         self.seq = (self.seq + 1) & 0xFFFF
-        pkt = struct.pack(">cHB", b"R", self.seq, len(ranges))
-        for a, n in ranges:
-            pkt += struct.pack(">IB", a, n)
+        pkt = struct.pack(">cH", kind, self.seq) + body
 
         for attempt in range(retries):
             self.sock.sendto(pkt, (self.dsi_ip, self.port))
@@ -97,19 +128,60 @@ class DSiClient:
                         continue  # late reply to an older request
                     if status != 0:
                         raise RuntimeError(f"DSi refused request: {STATUS_TEXT.get(status, status)}")
-                    body = data[5:]
-                    want = sum(n for _, n in ranges)
-                    if len(body) < want:
-                        raise RuntimeError(f"short reply: {len(body)} of {want} bytes")
-                    out, off = [], 0
-                    for _, n in ranges:
-                        out.append(body[off:off + n])
-                        off += n
-                    return out
+                    return count, data[5:]
                 self._handle_other(data, addr)
             if self.verbose:
                 print(f"  timeout (attempt {attempt + 1}/{retries})")
         raise TimeoutError("no reply from the DSi")
+
+    def _request_once(self, ranges, retries=3, timeout=None):
+        body = struct.pack(">B", len(ranges))
+        for a, n in ranges:
+            body += struct.pack(">IB", a, n)
+        _, data = self._exchange(b"R", body, retries, timeout)
+        want = sum(n for _, n in ranges)
+        if len(data) < want:
+            raise RuntimeError(f"short reply: {len(data)} of {want} bytes")
+        out, off = [], 0
+        for _, n in ranges:
+            out.append(data[off:off + n])
+            off += n
+        return out
+
+    def set_watch(self, watches, retries=3, timeout=None, arm7_only=False):
+        """Per-frame capture: [(addr, size), ...] with size 1, 2 or 4, at
+        most MAX_WATCHES. The DSi reads them every VBlank from now on and
+        restarts its record numbering at 0. [] stops the capture.
+        arm7_only: don't use the ARM9 even if it's there (for comparing)."""
+        if len(watches) > MAX_WATCHES:
+            raise ValueError(f"at most {MAX_WATCHES} watches")
+        body = struct.pack(">B", len(watches) | (WATCH_ARM7_ONLY if arm7_only and watches else 0))
+        for a, n in watches:
+            if n not in (1, 2, 4):
+                raise ValueError("watch sizes are 1, 2 or 4 bytes")
+            body += struct.pack(">IB", a, n)
+        self._exchange(b"W", body, retries, timeout)
+
+    def fetch_frames(self, start, retries=1, timeout=None):
+        """Records from number `start` (mod 65536) on, as many as fit in one
+        reply: (first, lost, [(tick, scanline, raw values, by_arm7), ...]).
+        `lost` is how many records from `start` on were already overwritten;
+        `first` is the number of the first record returned. Ask again from
+        first + len(records) for the next ones. by_arm7 is True when the ARM7
+        read the values from main RAM (they can lag the game's writes) rather
+        than the ARM9; ARM9 values are from the VBlank before."""
+        count, data = self._exchange(b"F", struct.pack(">BH", 0, start & 0xFFFF), retries, timeout)
+        if len(data) < 5:
+            raise RuntimeError("short frame reply")
+        first, lost, size = struct.unpack(">HHB", data[:5])
+        if len(data) < 5 + count * size or size < 4:
+            raise RuntimeError(f"short frame reply: {len(data) - 5} of {count * size} bytes")
+        records = []
+        for i in range(count):
+            rec = data[5 + i * size:5 + (i + 1) * size]
+            tick, vcount = struct.unpack(">HH", rec[:4])
+            records.append((tick, vcount & 0x1FF, rec[4:], bool(vcount & REC_ARM7)))
+        return first, lost, records
 
     def read_ranges(self, ranges, timeout=None, retries=3):
         """[(addr, length), ...] -> [bytes, ...]. Splits into as many requests
@@ -144,6 +216,16 @@ class DSiClient:
 
 def _hello_fields(text):
     return {k: v for k, v in re.findall(r"(\w+)=(\S+)", text)}
+
+
+def split_values(raw, sizes):
+    """A frame record's raw values -> ints, one per watch (little endian,
+    as they are in the DS's memory)."""
+    out, off = [], 0
+    for n in sizes:
+        out.append(int.from_bytes(raw[off:off + n], "little"))
+        off += n
+    return out
 
 
 def _listen_until(c, until):

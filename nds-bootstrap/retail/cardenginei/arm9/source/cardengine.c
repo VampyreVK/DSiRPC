@@ -1624,6 +1624,12 @@ void myIrqHandlerIPC(void) {
 #ifndef GSDD
 	const int ipcGetSync = IPC_GetSync();
 
+	#if !defined(TWLSDK) && !defined(DLDI)
+	// DSiRPC: hand the watched values to rpcprobe if it asked (dsirpc_watch.c).
+	extern void dsirpcWatchService(void);
+	dsirpcWatchService();
+	#endif
+
 	if (sharedAddr[4] == 0x39414D44) {
 		sharedAddr[4] = 0;
 		extern bool dmaDirectRead;

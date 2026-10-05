@@ -21,6 +21,7 @@
 #include "probe_net.h"
 #if RPCPROBE_REQUESTS
 #include "probe_req.h"
+#include "probe_watch.h"
 #endif
 
 // One-byte live status, readable with nds-bootstrap's in-game RAM viewer:
@@ -50,8 +51,25 @@ static TwlWifiProbeResult hoProbe = { 0, 0 };
 static int hoLastSend = 0;
 static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-static u8 hoFrame[192];
+static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 176)
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
+
+// Which game is running, from its NDS header, taken on the first tick (the
+// bootloader has just written the header; a game can reuse that memory
+// later). The hellos report it so the PC knows which game it is talking to.
+static char hoGameCode[4] = { '?', '?', '?', '?' };
+static u8 hoRomVersion = 0;
+static u16 hoHeaderCrc = 0;
+
+static void gameLoad(const u8 *hdr) {
+	if (!hdr) return;
+	for (int i = 0; i < 4; i++) {
+		u8 c = hdr[0x0C + i];
+		hoGameCode[i] = (c >= 0x20 && c < 0x7F) ? (char)c : '?';
+	}
+	hoRomVersion = hdr[0x1E];
+	hoHeaderCrc = (u16)(hdr[0x15E] | (hdr[0x15F] << 8));
+}
 
 static int putDec(char *p, u16 v) {
 	char tmp[5];
@@ -106,15 +124,19 @@ static void handoffProbe(void) {
 	int r = TwlWifi_Probe(&hoProbe);
 	hoStage = (r == 0) ? HO_RUN : HO_FAILED;
 #if RPCPROBE_REQUESTS
-	if (hoStage == HO_RUN) ProbeReq_Announce();
+	if (hoStage == HO_RUN) {
+		ProbeReq_Announce();
+		ProbeWatch_Init(); // find the ARM9 half of the per-frame capture
+	}
 #endif
 }
 
 static void handoffSend(void) {
-	// "DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X" plus, with requests
-	// on, " rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N", then
-	// " vb=N" - at most 143 bytes.
-	char msg[152];
+	// "DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX"
+	// plus, with requests on, " rx=N req=N arp=N eap=N rxm=N e53=N txm=N
+	// t53=N rep=N a9=N", then " vb=N" - at most 169 bytes. Static rather than
+	// on the stack: this runs on the game's ARM7 IRQ stack, which is small.
+	static char msg[176];
 	int n = 0;
 	n += putStr(&msg[n], "DSiRPC hello #");
 	n += putDec(&msg[n], hoSent);
@@ -126,6 +148,13 @@ static void handoffSend(void) {
 	n += putHex(&msg[n], hoProbe.ioEnableResp & 0xFF, 2);
 	n += putStr(&msg[n], " last=");
 	n += putHex(&msg[n], (u32)hoLastSend & 0xF, 1);
+	// The game: its 4-letter code, ROM version and header CRC.
+	n += putStr(&msg[n], " gc=");
+	for (int i = 0; i < 4; i++) msg[n++] = hoGameCode[i];
+	n += putStr(&msg[n], " v=");
+	n += putHex(&msg[n], hoRomVersion, 2);
+	n += putStr(&msg[n], " hc=");
+	n += putHex(&msg[n], hoHeaderCrc, 4);
 #if RPCPROBE_REQUESTS
 	n += putStr(&msg[n], " rx=");
 	n += putDec(&msg[n], probeReqRxFrames);
@@ -145,6 +174,9 @@ static void handoffSend(void) {
 	n += putDec(&msg[n], (u16)TwlWifi_TxCmd53Errors());
 	n += putStr(&msg[n], " rep=");
 	n += putDec(&msg[n], probeReqRepeats);
+	// 1 = the per-frame capture's ARM9 half was found (probe_watch.h).
+	n += putStr(&msg[n], " a9=");
+	n += putDec(&msg[n], probeWatchArm9);
 #endif
 	// Longest VBlank tick since the last hello, in scanlines (one is about
 	// 64 us; a whole frame is 263). Big values mean rpcprobe is eating
@@ -169,12 +201,16 @@ static void handoffSend(void) {
 	}
 }
 
-void Probe_VBlankTick(void) {
+void Probe_VBlankTick(const void *ndsHeader) {
 	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
 	int sentThisTick = 0;
 #if RPCPROBE_REQUESTS
+	// Per-frame capture first, so every sample is taken at the same point
+	// in the frame (and before anything else this tick costs time).
+	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
 	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service();
 #endif
+	if (hoStage == HO_LOAD && hoTimer == 0) gameLoad((const u8 *)ndsHeader);
 	if (hoTimer) {
 		hoTimer--;
 	} else if (hoStage == HO_RUN && (sentThisTick || TwlWifi_RxBusy())) {

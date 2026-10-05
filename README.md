@@ -200,6 +200,7 @@ and the Rich Presence together, run `dsirpc_overlay.py --discord` instead of
 | `dsi_status.py` | Everything readable, in plain text. `--watch 5` refreshes, `--json` for raw data |
 | `dsirpc_overlay.py` | The stream overlay window. `--discord` also runs the Rich Presence, `--demo` plays made-up scenes |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
+| `frame_check.py` | Checks that the per-frame capture sees every frame (step 1 of RetroAchievements support). On Platinum it needs no options |
 | `launcher/pc/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
 
 ## Stream overlay window

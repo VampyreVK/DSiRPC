@@ -25,6 +25,7 @@ import sys
 import time
 
 from core.charmap import parse_charmap_txt
+from core import games
 from core.parser import PlatinumParser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -121,6 +122,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     charmap = parse_charmap_txt(os.path.join(HERE, "PokeGen4Charmap.txt"))
 
+    client = None
     if args.file:
         with open(args.file, "rb") as f:
             ram = f.read()
@@ -138,13 +140,19 @@ def main():
     while True:
         t0 = time.time()
         failed = False
-        try:
-            if hasattr(ram, "clear"):
-                ram.clear()
-            data = PlatinumParser(ram, charmap).parse()
-        except (TimeoutError, RuntimeError) as e:
-            print(f"Read failed: {e}")
+        if client and not games.is_platinum(client.game):
+            # Only Platinum has a parser; the hellos say when that changes.
+            print(f"The DSi is running {games.name(client.game)}, not Platinum: nothing to show")
             data, failed = None, True
+            client.listen(1.0)
+        else:
+            try:
+                if hasattr(ram, "clear"):
+                    ram.clear()
+                data = PlatinumParser(ram, charmap).parse()
+            except (TimeoutError, RuntimeError) as e:
+                print(f"Read failed: {e}")
+                data, failed = None, True
         elapsed = time.time() - t0
 
         if data:

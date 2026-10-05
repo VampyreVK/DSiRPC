@@ -275,6 +275,57 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-04 (night): **The ARM9 reads the captured values now.** New
+  `cardenginei/arm9/source/dsirpc_watch.c`: on any IPC sync interrupt, if
+  rpcprobe asked, the ARM9 copies the watched values (through its cache, so
+  never late) into a 128-byte block in its cardengine and writes them back to
+  RAM; rpcprobe finds the block by its magic, asks once per VBlank (IPC sync
+  value 3, and only when its last value was 0 or 3, so nds-bootstrap's own
+  commands are never replaced) and uses the answer the next VBlank, reading
+  main RAM itself and marking the record when there's none. Hellos say `a9=1`
+  when the ARM9 half was found. `frame_check.py` reports ARM9 and ARM7 records
+  separately and `--arm7-only` gives the old behaviour for comparison. Tested
+  on the host (both halves together, every fallback) and against a fake DSi;
+  not yet on hardware. Sizes: ARM9 cardengine +452 bytes (1,388 free), ARM7
+  +400 bytes. The other ARM9 cardengine variants only differ in the order of
+  the linker's interworking veneers.
+- 2026-10-04 (evening): **The ARM9 cache is real; the race isn't.** Four
+  `frame_check.py --save` runs on Platinum. Overworld (standing and talking):
+  clean, 30 counts a second, not one late read. Menus and battles: mostly a
+  steady +2, 0, +2, 0, meaning the counter really goes up every frame there but
+  the ARM7 only sees it every other frame (about 30% of frames read a frame
+  late; 3 battle reads late by 3). Boot: the same plus catch-ups of 4 to 18
+  after stalls, late by several frames. Every late read was taken at scanline
+  192, the same as the read that caught up, so it isn't a timing race at the
+  start of VBlank: the game's writes sit in the ARM9's data cache until the
+  busy half of its 30 fps loop pushes them out to main RAM. Long stalls
+  followed by +1 are the game itself pausing and are fine. Plan: have the
+  ARM9 copy the watched values at VBlank (it reads through its own cache) and
+  hand them to the ARM7.
+- 2026-10-04 (later): **First hardware runs of `frame_check.py`** (Platinum,
+  per-frame capture build). In the overworld the VBlank counter went up every
+  other frame (Platinum's overworld runs at 30 fps) with not one late read in
+  1,195 frames. During boot (intro and title, 60 fps) about a third of the
+  steps were late: mostly by one frame, with the sample scanline varying
+  192-199 in that run, plus a few late by 3, 5 or 7 frames, which only the
+  ARM9 cache can explain. The first version of the tool counted the 30 fps
+  pattern as lag and still said "on time"; it now judges by the rule that the
+  counter can't go up by more than one per frame, and `--save` keeps the raw
+  records. Next: runs on other screens (battle, menus, idle) to see whether
+  late reads happen in play.
+- 2026-10-04: **Step 1 of RetroAchievements support: per-frame capture.**
+  rpcprobe can read a short watch list (up to 8 values) at the start of every
+  VBlank into a 2 KB ring that the PC drains (`'W'` and `'F'` requests, same
+  transport and reply header as memory reads), and the hellos now say which
+  game is running (`gc=`, `v=`, `hc=` from the game's header).
+  `frame_check.py` measures whether the ARM7 sees the game's memory frame by
+  frame, using Platinum's own VBlank counter (`gSystem.vblankCounter` at
+  `0x021BF6A8`, found in a RAM dump with the decomp's `System` layout). The
+  Platinum parser, presence, overlay and `dsi_status.py` now only run on
+  Platinum (`core/games.py`); on another game they say which one instead of
+  reading garbage. ARM7 cardengine: 52,856 of 62,464 bytes. Tested on the PC
+  side against a fake DSi and the capture logic on the host; not yet on
+  hardware.
 - 2026-09-27 (late): **Stat changes, conditions and type hints in the overlay.**
   The parser now decodes each battler's types, stat stages, and a few
   volatile conditions (confusion, infatuation, Substitute, Nightmare, Curse,

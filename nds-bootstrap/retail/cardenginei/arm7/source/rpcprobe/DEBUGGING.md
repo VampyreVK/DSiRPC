@@ -11,7 +11,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 255.255.255.255, port 4244:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
 ```
 
 Watch them with `launcher/pc/hello_listener.py`.
@@ -21,6 +21,9 @@ Watch them with `launcher/pc/hello_listener.py`.
 | `gpio` | `0x04004C04` when the chip was probed. `0000` is expected. Bit 8 (`0100`) would mean the board was in old DS mode. |
 | `rev`, `ioen` | SDIO CCCR responses from the one-time chip probe. `ioen=02` means SDIO function 1 is still enabled, so the chip hasn't been reset since the launcher set it up. `00` means it was reset and the connection is gone. |
 | `last` | Result of the previous send: `0` OK, `1` the chip reported a TX mailbox overflow, anything else is an SDIO error. Three SDIO errors in a row stop sending. |
+| `gc` | The running game's 4-letter code, from its header (`CPUE` = Platinum US, `IRBO` = Black US); `?` for unreadable characters. Read once, on the first VBlank. Older builds don't send `gc`, `v` or `hc`. |
+| `v` | The game's ROM version (hex) |
+| `hc` | The game's header CRC (hex), which tells apart dumps and hacks that share a game code |
 | `rx` | Packets drained from the chip's receive mailbox (any kind) |
 | `req` | Memory requests answered |
 | `arp` | ARP replies sent. If this is 0 and requests time out, the PC can't find the DSi's MAC. |
@@ -30,6 +33,7 @@ Watch them with `launcher/pc/hello_listener.py`.
 | `txm` | How frames are sent: `53` = CMD53 block writes (replies, ARP replies and 9 hellos in 10; every 10th hello always goes out with CMD52 so the PC keeps hearing from the DSi), `52` = CMD52 for everything (`RPCPROBE_TX_CMD53` off, CMD53 writes failed three times, or the PC had to re-send the same request twice in a row, which means CMD53 replies weren't arriving). |
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
+| `a9` | `1` when rpcprobe found the ARM9 half of the per-frame capture in the ARM9 cardengine, so captured values are read by the ARM9 (through its cache). `0`: an ARM9 cardengine without it (DLDI or GSDD variant, or an older build), so the ARM7 reads main RAM itself. Older builds don't send `a9`. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 If hellos arrive but reads are slow or time out now and then, run the link

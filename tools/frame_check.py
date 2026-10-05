@@ -33,23 +33,27 @@ ARM9 snapshot to record; the report counts both and judges the ARM9's records
 on their own. --arm7-only turns the ARM9 off for a run, to compare.
 
 --save NAME writes every record to logs/NAME.csv and this report to
-logs/NAME.txt (logs/ is next to this file and git ignores it).
+logs/NAME.txt (logs/ is at the repo root and git ignores it).
 
 Usage, from the repo root (only one tool can use UDP port 4244 at a time):
-  python frame_check.py                          # Platinum: its own VBlank counter, 20 s
-  python frame_check.py --seconds 60
-  python frame_check.py --watch 0x021BF6A8:4     # any game: the first watch must be a frame counter
-  python frame_check.py --watch 0x021BF6A8:4 0x021BF6B4:4   # extra watches: how often they changed
-  python frame_check.py --find-counter 0x021BF000:0x1000    # look for frame counters in a range
-  python frame_check.py --save boot              # also save logs/boot.csv and logs/boot.txt
-  python frame_check.py --arm7-only               # the old way (ARM7 reads main RAM), to compare
+  python tools/frame_check.py                          # Platinum: its own VBlank counter, 20 s
+  python tools/frame_check.py --seconds 60
+  python tools/frame_check.py --watch 0x021BF6A8:4     # any game: the first watch must be a frame counter
+  python tools/frame_check.py --watch 0x021BF6A8:4 0x021BF6B4:4   # extra watches: how often they changed
+  python tools/frame_check.py --find-counter 0x021BF000:0x1000    # look for frame counters in a range
+  python tools/frame_check.py --save boot              # also save logs/boot.csv and logs/boot.txt
+  python tools/frame_check.py --arm7-only               # the old way (ARM7 reads main RAM), to compare
 """
 
 import argparse
 import csv
+import os
 import sys
 import time
 from pathlib import Path
+
+# The repo root, for core/ and rpc/ (this file is in tools/).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.dsirpc_client import DSiClient, MAX_WATCHES, split_values, _hello_fields
 
@@ -62,7 +66,7 @@ KNOWN_COUNTERS = {"CPUE": PLATINUM_COUNTER}
 
 FRAME_RATES = (60.0, 30.0)  # what a per-frame counter can go up by, per second
 
-LOGS_DIR = Path(__file__).resolve().parent / "logs"
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 
 def parse_watch(s):
@@ -305,7 +309,7 @@ def run(args, csv_path):
             return
         print("Frame counters (goes up by about this much a second):")
         for a, rate in hits:
-            print(f"  0x{a:08X}  {rate:5.1f}/s   python frame_check.py --watch 0x{a:08X}:4")
+            print(f"  0x{a:08X}  {rate:5.1f}/s   python tools/frame_check.py --watch 0x{a:08X}:4")
         return
 
     watches = args.watch or ([KNOWN_COUNTERS[code]] if code in KNOWN_COUNTERS else None)

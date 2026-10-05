@@ -1,177 +1,104 @@
 """
-dsirpc.py - Discord Rich Presence driven by the real DSi.
+dsirpc.py - DSiRPC: Discord Rich Presence (and a stream overlay) for the game
+running on a real, modded DSi.
 
-Reads the game every few seconds (same parser as dsi_status.py) and shows:
-  in a battle:  "Competing in Pokémon Platinum", the foe's sprite as the big
-                image, your Pokémon's back sprite as the small one, and
-                "<yours> is fighting <foe>"
-  otherwise:    "Playing", where you are, badges / Pokédex, the party
-                fraction (Pokémon still standing out of party size), your
-                trainer walking in the direction you face as the big image
-                and your lead Pokémon's overworld sprite as the small one
+The easy way, on Windows:
+  Setup.bat          first-time setup (Python packages, Discord application,
+                     RetroAchievements sets, start with Windows)
+  DSiRPC.bat         starts DSiRPC in the tray, by the clock
 
-Sprites come from the Assets folders on GitHub Pages, by national dex number.
+The same from a console, from the repo root:
+  python dsirpc.py setup                 # setup (run it again to change anything)
+  python dsirpc.py tray                  # the tray icon
+  python dsirpc.py                       # run here until Ctrl+C, logging what Discord shows
+  python dsirpc.py --overlay             # ...with the overlay window (closing it stops DSiRPC)
+  python dsirpc.py --dry-run             # read the DSi, but print instead of sending to Discord
+  python dsirpc.py --overlay --no-discord --demo        # the overlay with made-up scenes
+  python dsirpc.py --file ram_dump.bin --dry-run        # a RAM dump instead of the DSi
+  python dsirpc.py --file dump.bin --game AMCE --dry-run   # a dump of another game
 
-It runs until you stop it (Ctrl+C, or SIGTERM from a service manager), so it
-can stay running in the background: it waits for the DSi, shows the presence
-only while the game answers, and takes it down (and disconnects from Discord)
-after about 30 s without data, then waits for the DSi again.
+Pokemon Platinum gets its own presence (rpc/platinum_presence.py): where you
+are, your party, who you're battling, with sprites. Any other game gets its
+name and box art, plus its RetroAchievements rich presence and icon if there's
+a set file for it in ra/ (rpc/generic_presence.py). Nothing is sent to
+RetroAchievements.
 
-Usage:
-  python dsirpc.py                                 # client ID from PokemonPlatinumRPC.cfg
-  python dsirpc.py --client-id <your application ID>
-  python dsirpc.py --dry-run                       # read the DSi, print instead of sending
-  python dsirpc.py --file ram_dump.bin --dry-run
-
-Turn off Vencord's CustomRPC while this runs, or Discord shows two activities.
-Don't run it together with dsi_status.py / hello_listener.py (same UDP port).
+DSiRPC waits for the DSi, shows the presence only while the game answers, and
+takes it down after about 30 s without data. Settings are in dsirpc.cfg
+(written by setup), the log in logs/dsirpc.log. Turn off Vencord's CustomRPC
+while it runs, or Discord shows two activities. Only one DSiRPC (or one of
+the tools in tools/) can run at a time: they all need UDP port 4244.
 """
 
 import argparse
-import logging
 import os
 import signal
 import sys
 import time
 
-from pypresence import ActivityType
-
-from core import games
-from core import platinum_data as pdata
-from core.charmap import parse_charmap_txt
-from core.parser import PlatinumParser, TrainerMemory
-from utils.config import Config
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-SPRITES = "https://vampyrevk.github.io/DSiRPC/Assets"
-
-WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x464, 0x470
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
-def front_sprite(species_id, shiny=False):
-    folder = "Shiny-Battle-NormalLarge" if shiny else "Pokemon-Battle-NormalLarge"
-    return f"{SPRITES}/{folder}/{species_id}.gif?raw=true"
+def _quiet_streams():
+    """pythonw (the tray) has no console: give stray prints somewhere to go."""
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
 
 
-def back_sprite(species_id, shiny=False):
-    folder = "Shiny-Battle-BackSmall" if shiny else "Pokemon-Battle-BackSmall"
-    return f"{SPRITES}/{folder}/{species_id}.gif?raw=true"
-
-
-def overworld_sprite(species_id, shiny=False):
-    folder = "Shiny-Pokemon-Overworld" if shiny else "Pokemon-Overworld"
-    return f"{SPRITES}/{folder}/{species_id}.gif?raw=true"
-
-
-def trainer_sprite(character, facing):
-    # Trainer-Overworld/<Lucas|Dawn>-<Down|Left|Right|Up>.gif, made by process_trainer.py
-    return f"{SPRITES}/Trainer-Overworld/{character}-{facing.capitalize()}.gif?raw=true"
-
-
-def player_facing(d):
-    """'up', 'down', 'left' or 'right'. Prefers the live value from the RA
-    note (low byte, same 0-3 order as the saved one), then the saved facing."""
-    raw = d.get('direction_raw')
-    if raw is not None and (raw & 0xFF) < 4:
-        return pdata.DIRECTIONS[raw & 0xFF]
-    facing = d['location']['facing']
-    return facing if isinstance(facing, str) else 'down'
-
-
-def mon_name(mon):
-    nick = mon.get('nickname') or ''
-    return nick if nick and not mon.get('egg') else mon['species']
-
-
-def battle_presence(d):
-    battle = d['battle']
-    mons = {m['side']: m for m in battle['mons']}
-    mine, foe = mons['yours'], mons['foe']
-    mine2, foe2 = mons.get('yours (2nd)'), mons.get('foe (2nd)')
-    music = d['misc']['music_id']
-    trainer = battle['trainer'] if battle['trainer'] and not battle['trainer'].startswith('sprite') else None
-
-    # The parser's wild flag (the foe has your trainer ID) is more reliable
-    # than the music, which can still be the encounter jingle at the start.
-    if battle.get('wild', music == WILD):
-        details = "Encountering a wild Pokémon"
-        owner = "A wild"
-    elif music == GYM:
-        details = f"Battling Gym Leader {trainer}" if trainer else "Battling a Gym Leader"
-        owner = f"{trainer}'s" if trainer else "The Gym Leader's"
-    elif music == RIVAL:
-        details = f"Battling rival {trainer}" if trainer else "Battling a rival"
-        owner = f"{trainer}'s" if trainer else "The rival's"
-    elif music == CHAMPION:
-        details = "Battling Champion Cynthia"
-        owner = "Cynthia's"
-    elif music == ELITE_FOUR:
-        details = f"Battling Elite Four {trainer}" if trainer else "Battling the Elite Four"
-        owner = f"{trainer}'s" if trainer else "The Elite Four's"
-    elif music == TRAINER:
-        details = "In a trainer battle"
-        owner = "The trainer's"
-    else:
-        details = "In a battle"
-        owner = "The foe's"
-
-    if mine2:
-        state = f"{mon_name(mine)} and {mon_name(mine2)} are fighting {foe['species']}"
-    else:
-        state = f"{mon_name(mine)} is fighting {foe['species']}"
-    if foe2:
-        state += f" and {foe2['species']}"
-    small_text = f"{d['trainer_name']}'s {mon_name(mine)} (Lv {mine['level']}, {mine['curr_hp']}/{mine['max_hp']} HP)"
-    if mine2:
-        small_text += f" and {mon_name(mine2)} (Lv {mine2['level']}, {mine2['curr_hp']}/{mine2['max_hp']} HP)"
-
-    return {
-        'activity_type': ActivityType.COMPETING,
-        'details': details,
-        'state': state[:128],
-        'large_image': front_sprite(foe['species_id'], foe.get('shiny')),
-        'large_text': f"{owner} {foe['species']} (Lv {foe['level']}, {foe['curr_hp']}/{foe['max_hp']} HP)",
-        'small_image': back_sprite(mine['species_id'], mine.get('shiny')),
-        'small_text': small_text[:128],  # Discord's limit
-    }
-
-
-def overworld_presence(d):
-    loc = d['location']
-    party = [m for m in d['party'] if not m.get('egg')]
-    alive = sum(1 for m in party if m['curr_hp'] > 0)
-    presence = {
-        'activity_type': ActivityType.PLAYING,
-        'details': f"Exploring {loc['name']}",
-        'state': f"Badges: {len(d['badges'])} | Pokédex: {d['pokedex']['caught']}",
-    }
-    presence['large_image'] = trainer_sprite(d['character'], player_facing(d))
-    presence['large_text'] = f"{d['trainer_name']} in {loc['area']}"
-    if party:
-        lead = party[0]
-        species = '' if mon_name(lead) == lead['species'] else f" ({lead['species']})"
-        presence['small_image'] = overworld_sprite(lead['species_id'], lead.get('shiny'))
-        presence['small_text'] = f"Lead: {mon_name(lead)}{species}, Lv {lead['level']}, {lead['curr_hp']}/{lead['max_hp']} HP"
-        presence['party_size'] = [alive, len(party)]
-    return presence
-
-
-def build_presence(d):
-    return battle_presence(d) if d['battle']['active'] else overworld_presence(d)
-
-
-def main():
-    ap = argparse.ArgumentParser(description="Discord Rich Presence from the DSi (runs until stopped)")
-    ap.add_argument("--client-id", help="Discord application ID (default: discord_client_id in PokemonPlatinumRPC.cfg)")
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="dsirpc.py",
+        description="DSiRPC: Discord Rich Presence and a stream overlay from a real DSi",
+        epilog="Settings are in dsirpc.cfg ('dsirpc.py setup' writes it).")
+    ap.add_argument("mode", nargs="?", choices=["run", "tray", "setup"], default="run",
+                    help="run here (default), as a tray icon, or first-time setup")
+    ap.add_argument("--overlay", action="store_true", help="also open the overlay window (run mode)")
+    ap.add_argument("--no-discord", action="store_true", help="don't show anything on Discord")
+    ap.add_argument("--dry-run", action="store_true", help="log the presence instead of sending it to Discord")
+    ap.add_argument("--client-id", help="Discord application ID for every game (instead of dsirpc.cfg's)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
+    ap.add_argument("--game", metavar="CODE", help="with --file: the dump's game code, if it isn't Platinum (e.g. AMCE)")
+    ap.add_argument("--demo", action="store_true", help="made-up Platinum scenes instead of the DSi (implies --no-discord)")
+    ap.add_argument("--name", help="with --demo: the trainer name to show")
     ap.add_argument("--dsi-ip", help="the IP the launcher shows; skips waiting for a hello packet")
     ap.add_argument("--port", type=int, default=4244, help="UDP port (the DSi always uses 4244)")
-    ap.add_argument("--interval", type=float, default=5.0, help="seconds between reads (Discord allows about one update per 5 s)")
-    ap.add_argument("--dry-run", action="store_true", help="print the presence instead of sending it to Discord")
-    args = ap.parse_args()
+    ap.add_argument("--interval", type=float,
+                    help="seconds between reads (default: 5, or 2 while the overlay is open)")
+    ap.add_argument("--scale", type=int, help="overlay window size as a multiple of 256x192 (keys 1-6 too)")
+    ap.add_argument("--chroma", metavar="RRGGBB", help="overlay background colour, for a chroma key in OBS")
+    ap.add_argument("-v", "--verbose", action="store_true", help="more detail in the log")
+    return ap.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    charmap = parse_charmap_txt(os.path.join(HERE, "PokeGen4Charmap.txt"))
+
+def _engine_args(args):
+    return dict(file=args.file, game=args.game, demo=args.demo, demo_name=args.name,
+                dsi_ip=args.dsi_ip, port=args.port, interval=args.interval,
+                client_id=args.client_id, dry_run=args.dry_run)
+
+
+def _missing_packages(e):
+    print(f"A package DSiRPC needs isn't installed ({e}).")
+    print("Run Setup.bat (or 'python dsirpc.py setup') to install it.")
+    return 1
+
+
+def run(args, cfg):
+    import logging
+    from app.engine import Engine, PortInUse, LOG_FILE
+
+    discord = not (args.no_discord or args.demo)
+    if not cfg.loaded_from:
+        print("No dsirpc.cfg yet: run Setup.bat (or 'python dsirpc.py setup') to make one.")
+    if discord and not args.dry_run and not args.client_id and not cfg.has_discord_id:
+        print("No Discord application ID: run setup, or pass --client-id (or --no-discord).")
+        return 1
+    try:
+        engine = Engine(cfg, discord=discord, **_engine_args(args))
+    except PortInUse:
+        print(f"UDP port {args.port} is in use: DSiRPC (maybe in the tray) or one of its tools is already running.")
+        return 1
 
     # A service manager stopping the process gets the same clean shutdown as
     # Ctrl+C, so the presence doesn't linger in Discord.
@@ -179,103 +106,60 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
 
-    rpc = None
-    if not args.dry_run:
-        from rpc.discord_client import DiscordRPC
-        client_id = args.client_id or Config(os.path.join(HERE, "PokemonPlatinumRPC.cfg")).discord_client_id
-        if not client_id:
-            print("No Discord application ID: pass --client-id or set discord_client_id in PokemonPlatinumRPC.cfg")
-            sys.exit(1)
-        rpc = DiscordRPC(client_id)  # connects only once there's something to show
+    if args.file and args.dry_run and not args.overlay:
+        engine.once()
+        return 0
 
-    client = None
-    if args.file:
-        with open(args.file, "rb") as f:
-            ram = f.read()
-    else:
-        from core.dsirpc_client import DSiClient
-        from core.dsi_memory import DsiRam
-        client = DSiClient(port=args.port, dsi_ip=args.dsi_ip)
-        ram = DsiRam(client)
-
-    start = None          # playtime-based, so Discord's timer shows the save's playtime
-    last_sent = None      # what Discord is showing (None = nothing)
-    live = False          # the game answered recently
-    failures = 0
-    other_game = None     # what the DSi runs when it isn't Platinum
-    trainers = TrainerMemory()
-
+    engine.start()
+    logging.info(f"DSiRPC is running (Ctrl+C to stop; log: {LOG_FILE})")
     try:
-        while True:
-            # The launcher's DHCP lease can change between sessions, so after
-            # the DSi goes quiet its IP is learned again from the next hello.
-            if client and client.dsi_ip is None:
-                print(time.strftime("%H:%M:%S"), f"Waiting for the DSi on UDP port {args.port} (Ctrl+C to stop)...")
-                while not client.wait_for_dsi(max_wait=60):
-                    pass
-                failures = 0
-
-            t0 = time.time()
-            data = None
-            game = client.game if client else None
-            if not games.is_platinum(game):
-                # Another game: nothing to show (the presence is Platinum's).
-                if game != other_game:
-                    print(time.strftime("%H:%M:%S"), f"The DSi is running {games.name(game)}: no Platinum presence")
-                other_game = game
-                client.listen(max(0.0, args.interval - (time.time() - t0)))  # hellos say when that changes
-            else:
-                other_game = None
-                try:
-                    if hasattr(ram, "clear"):
-                        ram.clear()
-                    data = trainers.apply(PlatinumParser(ram, charmap).parse())
-                except (TimeoutError, RuntimeError) as e:
-                    if failures == 0:
-                        logging.warning(f"Read failed: {e}")
-
-            if data:
-                failures = 0
-                live = True
-                pt = data['playtime']
-                playtime_start = int(time.time()) - (pt['hours'] * 3600 + pt['minutes'] * 60 + pt['seconds'])
-                # Set once so the timer doesn't jitter. A jump of more than a
-                # minute means the game was reset or another save was loaded.
-                if start is None or abs(playtime_start - start) > 60:
-                    start = playtime_start
-                presence = build_presence(data)
-                presence['start'] = start
-                if presence != last_sent:
-                    sent = True
-                    if rpc:
-                        sent = (rpc.connected or rpc.connect()) and rpc.update(**presence)
-                    if sent:
-                        shown = {k: (v.name if isinstance(v, ActivityType) else v) for k, v in presence.items() if k != 'start'}
-                        print(time.strftime("%H:%M:%S"), shown)
-                        last_sent = presence
-            else:
-                failures += 1
-                # About 30 s without data: the game was closed (or the DSi
-                # turned off). Take the presence down until it's back.
-                if live and failures * args.interval >= 30:
-                    print(time.strftime("%H:%M:%S"), "No data from the DSi for 30 s, presence cleared")
-                    if rpc:
-                        rpc.close()
-                    live, last_sent, start = False, None, None
-                    if client and not args.dsi_ip:
-                        client.dsi_ip = None
-
-            if args.file and args.dry_run:
-                break
-            time.sleep(max(0.0, args.interval - (time.time() - t0)))
+        if args.overlay:
+            engine.run_overlay_here()
+        else:
+            while True:
+                time.sleep(1)
     except KeyboardInterrupt:
-        print("Stopping.")
+        pass
     finally:
-        if rpc:
-            rpc.close()
-        if client:
-            client.sock.close()
+        logging.info("Stopping.")
+        engine.stop()
+    return 0
+
+
+def main(argv=None):
+    _quiet_streams()
+    args = parse_args(argv)
+    sys.path.insert(0, ROOT)
+
+    if args.mode == "setup":
+        from app.setup_wizard import run_setup
+        return run_setup()
+
+    from app.engine import setup_logging
+    from utils.config import Config
+    setup_logging(console=args.mode == "run", verbose=args.verbose)
+    cfg = Config()
+    if args.scale:
+        cfg.overlay_scale = max(1, min(6, args.scale))
+    if args.chroma:
+        cfg.chroma = args.chroma
+    try:
+        if args.mode == "tray":
+            import logging
+            from app.tray import run_tray
+
+            def log_crash(kind, value, tb):
+                logging.critical("DSiRPC crashed", exc_info=(kind, value, tb))
+            sys.excepthook = log_crash
+            return run_tray(cfg, **_engine_args(args))
+        return run(args, cfg)
+    except ImportError as e:
+        if args.mode == "tray":
+            from app.tray import message_box
+            message_box(f"A package DSiRPC needs isn't installed ({e}). Run Setup.bat to install it.")
+            return 1
+        return _missing_packages(e)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

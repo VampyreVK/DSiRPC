@@ -275,6 +275,49 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-05 (night): **One program, a tray icon and a setup.** The
+  generic presence worked on hardware (Mario Kart DS, RA game 12711, with
+  its rich presence and the game's name in Discord). Then the PC side was
+  cleaned up for everyday use. `dsirpc.py` is now the one program, built on
+  the state hub for every game (`app/engine.py`): the hub follows the DSi
+  from game to game (`core/other_game.py` for anything but Platinum), the
+  Discord connector handles every game, and the overlay window opens next to
+  it (`--overlay`) instead of being a separate program. `dsirpc.py tray`
+  (`DSiRPC.bat`) puts it in the tray with Discord and overlay switches, Start
+  with Windows, the log and setup; `dsirpc.py setup` (`Setup.bat`) installs
+  the packages and asks for the Discord application IDs and RALibretro's
+  folder, from whose `RACache` it copies the set for the game the DSi runs,
+  matched by the title in the game's header at `0x023FFE00`
+  (`core/ra_cache.py`; DSiRPC can also do this on its own when exactly one
+  set clearly matches). Settings moved to `dsirpc.cfg` (the old
+  `PokemonPlatinumRPC.cfg` is still read until then), the log to
+  `logs/dsirpc.log`, and the testing tools (`dsi_status.py`, `ra_tool.py`,
+  `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) to `tools/`.
+  Tested with a fake DSi switching between Platinum, Mario Kart DS and an
+  unknown game, a stand-in tray backend and scripted setup answers; not yet
+  on Windows. Next: softcore achievements and rich presence on the RA site.
+- 2026-10-05 (evening): **Any game in Discord; RetroAchievements rich presence
+  from local set files.** v2 of the capture passed on hardware: no late
+  reads in menus, overworld, battle, boot or across a soft reset (the ARM7
+  only filled in on each run's first frame and during the reset itself, and
+  `a9` stayed at 2, so the reset freed the hook). Then, with Discord as the
+  goal and RetroAchievements as a source of game data: every game other than
+  Platinum now gets a presence (`rpc/generic_presence.py`) with its title and
+  GameTDB box art, plus, when `ra/` has its RA set file, the set's icon and
+  its rich presence text, evaluated against the live memory with rcheevos
+  (v12.5.0, prebuilt in `third_party/rcheevos/`, called through ctypes in
+  `core/rcheevos.py`). `ra_tool.py` adds and checks set files (RALibretro's
+  `RACache\Data\<id>.json`). Discord applications can be set per game
+  (`[discord_apps]`), and the game's name is sent too (pypresence 4.6+).
+  Nothing is sent to RetroAchievements. Research on RA's rules: only
+  hardcore-compliant emulators may earn hardcore unlocks, and using anything
+  else in hardcore gets an account Untracked; unknown clients are held to
+  softcore by the server, and the published rules don't forbid softcore with
+  them, but RA calls original hardware an unsupported platform. MiSTer is the
+  precedent for hardware: a community integration RA's team is working with
+  on hardcore verification. Tested against the RAM dump and a fake DSi
+  (switching games both ways, live updates); not yet with Discord or on
+  hardware.
 - 2026-10-05 (later): **v2: the ARM9 snapshots at the very start of VBlank.**
   The hardware runs below left a few one-frame blips, all on the VBlank
   counter Platinum bumps right after its VBlank wait (`src/main.c` in

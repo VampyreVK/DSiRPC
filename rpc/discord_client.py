@@ -32,23 +32,34 @@ class DiscordRPC:
             return False
 
     def update(self, state=None, details=None, large_image=None, large_text=None, small_image=None, small_text=None, start=None,
-               activity_type=None, party_size=None):
-        """Returns True if Discord accepted the update."""
+               activity_type=None, party_size=None, name=None):
+        """Returns True if Discord accepted the update. `name` replaces the
+        application's name in "Playing ..." (pypresence 4.6 and later; older
+        versions leave it out)."""
         if not self.connected:
             return False
 
+        args = dict(
+            state=state,
+            details=details,
+            large_image=large_image,
+            large_text=large_text,
+            small_image=small_image,
+            small_text=small_text,
+            start=start,
+            activity_type=activity_type,  # pypresence.ActivityType, e.g. COMPETING for battles
+            party_size=party_size         # [current, max]
+        )
+        if name:
+            args['name'] = name
         try:
-            self.rpc.update(
-                state=state,
-                details=details,
-                large_image=large_image,
-                large_text=large_text,
-                small_image=small_image,
-                small_text=small_text,
-                start=start,
-                activity_type=activity_type,  # pypresence.ActivityType, e.g. COMPETING for battles
-                party_size=party_size         # [current, max]
-            )
+            try:
+                self.rpc.update(**args)
+            except TypeError:
+                if 'name' not in args:
+                    raise
+                del args['name']  # pypresence older than 4.6
+                self.rpc.update(**args)
             return True
         except Exception as e:
             self._log_error(f"Error updating Discord RPC: {e}")

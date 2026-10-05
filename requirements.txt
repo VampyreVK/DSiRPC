@@ -1,4 +1,7 @@
-pypresence>=4.3
-# The overlay window (dsirpc_overlay.py)
+# 4.6+ for showing the game's name with any Discord application
+pypresence>=4.6
+# The overlay window
 pygame-ce>=2.5
 Pillow>=10
+# The tray icon (DSiRPC.bat)
+pystray>=0.19

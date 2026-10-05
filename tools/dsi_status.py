@@ -7,14 +7,14 @@ parser knows is printed, including values whose meaning is still a guess,
 so it's easy to see what holds up while playing.
 
 Usage:
-  python dsi_status.py                       # read the DSi once
-  python dsi_status.py --watch 5             # re-read every 5 seconds
-  python dsi_status.py --file ram_dump.bin   # parse a RAM dump instead
-  python dsi_status.py --json                # print the parsed data as JSON
-  python dsi_status.py --dsi-ip 192.168.2.195 --port 4244
+  python tools/dsi_status.py                       # read the DSi once
+  python tools/dsi_status.py --watch 5             # re-read every 5 seconds
+  python tools/dsi_status.py --file ram_dump.bin   # parse a RAM dump instead
+  python tools/dsi_status.py --json                # print the parsed data as JSON
+  python tools/dsi_status.py --dsi-ip 192.168.2.195 --port 4244
 
-Don't run this at the same time as hello_listener.py or dsirpc_client.py:
-they all listen on the same UDP port.
+Don't run this at the same time as DSiRPC or the other tools: they all
+listen on the same UDP port.
 """
 
 import argparse
@@ -24,11 +24,14 @@ import os
 import sys
 import time
 
+# The repo root, for core/ and rpc/ (this file is in tools/).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.charmap import parse_charmap_txt
 from core import games
 from core.parser import PlatinumParser
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def describe_mon(mon, with_item=True):
@@ -120,7 +123,7 @@ def main():
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    charmap = parse_charmap_txt(os.path.join(HERE, "PokeGen4Charmap.txt"))
+    charmap = parse_charmap_txt(os.path.join(ROOT, "PokeGen4Charmap.txt"))
 
     client = None
     if args.file:

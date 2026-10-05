@@ -7,9 +7,12 @@ The packets are broadcast on UDP 4244 (source and destination port), so no
 configuration is needed. If packets arrive, the connection the launcher made
 survived into gameplay.
 
-Usage:
-  python hello_listener.py
-  python hello_listener.py --port 4244
+It's the first thing to try if DSiRPC never finds the DSi. Quit DSiRPC
+first (same UDP port).
+
+Usage, from the repo root:
+  python tools/hello_listener.py
+  python tools/hello_listener.py --port 4244
 """
 
 import argparse

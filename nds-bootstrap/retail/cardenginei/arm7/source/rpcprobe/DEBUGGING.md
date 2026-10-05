@@ -14,7 +14,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
 ```
 
-Watch them with `launcher/pc/hello_listener.py`.
+Watch them with `tools/hello_listener.py` (in the repo root).
 
 | Field | Meaning |
 |---|---|

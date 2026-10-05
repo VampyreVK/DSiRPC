@@ -14,7 +14,9 @@ nds-bootstrap then boots Platinum and keeps using that connection to answer
 "read these addresses" requests from the PC over UDP. On the PC, Python reads
 the game state (trainer, party, location, facing, battle), decrypts and
 parses it, and pushes it to Discord as Rich Presence with animated sprites.
-Only Pokémon Platinum (USA, Rev 1) is supported at the moment.
+Pokémon Platinum (USA, Rev 1) gets the full presence; any other DS game shows
+its name, box art and RetroAchievements rich presence. On Windows, DSiRPC
+runs as a tray icon (`DSiRPC.bat`) after a one-time `Setup.bat`.
 
 ---
 
@@ -58,10 +60,10 @@ Only Pokémon Platinum (USA, Rev 1) is supported at the moment.
      once a second: "DSiRPC hello" broadcast   ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
-                                                                 dsi_status.py / dsirpc.py
-                                                                        |
-                                                                        v
-                                                                 Discord (pypresence, IPC)
+                                                                 core/hub.py (StateHub), in dsirpc.py
+                                                                    |                    |
+                                                                    v                    v
+                                                          Discord (pypresence)    overlay window
 ```
 
 The design keeps the DSi side dumb. It only answers "give me N bytes at
@@ -149,12 +151,23 @@ matches short names.
 
 ### 3.3 PC side
 
-- Python dependencies are in `requirements.txt` (pypresence).
-- The Discord application ID goes in `PokemonPlatinumRPC.cfg`
-  (`discord_client_id: '...'`, see the `.sample`), or pass `--client-id`.
-  The bold "Playing/Competing in ..." name comes from the application's name
-  in the Discord Developer Portal.
-- Allow Python through the Windows firewall for UDP on private networks.
+- `Setup.bat` makes the `.venv`, installs `requirements.txt` (pypresence 4.6
+  or later, pygame-ce, Pillow, pystray) and runs `dsirpc.py setup` (section 5).
+- Settings live in `dsirpc.cfg` (gitignored; `dsirpc.cfg.sample` lists them),
+  which setup writes. An older `PokemonPlatinumRPC.cfg` is still read while
+  there's no `dsirpc.cfg`, and its settings move over the first time
+  anything is saved.
+- The Discord application ID is `discord_client_id` (or `--client-id`). The
+  bold "Playing/Competing in ..." name comes from the application's name in
+  the Discord Developer Portal. For other games, `[discord_apps]` can name an
+  application per game code and a `default` one (section 6).
+- Games with a RetroAchievements set file in `ra/` get their RA rich presence
+  (section 6). Setup copies sets from RALibretro's `RACache` (and DSiRPC can
+  do it on its own, `racache` and `auto_import` in `[ra]`); `tools/ra_tool.py`
+  does it by hand. The rcheevos library that evaluates them is prebuilt in
+  `third_party/rcheevos/` (Windows x64).
+- Allow Python through the Windows firewall for UDP on private networks:
+  both `pythonw.exe` (the tray) and `python.exe` (the console and tools).
 
 ### 3.4 Sprites on GitHub Pages
 
@@ -186,31 +199,92 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    If the board was ever found in old DS mode, it waits 15 seconds for the
    game to finish booting before switching it back, which delays the first
    hello.
-5. **PC.** Run `dsirpc.py` (or `dsi_status.py`). Both learn the DSi's IP
-   from its first hello: `dsirpc.py` waits as long as it takes,
-   `dsi_status.py` gives up after 15 s. On a network that drops broadcasts,
-   pass the IP the launcher showed with `--dsi-ip`.
+5. **PC.** DSiRPC (the tray icon, or `dsirpc.py` in a console; it can be
+   started before any of this) learns the DSi's IP from its first hello and
+   waits as long as it takes; `tools/dsi_status.py` gives up after 15 s. On a
+   network that drops broadcasts, pass the IP the launcher showed with
+   `--dsi-ip`.
 
 ---
 
 ## 5. PC tools reference
 
 All commands run from the repo root, using the virtual environment's Python
-(`.venv\Scripts\python.exe`).
+(`.venv\Scripts\python.exe`; `Setup.bat` makes it).
 
-### `dsirpc.py` (the Rich Presence)
+### `dsirpc.py` (DSiRPC itself)
+
+One program, three ways to run it. Whichever way, it's the engine
+(`app/engine.py`): the state hub (`core/hub.py`, the one thing talking to the
+DSi), the Discord Rich Presence as a hub listener
+(`rpc/presence_connector.py`) and, when it's open, the overlay window
+(`overlay/app.py`).
+
+| Mode | Started by | What |
+|---|---|---|
+| `tray` | `DSiRPC.bat` (pythonw, no console), Start with Windows | A tray icon; see below |
+| `setup` | `Setup.bat` | The setup wizard; see below |
+| `run` (default) | `python dsirpc.py` | In the console until Ctrl+C (or SIGTERM), logging what Discord shows; `--overlay` opens the window on the main thread, and closing it stops DSiRPC |
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--client-id ID` | from `PokemonPlatinumRPC.cfg` | Discord application ID |
-| `--interval S` | `5` | Seconds between reads. Discord accepts about one update per 5 s. |
-| `--dry-run` | off | Print the presence instead of sending it |
-| `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi |
+| `--overlay` | off | Also open the overlay window (run mode) |
+| `--no-discord` | off | Show nothing on Discord |
+| `--dry-run` | off | Log the presence instead of sending it |
+| `--client-id ID` | from `dsirpc.cfg` | Discord application ID for every game |
+| `--interval S` | `5`, or `2` with the overlay | Seconds between reads. Discord accepts about one update per 5 s. |
+| `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi. With `--dry-run` (and no overlay) it prints the presence once and exits |
+| `--game CODE` | - | With `--file`: the dump's game code, when it isn't Platinum (to try another game's presence) |
+| `--demo`, `--name N` | off | The overlay's made-up scenes instead of the DSi (no Discord) |
+| `--scale N`, `--chroma RRGGBB` | from `dsirpc.cfg` | Overlay window size and chroma key colour |
 | `--dsi-ip IP` | auto | The IP the launcher showed. Skips waiting for a hello (needed only if your network drops broadcasts) |
 | `--port N` | `4244` | UDP port. The DSi always uses 4244, so leave it |
+| `-v` | off | Debug detail in the log |
 
-It runs until you stop it (Ctrl+C, or SIGTERM from a service manager), so it
-can be left running in the background:
+It logs to `logs\dsirpc.log` (about 3 MB at most, in three files), and to
+the console in run mode. Only one copy can run: a second one can't get UDP
+port 4244 and says so (the tray with a message box). The same goes for the
+tools below while DSiRPC runs.
+
+The hub reads every 5 s while only Discord needs the data, and every 2 s
+(with the battlers every 0.3 s in a battle, `DsiSource.fast_battles`) while
+the overlay window is open. `logs\state.json` says what's running, refreshed
+at least every 30 s, so setup can see the game while DSiRPC holds the port.
+Changes to `dsirpc.cfg` (from setup, say) are picked up while it runs.
+
+**The tray** (`app/tray.py`, pystray). The menu shows what's running and what
+Discord shows, then **Discord presence**, **Overlay window** (also a left
+click on the icon) and **Start with Windows** (`app/startup.py`: a
+`DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
+then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC
+folder** and **Quit**. The Discord and overlay choices are saved in
+`dsirpc.cfg` (`[app]`). The icon is drawn in code (`make_icon()`): a little
+DSi with a dot that's green while the game answers, amber while DSiRPC waits,
+red when Discord can't be reached or there's no application ID. Windows
+notifications say when the DSi connects, goes quiet and switches games.
+
+**Setup** (`app/setup_wizard.py`). Every question shows the current value,
+and Enter keeps it, so it's safe to run again:
+
+1. Python and packages: the version, each package in `requirements.txt`
+   (offers `pip install -r requirements.txt` for missing ones) and the
+   rcheevos library.
+2. Discord: the application ID for Platinum (and the fallback), and one for
+   other games (`[discord_apps] default`). IDs are checked to be 17-20 digits.
+3. RetroAchievements: RALibretro's folder (or its `RACache`, or
+   `RACache\Data`), listing the DS/DSi sets there (RA consoles 18 and 78),
+   and whether to import sets on their own (`auto_import`).
+4. Set files: listens 10 s for the DSi (or, if DSiRPC is running, reads
+   `logs\state.json`), reads the game's header title, lists the sets whose
+   title matches it best first (`core/ra_cache.py`) and copies the one you
+   pick to `ra/<code>.json`. Then any game code you type, picked from all of
+   them.
+5. Start with Windows.
+
+The result is saved to `dsirpc.cfg`.
+
+However it's started, DSiRPC behaves the same way:
 
 - It waits for a hello from the DSi for as long as it takes.
 - It connects to Discord only once there's something to show. If Discord
@@ -223,8 +297,14 @@ can be left running in the background:
 - The timer shows the save's playtime. If that jumps by more than a minute
   (a soft reset, or loading another save), the timer is reset.
 - Stopping it clears the presence before it exits.
+- On any game other than Platinum it shows the simpler presence from
+  section 6 instead, switching back and forth as the DSi's hellos report a
+  different game.
 
-### `dsi_status.py` (everything, human-readable)
+The tools below are for testing and development; they're in `tools/` and
+run from the repo root (`python tools\dsi_status.py`).
+
+### `tools/dsi_status.py` (everything, human-readable)
 
 Prints the trainer, badges, Pokédex, location, the three position sources,
 raw facing, and the full party (with moves, nature, item, shiny and status).
@@ -241,17 +321,20 @@ new field holds up while playing.
 
 A read of everything is about 3.3 KB, which took 0.7 s on hardware.
 
-### `dsirpc_overlay.py` (the stream overlay window)
+### The overlay window (`dsirpc.py --overlay`, the tray menu, `tools/dsirpc_overlay.py`)
 
 A pygame window that draws a 256x192 canvas every frame and scales it up by
 a whole number (nearest neighbour), for OBS Window Capture or a screen
-share. It owns the state hub (`core/hub.py`), so it's the one process
-talking to the DSi; `--discord` runs the Rich Presence inside it through
-`rpc/presence_connector.py`, with the same rules as `dsirpc.py`. Options
-and keys are in the README ([Stream overlay window](../README.md#stream-overlay-window)).
+share. It draws from the engine's state hub (`OverlayWindow` in
+`overlay/app.py`), so it never talks to the DSi itself, and it runs next to
+the Rich Presence. In the tray it runs on its own thread; closing it turns
+the menu's checkmark off. `tools/dsirpc_overlay.py` is the old standalone
+command (`dsirpc.py --overlay --no-discord`; `--discord` adds the presence).
+Options and keys are in the README
+([Stream overlay window](../README.md#stream-overlay-window)).
 During a battle the hub reads only the battlers, about three times a
-second, instead of the whole state every `--interval` seconds (see
-`DsiSource` in the module table), so HP and moves show up quickly.
+second, instead of the whole state every 2 s (see `DsiSource` in the module
+table), so HP and moves show up quickly.
 
 - **Party view:** location and playtime, six slots (animated sprite, name,
   gender, level, HP bar sliding to its new value, status tag, a sparkle for
@@ -311,9 +394,12 @@ second, instead of the whole state every `--interval` seconds (see
   your boxes taller, and the upper one can then cover part of the foes'
   platform. Wild vs trainer comes from the parser's `wild` flag (see
   section 9), falling back to the music.
+- **Other games:** a card with the game's title, its RetroAchievements rich
+  presence (or a note that there's no set file), and its code, RA game ID
+  and achievement count (`draw_other()`).
 - **Waiting view:** while the hub is offline.
-- **Banners:** for the hub's events (DSi connected or lost, shiny encounter,
-  level-up, fainted, badge, new Pokédex catch).
+- **Banners:** for the hub's events (DSi connected or lost, another game,
+  shiny encounter, level-up, fainted, badge, new Pokédex catch).
 
 Sprites come from `Assets/` and are converted in memory (`overlay/sprites.py`):
 the 2x GIFs are halved to native pixels and un-mirrored where needed, and
@@ -352,10 +438,10 @@ With CMD53 sending it also splits the `vb=` values: every 10th hello still
 goes out with CMD52, so the hello after it shows that slow tick (about 76);
 the others show what everything else costs.
 
-### `frame_check.py` (per-frame capture check)
+### `tools/frame_check.py` (per-frame capture check)
 
 ```
-.venv\Scripts\python.exe frame_check.py
+.venv\Scripts\python.exe tools\frame_check.py
 ```
 
 Step 1 of RetroAchievements support: checks whether the per-frame capture
@@ -372,14 +458,39 @@ the game's own code at the start of VBlank or the ARM9's data cache; by more,
 only the cache. It prints the counter's rate, the late reads and how late
 they were. Play normally while it runs. `--seconds N` runs longer, and
 `--save NAME` saves every record to `logs\NAME.csv` and the report to
-`logs\NAME.txt` for a closer look (the `logs` folder sits next to
-`frame_check.py`, and git ignores it). On another
+`logs\NAME.txt` for a closer look (the `logs` folder is at the repo root,
+and git ignores it). On another
 game, pass a VBlank counter with `--watch ADDR:4`, or look for one with
 `--find-counter ADDR:LEN` (it reads the range twice, 2 s apart, at about
 10 KB/s, so keep the range small). Any extra `--watch` values are reported as
 "changed on N frames".
 
-### `launcher/pc/hello_listener.py`
+### `tools/ra_tool.py` (RetroAchievements set files)
+
+```
+.venv\Scripts\python.exe tools\ra_tool.py add C:\RALibretro\RACache\Data\12711.json
+```
+
+Manages the RetroAchievements set files in `ra/` by hand (setup does the
+same from RALibretro's folder), which give other games their RA rich
+presence and icon in Discord. A set file is the game data an RA
+emulator downloads while you're logged in; RALibretro keeps it as
+`RACache\Data\<RA game ID>.json` after you load the game once. DSiRPC only
+reads these files and never contacts RetroAchievements (no logins, no
+unlocks sent).
+
+| Command | What it does |
+|---|---|
+| `add FILE` | Checks the file and copies it to `ra/<game code>.json`. The code is the game the DSi is running, or `--code CPUE`. `--force` replaces an existing file. |
+| `list` | The set files in `ra/` |
+| `info CODE` | Title, RA game ID, achievement and leaderboard counts, icon and box art URLs, and whether the rich presence script parses |
+| `rp CODE` | Evaluates the rich presence once against the DSi (`--every 5` keeps going, `--file dump.bin` uses a RAM dump) and prints the text and how many values it read |
+
+`ra/games.txt` can also map a code to a file kept under its RA ID: a line
+`IRBO 123` makes `IRBO` use `ra/123.json`. `add` without `--code`, and `rp`,
+need the DSi's port, so quit DSiRPC first.
+
+### `tools/hello_listener.py`
 
 Prints hello packets (UDP 4244). This is the first thing to run when you
 suspect the connection. See [section 7](#7-wire-protocol) for what the
@@ -390,17 +501,26 @@ numbers mean.
 | Module | What it does |
 |---|---|
 | `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. |
-| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `dsi_status.py`; `dsirpc.py` uses `DSiClient` directly and waits indefinitely). |
+| `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `tools/dsi_status.py`; the hub uses `DSiClient` directly and waits indefinitely). |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
-| `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type` and `party_size` and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
-| `utils/config.py` | Reads `PokemonPlatinumRPC.cfg` |
-| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). Sources: `DsiSource`, `FileSource`. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
-| `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so the presence, the overlay and `dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. On any other game `DsiSource` returns nothing and its status names the game. `name()` for status lines. |
+| `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
+| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma), `[ra]` (racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
+| `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
+| `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game) |
+| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Reads the header title (once, trusted only if its code is the hello's), loads the set from `ra/` (or imports it from the RA cache), runs the rich presence reader, and returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', ...}`) |
+| `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
+| `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
+| `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
+| `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): rich presence now, achievements later |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else), `FileSource` (`game=` for another game's dump). In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
+| `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
-| `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, using `dsirpc.build_presence()` |
-| `overlay/` | The overlay window: `app.py` (window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
+| `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
+| `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes. `setup_logging()`, `PortInUse` |
+| `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
 ---
 
@@ -444,8 +564,8 @@ is the name you gave your rival in the intro, read from the save
 (`S+0x27FC`), so a renamed rival shows up under their real name. The class
 can read something else for a moment (it once dropped the name while
 Maylene sent out Lucario), so `core.parser.TrainerMemory` keeps the name
-read most often during a battle; `dsirpc.py` and the hub both use it.
-`dsi_status.py` shows the raw value per read, with the class in hex.
+read most often during a battle; the hub uses it.
+`tools/dsi_status.py` shows the raw value per read, with the class in hex.
 
 | Field | Content | Example |
 |---|---|---|
@@ -461,6 +581,39 @@ Discord hides the party fraction while the type is Competing.
 first battler and the foe's first battler decode as real Pokémon (species
 1-493, level 1-100, 0 ≤ HP ≤ max HP). The pointer isn't cleared after a
 battle, so the sanity check is what separates a live battle from leftovers.
+
+### Any other game
+
+Any game other than Platinum shows what DSiRPC can know without a parser for
+it (`core/other_game.py` reads it, `rpc/generic_presence.py` lays it out):
+
+| Field | Content |
+|---|---|
+| Name | The game's title (sent as the activity's name; Discord shows it instead of the application's name where it supports that) |
+| Line 1 (and 2) | The RetroAchievements rich presence text, split over both lines at a separator if it's long; without a set file, the title |
+| Large image | The box art from GameTDB (`art.gametdb.com/ds/coverS/<region>/<code>.png`), or the RA icon if there's none |
+| Small image | The RA game icon, hovering "RetroAchievements: N achievements" |
+| Timer | Counts up from when the game was first seen this session |
+
+The title comes from the set file, else `core/games.py`'s names, else the
+title in the game's header (like `MARIOKART DS`), else the game code. Which
+Discord application is used: `[discord_apps]` in `dsirpc.cfg` by game code,
+else its `default`, else `discord_client_id` (`--client-id` overrides all of
+them). Without a rich presence to read, the presence stays up while hellos
+keep coming (within 15 s) and is cleared like Platinum's after about 30 s
+without them.
+
+**Finding the set.** `ra/<code>.json` (or a `ra/games.txt` mapping) first.
+Without one, and with `racache` set, DSiRPC looks in the emulator's cache
+once per session (`core/ra_cache.py`). The DSi can't give the RA game ID (RA
+identifies DS games by a hash of the whole ROM), so the game's header title
+is matched against the sets' titles, letters and digits only, accents
+dropped: 3 if they're the same (`MARIOKART DS` and "Mario Kart DS"), 2 if
+the set's title starts with it (`POKEMON PL` and "Pokémon Platinum
+Version"), 1 if its letters appear in order. A set is copied to `ra/` on its
+own only with a score of 2 or more that no other set shares, and never a
+hack, homebrew or subset (RA titles with `~...~` or `[Subset`). Anything
+less clear is left to setup, which lists the candidates.
 
 ---
 
@@ -550,7 +703,7 @@ Both are answered with the same `'D'` header as a memory request (`count`,
 `status`; data only when `status` is 0). A watch is 1, 2 or 4 bytes inside
 main RAM, at most 8 of them; `count` 0 stops the capture. Adding `0x80` to
 `count` has the ARM7 read every value itself even when the ARM9 half is there
-(for comparing, `frame_check.py --arm7-only`). Any `'W'` empties the ring and
+(for comparing, `tools/frame_check.py --arm7-only`). Any `'W'` empties the ring and
 starts the record numbering again at 0.
 
 Who reads the values: the game's writes sit in the ARM9's data cache for a
@@ -840,11 +993,14 @@ Folder names are case-sensitive on GitHub Pages.
 
 ### Quick checks, in order
 
-1. `launcher/pc/hello_listener.py`: do hellos arrive? If not, it's the
+Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
+
+1. `tools/hello_listener.py`: do hellos arrive? If not, it's the
    connection, not the parser.
 2. `core/dsirpc_client.py`: does the SDK marker read back correctly?
-3. `dsi_status.py --watch 2`: are the parsed values sensible?
-4. `dsirpc.py --dry-run`: what would be sent to Discord?
+3. `tools/dsi_status.py --watch 2`: are the parsed values sensible?
+4. `dsirpc.py --dry-run`: what would be sent to Discord? `logs\dsirpc.log`
+   has the same from the tray.
 
 ### Symptoms
 
@@ -858,12 +1014,15 @@ Folder names are case-sensitive on GitHub Pages.
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
-| The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives, one SDIO command per byte. Big broadcast frames from other devices used to be drained in one go, several milliseconds at a time. They're now drained 128 bytes per VBlank. Check the `vb=` field in the hellos (section 7). Also compare with `dsirpc.py` stopped: if the stutter only happens while it polls, the replies are the cost. The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
+| The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives, one SDIO command per byte. Big broadcast frames from other devices used to be drained in one go, several milliseconds at a time. They're now drained 128 bytes per VBlank. Check the `vb=` field in the hellos (section 7). Also compare with DSiRPC stopped: if the stutter only happens while it polls, the replies are the cost. The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | `sd:/_nds/nds-bootstrap.ini` points at the last game TWiLight launched |
 | Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
-| Presence stays up for a while after closing the game | Expected: `dsirpc.py` waits for about 30 s without data before clearing it |
+| Presence stays up for a while after closing the game | Expected: DSiRPC waits for about 30 s without data before clearing it |
+| "DSiRPC is already running" | Another DSiRPC (look in the tray, by the clock) or a tool from `tools/` holds UDP 4244 |
+| The tray icon's dot is red | Discord isn't running, or there's no application ID (run Setup); the menu's "Discord: ..." line says which |
+| Another game shows only its name | No set file in `ra/`: run Setup with RALibretro's folder while the game runs (section 6, "Finding the set") |
 | Blank image in Discord | Asset not pushed yet, wrong folder case, or a missing ID |
-| "checksum mismatch" in `dsi_status.py` | The read overlapped the game editing that Pokémon; the next read is usually fine |
+| "checksum mismatch" in `tools/dsi_status.py` | The read overlapped the game editing that Pokémon; the next read is usually fine |
 
 ### Debug builds, RAM viewer and log messages
 
@@ -883,10 +1042,13 @@ section 8).
   game (Pokémon Black and White, and later) running in DSi mode loads
   `cardenginei_arm7_twlsdk` instead, a 33 KB region without rpcprobe, and its
   own ARM7 code drives the DSi Wi-Fi chip there. Set those games to DS mode
-  in TWiLight Menu++'s per-game settings. The per-frame capture's ARM9
-  hand-over passed on hardware (2026-10-05: no late reads in menus); the
-  VBlank-start snapshot that replaced it is not yet tested on hardware
-  (`frame_check.py`).
+  in TWiLight Menu++'s per-game settings. The per-frame capture (the ARM9's
+  VBlank-start snapshot) passed on hardware on 2026-10-05: not one late read
+  in menus, the overworld, battles, boot or across a soft reset.
+- **RetroAchievements is local only, and rich presence only for now.**
+  Achievements aren't evaluated yet: a set can watch far more memory than the
+  per-frame capture's 8 values, and addresses past main RAM (the ARM9's data
+  TCM) can't be read at all. Nothing is sent to RetroAchievements.
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
 - **Two-step launch.** START returns to the menu instead of launching our
@@ -921,10 +1083,13 @@ section 8).
   state, NPC positions, and map artwork (the planned area icons). IVs and
   EVs are in the decrypted party data but not decoded yet. Leads and
   offsets are in research.md.
-- **State hub:** `core/hub.py` exists and drives the overlay window.
-  Still to come: encounter and shiny counters, a Nuzlocke mode, and
-  browser-source panels for OBS. Only one process can own UDP 4244,
-  so all of it has to hang off the hub.
+- **State hub:** `core/hub.py` drives everything (Discord, the overlay
+  window, the tray's status). Still to come: encounter and shiny counters, a
+  Nuzlocke mode, and browser-source panels for OBS. Only one process can own
+  UDP 4244, so all of it has to hang off the hub.
+- **Windows first.** The tray, Start with Windows and the `.bat` files are
+  Windows-only; `dsirpc.py` in a console works elsewhere (with a Linux or
+  macOS build of rcheevos for rich presence).
 
 ---
 
@@ -933,20 +1098,24 @@ section 8).
 | Path | What |
 |---|---|
 | `README.md` | Overview, setup, build and everyday use |
-| `dsirpc.py`, `dsi_status.py` | The Rich Presence and the status tool |
-| `dsirpc_overlay.py`, `overlay/` | The stream overlay window |
+| `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
+| `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
+| `ra/` | RetroAchievements set files (gitignored) |
+| `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT |
+| `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
+| `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `launcher/` | The DSi-mode launcher (`source/main.c`), hello listener, chainload plan |
+| `launcher/` | The DSi-mode launcher (`source/main.c`), chainload plan |
 | `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
 | `docs/DOCUMENTATION.md` | This file |
 | `docs/research.md` | Verified research notes beyond this map, plus leads |
 | `docs/HISTORY.md` | The original project log (history; parts are outdated) |
 | `docs/memory-map/` | RetroAchievements code notes and ProjectPokemon breakpoints |
 | `spikes/` | Stages 1-3, the early experiments |
-| `tools/charmap/` | Hex-editor tables generated from the Gen IV charmap |
-| `PokemonPlatinumRPC.cfg.sample` | Template for the Discord application ID (the real file is gitignored) |
+| `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
+| `logs/` | `dsirpc.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
 | `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, publishes a release for `v*` tags |
 
 ---

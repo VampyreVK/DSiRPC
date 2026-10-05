@@ -1,0 +1,32 @@
+# DSiRPC settings. 'dsirpc.py setup' (Setup.bat) writes dsirpc.cfg for you;
+# this is the same file by hand. dsirpc.cfg is gitignored.
+
+[connection]
+# The Discord application for Pokemon Platinum, and for any game without its
+# own below. Its name is what Discord shows after "Playing" / "Competing in".
+discord_client_id: ''
+
+# Optional: Discord applications for games other than Platinum, by game code.
+# DSiRPC also sends the game's name, which Discord may show instead of the
+# application's; if yours doesn't, make one application per game, or one named
+# like "Nintendo DS" as the default. "default" is for every game without its
+# own; without any of these, other games use discord_client_id.
+[discord_apps]
+default: ''
+# AMCE: ''
+
+[app]
+# What's on when DSiRPC starts (the tray menu changes these)
+discord: yes
+overlay: no
+# Overlay window size as a multiple of 256x192, and an optional chroma key
+# colour (RRGGBB) for its background
+overlay_scale: 3
+chroma:
+
+[ra]
+# An RA emulator's folder (e.g. RALibretro's), or its RACache folder. When a
+# game has no set file in ra/, DSiRPC looks for its set there and copies it
+# into ra/ if exactly one clearly matches (auto_import).
+racache:
+auto_import: yes

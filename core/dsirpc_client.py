@@ -22,8 +22,8 @@ itself (may lag the game's writes).
 The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
 port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,
 for example on a network that drops broadcasts), so don't run another tool
-on the same port at the same time (hello_listener.py, dsi_status.py,
-dsirpc.py) - they'd fight over it. Newer builds also say which game is
+on the same port at the same time (DSiRPC itself, or the tools in tools/) -
+they'd fight over it. Newer builds also say which game is
 running (gc=, v=, hc=); see DSiClient.game.
 
 Usage, from the repo root:

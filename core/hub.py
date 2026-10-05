@@ -12,13 +12,16 @@ off a StateHub instead of talking to the DSi itself.
     ...
     hub.stop()
 
-A source is anything with read() -> parsed dict or None (see core/parser.py
-for the dict), plus an optional status text, forget_dsi() and next_delay()
-(seconds until the next read, to override the hub's interval). Sources here:
+A source is anything with read() -> state dict or None, plus an optional
+status text, forget_dsi() and next_delay() (seconds until the next read, to
+override the hub's interval). A state is either Platinum's parsed dict (see
+core/parser.py; it has no 'kind') or, for any other game, the dict from
+core/other_game.py ({'kind': 'other', ...}); is_other() tells them apart.
+Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
                  goes quiet, reads only the battlers a few times a second
-                 during a battle)
+                 during a battle, follows the DSi to other games)
     FileSource   a 4 MB RAM dump, for offline testing
     core/demo.py DemoSource, made-up scenes for working on the overlay
 
@@ -32,7 +35,13 @@ import threading
 import time
 
 from . import games
+from .other_game import OtherGame
 from .parser import PlatinumParser, TrainerMemory
+
+
+def is_other(state):
+    """True for the state of a game without its own parser (core/other_game.py)."""
+    return bool(state) and state.get('kind') == 'other'
 
 
 class Snapshot:
@@ -58,17 +67,24 @@ class DsiSource:
     done again straight away when a battler stops decoding, the music or the
     battle pointer changes (the battle is ending or another one started), or
     several quick reads in a row get no reply, and at least every
-    BATTLE_FULL_EVERY seconds as a safety net."""
+    BATTLE_FULL_EVERY seconds as a safety net. Set fast_battles = False to
+    read battles like everything else (when nothing shows them live).
+
+    Any other game is followed with core/other_game.py: its name, and its
+    RetroAchievements rich presence if there's a set for it. `racache` is an
+    RA emulator's folder to look for sets in (see core/ra_cache.py)."""
 
     FAST_INTERVAL = 0.3
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
 
-    def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0):
+    def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None):
         from .dsirpc_client import DSiClient
         from .dsi_memory import DsiRam
         self.charmap = charmap
+        self.racache = racache
+        self.fast_battles = True
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
@@ -78,7 +94,7 @@ class DsiSource:
         self.last = None        # the latest state returned
         self.last_full = 0.0    # time.time() of the last full read
         self.fast_misses = 0
-        self.other_game = None  # set while the DSi is running something other than Platinum
+        self.other = None       # OtherGame while the DSi runs something other than Platinum
 
     @property
     def status(self):
@@ -86,15 +102,20 @@ class DsiSource:
             return f"Waiting for the DSi on UDP {self.port}"
         if self.failed:
             return f"DSi at {self.client.dsi_ip} isn't answering"
-        if self.other_game:
-            return f"DSi at {self.client.dsi_ip}: {games.name(self.other_game)}, not Platinum"
+        if self.other:
+            return f"DSi at {self.client.dsi_ip}: {self.other.title}"
         return f"DSi at {self.client.dsi_ip}"
 
+    @property
+    def game(self):
+        """The game the DSi said it's running (None for old builds)."""
+        return self.client.game
+
     def _in_battle(self):
-        return bool(self.last and self.last['battle']['active'])
+        return bool(self.last and not is_other(self.last) and self.last['battle']['active'])
 
     def next_delay(self):
-        return self.FAST_INTERVAL if self._in_battle() else None
+        return self.FAST_INTERVAL if self.fast_battles and self._in_battle() else None
 
     def read(self):
         if self.client.dsi_ip is None:
@@ -104,13 +125,11 @@ class DsiSource:
         # The Platinum parser only makes sense on Platinum.
         game = self.client.game
         if not games.is_platinum(game):
-            if game != self.other_game:
-                logging.info(f"The DSi is running {games.name(game)}: no Platinum data to read")
-            self.other_game, self.last = game, None
-            self.client.listen(1.0)  # keep up with the hellos, to notice a switch back
-            return None
-        self.other_game = None
-        if self._in_battle() and time.time() - self.last_full < self.BATTLE_FULL_EVERY:
+            return self._read_other(game)
+        if self.other:
+            self.other.close()
+            self.other = None
+        if self.fast_battles and self._in_battle() and time.time() - self.last_full < self.BATTLE_FULL_EVERY:
             try:
                 data = self._read_battlers(self.last)
                 self.fast_misses = 0
@@ -124,6 +143,27 @@ class DsiSource:
                 self.last = data
                 return data
         return self._read_full()
+
+    def _read_other(self, game):
+        if self.other is None or self.other.game != game:
+            if self.other:
+                self.other.close()
+            self.last = None
+            self.other = OtherGame(game, self.ram, self.client, racache=self.racache)
+            logging.info(f"The DSi is running {self.other.describe()}")
+        if not self.other.reader:
+            self.client.listen(1.0)  # keep up with the hellos, to notice a switch
+        try:
+            self.ram.clear()
+            data = self.other.read()
+        except (TimeoutError, RuntimeError) as e:
+            if not self.failed:
+                logging.warning(f"Read failed: {e}")
+            self.failed = True
+            return None
+        self.failed = False
+        self.last = data
+        return data
 
     def _read_full(self):
         self.fast_misses = 0
@@ -179,16 +219,25 @@ class DsiSource:
             self.client.dsi_ip = None
 
     def close(self):
+        if self.other:
+            self.other.close()
         self.client.sock.close()
 
 
 class FileSource:
-    """A RAM dump (e.g. ram_dump.bin). Parsed once, then returned every time."""
+    """A RAM dump (e.g. ram_dump.bin). Parsed once, then returned every time.
+    `game`: the dump's game code, if it isn't Platinum (e.g. 'AMCE')."""
 
-    def __init__(self, charmap, path):
+    def __init__(self, charmap, path, game=None):
         with open(path, "rb") as f:
             ram = f.read()
-        self.state = PlatinumParser(ram, charmap).parse()
+        self.game = {'code': game.upper(), 'version': 0, 'header_crc': 0} if game else None
+        if games.is_platinum(self.game):
+            self.state = PlatinumParser(ram, charmap).parse()
+        else:
+            other = OtherGame(self.game, ram)
+            self.state = other.read()
+            other.close()
         self.status = f"RAM dump {path}"
 
     def read(self):
@@ -200,12 +249,16 @@ def _party_key(mon):
 
 
 def diff_events(old, new):
-    """Events between two parsed states (either may be None). Each event is a
-    dict with a 'type' and whatever details fit it."""
+    """Events between two states (either may be None). Each event is a dict
+    with a 'type' and whatever details fit it."""
     events = []
     if new is None:
         return events
     if old is None:
+        return events
+    if is_other(old) or is_other(new):
+        if is_other(old) != is_other(new) or old.get('game') != new.get('game'):
+            events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
         return events
 
     ob, nb = old['battle'], new['battle']
@@ -260,6 +313,12 @@ class StateHub:
         """fn(snapshot, events) is called from the hub thread after every poll."""
         self._listeners.append(fn)
 
+    def remove_listener(self, fn):
+        try:
+            self._listeners.remove(fn)
+        except ValueError:
+            pass
+
     def add_closer(self, fn):
         """fn() is called once on the hub thread when the hub stops (for
         connectors whose resources belong to that thread)."""
@@ -312,7 +371,7 @@ class StateHub:
                     snap = Snapshot(snap.state, online, snap.updated, getattr(self.source, 'status', ''))
                 self._snap = snap
 
-            for fn in self._listeners:
+            for fn in list(self._listeners):
                 try:
                     fn(snap, events)
                 except Exception as e:

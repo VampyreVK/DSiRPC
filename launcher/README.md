@@ -34,11 +34,12 @@ DSi mode.
 
 ## Checking the connection
 
-`pc/hello_listener.py` prints the "DSiRPC hello" packets the in-game side
-broadcasts once a second (UDP 4244):
+`tools/hello_listener.py` (in the repo root's `tools/` folder) prints the
+"DSiRPC hello" packets the in-game side broadcasts once a second (UDP 4244).
+Quit DSiRPC first, since it uses the same port:
 
 ```
-python launcher\pc\hello_listener.py
+python tools\hello_listener.py
 ```
 
 What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTATION.md#7-wire-protocol).

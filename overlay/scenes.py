@@ -5,6 +5,8 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   (trainer, badges, Pokedex)
     battle view   sky and ground, platforms, the foe and your Pokemon, their
                   HP boxes and a message box
+    other game    any game but Platinum: its name and its RetroAchievements
+                  rich presence, if there's a set for it
     waiting view  shown while the DSi isn't sending data
     toasts        short banners for events (shiny, level up, fainted, ...)
 
@@ -148,6 +150,8 @@ class Overlay:
                 self.toast(f"Got the {e['badges'][-1]} Badge!", sparkly=True)
             elif kind == 'dex_caught':
                 self.toast(f"Pokédex: {e['caught']} caught!")
+            elif kind == 'game_changed':
+                self.toast(f"Now playing {e['title']}")
 
     def toast(self, text, sparkly=False):
         if len(self.toasts) < 6:
@@ -171,7 +175,8 @@ class Overlay:
     def draw(self, canvas, snap, t_ms, dt_ms):
         d = snap.state if snap.online else None
         self.read_at = snap.updated
-        in_battle = bool(d and d['battle']['active'])
+        other = bool(d) and d.get('kind') == 'other'
+        in_battle = bool(d and not other and d['battle']['active'])
         want_battle = in_battle if self.view == 'auto' else (self.view == 'battle' and in_battle)
 
         # Battle transition: bars close, the view switches, bars open.
@@ -195,6 +200,8 @@ class Overlay:
 
         if d is None:
             self.draw_waiting(canvas, snap, t_ms)
+        elif other:
+            self.draw_other(canvas, d, t_ms)
         elif self.showing_battle and in_battle:
             self.draw_battle(canvas, d, t_ms, dt_ms)
         else:
@@ -846,6 +853,63 @@ class Overlay:
         for i in range(3):
             c = t['hp_green'] if i < level else (170, 184, 188)
             pygame.draw.rect(canvas, c, (212 + i * 5, 72 - i * 3, 3, 4 + i * 3))
+
+    # -- other games -----------------------------------------------------------
+
+    def _wrap(self, text, width, max_lines):
+        lines, line = [], ''
+        for word in text.split():
+            trial = f"{line} {word}" if line else word
+            if self.font.width(trial) <= width:
+                line = trial
+                continue
+            if line:
+                lines.append(line)
+            line = word
+            while self.font.width(line) > width:  # a word longer than a line
+                cut = len(line)
+                while cut > 1 and self.font.width(line[:cut]) > width:
+                    cut -= 1
+                lines.append(line[:cut])
+                line = line[cut:]
+        if line:
+            lines.append(line)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            last = lines[-1]
+            while last and self.font.width(last + '…') > width:
+                last = last[:-1]
+            lines[-1] = last + '…'
+        return lines
+
+    def draw_other(self, canvas, d, t_ms):
+        """A game without its own view: its name, and its RetroAchievements
+        rich presence (or why there isn't any)."""
+        t = ui.THEME
+        ui.tiled_background(canvas, t_ms)
+        ui.panel(canvas, (12, 30, 232, 132))
+        title = self._wrap(d.get('title') or '', 212, 2)
+        y = 40
+        for line in title:
+            self.font.draw(canvas, line, (22, y), t['text'], t['text_shadow'])
+            y += 12
+        pygame.draw.line(canvas, t['panel_lo'], (22, y + 2), (233, y + 2))
+        y += 8
+        ra = d.get('ra_set')
+        text = d.get('rich_presence')
+        if text:
+            for line in self._wrap(text, 212, 5):
+                self.font.draw(canvas, line, (22, y), t['text'], t['text_shadow'])
+                y += 12
+        elif ra:
+            self.font.draw(canvas, "No rich presence for this game.", (22, y), (96, 104, 112), t['text_shadow'])
+        else:
+            self.font.draw(canvas, "No RetroAchievements set file.", (22, y), (96, 104, 112), t['text_shadow'])
+            self.font.draw(canvas, "Add one with dsirpc.py setup.", (22, y + 12), (96, 104, 112), t['text_shadow'])
+        code = (d.get('game') or {}).get('code') or '????'
+        foot = f"{code} - RA game {ra.id} - {len(ra.official_achievements)} achievements" if ra else code
+        self.font.draw(canvas, foot, (22, 146), (96, 104, 112), t['text_shadow'])
+        ui.sparkle(canvas, 232, 40, t_ms)
 
     # -- toasts ----------------------------------------------------------------
 

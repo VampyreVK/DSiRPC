@@ -1,0 +1,270 @@
+"""
+engine.py - what runs while DSiRPC runs, whichever way it's started
+(dsirpc.py in a console, or the tray icon):
+
+  the state hub (core/hub.py)        the one thing talking to the DSi
+  the Discord Rich Presence          rpc/presence_connector.py, a hub listener
+  the overlay window (optional)      overlay/app.py, drawn from the hub
+
+The hub reads every 5 s while only Discord needs the data (Discord takes an
+update about every 5 s anyway), and every 2 s with the battlers a few times a
+second during battles while the overlay window is open.
+
+The engine also writes logs/state.json (what's running, refreshed at least
+every 30 s), so 'dsirpc.py setup' can see the game while the tray holds the
+DSi's UDP port.
+"""
+
+import json
+import logging
+import logging.handlers
+import os
+import sys
+import threading
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_DIR = os.path.join(ROOT, "logs")
+LOG_FILE = os.path.join(LOG_DIR, "dsirpc.log")
+STATE_FILE = os.path.join(LOG_DIR, "state.json")
+
+
+def setup_logging(console=True, verbose=False):
+    """Logs to logs/dsirpc.log (kept to about 3 MB) and, with console, to
+    the console as well."""
+    os.makedirs(LOG_DIR, exist_ok=True)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    fh = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    root.addHandler(fh)
+    if console and sys.stdout:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+        root.addHandler(sh)
+
+
+class PortInUse(Exception):
+    """UDP port 4244 is taken: DSiRPC (or one of its tools) is already running."""
+
+
+class Engine:
+    DISCORD_INTERVAL = 5.0
+    OVERLAY_INTERVAL = 2.0
+    STATE_EVERY = 30.0
+
+    def __init__(self, cfg, file=None, game=None, demo=False, demo_name=None, dsi_ip=None, port=4244,
+                 interval=None, client_id=None, dry_run=False, discord=True, check_images=True):
+        from core.charmap import parse_charmap_txt
+        from core.hub import DsiSource, FileSource, StateHub
+        from rpc.presence_connector import DiscordConnector
+
+        self.cfg = cfg
+        self.client_id = client_id
+        self.fixed_interval = interval
+        charmap = parse_charmap_txt(os.path.join(ROOT, "PokeGen4Charmap.txt"))
+        if demo:
+            from core.demo import DemoSource
+            base = FileSource(charmap, file).state if file else None
+            source, self.fixed_interval = DemoSource(base, name=demo_name), 0.5
+        elif file:
+            source, self.fixed_interval = FileSource(charmap, file, game), interval or 1.0
+        else:
+            try:
+                source = DsiSource(charmap, port=port, dsi_ip=dsi_ip, racache=self._racache())
+            except OSError as e:
+                raise PortInUse(f"UDP port {port} is already in use ({e})") from e
+        self.source = source
+        self.hub = StateHub(source, interval=self.fixed_interval or self.DISCORD_INTERVAL)
+        self.discord = DiscordConnector(self._client_id_for, dry_run=dry_run, enabled=discord,
+                                        check_images=check_images)
+        self.hub.add_listener(self.discord.on_update)
+        self.hub.add_closer(self.discord.close)
+        self.hub.add_listener(self._on_update)
+
+        self.on_change = None          # fn(events) when what the tray shows changes (hub thread)
+        self.persist = False           # save setting changes (overlay size) to dsirpc.cfg
+        self.overlay_window = None
+        self.overlay_thread = None
+        self._overlay_lock = threading.Lock()
+        self._last_view = None
+        self._state_written = 0.0
+        self._cfg_mtime = self._mtime(cfg.path)
+        self._started = False
+        self._apply_overlay(False)
+
+    # -- settings ----------------------------------------------------------
+
+    def _racache(self):
+        return self.cfg.racache if self.cfg.racache and self.cfg.ra_auto_import else None
+
+    def _client_id_for(self, code, platinum):
+        return self.client_id or self.cfg.client_id_for(code, platinum)
+
+    @staticmethod
+    def _mtime(path):
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return None
+
+    def _check_config(self):
+        """Picks up dsirpc.cfg changes (e.g. from setup) while running."""
+        m = self._mtime(self.cfg.path)
+        if m == self._cfg_mtime:
+            return
+        self._cfg_mtime = m
+        from utils.config import Config
+        self.cfg = Config(self.cfg.path)
+        if hasattr(self.source, 'racache'):
+            self.source.racache = self._racache()
+        logging.info(f"Reloaded {self.cfg.path}")
+
+    def save_config(self):
+        try:
+            self.cfg.save()
+            self._cfg_mtime = self._mtime(self.cfg.path)  # not a change to reload
+        except OSError as e:
+            logging.warning(f"Couldn't save {self.cfg.path}: {e}")
+
+    # -- status ------------------------------------------------------------
+
+    def headline(self):
+        """One line for the tray: what's running, or what DSiRPC waits for."""
+        snap = self.hub.snapshot()
+        if snap.online and snap.state:
+            from core.hub import is_other
+            title = snap.state.get('title') if is_other(snap.state) else "Pokemon Platinum"
+            return f"Playing {title}"
+        return snap.status or "Starting"
+
+    @property
+    def online(self):
+        return self.hub.snapshot().online
+
+    @property
+    def overlay_on(self):
+        return self.overlay_thread is not None and self.overlay_thread.is_alive()
+
+    def _on_update(self, snap, events):
+        self._check_config()
+        view = (self.headline(), self.discord.status, snap.online, self.overlay_on)
+        changed = view != self._last_view
+        if changed:
+            if self._last_view is None or view[0] != self._last_view[0]:
+                logging.info(view[0])
+            self._last_view = view
+        if changed or time.time() - self._state_written > self.STATE_EVERY:
+            self._write_state(snap)
+        if (changed or events) and self.on_change:
+            try:
+                self.on_change(events)
+            except Exception:
+                logging.exception("on_change failed")
+
+    def _write_state(self, snap):
+        from core.hub import is_other
+        state = snap.state if snap.online else None
+        game = getattr(self.source, 'game', None)
+        out = {
+            'time': time.time(),
+            'pid': os.getpid(),
+            'online': bool(snap.online),
+            'status': snap.status,
+            'game': game,
+            'title': (state.get('title') if is_other(state) else "Pokemon Platinum") if state else None,
+            'header_title': state.get('header_title') if is_other(state) else None,
+            'discord': self.discord.status,
+        }
+        try:
+            os.makedirs(LOG_DIR, exist_ok=True)
+            tmp = STATE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(out, f, indent=1)
+            os.replace(tmp, STATE_FILE)
+            self._state_written = time.time()
+        except OSError:
+            pass
+
+    # -- running -----------------------------------------------------------
+
+    def start(self):
+        self.hub.start()
+        self._started = True
+
+    def stop(self):
+        self.set_overlay(False)
+        if self._started:
+            self.hub.stop()
+            self._started = False
+        try:
+            os.remove(STATE_FILE)
+        except OSError:
+            pass
+
+    def once(self):
+        """One read and one presence update, on this thread (for --file --dry-run)."""
+        from core.hub import Snapshot
+        state = self.source.read()
+        self.discord.on_update(Snapshot(state, bool(state), time.time(), getattr(self.source, 'status', '')), [])
+        return state
+
+    def set_discord(self, on):
+        self.discord.set_enabled(on)
+
+    def _apply_overlay(self, on):
+        """Reads faster (and battles every 0.3 s) only while the overlay shows them."""
+        if hasattr(self.source, 'fast_battles'):
+            self.source.fast_battles = on
+        if not self.fixed_interval:
+            self.hub.interval = self.OVERLAY_INTERVAL if on else self.DISCORD_INTERVAL
+
+    def _make_window(self):
+        from overlay.app import OverlayWindow
+
+        def save_scale(n):
+            self.cfg.overlay_scale = n
+            if self.persist:
+                self.save_config()
+        chroma = self.cfg.chroma or None
+        try:
+            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale)
+        except ValueError as e:
+            logging.warning(f"chroma in {os.path.basename(self.cfg.path)}: {e}; ignoring it")
+            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, on_scale=save_scale)
+        return window
+
+    def run_overlay_here(self):
+        """The overlay window on this thread, until it's closed."""
+        self.overlay_window = self._make_window()
+        self._apply_overlay(True)
+        try:
+            self.overlay_window.run()
+        finally:
+            self._apply_overlay(False)
+            self.overlay_window = None
+
+    def set_overlay(self, on, on_closed=None):
+        """Opens or closes the overlay window on its own thread (tray mode).
+        on_closed() is called if the user closes the window."""
+        with self._overlay_lock:
+            if on and not self.overlay_on:
+                window = self._make_window()
+
+                def run():
+                    closed = window.run()
+                    self._apply_overlay(False)
+                    if closed and on_closed:
+                        on_closed()
+                self.overlay_window = window
+                self._apply_overlay(True)
+                self.overlay_thread = threading.Thread(target=run, name="Overlay", daemon=True)
+                self.overlay_thread.start()
+            elif not on and self.overlay_on:
+                self.overlay_window.stop()
+                self.overlay_thread.join(timeout=5)
+                self._apply_overlay(False)
+            if not self.overlay_on:
+                self.overlay_window = self.overlay_thread = None

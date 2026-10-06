@@ -1,16 +1,24 @@
-# Builds the two files that go on the DSi's SD card:
-#   nds-bootstrap-dsirpc.nds  - our modified nds-bootstrap (nds-bootstrap/)
-#   dsirpc-launcher.nds       - the DSi-mode launcher (launcher/)
+# Builds DSiRPC's downloads:
+#   nds-bootstrap-dsirpc.nds      - our modified nds-bootstrap (nds-bootstrap/)
+#   dsirpc-launcher.nds           - the DSi-mode launcher (launcher/)
+#   DSiRPC-<version>-windows.zip  - the Windows download: DSiRPC with its own
+#                                   Python, both .nds files in an "SD card"
+#                                   folder, and README.txt
+#                                   (packaging/build_release.py)
 #
-# - Push to main (when nds-bootstrap/ or launcher/ change), pull requests, or
-#   "Run workflow" on the Actions tab: builds both and attaches them to the
+# - Push to main (when DSiRPC's files change), pull requests, or "Run
+#   workflow" on the Actions tab: builds all three and attaches them to the
 #   run as artifacts.
-# - Push a tag starting with "v" (for example v0.1.0): also publishes a GitHub
-#   release with both files.
+# - Push a tag starting with "v" (for example v0.4.0): also publishes a GitHub
+#   release with all three.
 #
-# Uses the same Docker images as the local build commands in the README.
+# The .nds files use the same Docker images as the local build commands in
+# docs/DEVELOPMENT.md. The Windows download bakes in the Discord applications
+# in the repository variables DISCORD_CLIENT_ID (Platinum, and every game
+# without its own) and DISCORD_DEFAULT_CLIENT_ID (optional: other games), if
+# they're set (Settings > Secrets and variables > Actions > Variables).
 
-name: Build DSi files
+name: Build DSiRPC
 
 on:
   push:
@@ -19,11 +27,34 @@ on:
     paths:
       - "nds-bootstrap/**"
       - "launcher/**"
+      - "app/**"
+      - "core/**"
+      - "overlay/**"
+      - "rpc/**"
+      - "utils/**"
+      - "tools/**"
+      - "third_party/**"
+      - "packaging/**"
+      - "Assets/Consoles/**"
+      - "dsirpc.py"
+      - "requirements.txt"
+      - "Setup.bat"
+      - "DSiRPC.bat"
       - ".github/workflows/build.yml"
   pull_request:
     paths:
       - "nds-bootstrap/**"
       - "launcher/**"
+      - "app/**"
+      - "core/**"
+      - "overlay/**"
+      - "rpc/**"
+      - "utils/**"
+      - "tools/**"
+      - "third_party/**"
+      - "packaging/**"
+      - "dsirpc.py"
+      - "requirements.txt"
       - ".github/workflows/build.yml"
   workflow_dispatch:
 
@@ -49,13 +80,18 @@ jobs:
       - name: Build nds-bootstrap
         run: docker run --rm -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
 
+      # Its license goes along, for the Windows download's licenses folder
       - name: Name the output
-        run: cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc.nds
+        run: |
+          cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc.nds
+          cp nds-bootstrap/LICENSE LICENSE-nds-bootstrap.txt
 
       - uses: actions/upload-artifact@v4
         with:
           name: nds-bootstrap-dsirpc
-          path: nds-bootstrap-dsirpc.nds
+          path: |
+            nds-bootstrap-dsirpc.nds
+            LICENSE-nds-bootstrap.txt
           if-no-files-found: error
 
   launcher:
@@ -76,23 +112,78 @@ jobs:
           path: launcher/dsirpc-launcher.nds
           if-no-files-found: error
 
+  windows:
+    name: Windows download
+    needs: [nds-bootstrap, launcher]
+    runs-on: windows-latest
+    steps:
+      # DSiRPC's own files; of Assets/, only the console pictures (the
+      # overlay downloads its sprites when it needs them)
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            app
+            core
+            overlay
+            rpc
+            utils
+            tools
+            third_party
+            ra
+            packaging
+            Assets/Consoles
+          filter: blob:none
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: nds
+          merge-multiple: true
+
+      # Only runs pip: the zip gets Python's embeddable package
+      # (PYTHON_VERSION in packaging/build_release.py, the same 3.x)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build the zip
+        shell: bash
+        env:
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
+          DISCORD_DEFAULT_CLIENT_ID: ${{ vars.DISCORD_DEFAULT_CLIENT_ID }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
+          python packaging/build_release.py --version "$version" --nds-dir nds --require-nds --check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DSiRPC-windows
+          path: dist/*.zip
+          if-no-files-found: error
+
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [nds-bootstrap, launcher]
+    needs: [nds-bootstrap, launcher, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
+          filter: blob:none
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      # Creates the release for this tag, or adds the files to it if a
-      # release with this tag already exists (for example one made on the
-      # website).
+      # Creates the release for this tag (install steps first, then notes
+      # generated from the commits), or adds the files to it if a release
+      # with this tag already exists (for example one made on the website).
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.nds --repo "$GITHUB_REPOSITORY" --title "DSiRPC $GITHUB_REF_NAME" --generate-notes || gh release upload "$GITHUB_REF_NAME" dist/*.nds --repo "$GITHUB_REPOSITORY" --clobber
+        run: |
+          sed "s/{tag}/$GITHUB_REF_NAME/g" packaging/RELEASE_NOTES.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.nds --repo "$GITHUB_REPOSITORY" --title "DSiRPC $GITHUB_REF_NAME" --notes-file notes.md --generate-notes || gh release upload "$GITHUB_REF_NAME" dist/*.zip dist/*.nds --repo "$GITHUB_REPOSITORY" --clobber

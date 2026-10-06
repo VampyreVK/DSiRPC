@@ -69,8 +69,8 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 
 The output is `dsirpc-launcher.nds`. The same command first builds the loader
 in `loader/` (it ends up inside the launcher). Copy the launcher to the SD
-card next to our nds-bootstrap build, for example both in `sd:/_nds/dsirpc/`,
-and start it in DSi mode.
+card next to our nds-bootstrap build (`nds-bootstrap-dsirpc.nds`), for example
+both in `sd:/DSiRPC/` as in the release download, and start it in DSi mode.
 
 ## Checking the connection
 

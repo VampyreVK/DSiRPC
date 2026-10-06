@@ -5,6 +5,11 @@ yourself: with RetroAchievements signed in, it holds your login token.
 
 An older PokemonPlatinumRPC.cfg is still read when there's no dsirpc.cfg, and
 its settings move to dsirpc.cfg the first time anything is saved.
+
+A release download can also have a defaults.cfg next to it (written by
+packaging/build_release.py): the Discord applications it comes with, used
+until dsirpc.cfg names others. It's replaced with each release, so its values
+aren't copied into dsirpc.cfg.
 """
 
 import configparser
@@ -14,6 +19,7 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_NAME = "dsirpc.cfg"
 OLD_CONFIG_NAME = "PokemonPlatinumRPC.cfg"
+DEFAULTS_NAME = "defaults.cfg"
 
 
 def _bool(text, default):
@@ -75,6 +81,10 @@ class Config:
         self.ra_submit = False         # send unlocks to RetroAchievements (softcore)
         self.ra_interval = 1.0         # seconds between achievement checks
 
+        # The Discord applications a release comes with (defaults.cfg), if any
+        self.release_client_id = ""
+        self.release_default_app = ""
+        self._load_defaults()
         self._load_config()
 
     def client_id_for(self, game_code, platinum=False):
@@ -92,6 +102,24 @@ class Config:
     def has_discord_id(self):
         return bool(self.discord_client_id or any(self.discord_apps.values()))
 
+    def _load_defaults(self):
+        path = os.path.join(ROOT, DEFAULTS_NAME)
+        if not os.path.exists(path):
+            return
+        parser = configparser.ConfigParser()
+        try:
+            parser.read(path, encoding="utf-8")
+        except (configparser.Error, UnicodeDecodeError) as e:
+            logging.warning(f"Can't read {path}: {e}")
+            return
+        if "connection" in parser:
+            self.release_client_id = _clean(parser["connection"].get("discord_client_id", ""))
+        if "discord_apps" in parser:
+            self.release_default_app = _clean(parser["discord_apps"].get("default", ""))
+        self.discord_client_id = self.release_client_id
+        if self.release_default_app:
+            self.discord_apps["DEFAULT"] = self.release_default_app
+
     def _load_config(self):
         if not self.loaded_from:
             logging.debug(f"No {CONFIG_NAME} yet, using defaults (run 'dsirpc.py setup')")
@@ -105,7 +133,9 @@ class Config:
             return
 
         if "connection" in parser:
-            self.discord_client_id = _clean(parser["connection"].get("discord_client_id", ""))
+            # Empty means "the default" (defaults.cfg's, or none)
+            self.discord_client_id = _clean(parser["connection"].get("discord_client_id", "")) or \
+                self.discord_client_id
         if "discord_apps" in parser:
             for key, value in parser["discord_apps"].items():
                 value = _clean(value)
@@ -147,20 +177,27 @@ class Config:
             return "yes" if v else "no"
         apps = "".join(f"{code}: {cid}\n" for code, cid in sorted(self.discord_apps.items())
                        if code != "DEFAULT")
+        # The release's own applications stay in defaults.cfg, so a newer
+        # release can change them
+        client_id = "" if self.discord_client_id == self.release_client_id else self.discord_client_id
+        default_app = self.discord_apps.get("DEFAULT", "")
+        if default_app == self.release_default_app:
+            default_app = ""
         text = f"""# DSiRPC settings ('dsirpc.py setup' writes this file; see dsirpc.cfg.sample).
 # Keep it to yourself: when you're signed in to RetroAchievements, it holds
 # your login token.
 
 [connection]
 # The Discord application for Pokemon Platinum, and for any game without its
-# own below. Its name is what Discord shows after "Playing".
-discord_client_id: {self.discord_client_id}
+# own below. Its name is what Discord shows after "Playing". Empty: the one
+# this download came with (defaults.cfg), if any.
+discord_client_id: {client_id}
 
 # Discord applications for other games, by game code (e.g. AMCE: 1234...).
 # "default" is for every game without its own. DSiRPC also sends the game's
 # name, which Discord shows instead of the application's where it can.
 [discord_apps]
-default: {self.discord_apps.get("DEFAULT", "")}
+default: {default_app}
 {apps}
 [app]
 # What's on when DSiRPC starts (the tray menu changes these)

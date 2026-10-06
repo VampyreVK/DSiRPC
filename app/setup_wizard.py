@@ -100,10 +100,13 @@ def check_packages():
 def step_packages():
     heading(1, "Python packages")
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    # A release download brings its own Python, in the python folder
+    bundled = os.path.normcase(os.path.abspath(sys.executable)).startswith(
+        os.path.normcase(os.path.join(ROOT, "python")) + os.sep)
     say(f"Checking that this Python ({sys.version.split()[0]}) has everything DSiRPC needs...")
     if sys.version_info < (3, 9):
         say("DSiRPC needs Python 3.9 or newer. Get it from https://www.python.org/downloads/")
-    if not in_venv:
+    if not in_venv and not bundled:
         say("(Tip: Setup.bat gives DSiRPC its own copy of Python in the .venv folder, so its "
             "packages can't clash with anything else you have.)")
     packages = check_packages()
@@ -144,14 +147,23 @@ def _ask_id(prompt, current):
 
 def step_discord(cfg):
     heading(2, "Discord")
-    say("DSiRPC shows your game on Discord through a \"Discord application\". Making one is "
-        "free and takes a minute:")
-    say("  1. Open https://discord.com/developers/applications and sign in.\n"
-        "  2. Click \"New Application\" and give it the name Discord should show after "
-        "\"Playing\", for example \"Pokémon Platinum\".\n"
-        "  3. Copy its \"Application ID\" (a long number).")
-    say()
-    say("Paste the Application ID below (type - to remove one that's saved).")
+    how = ("  1. Open https://discord.com/developers/applications and sign in.\n"
+           "  2. Click \"New Application\" and give it the name Discord should show after "
+           "\"Playing\", for example \"Pokémon Platinum\".\n"
+           "  3. Copy its \"Application ID\" (a long number).")
+    if cfg.release_client_id:
+        say("DSiRPC shows your game on Discord through a \"Discord application\". This copy of "
+            "DSiRPC comes with one, so just press Enter at both questions below to use it.")
+        say("To use your own instead (to choose the name Discord shows after \"Playing\"), make "
+            "one, which is free and takes a minute, then paste its Application ID below:")
+        say(how)
+        say()
+    else:
+        say("DSiRPC shows your game on Discord through a \"Discord application\". Making one is "
+            "free and takes a minute:")
+        say(how)
+        say()
+        say("Paste the Application ID below (type - to remove one that's saved).")
     cfg.discord_client_id = _ask_id("Application ID for Pokémon Platinum", cfg.discord_client_id)
     say()
     say("For every other game, DSiRPC also sends the game's own name, which Discord shows "

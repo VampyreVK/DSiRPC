@@ -20,11 +20,19 @@ The GIFs in Assets/ were made for Discord, so each kind needs undoing first:
 
 Decoding runs on a worker thread so the window never stalls; get() returns
 None until a sprite is ready.
+
+A release download doesn't include the sprites (they're hundreds of MB): any
+file missing from Assets/ is downloaded from GitHub Pages, where Discord gets
+them too, the first time it's needed, and kept in Assets/ after that.
 """
 
+import logging
 import os
 import queue
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 
 import pygame
 from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageSequence
@@ -34,6 +42,30 @@ from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps, ImageSeq
 # same way (see SpriteBank.platform_box).
 DIORAMA_CENTER_X = 80
 DIORAMA_BOTTOM = 126
+
+ASSETS_URL = "https://vampyrevk.github.io/DSiRPC/Assets"
+
+
+def _download(rel, dest, timeout=15.0):
+    """Fetches Assets/<rel> from GitHub Pages into dest. False if it can't."""
+    url = f"{ASSETS_URL}/{urllib.parse.quote(rel)}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "DSiRPC"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = r.read()
+    except (OSError, ValueError, urllib.error.URLError) as e:
+        logging.debug(f"Overlay: can't download {url}: {e}")
+        return False
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, dest)
+    except OSError as e:
+        logging.debug(f"Overlay: can't save {dest}: {e}")
+        return False
+    return True
 
 
 class Anim:
@@ -130,6 +162,7 @@ def _tint(img, mul, add):
 class SpriteBank:
     def __init__(self, assets_dir):
         self.assets = assets_dir
+        self._not_online = set()  # files GitHub Pages didn't have either
         self._pil = {}        # key -> (frames, durations) decoded on the worker
         self._anims = {}      # key -> Anim (pygame surfaces, main thread only)
         self._missing = set()
@@ -194,7 +227,14 @@ class SpriteBank:
                     self._pil[key] = result
 
     def _path(self, *parts):
-        return os.path.join(self.assets, *parts)
+        """The file in Assets/, downloaded first if it isn't there (worker
+        thread only)."""
+        path = os.path.join(self.assets, *parts)
+        rel = "/".join(parts)
+        if not os.path.exists(path) and rel not in self._not_online:
+            if not _download(rel, path):
+                self._not_online.add(rel)
+        return path
 
     def _load(self, key):
         kind = key[0]

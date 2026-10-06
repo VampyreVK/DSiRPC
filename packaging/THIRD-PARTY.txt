@@ -1,0 +1,40 @@
+What's in this download, and under which license
+=====================================================================
+
+DSiRPC's own code is MIT licensed (LICENSE, in the main folder).
+The source code of everything below that DSiRPC builds is at
+https://github.com/VampyreVK/DSiRPC, at the tag of this release.
+
+SD card/DSiRPC/nds-bootstrap-dsirpc.nds
+    DS-Homebrew's nds-bootstrap, modified for DSiRPC: GPLv3
+    (nds-bootstrap-GPLv3.txt). Source: the nds-bootstrap folder of the
+    repository above (nds-bootstrap/DSIRPC_CHANGES.md lists the changes);
+    upstream: https://github.com/DS-Homebrew/nds-bootstrap
+
+SD card/DSiRPC/dsirpc-launcher.nds
+    DSiRPC's launcher (MIT), built with BlocksDS's libnds (Zlib) and
+    DSWiFi (MIT, with lwIP under the BSD license), plus devkitPro's
+    nds-bootloader and NDS Homebrew Menu's bootstub (GPLv2 or later). The
+    file as a whole is GPLv2 or later. Source: the launcher folder of the
+    repository above.
+
+third_party/rcheevos
+    rcheevos, RetroAchievements' library: MIT (third_party/rcheevos/LICENSE).
+    https://github.com/RetroAchievements/rcheevos
+
+python
+    Python's embeddable package: Python Software Foundation License
+    (python/LICENSE.txt). https://www.python.org/
+
+python/Lib/site-packages
+    pypresence (MIT), pygame-ce (LGPL 2.1), Pillow (MIT-CMU), pystray
+    (LGPLv3) and six (MIT). Each one's license is in its .dist-info folder.
+
+Sprites
+    The overlay window downloads the sprites it needs from DSiRPC's GitHub
+    Pages site. Pokemon sprites come from PokeAPI
+    (https://github.com/PokeAPI/sprites); the overworld assets are by
+    PurpleZaffre.
+
+Pokemon is (c) Nintendo / Creatures Inc. / GAME FREAK inc. DSiRPC is an
+unofficial fan project and isn't affiliated with or endorsed by them.

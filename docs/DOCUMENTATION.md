@@ -2,8 +2,9 @@
 
 How DSiRPC works, in detail: the parts, the network protocol, what was
 changed in nds-bootstrap, the Pokémon Platinum memory map, the sprite
-pipeline and troubleshooting. For setup, build and everyday use, start with
-the [README](../README.md).
+pipeline and troubleshooting. For installing and using DSiRPC, start with the
+[README](../README.md); for running it from the source code, building the
+console files and making releases, see [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## TL;DR
 
@@ -97,20 +98,23 @@ the presence is a Python change, not a new DSi build.
 
 ## 2. Requirements
 
-See the [README](../README.md#requirements). In short: a modded DSi with
-TWiLight Menu++, a WPA2 network saved in DSi connection slot 4, 5 or 6,
-Pokémon Platinum USA Rev 1, a Windows PC with Docker and Python 3 on the same
-network, and the Discord desktop app.
+See the README's [What you need](../README.md#what-you-need). In short: a
+modded DSi or 3DS with TWiLight Menu++, a WPA2 network saved in DSi
+connection slot 4, 5 or 6 (on a DSi), Pokémon Platinum USA Rev 1 for the full
+presence, a 64-bit Windows PC on the same network, and the Discord desktop
+app. Running from the source code also needs Python 3, and building the
+console files Docker ([DEVELOPMENT.md](DEVELOPMENT.md#2-requirements)).
 
 ---
 
 ## 3. Setup details
 
-The build commands and first-time setup steps are in the
-[README](../README.md#setup-and-build). This section covers the details.
-Prebuilt `.nds` files come from the GitHub Action in
-`.github/workflows/build.yml` (see the README's
-[Prebuilt files and releases](../README.md#prebuilt-files-and-releases)).
+Installing from a release is in the README's [Install](../README.md#install);
+running from the source code and the build commands are in
+[DEVELOPMENT.md](DEVELOPMENT.md). This section covers the details. Release
+downloads (the Windows zip and both `.nds` files) come from the GitHub Action
+in `.github/workflows/build.yml` (see
+[DEVELOPMENT.md, section 9](DEVELOPMENT.md#9-builds-and-releases)).
 
 ### 3.1 Build gotcha: make doesn't notice flag changes
 
@@ -128,7 +132,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 
 | File | Where | Notes |
 |---|---|---|
-| `dsirpc-launcher.nds` | Next to our nds-bootstrap build, e.g. `sd:/_nds/dsirpc/` | Must be started in **DSi mode** |
+| `dsirpc-launcher.nds` | Next to our nds-bootstrap build: `sd:/DSiRPC/` in the release download's `SD card` folder | Must be started in **DSi mode** |
 | Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 
@@ -157,8 +161,12 @@ matches short names.
 
 ### 3.3 PC side
 
-- `Setup.bat` makes the `.venv`, installs `requirements.txt` (pypresence 4.6
-  or later, pygame-ce, Pillow, pystray) and runs `dsirpc.py setup` (section 5).
+- A release download has its own Python in `python\` (Python's embeddable
+  package with the packages from `requirements.txt`, see
+  [DEVELOPMENT.md, section 9](DEVELOPMENT.md#the-windows-download)), so
+  `Setup.bat` just runs `dsirpc.py setup` (section 5). From the source code,
+  `Setup.bat` first makes the `.venv` and installs `requirements.txt`
+  (pypresence 4.6 or later, pygame-ce, Pillow, pystray).
 - Settings live in `dsirpc.cfg` (gitignored; `dsirpc.cfg.sample` lists them),
   which setup writes. An older `PokemonPlatinumRPC.cfg` is still read while
   there's no `dsirpc.cfg`, and its settings move over the first time
@@ -166,7 +174,9 @@ matches short names.
 - The Discord application ID is `discord_client_id` (or `--client-id`). The
   bold "Playing/Competing in ..." name comes from the application's name in
   the Discord Developer Portal. For other games, `[discord_apps]` can name an
-  application per game code and a `default` one (section 6).
+  application per game code and a `default` one (section 6). A release
+  download's `defaults.cfg` holds the applications it comes with, used while
+  `dsirpc.cfg` leaves them empty.
 - Games with a RetroAchievements set in `ra/` get their achievements checked
   and their RA rich presence (section 6, "RetroAchievements"). Signed in
   (setup), DSiRPC downloads sets by itself; it can also copy them from
@@ -176,7 +186,8 @@ matches short names.
 - With RetroAchievements signed in, `dsirpc.cfg` holds your login token
   (never the password): keep it to yourself.
 - Allow Python through the Windows firewall for UDP on private networks:
-  both `pythonw.exe` (the tray) and `python.exe` (the console and tools).
+  both `pythonw.exe` (the tray) and `python.exe` (the console and tools), in
+  `python\` (a release download) or `.venv\Scripts\`.
 
 ### 3.4 Sprites on GitHub Pages
 
@@ -230,8 +241,9 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
 
 ## 5. PC tools reference
 
-All commands run from the repo root, using the virtual environment's Python
-(`.venv\Scripts\python.exe`; `Setup.bat` makes it).
+All commands run from DSiRPC's folder, with the virtual environment's Python
+(`.venv\Scripts\python.exe`; `Setup.bat` makes it) or, in a release download,
+`python\python.exe`.
 
 ### `dsirpc.py` (DSiRPC itself)
 
@@ -365,8 +377,11 @@ share. It draws from the engine's state hub (`OverlayWindow` in
 the Rich Presence. In the tray it runs on its own thread; closing it turns
 the menu's checkmark off. `tools/dsirpc_overlay.py` is the old standalone
 command (`dsirpc.py --overlay --no-discord`; `--discord` adds the presence).
-Options and keys are in the README
-([Stream overlay window](../README.md#stream-overlay-window)).
+Its keys are in the README ([Stream overlay window](../README.md#stream-overlay-window)),
+its options in [DEVELOPMENT.md](DEVELOPMENT.md#7-command-line). The sprites
+come from `Assets/`; a sprite that isn't there (a release download only has
+`Assets/Consoles`) is downloaded from GitHub Pages on the loader thread the
+first time it's needed and kept (`overlay/sprites.py`).
 During a battle the hub reads only the battlers, about three times a
 second, instead of the whole state every 2 s (see `DsiSource` in the module
 table), so HP and moves show up quickly.
@@ -1210,7 +1225,9 @@ section 8).
 
 | Path | What |
 |---|---|
-| `README.md` | Overview, setup, build and everyday use |
+| `README.md` | Installing and using DSiRPC |
+| `docs/DEVELOPMENT.md` | Running from the source code, building, the command line and tools, releases |
+| `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
 | `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
 | `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent); all gitignored |
@@ -1229,7 +1246,7 @@ section 8).
 | `spikes/` | Stages 1-3, the early experiments |
 | `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
 | `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
-| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, publishes a release for `v*` tags |
+| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files and the Windows download, publishes a release for `v*` tags |
 
 ---
 

@@ -199,6 +199,10 @@ RPCHAND.TXT
 *.elf
 # DSiRPC's log and state file, and test outputs (tools/frame_check.py --save)
 logs/
+# The Windows download (packaging/build_release.py) and what only it has
+/dist/
+/python/
+/defaults.cfg
 # RetroAchievements set files (dsirpc.py setup, tools/ra_tool.py add): RA's game data, kept local
 /ra/*
 !/ra/README.md

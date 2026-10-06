@@ -5,6 +5,7 @@
 [connection]
 # The Discord application for Pokemon Platinum, and for any game without its
 # own below. Its name is what Discord shows after "Playing" / "Competing in".
+# Empty: the one a release download comes with (its defaults.cfg), if any.
 discord_client_id: ''
 
 # Optional: Discord applications for games other than Platinum, by game code.

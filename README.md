@@ -1,351 +1,212 @@
 # DSiRPC
 
-Discord Rich Presence for Pokémon Platinum, played on a real, modded Nintendo
-DSi. The DSi reads the game's memory while you play and sends it over Wi-Fi to
-your PC, which shows what you're doing on Discord: where you are, your party,
-your badges, and who you're battling, with animated sprites.
+Discord Rich Presence for games played on a real, modded Nintendo DSi or 3DS.
+While you play, the console reads the game's memory and sends it over Wi-Fi
+to your PC, which shows what you're doing as your Discord status.
 
-> **The full presence is for Pokémon Platinum (USA, Rev 1).** Any other DS
-> game shows its name, box art and a picture of your console, plus its
-> [RetroAchievements](https://retroachievements.org/) rich presence
-> ("Racing in Figure-8 Circuit"). Every game's achievements are checked
-> while you play (see [RetroAchievements](#retroachievements)).
+**Pokémon Platinum (USA, Rev 1)** gets the full presence: where you are, your
+party, your badges, and who you're battling, with animated sprites. **Any
+other DS game** shows its name, box art and a picture of your console, plus
+its [RetroAchievements](https://retroachievements.org/) rich presence
+("Racing in Figure-8 Circuit") when it has one. Every game's achievements are
+checked while you play, and an optional overlay window shows your party and
+battles for streaming.
 
 | Overworld (Playing) | Battle (Competing) |
 |---|---|
 | "Exploring Route 209", badges and Pokédex count, your trainer walking in the direction you face, your lead Pokémon, party fraction | "Battling rival Barry", "Blucifer is fighting Buizel", foe and your Pokémon as sprites (shiny-aware), HP on hover |
 
-## TL;DR
+## What you need
 
-Once everything is set up (see [Setup and build](#setup-and-build); on the PC
-that's just **Setup.bat**), every play session is:
+- A **DSi or 3DS with [TWiLight Menu++](https://github.com/DS-Homebrew/TWiLightMenu)**
+  installed, and your games as `.nds` files on its SD card.
+- The console's **Wi-Fi set up** for the same network as your PC. On a DSi, a
+  WPA2 network has to be saved in connection 4, 5 or 6 (System Settings >
+  Internet > Connection Settings > Advanced Setup).
+- A **64-bit Windows 10 or 11 PC** with the **Discord** desktop app.
 
-1. On the PC, double-click **DSiRPC.bat**. DSiRPC sits in the tray (by the
-   clock) and waits for the DSi; with "Start with Windows" on, it's already
-   there. Turn off any other Rich Presence plugin (like Vencord CustomRPC).
-2. On the DSi, open `dsirpc-launcher.nds` **in DSi mode** and wait for `ASSOCIATED`
-   (it tries up to 3 times on its own).
-3. Press **START** and pick the game. The launcher starts **our** nds-bootstrap
-   build with it, and the Wi-Fi stays connected.
+## Install
 
-Discord only shows something while the game is running. Right-click the tray
-icon to turn the Discord presence or the overlay window on and off, or to
-pick the console picture Discord shows.
+1. Download **`DSiRPC-<version>-windows.zip`** from the
+   [Releases page](https://github.com/VampyreVK/DSiRPC/releases/latest). It
+   has everything: DSiRPC with its own copy of Python (nothing to install),
+   the two files for your SD card, and a `README.txt` with these steps.
+2. **On the PC:** unzip it somewhere you can write to (Documents, the
+   Desktop; not Program Files). If Windows says it "protected your PC",
+   right-click the zip > Properties > tick **Unblock**, and unzip it again.
+3. Double-click **`Setup.bat`** and answer its questions; Enter takes the
+   suggested answer. The download comes with a Discord application, so you
+   can press Enter there too. Signing in to RetroAchievements is optional.
+4. Double-click **`DSiRPC.bat`**. DSiRPC's icon appears in the taskbar's
+   notification area, by the clock. When Windows asks about the firewall,
+   allow access on **private networks**, or DSiRPC never hears from the
+   console.
+5. **On the SD card:** copy the `DSiRPC` folder from the zip's `SD card`
+   folder to the root of the card, so you have `sd:/DSiRPC/dsirpc-launcher.nds`
+   and `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`. Keep the two together.
+
+## Playing
+
+1. **PC:** start DSiRPC (`DSiRPC.bat`), or turn on **Start with Windows** in
+   its menu so it's always there. Turn off any other Rich Presence plugin
+   (like Vencord's CustomRPC), or Discord shows two activities.
+2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
+   connects to Wi-Fi in DSi mode (it tries up to 3 times by itself) and shows
+   the console's IP address. If it says it's running in DS mode, set it to
+   DSi mode in TWiLight Menu++'s per-game settings.
+3. Press **START** and pick your game: **A** opens a folder or picks the game,
+   **B** goes up a folder. The launcher starts it, still connected.
+   (**SELECT** disconnects and goes back instead.)
+4. Within about 15 seconds, Discord shows what you're playing, and the tray
+   icon's dot turns green.
+
+A game you've never started from TWiLight Menu++ has no save file yet; the
+launcher says so. Start it once from TWiLight Menu++, then use the launcher.
+
+When you close the game, DSiRPC clears the presence after about 30 seconds and
+waits for the console again, so switching games or restarting needs nothing
+on the PC.
+
+### The tray icon
+
+Right-click it for the menu:
+
+| Item | What |
+|---|---|
+| The first lines | What's running, what Discord shows, and your RetroAchievements progress |
+| **Discord presence** | Show the game on Discord, or not |
+| **Console icon** | The picture Discord shows for games without their own presence: DSi XL, New 3DS, or none |
+| **Overlay window** | The stream overlay (a left click on the icon toggles it too) |
+| **Start with Windows** | Start DSiRPC in the tray when you sign in |
+| **Setup...** | Runs setup again, to change an answer |
+| **Open log** / **Open DSiRPC folder** | `logs\dsirpc.log`, and the folder DSiRPC is in |
+| **Quit** | Stops DSiRPC |
+
+The dot is green while the game answers, amber while DSiRPC waits for the
+console, and red if Discord can't be reached (or there's no Discord
+application yet).
+
+## RetroAchievements
+
+DSiRPC checks a game's achievements against the console's memory with
+[rcheevos](https://github.com/RetroAchievements/rcheevos), RetroAchievements'
+own library. When you unlock one you get a notification and a banner in the
+overlay window, and it's added to `logs\achievements.log`.
+
+Each game's achievements and rich presence come in a *set*, kept in the `ra`
+folder. Sets come from:
+
+- **RetroAchievements itself**, once you've signed in with `Setup.bat` (only a
+  login token is saved, never your password). DSiRPC works out which game is
+  running and downloads its set by itself. Setup can also take a folder of
+  your game files (for example the ones you play in RALibretro): with it,
+  DSiRPC knows the exact game and version, the way RA emulators do. Without
+  it, DSiRPC goes by the game's title, and setup can pick a set for a game it
+  can't tell (search by name).
+- **RALibretro's cache**: RALibretro keeps the set of every game you've
+  played in it, and DSiRPC can copy them from there, without an account.
+
+Signed in, DSiRPC also shows what you're playing on your RetroAchievements
+profile, and Discord's hover text shows your progress ("12 of 132
+unlocked"). **Sending your unlocks to RetroAchievements is a separate choice
+in setup**, off unless you turn it on, and always softcore:
+
+- DSiRPC checks achievements about once a second, not every frame like an
+  emulator. Achievements about things that last (a flag set, a cup won) work
+  the same; ones about split-second moments can unlock late, not at all or,
+  rarely, when they shouldn't.
+- RetroAchievements doesn't officially support playing on original hardware.
+  DSiRPC tells it honestly what it is, so it only ever counts these unlocks
+  as softcore.
+
+Unlocks that can't be sent right away (no internet) are kept and sent later.
+
+## Stream overlay window
+
+The overlay window (tray menu > **Overlay window**) shows your party, and
+switches to a battle view when a battle starts, in a pixel-art style inspired
+by the DS games. The battle background follows the DS clock, the location
+and the weather; Pokémon slide in, flash when hit and sink when they faint;
+every move gets its "X used MOVE!" line and a type-coloured animation; stat
+changes and conditions show on the HP boxes and Pokémon; and the bottom box
+shows your moves with PP and how effective each one is. Banners pop up for
+shiny encounters, level-ups, fainting, new badges and achievements. Other
+games get a card with their name, rich presence and achievement progress.
+
+It draws at the DS's 256x192 and scales up by a whole number, so the pixels
+stay crisp. Add it to OBS with **Window Capture**, or share the window on
+Discord. Keys **1**-**6** change its size, and **V** switches between
+automatic, party only and battle only. For OBS's Chroma Key filter, set
+`chroma` (a colour like `00FF00`) in `dsirpc.cfg`. The sprites are downloaded
+the first time they're needed, then kept.
+
+## Troubleshooting
+
+| Problem | Try |
+|---|---|
+| Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
+| The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
+| The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
+| "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
+| Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
+| A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
+
+More, including what the console sends and how to read it, is in
+[docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
+The log is `logs\dsirpc.log` in DSiRPC's folder.
+
+## Updating and removing
+
+To update, unzip the new release over your DSiRPC folder (replace the files
+when asked): your settings (`dsirpc.cfg`) and achievement sets stay. Copy the
+new SD card files over the old ones too. To remove DSiRPC, turn off **Start
+with Windows**, quit it, and delete its folder.
 
 ## How it works
 
 ```
-DSi launcher (BlocksDS)          connects in DSi mode with the WPA2 settings saved
-        |                        in DSi connection slots 4-6, writes RPCHAND.TXT
-        | START: pick a game (stays connected)
+Console: dsirpc-launcher.nds     connects to Wi-Fi in DSi mode, then starts the
+        |                        game you pick with our nds-bootstrap, still connected
         v
-our nds-bootstrap  --boots-->  Pokémon Platinum
-  ARM7 VBlank hook (rpcprobe)
-    answers "read N bytes at X"  <--- UDP 4244 --->  PC: dsirpc.py (tray or console)
-    broadcasts a hello every second                     core/ state hub: reader, parser,
-                                                        RetroAchievements rich presence
+our nds-bootstrap  --boots-->  the game
+  a small memory server in its ARM7 code
+    answers "read N bytes at X"  <--- UDP 4244 --->  PC: DSiRPC (tray)
+    broadcasts a hello every second                     reads and decodes the game's state,
+                                                        checks achievements
                                                           |                  |
                                                           v                  v
                                                   Discord Rich Presence   overlay window
 ```
 
-The DSi side stays simple: it only answers "give me these bytes". Everything
-else (decrypting the party, working out the location, deciding what Discord
-shows) happens in Python on the PC, so new fields never need a DSi rebuild.
-The full technical reference is [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md).
-
-## Repository layout
-
-| Path | What |
-|---|---|
-| `Setup.bat`, `DSiRPC.bat` | First-time setup, and DSiRPC in the tray (Windows) |
-| `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Running it](#running-it)) |
-| `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
-| `overlay/` | A pixel-art window with your party and battles, for OBS or a screen share (see [Stream overlay window](#stream-overlay-window)) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), demo data (`demo.py`) |
-| `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
-| `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](ra/README.md)) |
-| `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt, for achievements and rich presence |
-| `tools/` | Developer and testing tools (see [Tools](#tools)), and the charmap table generator (`tools/charmap/`) |
-| `Assets/` | Sprites served by GitHub Pages for Discord, plus the scripts that made them |
-| `launcher/` | The DSi-mode launcher that connects to Wi-Fi, then starts our nds-bootstrap with the game you pick |
-| `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](nds-bootstrap/DSIRPC_CHANGES.md) |
-| `docs/` | [DOCUMENTATION.md](docs/DOCUMENTATION.md) (technical reference), [research.md](docs/research.md) (verified research notes), [HISTORY.md](docs/HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
-| `spikes/` | Early experiments (stages 1-3), kept for reference |
-| `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `.github/workflows/` | GitHub Action that builds both `.nds` files and publishes releases (see [Prebuilt files and releases](#prebuilt-files-and-releases)) |
-
-## Requirements
-
-- A modded Nintendo DSi with TWiLight Menu++ and an SD card.
-- A WPA2 network saved in DSi connection slot 4, 5 or 6 (System Settings >
-  Internet > Advanced Setup).
-- Pokémon Platinum (USA, Rev 1).
-- A Windows PC with [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-  (for building) and [Python 3](https://www.python.org/downloads/). The PC and
-  the DSi must be on the same network.
-- The Discord desktop app.
-
-## Setup and build
-
-All commands are for PowerShell, from the repo root (`C:\Projects\DSiRPC`).
-Adjust the paths if you cloned somewhere else.
-
-Steps 2 and 3 build the two DSi files. If you'd rather not build them, download
-`nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` from the repo's Releases
-page instead (see [Prebuilt files and releases](#prebuilt-files-and-releases)).
-
-### 1. DSiRPC on the PC
-
-Double-click **Setup.bat** (or run it from a console). It makes the Python
-environment in `.venv` (or repairs it if the folder moved), installs the
-packages (pypresence for Discord, pygame-ce and Pillow for the overlay window,
-pystray for the tray icon), then asks a few questions:
-
-1. **Discord application ID**: see [step 4](#4-discord-application).
-2. **RetroAchievements** (optional): signing in, showing what you play on
-   your RA profile, and whether to send your unlocks (see
-   [RetroAchievements](#retroachievements)).
-3. **Your game files** (optional): a folder of `.nds` files, so
-   RetroAchievements knows exactly which game you play.
-4. **Achievement sets**: RALibretro's folder, and a set for the game the DSi
-   is running right now or any game code you type, from RetroAchievements or
-   RALibretro's cache.
-5. **Start with Windows**: starts DSiRPC in the tray when you sign in.
-
-Everything goes in `dsirpc.cfg` (gitignored, and with RetroAchievements
-signed in it holds your login token, so keep it to yourself;
-`dsirpc.cfg.sample` shows every setting). Run Setup.bat again whenever you
-want to change something; a running DSiRPC picks up the changes.
-
-### 2. nds-bootstrap (the in-game memory server)
-
-```
-docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro/devkitarm:20241104 bash -c "sed -i '/security/d' /etc/apt/sources.list && apt-get update && apt-get install -y gcc && gcc lzss.c -o /usr/local/bin/lzss && make nightly"
-```
-
-The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
-your SD card as `nds-bootstrap-dsirpc.nds`, in its own folder away from
-TWiLight Menu++'s copy (for example `sd:/_nds/dsirpc/nds-bootstrap-dsirpc.nds`),
-so you always know which one you are launching. The launcher looks for it
-under that name in its own folder. The build prints a few harmless `fatal: not a git repository`
-lines; that's nds-bootstrap looking for its version tag.
-
-### 3. Launcher
-
-```
-docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint make skylyrac/blocksds:slim-latest
-```
-
-The output is `launcher\dsirpc-launcher.nds`. Copy it next to our nds-bootstrap
-build (`sd:/_nds/dsirpc/` in the example above). It must be started in
-**DSi mode**.
-
-Nothing else needs setting up on the SD card. The launcher writes its own
-`RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
-DSi's saved settings, and the DSi broadcasts its hello packets, so it never
-needs to know your PC's IP.
-
-### 4. Discord application
-
-1. Create an application in the [Discord Developer Portal](https://discord.com/developers/applications)
-   and name it **Pokémon Platinum**. The name is what Discord shows after
-   "Playing" / "Competing in". For other games DSiRPC also sends the game's
-   name, which Discord shows instead where it can; a second application
-   named like "Nintendo DS" can be the default for them.
-2. Give Setup.bat the **Application ID** (General Information page). It
-   saves it in `dsirpc.cfg`. You can also pass `--client-id` instead.
-
-### 5. Sprites (GitHub Pages)
-
-Discord loads every image from `https://vampyrevk.github.io/DSiRPC/Assets/...`,
-so the `Assets/` folder has to stay at the repo root and be published with
-GitHub Pages (Settings > Pages). `.nojekyll`
-makes Pages serve the files as they are. New or changed sprites show up in
-Discord once they are pushed. How each folder is made is described in
-[docs/DOCUMENTATION.md, section 10](docs/DOCUMENTATION.md#10-sprite-assets-pipeline).
-The console pictures in `Assets/Consoles` (the tray's **Console icon**)
-work the same way: any picture pushed there shows up in the menu.
-
-### 6. Firewall
-
-Allow Python through the Windows firewall on private networks, or the DSi's
-UDP packets never reach DSiRPC. The tray runs as **pythonw** and the console
-as **python**, so Windows may ask once for each; allow both.
-
-## Prebuilt files and releases
-
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds both `.nds`
-files on GitHub with the same Docker images as the commands above. It runs when
-a push to `main` changes `nds-bootstrap/` or `launcher/`, on pull requests, and
-on demand (Actions tab > **Build DSi files** > **Run workflow**). Each run keeps
-the files as two artifacts, `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
-GitHub downloads as zips.
-
-To publish a release with both files attached, push a tag that starts with `v`:
-
-```
-git tag v0.1.0
-```
-```
-git push origin v0.1.0
-```
-
-The release is named after the tag, gets notes generated from the commits, and
-has `nds-bootstrap-dsirpc.nds` and `dsirpc-launcher.nds` attached.
-
-## Playing
-
-1. **Launcher:** open it in DSi mode and wait for `ASSOCIATED`. If it can't
-   connect, or gets no IPv4 address from DHCP (`0.0.0.0`), it tries again by
-   itself, up to 3 times. It shows the DSi's IP and writes `RPCHAND.TXT`.
-2. **Game:** press **START** and pick the game's `.nds` (the browser opens in
-   the launcher's folder: **A** opens or picks, **B** goes up). The launcher
-   points `sd:/_nds/nds-bootstrap.ini` at it, with its existing save, and
-   starts our nds-bootstrap build, still connected. A game you've never
-   started from TWiLight Menu++ has no save file yet: start it there once
-   first. **SELECT** disconnects and exits; **Y** exits connected, back to
-   your menu, if you'd rather start our build from there (it then boots the
-   game the ini names). Details: [launcher/README.md](launcher/README.md).
-3. **PC:** within about 15 seconds of the game starting, the DSi broadcasts a
-   hello packet every second, and DSiRPC (started before or after the game)
-   finds the DSi on its own. The tray icon's dot turns green and Discord
-   shows the game. If nothing is found and your network blocks broadcasts,
-   run DSiRPC with the IP the launcher showed, for example
-   `.venv\Scripts\python.exe dsirpc.py --dsi-ip 192.168.1.50`.
-4. **Stopping:** DSiRPC keeps running until you quit it (tray menu > Quit, or
-   Ctrl+C in a console). When the game is closed it clears the presence after
-   about 30 s and waits for the DSi again, so restarting the game (or Discord)
-   needs nothing on the PC. Switching games works the same way.
-
-### Running it
-
-| How | What |
-|---|---|
-| `DSiRPC.bat` | The tray icon (`dsirpc.py tray`). Right-click it for what's running, what Discord shows and your RetroAchievements progress, then **Discord presence**, **Console icon** (DSi XL, New 3DS or none, for games without their own presence), **Overlay window** (a left click toggles it too), **Start with Windows**, **Setup...**, **Open log** and **Quit**. The dot is green while the game answers, amber while it waits for the DSi, red if Discord can't be reached |
-| `Setup.bat` | First-time setup (`dsirpc.py setup`), safe to run again |
-| `dsirpc.py` | DSiRPC in a console until Ctrl+C, logging what Discord shows |
-| `dsirpc.py --overlay` | ...with the overlay window; closing it stops DSiRPC |
-| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements |
-| `--no-discord` | Nothing on Discord (for the overlay alone) |
-| `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
-| `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
-| `--dsi-ip`, `--interval`, `--client-id` | The DSi's IP, seconds between reads (default 5, or 2 with the overlay), a Discord application ID for every game |
-
-The log is `logs\dsirpc.log`. Only one DSiRPC can run at a time, and the
-tools below can't run next to it: they all need UDP port 4244.
-
-### Tools
-
-For testing and development, run from the repo root:
-
-| Tool | Use |
-|---|---|
-| `tools/dsi_status.py` | Everything readable from Platinum, in plain text. `--watch 5` refreshes, `--json` for raw data |
-| `tools/ra_tool.py` | RetroAchievements set files by hand: `add`, `list`, `info`, `rp`, and `hash` (a game file's RA hash, and which RA game it is) |
-| `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
-| `tools/frame_check.py` | Checks that the per-frame capture sees every frame (step 1 of RetroAchievements support). On Platinum it needs no options |
-| `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
-| `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
-
-## RetroAchievements
-
-DSiRPC uses [rcheevos](https://github.com/RetroAchievements/rcheevos),
-RetroAchievements' own library, to check a game's achievements against the
-DSi's memory while you play. When you unlock one you get a notification and
-a banner in the overlay window, and it's added to `logs\achievements.log`.
-
-Each game's achievements and rich presence come in a *set*, which lives in
-`ra/` as `<game code>.json`. Sets come from:
-
-- **RetroAchievements itself**, once you've signed in with Setup.bat (only a
-  login token is saved, never your password). DSiRPC works out which game is
-  running and downloads its set by itself, keeping it up to date. With a
-  folder of your game files (for example the ones you play in RALibretro),
-  it hashes the matching file the way RA emulators do and knows the exact
-  game and version; without one, it goes by the game's title (from its
-  header, or from GameTDB's list by its game code when the header can't be
-  read, as under nds-bootstrap on a DSi or 3DS) and only takes a set when
-  exactly one game clearly matches. Setup can pick
-  one for the rest (search by name).
-- **RALibretro's cache**: RALibretro keeps the set of every game you've played
-  in it, and DSiRPC can copy them from there, without an account.
-- **By hand**: `tools\ra_tool.py add`.
-
-Signed in, DSiRPC also shows what you're playing (and its rich presence) on
-your RetroAchievements profile, and Discord's hover text shows your progress
-("12 of 132 unlocked"). Sending your unlocks to RetroAchievements is a
-separate choice in setup, off unless you turn it on, and always softcore:
-
-- DSiRPC checks achievements about once a second (`interval` in
-  `dsirpc.cfg`), not every frame like an emulator. Achievements about states
-  that last (a flag set, a cup won) work the same; ones about split-second
-  moments can unlock late, not at all or, rarely, when they shouldn't.
-- RetroAchievements doesn't officially support playing on original hardware.
-  DSiRPC tells it honestly what it is (its User-Agent is `DSiRPC/...
-  rcheevos/12.5`), so RetroAchievements only ever counts these unlocks as
-  softcore.
-- Achievements that read memory DSiRPC can't reach (the ARM9's data TCM) are
-  left out.
-
-Unlocks that can't be sent right away (no internet) are kept in
-`ra/cache/pending_unlocks.json` and sent later. `--no-ra` turns all of this
-off, and `--dry-run` sends nothing.
-
-## Stream overlay window
-
-The overlay window (tray menu > **Overlay window**, or `dsirpc.py --overlay`)
-shows your party, and switches to a battle view when a battle starts, in a pixel-art style inspired by the DS
-games. The battle background follows the DS clock, the location (field,
-cave, indoors, snow) and the weather; Pokémon slide in, lunge, flash when hit
-and sink when they faint; every move either side uses gets its "X used MOVE!" line and a
-type-coloured animation; stat changes show as arrows under the HP boxes and conditions
-(sleep, paralysis, confusion, ...) as markers on the Pokémon; and the bottom box shows your
-moves by type with PP, how effective each one is against the foe, and the last one used
-highlighted. Banners pop up for shiny
-encounters, level-ups, fainting, new badges and achievements. Other games
-get a card with their name, RetroAchievements rich presence and progress. It draws at the DS's
-256x192 and scales up by a whole number, so the pixels stay crisp. Add it to
-OBS with **Window Capture**, or share the window in Discord.
-
-| Option (`dsirpc.py`) | Use |
-|---|---|
-| `--overlay` | Open the window (console mode) |
-| `--demo` | Made-up scenes (battles, a shiny, a level-up) for styling without the DSi. **N** skips to the next scene |
-| `--name Vivi` | With `--demo`: the trainer name to show |
-| `--scale 4` | Window size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`). Keys **1**-**6** change it live |
-| `--chroma 00FF00` | Fill the background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
-
-While the window is open DSiRPC reads every 2 s instead of 5, and a battle's
-Pokémon a few times a second. **V** switches the view between automatic,
-party only and battle only. The colours are all in `THEME` at the top of
-`overlay/ui.py`.
+The console side stays simple: it only answers "give me these bytes".
+Everything else (decrypting the party, working out the location, deciding
+what Discord shows) happens on the PC, so new features never need a console
+update. The full technical reference is
+[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md); building and running from
+the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Known issues and roadmap
 
-- [ ] Fix graphical glitches present in Pokémon Platinum (for example, the
-      first time the pause menu opens).
-- [ ] Launch our nds-bootstrap straight from the launcher, so it's one app
-      instead of two: built (START picks the game, [launcher/CHAINLOAD.md](launcher/CHAINLOAD.md)),
-      to be confirmed on hardware.
+- [ ] Fix graphical glitches in Pokémon Platinum (for example, the first time
+      the pause menu opens).
 - [ ] Location artwork for the big image, and more overworld states (running,
       biking, surfing, browsing the PC). Leads are in [docs/research.md](docs/research.md).
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
-      the DSi on a schedule.
-- [ ] Support other games and versions: every DS game gets its name, box art
-      and RetroAchievements rich presence; only Platinum USA Rev 1 gets the
-      full presence and the overlay's party and battle views.
+      the console on a schedule.
+- [ ] Full presence for more games and versions: for now every DS game gets
+      its name, box art and RetroAchievements rich presence, and only
+      Platinum USA Rev 1 gets the full presence and the overlay's party and
+      battle views.
+- [ ] Achievements checked every frame, for the timing-sensitive ones.
+- [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
+      browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets
       downloaded by themselves, rich presence on the RA profile.
-- [ ] Achievements checked every frame: the per-frame capture
-      (`tools/frame_check.py`) can watch 8 values per frame, which could cover
-      the timing-sensitive parts of a set.
-- [ ] More for the state hub (`core/hub.py`, used by the overlay window):
-      encounter and shiny counters, a Nuzlocke mode, browser-source panels
-      for OBS.
-- Platinum's own Wi-Fi features are disabled while playing through DSiRPC.
-
-Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
+- [x] One app on the console: the launcher connects and starts the game.
+- [x] A Windows download that needs nothing installed.
+- Games' own Wi-Fi features don't work while playing through DSiRPC.
+- DSi-enhanced games (Pokémon Black and White, and later) need to run in DS
+  mode (TWiLight Menu++'s per-game settings).
 
 ## Credits
 
@@ -355,17 +216,21 @@ Troubleshooting is covered in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTA
 - [nds-bootstrap](https://github.com/DS-Homebrew/nds-bootstrap) by DS-Homebrew
   (GPLv3), which hosts the in-game side.
 - [BlocksDS](https://github.com/blocksds/sdk) and DSWiFi (MIT) for the launcher
-  and the DSi-mode Wi-Fi code.
+  and the DSi-mode Wi-Fi code; devkitPro's
+  [nds-bootloader](https://github.com/devkitPro/nds-bootloader) and
+  [NDS Homebrew Menu](https://github.com/devkitPro/nds-hb-menu)'s bootstub
+  (GPLv2+) for starting the game from it.
 - [pret/pokeplatinum](https://github.com/pret/pokeplatinum) for struct
   layouts, the save layout and the name tables.
 - [RetroAchievements](https://retroachievements.org/) code notes (game 11732)
   and [ProjectPokemon](https://projectpokemon.org/)'s notable breakpoints for
   memory addresses.
 - [pypresence](https://github.com/qwertyquerty/pypresence) for Discord IPC,
-  [pystray](https://github.com/moses-palmer/pystray) for the tray icon.
+  [pystray](https://github.com/moses-palmer/pystray) for the tray icon,
+  [pygame-ce](https://github.com/pygame-community/pygame-ce) for the overlay.
 - [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT) and
   RetroAchievements' set authors for other games' rich presence;
-  [GameTDB](https://www.gametdb.com/) for box art.
+  [GameTDB](https://www.gametdb.com/) for box art and game titles.
 
 ## License
 
@@ -373,6 +238,8 @@ DSiRPC's own code is MIT licensed (see [LICENSE](LICENSE)). The
 `nds-bootstrap/` folder is GPLv3 (see [nds-bootstrap/LICENSE](nds-bootstrap/LICENSE)).
 `launcher/loader/` (devkitPro's nds-bootloader and NDS Homebrew Menu's
 bootstub) is GPLv2 or later, and so is the built `dsirpc-launcher.nds`,
-which includes it.
+which includes it. The Windows download's `licenses` folder lists everything
+it bundles.
+
 Pokémon is © Nintendo / Creatures Inc. / GAME FREAK inc. This is an
 unofficial fan project and isn't affiliated with or endorsed by them.

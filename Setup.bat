@@ -1,11 +1,16 @@
 @echo off
-rem DSiRPC setup: gives DSiRPC its own copy of Python (the .venv folder),
-rem installs the packages it needs, then asks a few questions
-rem (python dsirpc.py setup). Safe to run again any time, for example to
-rem sign in to RetroAchievements or add a game's achievement set.
+rem DSiRPC setup: asks a few questions (python dsirpc.py setup). Safe to run
+rem again any time, for example to sign in to RetroAchievements or add a
+rem game's achievement set.
+rem
+rem A release download comes with its own Python (the python folder). A copy
+rem of the source code gets one first, in the .venv folder, with the packages
+rem DSiRPC needs.
 setlocal
 cd /d "%~dp0"
 title DSiRPC setup
+
+if exist "python\python.exe" goto bundled
 
 echo.
 echo   DSiRPC setup
@@ -42,6 +47,10 @@ echo   Done.
 ".venv\Scripts\python.exe" dsirpc.py setup
 exit /b %errorlevel%
 
+:bundled
+"python\python.exe" dsirpc.py setup
+exit /b %errorlevel%
+
 :makevenv
 py -3 -m venv .venv 2>nul
 if not errorlevel 1 exit /b 0
@@ -54,5 +63,6 @@ echo   DSiRPC needs Python 3, and it doesn't seem to be installed.
 echo   1. Get it from https://www.python.org/downloads/
 echo   2. In its installer, tick "Add python.exe to PATH" before installing.
 echo   3. Run Setup.bat again.
+echo   Or download DSiRPC from the Releases page instead, which comes with Python.
 pause
 exit /b 1

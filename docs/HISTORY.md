@@ -275,6 +275,22 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-05 (evening): **A download for everyone.** Releases now come with
+  `DSiRPC-<version>-windows.zip` (`packaging/build_release.py`, run by the
+  GitHub Action on a Windows runner): DSiRPC with Python's embeddable package
+  and its packages, both `.nds` files in an `SD card/DSiRPC` folder, and a
+  plain `README.txt`, so nothing needs installing. `Setup.bat` and
+  `DSiRPC.bat` use that bundled Python when it's there. Release builds can
+  come with a Discord application (repository variables, written to
+  `defaults.cfg`), so setup's Discord step is just Enter. The overlay
+  downloads its sprites from GitHub Pages when a download doesn't have them
+  (the full set is over 500 MB). The README was rewritten for people who just
+  want to use DSiRPC; building and running from the source code moved to
+  `docs/DEVELOPMENT.md`. Also: the achievement count was one too high,
+  because RetroAchievements adds a "Warning: Unknown Emulator" entry to sets
+  for clients it doesn't know; DSiRPC now leaves it out like rcheevos' own
+  client does. The bundled Python was tested under Wine (packages, rcheevos,
+  the tray backend, a full setup run).
 - 2026-10-05 (morning): **One-app launch, and RA finds Platinum.** On
   hardware, RetroAchievements worked for Mario Kart DS (its set was already
   in `ra/`) but not for Platinum: "no game called this game there". The

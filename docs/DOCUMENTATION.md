@@ -135,6 +135,9 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `dsirpc-launcher.nds` | Next to our nds-bootstrap build: `sd:/DSiRPC/` in the release download's `SD card` folder | Must be started in **DSi mode** |
 | Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
+| `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
+| `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set) |
+| `RPCUNLK.BIN` | SD root | Unlocks from offline play waiting for DSiRPC; the launcher makes it (4096 bytes) and clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
@@ -153,11 +156,15 @@ ip=192.168.2.195
 gateway=192.168.2.1
 mask=255.255.255.0
 mac=00:23:CC:12:34:56
+time=844387200
 end
 ```
 
-The file needs an 8.3 name because nds-bootstrap's ARM7 file lookup only
-matches short names.
+`time` is the console's clock (seconds since 2000-01-01, local time), for
+dating unlocks in offline play. When the launcher plays offline, the file is
+only `mode=offline`, `time=` and `end`: with no `ip` or `mac`, the in-game
+side leaves the network alone. The file needs an 8.3 name because
+nds-bootstrap's ARM7 file lookup only matches short names.
 
 ### 3.3 PC side
 
@@ -560,7 +567,7 @@ numbers mean.
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
 | `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. `RaSettings` holds the `[ra]` choices |
-| `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup |
+| `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in |
 | `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
 | `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
 | `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
@@ -572,7 +579,9 @@ numbers mean.
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
-| `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes. `setup_logging()`, `PortInUse` |
+| `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
+| `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()`, `read_set()`), the sync request and answer (section 7) |
+| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
 | `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
@@ -732,12 +741,27 @@ retried after 0, 1, 2, 4 ... up to 120 s (as rcheevos' client does), and
 the file is sent again the next time DSiRPC starts with the same account.
 "User already has this achievement" counts as sent.
 
+**Offline play.** When the launcher syncs (section 7), the engine sends it a
+set for the game being started (from `ra/`, or downloaded by its code) and
+for every other game in `ra/`, built by `core/offline.py`: the official
+core and bonus achievements, minus the ones you're known to have (from
+`startsession` and sent unlocks, `ra/cache/unlocked.json`), minus the ones
+past main RAM and any rcheevos can't parse. Each goes only if the console's
+copy is missing or has another stamp. The unlocks the console hands over
+are logged (`(offline play)` in `achievements.log`), announced in one
+notification and, with `submit_unlocks` on, sent like any other unlock, with
+`o` set from the console's time of the unlock (a time more than a day ahead
+or two years behind is taken as now). Signed out, they wait in
+`pending_unlocks.json` for the next account that signs in.
+
 ---
 
 ## 7. Wire protocol
 
-All traffic is UDP on port 4244, in both directions and from the same
-source port. Multi-byte fields are **big endian**.
+The in-game traffic is UDP on port 4244, in both directions and from the
+same source port. Multi-byte fields are **big endian**. The launcher's sync
+for offline play is separate, on port 4245, and little endian (the last
+subsection).
 
 ### Hello (DSi -> broadcast, once per second)
 
@@ -872,6 +896,64 @@ VBlank) with bit 15 set when the ARM7 read them rather than the ARM9, and
 order. The ring holds `2048 / recSize` records: 256 frames (about 4 s) with
 one 4-byte watch. Nothing is written to the game; the list and the ring are
 rpcprobe's own memory.
+
+### Offline play: the launcher's sync (TCP/UDP 4245)
+
+Whenever the launcher is connected (after connecting, and when a game is
+picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
+`launcher/source/sync.c` (console) are the two sides; everything here is
+**little endian**.
+
+1. The launcher broadcasts `DSiRPC sync?` + u8 version (1) to UDP 4245,
+   every 0.5 s for 1.5 s. DSiRPC answers `DSiRPC sync!` + u8 version + u16
+   TCP port.
+2. The launcher connects over TCP and sends:
+
+   ```
+   "DRSQ" | version u16 | n u16 | game code[4] | unlock bytes u32 | reserved u32
+   n x ( code[4] | stamp u32 )        the sets it has
+   RPCUNLK.BIN as it is               (or nothing, if it isn't valid)
+   ```
+
+   The game code is the one being started, or four zero bytes.
+3. DSiRPC answers:
+
+   ```
+   "DRSA" | version u16 | status u16 | taken u16 | n u16 | reserved u32
+   n x ( code[4] | size u32 | the .DRS file )
+   ```
+
+   `status` 0 is OK, 1 that the request couldn't be read. `taken` is how
+   many valid unlock slots it got, repeats included. The sets are the ones
+   the console doesn't have or has another stamp of, the started game's
+   first.
+4. The launcher zeroes the unlock slots if `taken` matches its own count
+   (otherwise they stay for the next sync), writes each set to
+   `sets/CODE.TMP` and renames it to `CODE.DRS`, then hangs up. DSiRPC waits
+   for that before closing, so the TCP wait after closing (TIME_WAIT) is on
+   the console's side.
+
+**`RPCUNLK.BIN`** is 4096 bytes: 256 slots of 16 bytes. Slot 0 is the
+header: `"DRUL"`, u16 version (1), u16 slot size (16), u16 slot count (256),
+6 bytes reserved. Each other slot is one unlock:
+
+```
+achievement ID u32 (0: empty) | game code[4] | when u32 | seq u16 | check u16
+```
+
+`when` is seconds since 2000-01-01 by the console's clock (local time).
+`check` is `0x5AA5` plus the first seven u16s, so a slot that was only
+partly written is skipped. The in-game side will write each unlock into a
+free slot; it never has to make or grow the file.
+
+**`CODE.DRS`** (a set) has a 32-byte header: `"DRSE"`, u16 version (1), u16
+header size, game code[4], u32 RetroAchievements game ID, u32 stamp (CRC-32
+of everything after the header), u16 achievement count, u16 flags, u32 table
+offset, u32 strings offset. The table has 12 bytes per achievement: u32 ID,
+u16 points, u16 flags (1: reads through a pointer, 2: from a bonus set), u32
+offset of its condition in the strings. The strings are the conditions in
+RetroAchievements' MemAddr text, NUL-terminated. The launcher only reads the
+header.
 
 ---
 
@@ -1184,6 +1266,12 @@ section 8).
   [launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)). It still has to be
   confirmed on hardware; Y keeps the two-step way. TWiLight's per-game
   settings other than the save slot aren't applied to a game picked there.
+- **Offline play is in progress.** The launcher plays without Wi-Fi, keeps
+  the sets on the SD card and syncs the unlock file with DSiRPC (both sides
+  tested against each other on a PC; the console side still needs hardware
+  testing). Nothing in the game checks achievements offline or writes
+  unlocks yet: that's the next step, an achievement checker in the in-game
+  side that reads `RPCSET.BIN` and writes `RPCUNLK.BIN`.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group
   handshake after the launcher exits. So far it hasn't caused problems; the
   `eap` counter is the early warning.
@@ -1230,14 +1318,14 @@ section 8).
 | `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
 | `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
-| `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent); all gitignored |
+| `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent, the unlocks you have); all gitignored |
 | `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT |
 | `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
 | `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `launcher/` | The DSi-mode launcher (`source/`: connecting, the file browser, the ini, starting nds-bootstrap) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
+| `launcher/` | The DSi-mode launcher (`source/`: connecting, the file browser, the ini, starting nds-bootstrap, the sync for offline play) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
 | `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
 | `docs/DOCUMENTATION.md` | This file |
 | `docs/research.md` | Verified research notes beyond this map, plus leads |

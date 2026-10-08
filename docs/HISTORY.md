@@ -275,6 +275,23 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-07: **Offline play, phase 1 (the launcher and DSiRPC).** The goal:
+  take the console anywhere, unlock achievements without DSiRPC around, and
+  have them reach RetroAchievements the next time the launcher finds DSiRPC.
+  The console does as little as possible: DSiRPC does all the parsing and
+  everything RetroAchievements, the console only carries files. Phase 1:
+  the launcher can skip Wi-Fi (**B** while connecting, or **START** when it
+  can't connect) and still start games; when it's connected it syncs with
+  DSiRPC over port 4245 (UDP broadcast to find it, then TCP), handing over
+  `sd:/RPCUNLK.BIN` (fixed-size slots the in-game side will write into) and
+  taking per-game sets (`sets/CODE.DRS`: the achievements left to unlock, as
+  MemAddr strings) that it copies to `sd:/RPCSET.BIN` for the game it
+  starts. DSiRPC sends the unlocks with the console's unlock times (`o`),
+  logs them and shows one notification. `RPCHAND.TXT` gained `time=` and a
+  `mode=offline` form. Both sides were tested against each other on a PC
+  (`launcher/source/sync.c` builds for Linux too). Next: phase 2, an
+  achievement checker in the in-game side that reads the set; phase 3,
+  writing its unlocks into `RPCUNLK.BIN`.
 - 2026-10-05 (evening): **A download for everyone.** Releases now come with
   `DSiRPC-<version>-windows.zip` (`packaging/build_release.py`, run by the
   GitHub Action on a Windows runner): DSiRPC with Python's embeddable package

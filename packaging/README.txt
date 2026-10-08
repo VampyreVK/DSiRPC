@@ -74,6 +74,13 @@ STEP 3: PLAYING
 
 In the launcher, SELECT disconnects and goes back without starting a game.
 
+No Wi-Fi? Press B while the launcher connects (or START when it says it
+couldn't) to play offline: games start the same way, without Discord.
+Whenever the launcher is connected and DSiRPC is running, the two sync
+(B skips it): DSiRPC puts your achievement sets on the SD card and sends
+achievements unlocked offline to RetroAchievements. (Games checking
+achievements while offline is still being worked on.)
+
 A game you've never started from TWiLight Menu++ has no save file yet,
 and the launcher says so: start it once from TWiLight Menu++ first.
 

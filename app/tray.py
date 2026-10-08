@@ -127,6 +127,12 @@ def run_tray(cfg, **engine_args):
                     if not e['sent']:
                         body += "\n(not sent to RetroAchievements)"
                     icon.notify(body[:255], "Achievement unlocked!")
+                elif e['type'] == 'offline_unlocks':
+                    n = e['count']
+                    body = ", ".join(e['titles'][:3]) + (f" and {n - 3} more" if n > 3 else "")
+                    body += "\n" + ("Sent to RetroAchievements." if e['sent']
+                                    else "Not sent: sending unlocks is off in setup.")
+                    icon.notify(body[:255], f"{n} achievement{'s' if n != 1 else ''} from offline play")
 
     def toggle_discord(icon_, item):
         on = not engine.discord.enabled

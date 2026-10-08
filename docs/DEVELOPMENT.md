@@ -111,7 +111,10 @@ its own folder. It must be started in **DSi mode**. Details are in
 Nothing else needs setting up on the SD card. The launcher writes its own
 `RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
 console's saved settings, and the console broadcasts its hello packets, so it
-never needs to know your PC's IP.
+never needs to know your PC's IP. For offline play it also makes
+`RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
+itself, and finds DSiRPC with a broadcast on port 4245
+([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
 
 ## 5. Discord applications
 

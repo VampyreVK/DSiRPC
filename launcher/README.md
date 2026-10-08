@@ -15,20 +15,27 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    times: a try fails if it can't connect within 30 s, or if no IPv4 address
    comes from DHCP within 10 s after that. (DSWiFi also says "Associated"
    once an IPv6 address is ready, which can come before DHCP has answered;
-   that was the `0.0.0.0` on the first try.)
+   that was the `0.0.0.0` on the first try.) **B** skips it, and **START**
+   when it can't connect, for [offline play](#offline-play).
 2. Shows the IP, gateway, mask and the DSi's MAC.
 3. Broadcasts 3 UDP test packets on port 4242, so no PC address is needed.
    `spikes/stage1-listen/pc/listener.py` can show them.
 4. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
-   then `end`) for the in-game side. The name has to be 8.3, because
-   nds-bootstrap's ARM7 file lookup only matches short names.
-5. **START:** pick a game. A file browser opens in the launcher's own folder
+   `time=`, then `end`) for the in-game side. The name has to be 8.3, because
+   nds-bootstrap's ARM7 file lookup only matches short names. `time=` is the
+   console's clock in seconds since 2000 (local time), for dating unlocks.
+5. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
+6. **START:** pick a game. A file browser opens in the launcher's own folder
    (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
    **START** goes back). The launcher then:
    - finds our nds-bootstrap build next to itself: `nds-bootstrap-dsirpc.nds`,
      or the only `nds-bootstrap*.nds` in that folder. If there's neither, it
      asks you to pick it with the same browser;
    - points `sd:/_nds/nds-bootstrap.ini` at the game (below);
+   - syncs with DSiRPC again, naming the game, so DSiRPC can send its set;
+   - copies the game's set to `sd:/RPCSET.BIN` (or deletes that file if
+     there's no set), makes sure `sd:/RPCUNLK.BIN` is there, and rewrites
+     `RPCHAND.TXT` with the current time;
    - starts nds-bootstrap directly, still connected ([CHAINLOAD.md](CHAINLOAD.md)).
 
    **SELECT:** disconnect cleanly, then exit.
@@ -58,6 +65,41 @@ deletes) for every game it launches anyway. Everything else in the ini
 A game that has never been started from TWiLight has no save file yet, and
 the launcher won't make one (the right size depends on the game), so it
 says so and goes back: start that game once from TWiLight first.
+
+## Offline play
+
+Without Wi-Fi (**B** while connecting, or **START** when it couldn't), the
+launcher turns Wi-Fi off and works the same way, minus the syncs.
+`RPCHAND.TXT` then holds only `mode=offline`, `time=` and `end`; with no
+`ip` or `mac`, the in-game side leaves the network alone. The keys are
+**START** (pick a game) and **SELECT** (exit).
+
+### The files on the SD card
+
+| File | What |
+|---|---|
+| `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: only the achievements left to unlock that the console can check |
+| `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root |
+| `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side only ever writes into it |
+
+The formats are in DSiRPC's `core/offline.py` and in
+[docs/DOCUMENTATION.md](../docs/DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245).
+The launcher never looks past a set's header: DSiRPC builds them, and the
+in-game side will read them.
+
+### The sync with DSiRPC
+
+`source/sync.c`. The launcher broadcasts `DSiRPC sync?` on UDP 4245 for
+1.5 s. If DSiRPC answers, the launcher connects to it over TCP (the same
+port) and sends the game being started (if any), the stamp of every set it
+has, and `RPCUNLK.BIN` as it is. DSiRPC answers with how many unlocks it
+took and the sets that are new or changed. When DSiRPC took as many unlocks
+as the launcher counted, the launcher zeroes them in the file; otherwise it
+keeps them for next time. Each set is written to `CODE.TMP` first, then
+renamed, so a set that doesn't arrive whole never replaces the old one.
+
+**B** skips the sync at any point. Nothing is lost: unlocks stay on the SD
+card until DSiRPC has them.
 
 ## Build
 
@@ -91,6 +133,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/main.c` | Connecting (with the retries), the results screen and the keys |
 | `source/browser.c` | The file browser |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save |
+| `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
@@ -107,6 +150,11 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
   If it doesn't work, **Y** still exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
+- **Offline play only gets as far as the launcher for now.** It keeps the
+  sets and syncs the unlock file, but nothing in the game checks
+  achievements offline or writes unlocks yet (the next phases).
+- **The sync is new** and needs testing on hardware. It was tested against
+  DSiRPC with a PC build of `source/sync.c`.
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is
   running that driver. If hello packets stop at a suspiciously regular

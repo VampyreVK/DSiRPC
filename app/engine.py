@@ -111,6 +111,14 @@ class Engine:
         self._started = False
         self._apply_overlay(False)
 
+        # Offline play: the launcher hands over what was unlocked without
+        # DSiRPC and takes the sets it doesn't have (core/console_sync.py).
+        # Only when reading a real DSi.
+        self.console_sync = None
+        if not demo and not file:
+            from core.console_sync import ConsoleSync
+            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks)
+
     # -- settings ----------------------------------------------------------
 
     def _apply_ra_settings(self):
@@ -224,6 +232,93 @@ class Engine:
             except OSError:
                 pass
 
+    # -- offline play (core/console_sync.py's thread) --------------------------
+
+    def _offline_sets(self, game, stamps, unlocks=()):
+        """[(code, .DRS bytes)] for the console: the game it's starting
+        (downloaded now if needed), then every other set in ra/, each only
+        if the console's copy is missing or older. What's known to be
+        unlocked is left out, including the unlocks the console just sent."""
+        from core import offline, ra_set
+        link = self.ra_link if self.ra_enabled else None
+        codes = ([game] if game else []) + [c for c in ra_set.codes() if c != game]
+        check, runtime = None, None
+        try:
+            from core.rcheevos import Runtime, RcheevosError
+            runtime = Runtime()
+
+            def check(memaddr):
+                try:
+                    runtime.activate_achievement(1, memaddr)
+                    runtime.deactivate_achievement(1)
+                    return True
+                except RcheevosError:
+                    return False
+        except Exception as e:  # no rcheevos library: send them unchecked
+            logging.debug(f"Offline sets aren't checked with rcheevos: {e}")
+        out = []
+        try:
+            for code in codes:
+                try:
+                    s = link.set_for_code(code) if (link and code == game) else ra_set.for_game(code)
+                except ra_set.SetFileError as e:
+                    logging.info(f"Offline sync: {code}: {e}")
+                    continue
+                if not s:
+                    continue
+                skip = link.known_unlocks(s.id) if link else set()
+                skip |= {u['id'] for u in unlocks if u['code'] == code}
+                data = offline.build_set(s, code, skip, check)
+                if stamps.get(code) != offline.set_stamp(data):
+                    out.append((code, data))
+        finally:
+            if runtime:
+                runtime.close()
+        return out
+
+    def _offline_unlocks(self, unlocks):
+        """Unlocks from offline play: sent to RetroAchievements like any
+        other (with when they happened), if that's on in setup."""
+        from core import ra_set
+        from core.ra_link import queue_offline
+        sending = self.cfg.ra_submit and self.ra_enabled and not self.dry_run
+        link = self.ra_link
+        sets, rows = {}, []
+        for u in unlocks:
+            if u['code'] not in sets:
+                try:
+                    sets[u['code']] = ra_set.for_game(u['code'])
+                except ra_set.SetFileError:
+                    sets[u['code']] = None
+            s = sets[u['code']]
+            a = next((a for a in s.achievements if a['id'] == u['id']), None) if s else None
+            row = {'id': u['id'], 'when': u['when'], 'game': s.title if s else u['code'],
+                   'game_id': s.id if s else 0, 'title': a['title'] if a else f"achievement {u['id']}",
+                   'points': a['points'] if a else 0}
+            rows.append(row)
+            if sending and link:
+                link.award_offline(row['id'], row['when'], row['game'], row['game_id'])
+        if sending and not link:
+            queue_offline(rows)
+        lines = [f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['when']))}\t{r['game']}\t{r['id']}\t"
+                 f"{r['title']}\t{r['points']} points\t{'sent' if sending else 'not sent'} (offline play)\n"
+                 for r in rows]
+        try:
+            os.makedirs(LOG_DIR, exist_ok=True)
+            with open(ACHIEVEMENTS_LOG, "a", encoding="utf-8") as f:
+                f.writelines(lines)
+        except OSError:
+            pass
+        logging.info(f"Offline play: {len(rows)} achievement(s) unlocked"
+                     + ("" if sending else " (not sent: sending unlocks is off in setup)"))
+        if self.on_change:
+            try:
+                self.on_change([{'type': 'offline_unlocks', 'count': len(rows), 'sent': sending,
+                                 'titles': [r['title'] for r in rows]}])
+            except Exception:
+                logging.exception("on_change failed")
+        return len(rows)
+
     def _on_update(self, snap, events):
         self._check_config()
         self._log_achievements(events)
@@ -271,9 +366,17 @@ class Engine:
     def start(self):
         self.hub.start()
         self._started = True
+        if self.console_sync:
+            try:
+                self.console_sync.start()
+            except OSError as e:
+                logging.warning(f"No offline sync: UDP/TCP port {self.console_sync.port} is in use ({e})")
+                self.console_sync = None
 
     def stop(self):
         self.set_overlay(False)
+        if self.console_sync:
+            self.console_sync.stop()
         if self._started:
             self.hub.stop()
             self._started = False

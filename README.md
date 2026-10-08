@@ -53,7 +53,8 @@ battles for streaming.
 2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
    connects to Wi-Fi in DSi mode (it tries up to 3 times by itself) and shows
    the console's IP address. If it says it's running in DS mode, set it to
-   DSi mode in TWiLight Menu++'s per-game settings.
+   DSi mode in TWiLight Menu++'s per-game settings. Away from your PC? Press
+   **B** while it connects to [play offline](#playing-offline).
 3. Press **START** and pick your game: **A** opens a folder or picks the game,
    **B** goes up a folder. The launcher starts it, still connected.
    (**SELECT** disconnects and goes back instead.)
@@ -66,6 +67,27 @@ launcher says so. Start it once from TWiLight Menu++, then use the launcher.
 When you close the game, DSiRPC clears the presence after about 30 seconds and
 waits for the console again, so switching games or restarting needs nothing
 on the PC.
+
+### Playing offline
+
+Away from your PC (or your Wi-Fi), the launcher still starts your games: press
+**B** while it connects, or **START** when it says it couldn't connect. Wi-Fi
+stays off and the game runs as usual, just without Discord or the overlay.
+
+Whenever the launcher is connected and DSiRPC is running, it syncs with it,
+once when it connects and again when you start a game (**B** skips that):
+
+- DSiRPC sends it the [achievement sets](#retroachievements) you have, and
+  downloads the set of the game you're starting if it can. The launcher keeps
+  them in `sd:/DSiRPC/sets`, each with only the achievements you haven't
+  unlocked yet.
+- The launcher hands DSiRPC the achievements unlocked while playing offline,
+  and DSiRPC sends them to RetroAchievements (if sending unlocks is on in
+  setup), with the time you unlocked them, and tells you in a notification.
+
+**Work in progress:** for now, games don't check achievements while you play
+offline yet; that's next (see the [roadmap](#known-issues-and-roadmap)). The
+launcher and DSiRPC already do their part.
 
 ### The tray icon
 
@@ -147,6 +169,7 @@ the first time they're needed, then kept.
 | Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
 | The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
 | The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
+| The launcher says "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (the same fix as "Nothing on Discord"; the sync uses port 4245). The game still starts; unlocks wait on the SD card until the next sync. |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
@@ -178,6 +201,9 @@ our nds-bootstrap  --boots-->  the game
                                                   Discord Rich Presence   overlay window
 ```
 
+The launcher also syncs with DSiRPC on port 4245 (UDP to find it, then TCP),
+for [offline play](#playing-offline).
+
 The console side stays simple: it only answers "give me these bytes".
 Everything else (decrypting the party, working out the location, deciding
 what Discord shows) happens on the PC, so new features never need a console
@@ -198,6 +224,9 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       Platinum USA Rev 1 gets the full presence and the overlay's party and
       battle views.
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
+- [ ] Achievements while [playing offline](#playing-offline): the launcher
+      already keeps the sets on the SD card and syncs unlocks with DSiRPC;
+      checking them in the game is next.
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets

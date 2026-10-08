@@ -3,8 +3,9 @@
 // Cut down from BlocksDS DSWiFi (MIT licensed): the polled command path of
 // source/arm7/twl/sdio.twl.c, the byte-wise mailbox write path of
 // card.twl.c (wifi_card_write_func_byte / wifi_card_mbox0_send_packet /
-// wifi_card_mbox0_sendbytes), and mbox_hdr_tx_data_packet from
-// common/common_twl_defs.h.
+// wifi_card_mbox0_sendbytes), mbox_hdr_tx_data_packet from
+// common/common_twl_defs.h, and for TwlWifi_Shutdown(), wmi_disconnect_cmd()
+// and wifi_card_deinit().
 //
 // Packets are moved with CMD53 block transfers (RPCPROBE_RX_CMD53 and
 // RPCPROBE_TX_CMD53, from the non-NDMA path of DSWiFi's
@@ -84,6 +85,20 @@
 #define F1_HOST_INT_STATUS  0x400
 #define F1_RX_LOOKAHEAD0    0x408
 #define MBOX0_END           0x4000
+
+// Used by TwlWifi_Shutdown() only. The chip's four interrupt enable bytes
+// (host, CPU, error, counter; DSWiFi's F1_INT_STATUS_ENABLE), the CCCR's
+// Int Enable register, and the controller's card interrupt registers
+// (DSWiFi's WIFI_SDIO_OFFS_CARDIRQ_CTL / _MASK).
+#define F1_INT_STATUS_ENABLE 0x418
+#define CCCR_INT_ENABLE     0x04
+#define SDIO_CARDIRQ_CTL    0x034
+#define SDIO_CARDIRQ_MASK   0x038
+// A WMI command: mailbox endpoint 1, with an ack asked for, as DSWiFi's
+// wmi_send_pkt() sends them. WMI_DISCONNECT_CMD has no parameters.
+#define MBOX_TYPE_WMI       0x01
+#define MBOX_REQACK         0x01
+#define WMI_DISCONNECT_CMD  0x0003
 
 // Mailbox packet: 6-byte mailbox header + 16 bytes of data header before
 // the LLC/SNAP header. Rounded up to 0x80-byte blocks, like DSWiFi.
@@ -280,6 +295,39 @@ static int cmd53WriteBlocks(const u8 *buf, u16 blocks, u16 *done) {
 	return result;
 }
 
+// Writes a mailbox message (`rounded` bytes, a multiple of MBOX_BLOCK) so
+// its last byte lands on the last address of the mailbox window - that's
+// what tells the chip the message is complete. `fast` = 1 lets it go out
+// with one CMD53 (while txMode is 53). Returns 0 on success, negative on
+// SDIO error.
+static int mboxWrite(const u8 *p, u16 rounded, int fast) {
+	int sent = 0;
+#if RPCPROBE_TX_CMD53
+	if (fast && txMode == 53) {
+		u16 done = 0;
+		int r = cmd53WriteBlocks(p, rounded / MBOX_BLOCK, &done);
+		if (r == 0) {
+			sent = 1;
+		} else {
+			if (++txCmd53Errors >= CMD53_MAX_ERRORS) txMode = 52;
+			// Part of it went out: the chip has a broken message, so don't
+			// send it again on top. Nothing went out: send it byte by byte.
+			if (done) return r;
+		}
+	}
+#else
+	(void)fast;
+#endif
+	if (!sent) {
+		u32 addr = MBOX0_END - rounded;
+		for (u16 i = 0; i < rounded; i++) {
+			int r = writeByte(1, addr + i, p[i]);
+			if (r < 0) return r;
+		}
+	}
+	return 0;
+}
+
 int TwlWifi_Probe(TwlWifiProbeResult *out) {
 	int r = readByte(0, 0x00, &out->revResp);
 	if (r < 0) return r;
@@ -311,32 +359,8 @@ int TwlWifi_SendLlcFrame(const u8 dstMac[6], const u8 srcMac[6], const u8 *llcFr
 	memcpy(&p[22], llcFrame, llcLen);
 	memset(&p[total], 0, rounded - total);
 
-	// Write the packet so its last byte lands on the last address of the
-	// mailbox window - that's what tells the chip the message is complete.
-	int sent = 0;
-#if RPCPROBE_TX_CMD53
-	if (fast && txMode == 53) {
-		u16 done = 0;
-		int r = cmd53WriteBlocks(p, rounded / MBOX_BLOCK, &done);
-		if (r == 0) {
-			sent = 1;
-		} else {
-			if (++txCmd53Errors >= CMD53_MAX_ERRORS) txMode = 52;
-			// Part of it went out: the chip has a broken message, so don't
-			// send it again on top. Nothing went out: send it byte by byte.
-			if (done) return r;
-		}
-	}
-#else
-	(void)fast;
-#endif
-	if (!sent) {
-		u32 addr = MBOX0_END - rounded;
-		for (u16 i = 0; i < rounded; i++) {
-			int r = writeByte(1, addr + i, p[i]);
-			if (r < 0) return r;
-		}
-	}
+	int r = mboxWrite(p, rounded, fast);
+	if (r < 0) return r;
 
 	// Bit 16 of HOST_INT_STATUS (bit 0 of its third byte) = TX overflow.
 	u16 status = 0;
@@ -372,6 +396,30 @@ int TwlWifi_TxCmd53Errors(void) {
 
 void TwlWifi_TxGiveUpCmd53(void) {
 	txMode = 52;
+}
+
+int TwlWifi_Shutdown(void) {
+	rxActive = 0; // a half-read packet is left in the chip
+
+	// WMI_DISCONNECT_CMD, as DSWiFi's wmi_disconnect_cmd(): the mailbox
+	// header (2 bytes long), then the command's id. Sent with CMD52, the
+	// slow but surest way, since it only happens once.
+	u8 *p = txBuf;
+	memset(p, 0, MBOX_BLOCK);
+	p[0] = MBOX_TYPE_WMI;
+	p[1] = MBOX_REQACK;
+	p[2] = 2;
+	p[6] = WMI_DISCONNECT_CMD & 0xFF;
+	p[7] = WMI_DISCONNECT_CMD >> 8;
+	int r = mboxWrite(p, MBOX_BLOCK, 0);
+
+	// Then what DSWiFi's wifi_card_deinit() does: the controller's card
+	// interrupt off, then the chip's interrupts
+	SDIO_REG16(SDIO_CARDIRQ_CTL) &= ~0x0001;
+	SDIO_REG16(SDIO_CARDIRQ_MASK) |= 0x0003;
+	for (int i = 0; i < 4 && r >= 0; i++) r = writeByte(1, F1_INT_STATUS_ENABLE + i, 0);
+	if (r >= 0) r = writeByte(0, CCCR_INT_ENABLE, 0);
+	return r;
 }
 
 int TwlWifi_ReadPacket(u8 *buf, u16 bufSize, u16 budget) {

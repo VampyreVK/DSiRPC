@@ -70,4 +70,14 @@ int TwlWifi_TxCmd53Errors(void);
 // they never arrive (the chip didn't complain, but the PC keeps asking).
 void TwlWifi_TxGiveUpCmd53(void);
 
+// Turns the connection off for good, the way the launcher does when it
+// goes offline (DSWiFi's Wifi_DisconnectAP() then Wifi_DisableWifi()): asks
+// the chip to leave the access point (WMI_DISCONNECT_CMD), then turns off
+// the chip's interrupts and the controller's card interrupt (DSWiFi's
+// wifi_card_deinit()). A DSi that sleeps with the chip still associated
+// shuts off (probe_hook.c). Nothing may use the chip afterwards. Returns 0
+// if the chip took every command, negative at the first one it didn't
+// (the rest are skipped then: the chip isn't answering).
+int TwlWifi_Shutdown(void);
+
 #endif // TWL_WIFI_H

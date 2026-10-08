@@ -13,6 +13,7 @@
 #include "fpsAdjust.h"
 #include "nds_header.h"
 #include "tonccpy.h"
+#include "rpcprobe/probe_hook.h" // DSiRPC: achievement LED, and Wi-Fi off before the sleep below
 
 #define sleepMode BIT(17)
 
@@ -55,6 +56,9 @@ void biosRead(void* dst, const void* src, u32 len)
 volatile int timeTillStatusRefresh = 7;
 
 void inGameMenu(void) {
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	Probe_MenuOpened(); // DSiRPC: new achievements count as seen (the LED stops)
+	#endif
 	// returnToMenu = false;
 	sharedAddr[4] = 0x554E454D; // 'MENU'
 	const u32 errorBak = sharedAddr[0];
@@ -86,6 +90,10 @@ void inGameMenu(void) {
 				int power = readPowerManagement(PM_CONTROL_REG);
 				// Set sleep LED. (Does not work)
 				writePowerManagement(PM_CONTROL_REG, PM_LED_CONTROL(1));
+
+				#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+				Probe_LidClosed(); // DSiRPC: a DSi sleeping with Wi-Fi connected shuts off
+				#endif
 
 				// Power down till we get our interrupt.
 				swiSleep();

@@ -90,10 +90,13 @@ memory too.
 
 - bit 7: set once the state machine has run
 - bits 4-6: stage (0 loading files, 1 probing the chip, 2 sending,
-  3 failed, 4 waiting to switch the board back to DSi mode)
+  3 failed, 4 waiting to switch the board back to DSi mode, 5 Wi-Fi off
+  because the lid closed on a DSi)
 - bits 0-3: low 4 bits of the hello count
 
-For example, `A5` means sending, 5th packet (mod 16), and `B0` means failed.
+For example, `A5` means sending, 5th packet (mod 16), `B0` means failed,
+and `D` followed by anything means the lid closed (on a DSi) and the Wi-Fi
+is off.
 
 The address changes between builds. After building, look it up in the ELF.
 From PowerShell, in the repo root:
@@ -149,8 +152,23 @@ Two things to know:
   short. The receive path reads at most `RPCPROBE_RX_BYTES_PER_VBLANK`
   bytes per VBlank, and no hello goes out in a tick that already sent a
   reply. `vb=` in the hellos shows the longest tick.
+- **A DSi mustn't sleep while the chip is connected.** It shuts off
+  instead (a 3DS doesn't). When the lid closes on a DSi, `Probe_LidClosed()`
+  sends a "DSiRPC lid" packet (DSiRPC logs `Console: its lid closed ...`, so
+  the log shows it ran), disconnects the chip and turns its interrupts off
+  (`TwlWifi_Shutdown()`, what the launcher's DSWiFi does when it goes
+  offline), then cuts the chip's SDIO power (BPTWL[30h] bit 4, which also
+  turns the Wi-Fi LED off), all before the game gets to its sleep. rpcprobe
+  stays off the Wi-Fi for the rest of the game. nds-bootstrap's in-game menu
+  calls it too, before its own sleep.
+- **The achievement LED only changes from the VBlank.** The LED of
+  TWiLight's ROM read LED setting pulses while achievements unlocked this
+  game haven't been seen in the in-game menu (`probe_led.c`). nds-bootstrap's
+  own ROM read flashes, which used the I2C bus outside interrupts, are off in
+  this build (`cardReadLED()` returns at once), so the two never fight over
+  the bus.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  2.4 KB is left: 59,956 of 62,464 bytes). The achievement checker keeps its set and state in main
+  2.0 KB is left: 60,408 of 62,464 bytes). The achievement checker keeps its set and state in main
   RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

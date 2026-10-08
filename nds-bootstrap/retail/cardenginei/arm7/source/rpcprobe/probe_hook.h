@@ -1,5 +1,6 @@
 // probe_hook.h - the entry points cardengine.c calls: once per real VBlank
-// from myIrqHandlerVBlank(), and from its swiHalt hook. See probe_hook.c.
+// from myIrqHandlerVBlank(), and from its swiHalt hook (and inGameMenu.c,
+// when the menu opens and before its sleep). See probe_hook.c.
 
 #ifndef PROBE_HOOK_H
 #define PROBE_HOOK_H
@@ -15,5 +16,15 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex);
 // ARM7 idles (swiHalt), outside interrupts: it saves the achievement
 // checker's unlocks to the SD card when sdMutex (saveMutex) is free.
 void Probe_HaltTick(int *sdMutex);
+
+// The lid closed on a DSi: turns rpcprobe's Wi-Fi off for the rest of the
+// game (see probe_hook.c's lid rule). Probe_VBlankTick() calls it itself;
+// nds-bootstrap's in-game menu calls it before its own sleep, since the
+// VBlank ticks stop while the menu is open.
+void Probe_LidClosed(void);
+
+// nds-bootstrap's in-game menu opened: the achievements unlocked so far
+// count as seen, so the achievement LED stops pulsing (probe_hook.c).
+void Probe_MenuOpened(void);
 
 #endif // PROBE_HOOK_H

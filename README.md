@@ -100,6 +100,16 @@ and DSiRPC running, the console also reports to DSiRPC's log
 unlock(s) to its SD card for DSiRPC`), next to DSiRPC's own unlocks, so the
 two can be compared.
 
+On a DSi, the console shows new unlocks itself too: the LED picked by
+TWiLight Menu++'s **ROM read LED** setting (`ROMREAD_LED` in
+`nds-bootstrap.ini`: the Wi-Fi, power or camera LED) pulses while there are
+achievements from this game you haven't seen yet (the power LED pulses
+purple). Opening nds-bootstrap's in-game menu (**L + Down + SELECT** by
+default) counts as seeing them. It's also a quick way to tell the console's
+checker is working without DSiRPC. With DSiRPC's nds-bootstrap that LED no
+longer flashes for ROM reads; set the setting to None to turn the
+achievement LED off.
+
 This works on hardware since 2026-10-08 (an offline unlock in Tetris DS
 reached RetroAchievements at the next sync), but it's new: see the
 [roadmap](#known-issues-and-roadmap).
@@ -189,6 +199,7 @@ the first time they're needed, then kept.
 | Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
 | The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
 | The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
+| Discord stopped after the DSi's lid was closed | That's on purpose: the console turns its Wi-Fi off when the lid closes, because a DSi that sleeps while connected switches itself off. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |
 | The launcher says "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (the same fix as "Nothing on Discord"; the sync uses port 4245). The game still starts; unlocks wait on the SD card until the next sync. |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
@@ -271,6 +282,10 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 - [x] One app on the console: the launcher connects and starts the game.
 - [x] A Windows download that needs nothing installed.
 - Games' own Wi-Fi features don't work while playing through DSiRPC.
+- On a DSi, closing the lid turns the console's Wi-Fi off until a game is
+  started from the launcher again (a DSi that sleeps while connected
+  switches itself off). Achievements are still checked and saved for the
+  next sync.
 - DSi-enhanced games (Pokémon Black and White, and later) need to run in DS
   mode (TWiLight Menu++'s per-game settings).
 

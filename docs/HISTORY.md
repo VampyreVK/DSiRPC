@@ -275,6 +275,35 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Lid fix, second try, and the achievement LED.** The first
+  lid fix (disconnect the chip and turn its interrupts off when the lid
+  closes) didn't help: the DSi still switched off. It's not known yet
+  whether that code ran before the game slept, so now it first sends
+  DSiRPC a "DSiRPC lid" packet (logged as `Console: its lid closed ...`),
+  then disconnects the chip as before, then cuts the chip's SDIO power
+  (BPTWL[30h] bit 4, which DSWiFi sets when it starts the chip; the Wi-Fi LED
+  goes off with it). Also new: on a DSi, the LED TWiLight's ROM read LED
+  setting picks pulses while achievements unlocked this game haven't been
+  seen, until nds-bootstrap's in-game menu is opened (the power LED pulses
+  purple); that LED no longer flashes for ROM reads in our build. Tested on
+  a PC (the state machine's cases, and the LED against a fake BPTWL chip:
+  pulse timing, each LED's values, the SDIO bit never coming back, no I2C
+  on a 3DS or with broken I2C); needs a hardware test. ARM7: 60,408 of
+  62,464 bytes.
+- 2026-10-08: **DSi lid fix: the console turns its Wi-Fi off when the lid
+  closes.** On a DSi, closing the lid in a game started connected switched
+  the console off, while the same thing was fine started offline (B in
+  the launcher) or from TWiLight Menu++, and on a 3DS. The difference is
+  the chip still being associated when the game sleeps (likely its power
+  draw: DSWiFi sets it to maximum performance, no power saving). Now the
+  first VBlank that sees the lid closed does what the launcher does when it
+  goes offline: a `WMI_DISCONNECT_CMD`, then the chip's and the
+  controller's interrupts off (`TwlWifi_Shutdown()`), and rpcprobe stays
+  off the Wi-Fi for the rest of the game (status byte stage 5); the checker
+  and its saves carry on. The in-game menu's own sleep calls it too. DSi
+  only. Tested on a PC against a fake chip (the exact SDIO commands, and a
+  chip that doesn't answer) and through the state machine's cases; needs a
+  hardware test. ARM7: 60,180 of 62,464 bytes.
 - 2026-10-08: **Offline play works end to end; console unlocks count live;
   a faster checker.** On hardware, Tetris DS's "Infinite Rotating" (230052)
   unlocked with the console offline, was saved to `RPCUNLK.BIN`, and went to

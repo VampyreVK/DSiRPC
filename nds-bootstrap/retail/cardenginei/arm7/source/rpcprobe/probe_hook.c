@@ -21,6 +21,21 @@
 // (saveMutex), which its save and ROM reads take too. Only for a game whose
 // swiHalt nds-bootstrap couldn't hook does the VBlank save them, with the
 // same lock and only when no ROM read is under way.
+//
+// Lid rule: a DSi that goes to sleep (the game's own sleep when the lid
+// closes) while the Wi-Fi chip is still connected to the access point shuts
+// off instead; one whose launcher went offline sleeps fine, and so does a
+// 3DS. So on a DSi, as soon as the lid closes, rpcprobe sends DSiRPC a
+// "DSiRPC lid" packet, turns the connection off the way the launcher does
+// when it goes offline (TwlWifi_Shutdown(), a few SDIO commands), then
+// switches the chip's SDIO power off (ProbeLed_WifiPowerOff()), all before
+// the game gets to its sleep, and stays off the Wi-Fi for the rest of the
+// game. The checker and its saves carry on, so it's offline play from then
+// on: unlocks are sent at the next sync.
+//
+// Achievement LED: while achievements unlocked this game haven't been seen
+// in nds-bootstrap's in-game menu yet, the LED of TWiLight's "ROM read LED"
+// setting pulses (probe_led.c). Opening the menu counts as seeing them.
 
 #include <nds/ndstypes.h>
 #include "debug_file.h"
@@ -28,6 +43,7 @@
 #include "twl_wifi.h"
 #include "rpcprobe_config.h"
 #include "probe_net.h"
+#include "probe_led.h"
 #if RPCPROBE_REQUESTS
 #include "probe_req.h"
 #include "probe_watch.h"
@@ -36,13 +52,16 @@
 #include "probe_ach.h"
 #endif
 
+extern void swiDelay(u32 duration); // the BIOS's WaitByLoop: 4 cycles a count
 // One-byte live status, readable with nds-bootstrap's in-game RAM viewer:
 // bit 7 = set once running, bits 4-6 = stage (0 load, 1 probe, 2 sending,
-// 3 failed, 4 waiting to restore DSi mode), bits 0-3 = packets sent (low 4 bits).
+// 3 failed, 4 waiting to restore DSi mode, 5 Wi-Fi off: the lid closed),
+// bits 0-3 = packets sent (low 4 bits).
 u8 probeStatusByte = 0;
 
 #define HO_REG_GPIO_WIFI   (*(vu16*)0x04004C04) // bit 8 set = old DS wifi mode
 #define HO_REG_VCOUNT      (*(vu16*)0x04000006) // current scanline, 0-262
+#define HO_REG_KEYXY       (*(vu16*)0x04000136) // bit 7 set = the lid is closed
 #define HO_LINES_PER_FRAME 263
 #define HO_TICKS_PER_STEP  60 // ~1 second between steps/packets
 #define HO_MAX_SEND_FAILS  3
@@ -52,7 +71,9 @@ u8 probeStatusByte = 0;
 // (~15 steps) before switching back. Steps are ~1 second each.
 #define HO_RESTORE_AFTER_STEPS 15
 
-enum { HO_LOAD = 0, HO_PROBE = 1, HO_RUN = 2, HO_FAILED = 3, HO_RESTORE = 4 };
+enum { HO_LOAD = 0, HO_PROBE = 1, HO_RUN = 2, HO_FAILED = 3, HO_RESTORE = 4, HO_OFF = 5 };
+
+extern u8 consoleModel; // card_engine_header.s: 0-1 = DSi, 2-3 = 3DS
 
 static u8 hoStage = HO_LOAD;
 static u8 hoTimer = 0;
@@ -68,6 +89,7 @@ static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hell
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
+static u16 hoAchSeen = 0;      // probeAchTriggered when the in-game menu last opened
 extern int tryLockMutex(int *addr);   // card_engine_header.s
 extern int unlockMutex(int *addr);
 #endif
@@ -291,6 +313,43 @@ static void achSave(int *sdMutex) {
 }
 #endif
 
+// "DSiRPC lid n=<hellos sent>": tells DSiRPC the Wi-Fi is going off because
+// the lid closed (and shows the lid rule ran before the console slept). Sent
+// with CMD52, then given about 3 ms to go out before the chip is told to
+// leave the access point.
+static void lidSend(void) {
+	static char msg[24];
+	int n = 0;
+	n += putStr(&msg[n], "DSiRPC lid n=");
+	n += putDec(&msg[n], hoSent);
+	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
+	TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen, 0);
+	swiDelay(25000);
+}
+
+void Probe_LidClosed(void) {
+	// Not before handoffLoad() has run (the first tick), and only once
+	if (hoStage == HO_LOAD || hoStage == HO_OFF) return;
+	// Only if the launcher left the chip connected (a usable RPCHAND.TXT;
+	// an offline one has no addresses)
+	if (rpcProbeHandoff.valid) {
+		// In DS mode the chip can't be reached over SDIO
+		if (!(HO_REG_GPIO_WIFI & 0x100)) {
+			if (hoStage == HO_RUN) lidSend();
+			TwlWifi_Shutdown();
+		}
+		ProbeLed_WifiPowerOff();
+	}
+	hoStage = HO_OFF;
+}
+
+void Probe_MenuOpened(void) {
+#if RPCPROBE_ACH
+	hoAchSeen = probeAchTriggered;
+	ProbeLed_Tick(0, 0); // now, since the VBlank ticks stop while the menu is open
+#endif
+}
+
 void Probe_HaltTick(int *sdMutex) {
 #if RPCPROBE_ACH
 	hoNoHalt = 0;
@@ -303,6 +362,13 @@ void Probe_HaltTick(int *sdMutex) {
 void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
 	int sentThisTick = 0;
+	// DSi: the lid closing turns the Wi-Fi off (the lid rule at the top)
+	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
+	if (lidClosed) Probe_LidClosed();
+#if RPCPROBE_ACH
+	// The achievement LED (not on the first tick, which reads the SD card)
+	if (hoStage != HO_LOAD) ProbeLed_Tick((int)probeAchTriggered - (int)hoAchSeen, lidClosed);
+#endif
 #if RPCPROBE_REQUESTS
 	// Per-frame capture first, so every sample is taken at the same point
 	// in the frame (and before anything else this tick costs time).

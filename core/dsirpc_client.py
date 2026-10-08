@@ -30,7 +30,9 @@ Builds with offline play's achievement checker (rpcprobe/probe_ach.c) also
 send "DSiRPC ach ..." a moment after each hello while the game has a set:
 how many achievements the console is checking, what it has unlocked, and how
 fast it goes. DSiClient logs them (see AchReport), so the console's unlocks
-can be compared with DSiRPC's own.
+can be compared with DSiRPC's own. On a DSi, "DSiRPC lid ..." says the lid
+closed, so the console turned its Wi-Fi off for the rest of the game; that's
+logged too.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -166,6 +168,9 @@ class DSiClient:
                 print(f"  hello: {self.last_hello}")
         elif data.startswith(b"DSiRPC ach "):
             self.ach.take(data.decode(errors="replace"))
+        elif data.startswith(b"DSiRPC lid"):
+            logging.info("Console: its lid closed, so it turned its Wi-Fi off until a game is started "
+                         "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
 

@@ -680,6 +680,9 @@ void reset(const bool downloadedSrl) {
 }
 
 static void cardReadLED(const bool on, const bool dmaLed) {
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	return; // DSiRPC: this setting's LED is the achievement LED instead (rpcprobe/probe_led.c)
+	#endif
 	if (!(valueBits & i2cBricked) && consoleModel < 2) { /* Proceed below */ } else { return; }
 
 	/* static bool ledIsOn = false;

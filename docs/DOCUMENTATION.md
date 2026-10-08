@@ -1035,8 +1035,9 @@ All paths below are under `nds-bootstrap/retail/`.
 
 | File | Role |
 |---|---|
-| `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests, and on the first tick reads the game's code, ROM version and header CRC from its header for the hellos. `Probe_HaltTick()` saves the checker's unlocks. |
-| `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction) |
+| `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests, and on the first tick reads the game's code, ROM version and header CRC from its header for the hellos. `Probe_HaltTick()` saves the checker's unlocks. On a DSi, the lid closing turns the Wi-Fi off for the rest of the game (`Probe_LidClosed()`; see the rules below). It drives the achievement LED; `Probe_MenuOpened()` counts new unlocks as seen. |
+| `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction), and `TwlWifi_Shutdown()` for when the lid closes (leave the access point, interrupts off) |
+| `probe_led.c/.h` | The DSi's LEDs through the BPTWL chip (I2C): the achievement LED, and the Wi-Fi chip's SDIO power cut when the lid closes |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP (and hands `'W'`/`'F'` to `probe_watch.c`), counts EAPOL |
 | `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
@@ -1120,11 +1121,34 @@ described in [HISTORY.md](HISTORY.md).
   and the party-menu crash. The checker's unlocks are written from the
   swiHalt hook instead, holding nds-bootstrap's `saveMutex` (above).
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 59,956 of 62,464 bytes are used with the per-frame capture
+  (61 KB in total; 60,408 of 62,464 bytes are used with the per-frame capture
   and the achievement checker), so every addition counts. Anything big
   goes in main RAM, like the checker's set and state.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
   the receive path handles at most one packet per VBlank.
+- **Don't let a DSi sleep while the chip is connected.** A DSi whose game
+  goes to sleep (the lid closed) with the chip still associated switches
+  itself off; one whose launcher went offline sleeps fine, and a 3DS
+  doesn't mind either way. So on a DSi, the first VBlank that sees the lid
+  closed (`REG_KEYXY` bit 7) sends a "DSiRPC lid" packet (DSiRPC logs it),
+  does what DSWiFi does when the launcher goes offline
+  (`TwlWifi_Shutdown()`: `WMI_DISCONNECT_CMD`, then the chip's and the
+  controller's interrupts off), and cuts the chip's SDIO power (BPTWL[30h]
+  bit 4), all in that VBlank, before the game gets to its sleep. (The first
+  version, without the packet and the power cut, didn't stop the shutdown
+  on hardware.) rpcprobe stays off the Wi-Fi for the rest of that game
+  (status byte stage 5); the checker and its saves carry on, as in offline
+  play. nds-bootstrap's in-game menu, which runs instead of the VBlank
+  ticks while it's open, calls `Probe_LidClosed()` before its own sleep.
+- **The achievement LED only changes from the VBlank.** On a DSi, the LED
+  TWiLight's ROM read LED setting picks (`romRead_LED`: 1 Wi-Fi, 2 power,
+  3 camera, 0 none) pulses while achievements unlocked this game haven't
+  been seen in the in-game menu: lit half a second every second and a half,
+  written only when it changes (`probe_led.c`; the power LED goes purple,
+  with nds-bootstrap's own values). Opening the menu (`Probe_MenuOpened()`)
+  counts them as seen. nds-bootstrap's own ROM read flashes, which used the
+  I2C bus outside interrupts, are off in this build (`cardReadLED()` returns
+  at once).
 
 ---
 
@@ -1398,6 +1422,14 @@ section 8).
   clock is only read by the launcher). The checker reads main RAM from the ARM7, so it can see values a
   frame or more late, like DSiRPC's own reads; and with a big set one pass
   takes a few frames, so a hit count of 60 takes longer than a second.
+- **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
+  sleeps with the chip connected switches itself off, so the console
+  disconnects as soon as the lid closes (rules above). Discord and the
+  overlay stop until a game is started from the launcher again;
+  achievements are still checked and saved, and sent at the next sync. A
+  3DS keeps its Wi-Fi. The first version (disconnect only) didn't stop the
+  shutdown on hardware; the second also cuts the chip's power and tells
+  DSiRPC first. Still to be confirmed.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group
   handshake after the launcher exits. So far it hasn't caused problems; the
   `eap` counter is the early warning.

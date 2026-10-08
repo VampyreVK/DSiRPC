@@ -80,7 +80,9 @@ Whenever the launcher is connected and DSiRPC is running, the two sync
 (B skips it): DSiRPC puts your achievement sets on the SD card and sends
 achievements unlocked offline to RetroAchievements. While you play, the
 console checks the game's achievements itself and saves what you unlock to
-the SD card (new).
+the SD card (new). On a DSi, the LED you picked as TWiLight Menu++'s "ROM
+read LED" pulses while there are new unlocks; opening nds-bootstrap's
+in-game menu (L + Down + SELECT) stops it.
 
 A game you've never started from TWiLight Menu++ has no save file yet,
 and the launcher says so: start it once from TWiLight Menu++ first.
@@ -98,6 +100,10 @@ IF SOMETHING DOESN'T WORK
 - Discord shows nothing while the tray icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (run Setup.bat).
 - The launcher can't connect: check the console's Wi-Fi settings.
+- Discord stopped after closing a DSi's lid: that's on purpose (a DSi
+  that sleeps while connected switches itself off). Achievements are
+  still checked and saved; start the game from the launcher again to
+  reconnect.
 - DSiRPC's log is logs\dsirpc.log in this folder (tray menu > Open log).
 
 

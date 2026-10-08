@@ -275,6 +275,97 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Offline play works end to end; console unlocks count live;
+  a faster checker.** On hardware, Tetris DS's "Infinite Rotating" (230052)
+  unlocked with the console offline, was saved to `RPCUNLK.BIN`, and went to
+  RetroAchievements at the next sync with the time it happened. Since the
+  console checks about twice a second and DSiRPC about once, DSiRPC now
+  counts the console's unlocks as soon as its report arrives (sent,
+  notified, no longer checked on the PC); the same unlock coming back at
+  the next sync is already known. For testing: `--blank-ra` (act as if
+  nothing were unlocked: whole sets for the console, every achievement
+  checked, everything sent), `--clear-ra` (throw away the console's waiting
+  unlocks at its first sync and send every set again), and `--dry-run` now
+  also acts as if nothing were unlocked and leaves the console's unlocks on
+  it; they combine. The checker got a speed pass, measured on a model of
+  the ARM7 (now `tools/arm7_model`: its Thumb build in an emulator,
+  counting instructions, branches and memory accesses; it agrees with the
+  1.4 passes a second seen on hardware within about 15%). Main RAM wasn't the cost, instructions were: switch tables
+  (`__gnu_thumb1_case_*` calls), operand values passed through memory,
+  recounting where each condset phase starts. Now operand value and type
+  come back in registers, sizes and comparisons are table lookups, AddSource
+  and AddAddress chains have a direct path, and the commonest condition
+  types skip the switch: Platinum's pass went from about 1.83 to 1.25
+  million cycles, other sets 17-24% less, with slightly smaller code. It
+  checks the time every 8 conditions instead of 32, so a turn rarely goes
+  more than a scanline or two over (it reached 26 on a 16-line budget), and
+  the budget is 20 lines. Same results as rcheevos: six real sets, and about
+  77,000 random achievements, with and without stopping at random points.
+  ARM7: 59,956 of 62,464 bytes.
+- 2026-10-08: **Offline play, phase 3 (saving unlocks in game).** Phase 2
+  ran on hardware: Platinum's 101 achievements at about 1.4 passes a second,
+  25-27 scanlines at most per VBlank. A test unlock (96047, all eight badges
+  at full shine) didn't trigger on the console, but DSiRPC's own rcheevos,
+  watching the same session, didn't unlock it either, so the two agreed.
+  Now each unlock is written into its own `RPCUNLK.BIN` slot. The SD card
+  can't be touched from the VBlank interrupt after the first one (the white
+  screen), so the writes happen in nds-bootstrap's swiHalt hook, outside
+  interrupts, where it already serves the ARM9's ROM reads under
+  `saveMutex`: `Probe_HaltTick()` takes that lock with `tryLockMutex()` and
+  writes one 16-byte slot. A game whose swiHalt couldn't be hooked gets them
+  written from the VBlank after two seconds, under the same lock and only
+  while no ROM read is in flight. The unlock's time is the launcher's clock
+  (`time=` in `RPCHAND.TXT`) plus the VBlanks since, so the game's ARM7
+  never has to read the real-time clock (time asleep isn't counted).
+  `RPCUNLK.BIN` is read on the first VBlank into the last 4 KB of the
+  checker's memory, which sets now leave free: unlocks go after the last
+  slot in use, and the game's achievements already waiting there aren't
+  checked again. Since the console saves online unlocks too, DSiRPC leaves
+  out the ones it already knows about when they come back. The report
+  gained `s=` (saved), `x=` (couldn't be saved) and `w=` (waiting from
+  before). Tested on a PC: the console side (probe_ach.c with the file
+  calls in memory) against DSiRPC's reader, and the whole loop through the
+  launcher's sync code and DSiRPC's `ConsoleSync`. ARM7: 60,012 of 62,464
+  bytes. Needs a hardware test.
+- 2026-10-08: **Offline play, phase 2 (the in-game checker).** Phase 1
+  worked on hardware: the launcher found DSiRPC and took five sets. Now the
+  console runs the game's achievements itself. To keep the console's part
+  small and exact, DSiRPC has rcheevos parse the set (as it does for itself)
+  and a small addition to the library (`third_party/rcheevos/dsirpc_offline.c`)
+  writes out what rcheevos parsed: the memory values, including the
+  AddSource/AddAddress/Remember chains rcheevos 12 keeps as "modified
+  memrefs", and every condition in rcheevos' evaluation order. Sets became
+  version 2 (that program instead of the MemAddr text). In nds-bootstrap,
+  `rpcprobe/probe_ach_vm.c` is a port of rcheevos 12.5's evaluation without
+  floating point (3.5 KB of ARM7 code), and `probe_ach.c` loads
+  `RPCSET.BIN` on the first VBlank into 256 KB the bootloader now keeps the
+  ROM cache out of, checks its CRC, and runs it about 1 ms per VBlank,
+  stopping after any 32 conditions and carrying on next time. Tested on a
+  PC side by side with rcheevos: five real sets and tens of thousands of
+  random achievements, every achievement state and hit count equal after
+  every frame. Along the way: rcheevos treats a value compared with its own
+  delta as unchanged by the operator alone, even when the two sides read
+  different bits (copied), and a Remember used by an earlier PauseIf reads
+  last frame's value (copied). With Wi-Fi, a "DSiRPC ach" packet after each
+  hello reports what the checker unlocked and how fast it runs, and DSiRPC
+  logs it. Next: phase 3, saving its unlocks into `RPCUNLK.BIN`.
+- 2026-10-07: **Offline play, phase 1 (the launcher and DSiRPC).** The goal:
+  take the console anywhere, unlock achievements without DSiRPC around, and
+  have them reach RetroAchievements the next time the launcher finds DSiRPC.
+  The console does as little as possible: DSiRPC does all the parsing and
+  everything RetroAchievements, the console only carries files. Phase 1:
+  the launcher can skip Wi-Fi (**B** while connecting, or **START** when it
+  can't connect) and still start games; when it's connected it syncs with
+  DSiRPC over port 4245 (UDP broadcast to find it, then TCP), handing over
+  `sd:/RPCUNLK.BIN` (fixed-size slots the in-game side will write into) and
+  taking per-game sets (`sets/CODE.DRS`: the achievements left to unlock, as
+  MemAddr strings) that it copies to `sd:/RPCSET.BIN` for the game it
+  starts. DSiRPC sends the unlocks with the console's unlock times (`o`),
+  logs them and shows one notification. `RPCHAND.TXT` gained `time=` and a
+  `mode=offline` form. Both sides were tested against each other on a PC
+  (`launcher/source/sync.c` builds for Linux too). Next: phase 2, an
+  achievement checker in the in-game side that reads the set; phase 3,
+  writing its unlocks into `RPCUNLK.BIN`.
 - 2026-10-05 (evening): **A download for everyone.** Releases now come with
   `DSiRPC-<version>-windows.zip` (`packaging/build_release.py`, run by the
   GitHub Action on a Windows runner): DSiRPC with Python's embeddable package

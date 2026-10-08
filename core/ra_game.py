@@ -24,6 +24,12 @@ not happen for a while, that's only true for a moment) unlock when they
 shouldn't. That's why sending unlocks is a separate choice (settings.submit).
 Achievements that read memory DSiRPC can't reach (the ARM9's data TCM,
 0x1000000 on) are left out.
+
+A game started from the DSiRPC launcher also has its achievements checked on
+the console itself (offline play's checker, nds-bootstrap's
+rpcprobe/probe_ach.c), about twice a second. When its report says it
+unlocked one this game is still checking, that counts right away, the same
+as DSiRPC's own unlocks (inbox ("console", [ids]), from core/hub.py).
 """
 
 import logging
@@ -277,6 +283,11 @@ class RaGame:
                 self.match_titles = value
             elif kind == "hash":
                 self.game_hash = value
+            elif kind == "console":  # the console's checker unlocked these
+                for aid in value:
+                    a = self.active.pop(aid, None)
+                    if a is not None:
+                        self._unlocked(a, by_console=True)
 
     # -- every second ------------------------------------------------------
 
@@ -320,7 +331,7 @@ class RaGame:
                 self._unlocked(self.active.pop(aid))
         self._ping()
 
-    def _unlocked(self, a):
+    def _unlocked(self, a, by_console=False):
         self.runtime.deactivate_achievement(a["id"])
         self.unlocked.add(a["id"])
         sending = bool(self.settings.submit and self.link and self.link.signed_in and self.set)
@@ -328,12 +339,13 @@ class RaGame:
             self.link.award(self, a["id"], self.game_hash)
         p = self.progress
         logging.info(f"Achievement unlocked: {a['title']} ({a['points']} points) in {self.title}"
+                     + (" by the console's checker" if by_console else "")
                      + ("" if sending else " (not sent to RetroAchievements)")
                      + (f", {p[0]} of {p[1]}" if p else ""))
         self._events.append({
             'type': 'achievement', 'id': a["id"], 'title': a["title"], 'description': a["description"],
             'points': a["points"], 'badge_url': a["badge_url"], 'game': self.title, 'sent': sending,
-            'progress': p,
+            'progress': p, 'by_console': by_console,
         })
 
     def _ping(self):

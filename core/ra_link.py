@@ -23,7 +23,19 @@ Unlocks (award()) are only sent when you chose that in setup, always as
 softcore. Each is written to ra/cache/pending_unlocks.json first and taken
 off once RetroAchievements has it; without a connection they're retried
 (1 s, 2 s, 4 s ... up to every 2 minutes, like RA emulators) and, after a
-restart, sent with how long ago they happened.
+restart, sent with how long ago they happened. Unlocks from offline play
+(award_offline(), core/console_sync.py) go the same way, with the time they
+happened on the console; ones taken while signed out wait in the same file
+for whoever signs in next.
+
+What's known to be unlocked (from sessions and sent unlocks) is kept in
+ra/cache/unlocked.json, so offline sets leave those out (known_unlocks()).
+
+blank (dsirpc.py --blank-ra, and --dry-run): DSiRPC acts as if the account
+had nothing unlocked. known_unlocks() is empty, so the console gets whole
+sets and its unlocks all count, and a session tells core/ra_game.py nothing
+is unlocked, so it checks every achievement. unlocked.json still records
+the real state.
 """
 
 import heapq
@@ -46,14 +58,38 @@ TITLE_LIST_DAYS = 7
 CACHE_DIR = os.path.join(ra_set.RA_DIR, "cache")
 
 
+def queue_offline(unlocks, ra_dir=ra_set.RA_DIR):
+    """Offline unlocks taken while there's no RALink (not signed in): kept in
+    the pending file for whoever signs in next. unlocks: [{'id', 'when',
+    'game', 'game_id'}]."""
+    path = os.path.join(ra_dir, "cache", "pending_unlocks.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            pending = json.load(f)
+        if not isinstance(pending, list):
+            pending = []
+    except (OSError, ValueError):
+        pending = []
+    for u in unlocks:
+        pending.append({"id": int(u["id"]), "hash": None, "when": int(u["when"]), "user": "",
+                        "game": u.get("game", ""), "game_id": u.get("game_id", 0), "offline": True})
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(pending, f, indent=1)
+    os.replace(path + ".tmp", path)
+
+
 class RALink:
-    def __init__(self, username=None, token=None, roms=None, settings=None, ra_dir=ra_set.RA_DIR, api=None):
+    def __init__(self, username=None, token=None, roms=None, settings=None, ra_dir=ra_set.RA_DIR, api=None,
+                 blank=False):
         self.api = api or RAClient(username, token)
         self.roms = roms
         self.settings = settings
+        self.blank = blank
         self.ra_dir = ra_dir
         self.cache_dir = os.path.join(ra_dir, "cache")
         self.pending_file = os.path.join(self.cache_dir, "pending_unlocks.json")
+        self.unlocked_file = os.path.join(self.cache_dir, "unlocked.json")
         self.status = f"signed in as {self.api.username}" if self.signed_in else "not signed in"
         self._jobs = []
         self._seq = itertools.count()
@@ -229,7 +265,11 @@ class RALink:
             settings = self.settings
             if settings is None or settings.profile or settings.submit:
                 unlocked = self.api.start_session(game_id, game_hash)
-                game.inbox.put(("session", unlocked))
+                self._remember(game_id, unlocked, replace=True)
+                if self.blank and unlocked:
+                    logging.info(f"RetroAchievements: --blank-ra: checking {code} as if none of your "
+                                 f"{len(unlocked)} unlock(s) were there")
+                game.inbox.put(("session", set() if self.blank else unlocked))
         except RANetworkError as e:
             delay = min(120, 15 * (attempt + 1))
             logging.warning(f"RetroAchievements: {e}; trying again in {delay} s")
@@ -239,6 +279,83 @@ class RALink:
         except (RAError, OSError) as e:
             logging.warning(f"RetroAchievements: {code}: {e}")
             game.inbox.put(("note", str(e)))
+
+    def set_for_code(self, code, timeout=10.0):
+        """A game's set for the console's offline cache: ra/<code>.json if
+        it's up to date, else found and downloaded the way prepare() does
+        (ROM hash, the set file's game ID, then the title). Waits for the
+        network (up to about `timeout` per request); None if there's none."""
+        try:
+            local = ra_set.for_game(code, self.ra_dir)
+        except ra_set.SetFileError:
+            local = None
+        fresh = local is not None and time.time() - os.path.getmtime(local.path) < REFRESH_SET_AFTER
+        if fresh or not self.signed_in:
+            return local
+        api = RAClient(self.api.username, self.api.token, host=self.api.host, timeout=timeout)
+        try:
+            game_hash = self._rom_hash(code)
+            game_id = api.game_id_for_hash(game_hash) if game_hash else 0
+            if not game_id:
+                game_hash = None
+                game_id = local.id if local else 0
+            if not game_id:
+                for title in game_titles.titles(code, self.cache_dir):
+                    pick = self.candidates(title)[1]
+                    if pick:
+                        game_id = pick.id
+                        break
+            if not game_id:
+                return local
+            data = api.game_sets(game_id=None if game_hash else game_id, game_hash=game_hash)
+            s = ra_set.RaSet(data)
+            if not s.id:
+                return local
+            os.makedirs(self.ra_dir, exist_ok=True)
+            dest = os.path.join(self.ra_dir, f"{code}.json")
+            with open(dest + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(dest + ".tmp", dest)
+            logging.info(f"RetroAchievements: downloaded {s.summary()} as ra/{code}.json (offline sync)")
+            return ra_set.load(dest)
+        except (RAError, OSError, ra_set.SetFileError, KeyError, ValueError, TypeError) as e:
+            logging.info(f"RetroAchievements: no set for {code} for offline play ({e})")
+            return local
+
+    # -- what's unlocked ------------------------------------------------------
+
+    def _read_unlocked(self):
+        try:
+            with open(self.unlocked_file, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def known_unlocks(self, game_id):
+        """IDs of a game's achievements known to be unlocked on this account
+        (none with blank)."""
+        if not game_id or self.blank:
+            return set()
+        with self._lock:
+            mine = self._read_unlocked().get(self.api.username or "", {})
+            return set(mine.get(str(game_id), []))
+
+    def _remember(self, game_id, ids, replace=False):
+        if not game_id or not self.api.username:
+            return
+        with self._lock:
+            data = self._read_unlocked()
+            mine = data.setdefault(self.api.username, {})
+            have = set() if replace else set(mine.get(str(game_id), []))
+            mine[str(game_id)] = sorted(have | {int(i) for i in ids})
+            try:
+                os.makedirs(self.cache_dir, exist_ok=True)
+                with open(self.unlocked_file + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                os.replace(self.unlocked_file + ".tmp", self.unlocked_file)
+            except OSError as e:
+                logging.warning(f"RetroAchievements: can't save {self.unlocked_file}: {e}")
 
     def ping(self, game_id, rich_presence, game_hash=None):
         self._later(0, self._ping, game_id, rich_presence, game_hash)
@@ -270,6 +387,12 @@ class RALink:
             return
         with self._lock:
             self._pending = [p for p in pending if isinstance(p, dict) and p.get("id")]
+            # Offline unlocks taken while signed out belong to whoever signs in
+            adopted = [p for p in self._pending if not p.get("user")]
+            for p in adopted:
+                p["user"] = self.api.username
+            if adopted:
+                self._save_pending()
             mine = [p for p in self._pending if p.get("user") == self.api.username]
         for p in mine:
             logging.info(f"RetroAchievements: sending achievement {p['id']} from {time.ctime(p['when'])}")
@@ -277,11 +400,23 @@ class RALink:
 
     def award(self, game, achievement_id, game_hash=None):
         entry = {"id": int(achievement_id), "hash": game_hash, "when": int(time.time()),
-                 "user": self.api.username, "game": game.title}
+                 "user": self.api.username, "game": game.title, "game_id": getattr(game, "game_id", 0)}
         with self._lock:
             self._pending.append(entry)
             self._save_pending()
         self._later(0, self._award, entry, 0)
+
+    def award_offline(self, achievement_id, when, game_title, game_id=0):
+        """An unlock from offline play, sent with how long ago it happened.
+        Signed out, it waits in the pending file for the next sign-in."""
+        entry = {"id": int(achievement_id), "hash": None, "when": int(when),
+                 "user": self.api.username if self.signed_in else "", "game": game_title,
+                 "game_id": game_id, "offline": True}
+        with self._lock:
+            self._pending.append(entry)
+            self._save_pending()
+        if self.signed_in:
+            self._later(0, self._award, entry, 0)
 
     def _done(self, entry):
         with self._lock:
@@ -306,6 +441,7 @@ class RALink:
             self._done(entry)
             return
         self._done(entry)
+        self._remember(entry.get("game_id"), [entry["id"]])
         if answer.get("AlreadyHad"):
             logging.info(f"RetroAchievements: you already had achievement {entry['id']}")
         else:

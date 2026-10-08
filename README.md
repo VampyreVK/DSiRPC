@@ -53,7 +53,8 @@ battles for streaming.
 2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
    connects to Wi-Fi in DSi mode (it tries up to 3 times by itself) and shows
    the console's IP address. If it says it's running in DS mode, set it to
-   DSi mode in TWiLight Menu++'s per-game settings.
+   DSi mode in TWiLight Menu++'s per-game settings. Away from your PC? Press
+   **B** while it connects to [play offline](#playing-offline).
 3. Press **START** and pick your game: **A** opens a folder or picks the game,
    **B** goes up a folder. The launcher starts it, still connected.
    (**SELECT** disconnects and goes back instead.)
@@ -66,6 +67,42 @@ launcher says so. Start it once from TWiLight Menu++, then use the launcher.
 When you close the game, DSiRPC clears the presence after about 30 seconds and
 waits for the console again, so switching games or restarting needs nothing
 on the PC.
+
+### Playing offline
+
+Away from your PC (or your Wi-Fi), the launcher still starts your games: press
+**B** while it connects, or **START** when it says it couldn't connect. Wi-Fi
+stays off and the game runs as usual, just without Discord or the overlay.
+
+Whenever the launcher is connected and DSiRPC is running, it syncs with it,
+once when it connects and again when you start a game (**B** skips that):
+
+- DSiRPC sends it the [achievement sets](#retroachievements) you have, and
+  downloads the set of the game you're starting if it can. The launcher keeps
+  them in `sd:/DSiRPC/sets`, each with only the achievements you haven't
+  unlocked yet, already turned into what the console runs (DSiRPC does that
+  with rcheevos, RetroAchievements' own library).
+- The launcher hands DSiRPC the achievements unlocked while playing offline,
+  and DSiRPC sends them to RetroAchievements (if sending unlocks is on in
+  setup), with the time you unlocked them, and tells you in a notification.
+
+While you play, the console checks the game's achievements itself, many
+times a second, Wi-Fi or not.
+
+Each unlock is saved to the SD card (`sd:/RPCUNLK.BIN`) right away, with
+when it happened: the console's clock when the launcher started the game,
+plus the time played since (time with the lid closed isn't counted). The
+next time the launcher finds DSiRPC it hands them over, and DSiRPC sends the
+ones it didn't already have. This works for games started from the
+launcher, which puts the set and the unlock file on the SD card. With Wi-Fi
+and DSiRPC running, the console also reports to DSiRPC's log
+(`Console: its checker unlocked achievement ...`, `Console: saved 1
+unlock(s) to its SD card for DSiRPC`), next to DSiRPC's own unlocks, so the
+two can be compared.
+
+This works on hardware since 2026-10-08 (an offline unlock in Tetris DS
+reached RetroAchievements at the next sync), but it's new: see the
+[roadmap](#known-issues-and-roadmap).
 
 ### The tray icon
 
@@ -121,6 +158,11 @@ in setup**, off unless you turn it on, and always softcore:
 
 Unlocks that can't be sent right away (no internet) are kept and sent later.
 
+A game started from the DSiRPC launcher is also checked by the console
+itself, about twice a second (it's what makes [offline play](#playing-offline)
+work). When DSiRPC hears the console unlock an achievement, that counts right
+away too, like its own unlocks (the log says `by the console's checker`).
+
 ## Stream overlay window
 
 The overlay window (tray menu > **Overlay window**) shows your party, and
@@ -147,6 +189,7 @@ the first time they're needed, then kept.
 | Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
 | The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
 | The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
+| The launcher says "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (the same fix as "Nothing on Discord"; the sync uses port 4245). The game still starts; unlocks wait on the SD card until the next sync. |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
@@ -154,6 +197,22 @@ the first time they're needed, then kept.
 More, including what the console sends and how to read it, is in
 [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
 The log is `logs\dsirpc.log` in DSiRPC's folder.
+
+### Debugging options
+
+For testing achievements without your real progress getting in the way,
+`python dsirpc.py` (or `python dsirpc.py tray`) takes these flags. They
+combine.
+
+| Flag | What it does |
+|---|---|
+| `--dry-run` | Sends nothing anywhere: the Discord presence is logged instead, and nothing goes to RetroAchievements. DSiRPC acts as if your account had nothing unlocked (like `--blank-ra`), and unlocks waiting on the console stay there (the launcher says so). |
+| `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked: every achievement is checked, the console gets whole sets, and every unlock is sent (RetroAchievements answers that you already had the ones you had). What's really unlocked stays recorded in `ra\cache\unlocked.json`. |
+| `--clear-ra` | At the console's first sync, throws away the unlocks waiting on it (nothing is sent) and sends it every set again. Later syncs in the same run are normal. |
+
+For example, `python dsirpc.py --blank-ra` while you collect test unlocks,
+then `python dsirpc.py --clear-ra` once to put the console back to your real
+state (add `--blank-ra` to give it whole sets instead).
 
 ## Updating and removing
 
@@ -178,6 +237,9 @@ our nds-bootstrap  --boots-->  the game
                                                   Discord Rich Presence   overlay window
 ```
 
+The launcher also syncs with DSiRPC on port 4245 (UDP to find it, then TCP),
+for [offline play](#playing-offline).
+
 The console side stays simple: it only answers "give me these bytes".
 Everything else (decrypting the party, working out the location, deciding
 what Discord shows) happens on the PC, so new features never need a console
@@ -198,6 +260,10 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       Platinum USA Rev 1 gets the full presence and the overlay's party and
       battle views.
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
+- [x] Achievements while [playing offline](#playing-offline): the launcher
+      keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
+      console checks them in game and saves its unlocks to the SD card
+      (works on hardware since 2026-10-08; more games to try).
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets

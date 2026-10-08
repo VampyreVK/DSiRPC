@@ -17,6 +17,12 @@ The same from a console, from the repo root:
   python dsirpc.py --file ram_dump.bin --dry-run        # a RAM dump instead of the DSi
   python dsirpc.py --file dump.bin --game AMCE --dry-run   # a dump of another game
 
+Debugging achievements (README.md's "Debugging options"; they combine):
+  python dsirpc.py --dry-run             # send nothing; act as if nothing were unlocked
+  python dsirpc.py --blank-ra            # act as if nothing were unlocked, still send unlocks
+  python dsirpc.py --clear-ra            # wipe the console's waiting unlocks, resend its sets
+  python dsirpc.py --blank-ra --clear-ra # start the console over with whole sets
+
 Pokemon Platinum gets its own presence (rpc/platinum_presence.py): where you
 are, your party, who you're battling, with sprites. Any other game gets its
 name, box art and a picture of your console, plus its RetroAchievements rich
@@ -64,7 +70,14 @@ def parse_args(argv=None):
     ap.add_argument("--no-ra", action="store_true",
                     help="no RetroAchievements: no achievements, no downloads, nothing sent")
     ap.add_argument("--dry-run", action="store_true",
-                    help="log the presence instead of sending it to Discord, and send nothing to RetroAchievements")
+                    help="log the presence instead of sending it to Discord, send nothing to RetroAchievements, "
+                         "act as if nothing were unlocked (like --blank-ra) and leave the console's unlocks on it")
+    ap.add_argument("--blank-ra", action="store_true",
+                    help="act as if your RetroAchievements account had nothing unlocked: every achievement is "
+                         "checked, the console gets whole sets, and unlocks are still sent")
+    ap.add_argument("--clear-ra", action="store_true",
+                    help="at the console's first sync, throw away the unlocks waiting on it (nothing sent) "
+                         "and send it every set again")
     ap.add_argument("--client-id", help="Discord application ID for every game (instead of dsirpc.cfg's)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
     ap.add_argument("--game", metavar="CODE", help="with --file: the dump's game code, if it isn't Platinum (e.g. AMCE)")
@@ -83,7 +96,8 @@ def parse_args(argv=None):
 def _engine_args(args):
     return dict(file=args.file, game=args.game, demo=args.demo, demo_name=args.name,
                 dsi_ip=args.dsi_ip, port=args.port, interval=args.interval,
-                client_id=args.client_id, dry_run=args.dry_run, ra=not args.no_ra)
+                client_id=args.client_id, dry_run=args.dry_run, ra=not args.no_ra,
+                blank_ra=args.blank_ra, clear_ra=args.clear_ra)
 
 
 def _missing_packages(e):

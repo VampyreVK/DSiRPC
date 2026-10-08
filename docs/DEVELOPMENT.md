@@ -25,10 +25,10 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Command line](#7-command-line)) |
 | `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
 | `overlay/` | The stream overlay window (pygame-ce) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), demo data (`demo.py`) |
+| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
 | `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](../ra/README.md)) |
-| `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64 |
+| `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64, with DSiRPC's offline set compiler (`dsirpc_offline.c`) built in; how to rebuild it is in its README |
 | `tools/` | Developer and testing tools (see [Tools](#8-tools)), and the charmap table generator (`tools/charmap/`) |
 | `Assets/` | Sprites served by GitHub Pages for Discord and the overlay, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
@@ -111,7 +111,10 @@ its own folder. It must be started in **DSi mode**. Details are in
 Nothing else needs setting up on the SD card. The launcher writes its own
 `RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
 console's saved settings, and the console broadcasts its hello packets, so it
-never needs to know your PC's IP.
+never needs to know your PC's IP. For offline play it also makes
+`RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
+itself, and finds DSiRPC with a broadcast on port 4245
+([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
 
 ## 5. Discord applications
 
@@ -160,7 +163,9 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `dsirpc.py setup` | Setup (what `Setup.bat` runs), safe to run again |
 | `dsirpc.py` | DSiRPC in a console until Ctrl+C, logging what Discord shows |
 | `dsirpc.py --overlay` | ...with the overlay window; closing it stops DSiRPC |
-| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements |
+| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements; acts as if nothing were unlocked and leaves the console's waiting unlocks on it |
+| `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked (every achievement checked, whole sets for the console), still sending unlocks |
+| `--clear-ra` | At the console's first sync, throws its waiting unlocks away (unsent) and sends it every set again |
 | `--no-discord` | Nothing on Discord (for the overlay alone) |
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
@@ -186,6 +191,7 @@ For testing and development, run from the repo root:
 | `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
+| `tools/arm7_model/arm7_model.py` | How many ARM7 cycles the console's achievement checker takes a pass, and where they go (`--profile`), from a set in `ra/`; `--compare` a changed copy of the checker. Needs Docker (devkitARM) and `pip install unicorn`; see its [README](../tools/arm7_model/README.md) |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`) |
 
 ## 9. Builds and releases

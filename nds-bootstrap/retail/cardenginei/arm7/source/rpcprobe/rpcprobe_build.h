@@ -41,4 +41,24 @@
 #define RPCPROBE_RX53_FRAMES_PER_VBLANK 8
 #define RPCPROBE_RX53_BYTES_PER_VBLANK 2048
 
+// 1 = check the game's achievements in game, for offline play: the set the
+// DSiRPC launcher puts in sd:/RPCSET.BIN (probe_ach.c). With Wi-Fi, a
+// "DSiRPC ach" packet after each hello says how it's going, so it can be
+// compared with what DSiRPC unlocks. 0 = off.
+#define RPCPROBE_ACH 1
+
+// Scanlines (about 64 us each) the checker may use in a VBlank, and how
+// many the rest of the tick may already have used before it skips its turn.
+// A big set takes a few VBlanks for one pass over every achievement. It
+// checks the time every 8 conditions, so it usually goes over by a
+// scanline or two (16 with checks every 32 went up to 26 on hardware).
+#define RPCPROBE_ACH_LINES_PER_VBLANK 20
+#define RPCPROBE_ACH_SKIP_AFTER_LINES 40
+
+// Unlocks are saved to sd:/RPCUNLK.BIN from nds-bootstrap's swiHalt hook
+// (outside interrupts). If that hook hasn't run for this many VBlanks (a
+// game whose swiHalt nds-bootstrap couldn't hook), the VBlank saves them
+// instead, when nds-bootstrap's SD card lock is free. At most 255.
+#define RPCPROBE_ACH_SAVE_FALLBACK 120
+
 #endif // RPCPROBE_BUILD_H

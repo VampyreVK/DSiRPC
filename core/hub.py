@@ -102,6 +102,7 @@ class DsiSource:
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
+        self.client.ach.on_unlocks = self._console_unlocks
         self.ram = DsiRam(self.client)
         self.sparse = SparseRam(self.client)
         self.ra_game = None     # RaGame for the running game
@@ -168,6 +169,12 @@ class DsiSource:
         self.ra_code = code
         self.ra_game = RaGame(game or {'code': code, 'version': 0, 'header_crc': 0}, self.sparse,
                               self.ra_link, self.ra_settings) if code else None
+
+    def _console_unlocks(self, ids):
+        """The console's own checker (offline play's, which runs while you
+        play online too) unlocked these: they count right away."""
+        if self.ra_game:
+            self.ra_game.inbox.put(("console", list(ids)))
 
     def _ra_tick(self):
         ra = self.ra_game

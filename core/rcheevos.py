@@ -16,6 +16,8 @@ and how it was built).
     rt.frame(peek)                         # once per poll: updates every value it watches
     text = rt.rich_presence(peek)          # the display string for the current state
 
+    program, left_out = compile_offline([(id, memaddr), ...])   # for the console (offline play)
+
 `peek(address, num_bytes)` returns the little-endian value at a RetroAchievements
 address (for the DS, 0x000000-0x3FFFFF is main RAM 0x02000000-0x023FFFFF).
 An exception raised inside peek is re-raised once the rcheevos call returns.
@@ -95,6 +97,13 @@ def library():
     lib.rc_runtime_do_frame.argtypes = [ctypes.c_void_p, _EVENT_HANDLER, _PEEK, ctypes.c_void_p, ctypes.c_void_p]
     lib.rc_error_str.restype = ctypes.c_char_p
     lib.rc_error_str.argtypes = [ctypes.c_int]
+    try:  # DSiRPC's addition (third_party/rcheevos/dsirpc_offline.c)
+        lib.dsirpc_offline_compile.restype = ctypes.c_int
+        lib.dsirpc_offline_compile.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        lib.dsirpc_offline_supported.restype = ctypes.c_int
+        lib.dsirpc_offline_supported.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    except AttributeError:
+        pass  # an older build without it: compile_offline() says so
     _lib = lib
     return lib
 
@@ -191,3 +200,36 @@ class Runtime:
         if n < 0:
             raise RcheevosError(f"rich presence: {error_text(n)} ({n})")
         return buf.value.decode("utf-8", "replace")
+
+
+def compile_offline(achievements):
+    """The program the console runs for offline play's achievement checker,
+    for [(id, memaddr)]: rcheevos parses them, and DSiRPC's addition to the
+    library (third_party/rcheevos/dsirpc_offline.c) writes out what it
+    parsed. Returns (program bytes, [ids left out]): the ones rcheevos can't
+    parse, and the ones the console can't run (floating point, or more than
+    255 groups). Raises RcheevosMissing if the library doesn't have the
+    compiler."""
+    lib = library()
+    if not hasattr(lib, "dsirpc_offline_compile"):
+        raise RcheevosMissing("this rcheevos library has no offline compiler (see third_party/rcheevos/README.md)")
+    rt = Runtime()
+    left_out = []
+    try:
+        for aid, memaddr in achievements:
+            try:
+                rt.activate_achievement(aid, memaddr)
+            except RcheevosError:
+                left_out.append(aid)
+                continue
+            if not lib.dsirpc_offline_supported(rt._rt, aid):
+                left_out.append(aid)
+        size = lib.dsirpc_offline_compile(rt._rt, None, 0)
+        if size < 0:
+            raise RcheevosError("couldn't build the offline program")
+        buf = ctypes.create_string_buffer(size)
+        if lib.dsirpc_offline_compile(rt._rt, buf, size) != size:
+            raise RcheevosError("couldn't build the offline program")
+        return buf.raw[:size], left_out
+    finally:
+        rt.close()

@@ -167,6 +167,24 @@ def find(code, ra_dir=RA_DIR):
     return None
 
 
+def codes(ra_dir=RA_DIR):
+    """The game codes that have a set file in ra/ (CODE.json, or a line in
+    ra/games.txt), sorted."""
+    out = set()
+    try:
+        names = os.listdir(ra_dir)
+    except OSError:
+        names = []
+    for name in names:
+        m = re.match(r"^([A-Z][A-Z0-9]{3})\.json$", name, re.I)
+        if m:
+            out.add(m.group(1).upper())
+    for code, game_id in _mapping(ra_dir).items():
+        if os.path.exists(os.path.join(ra_dir, f"{game_id}.json")):
+            out.add(code)
+    return sorted(out)
+
+
 def for_game(code, ra_dir=RA_DIR):
     """The RaSet for a game code, or None if there's no set file."""
     path = find(code, ra_dir)

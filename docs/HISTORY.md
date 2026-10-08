@@ -288,15 +288,15 @@ in this table before assuming it's missing from RA entirely.
   unlocks at its first sync and send every set again), and `--dry-run` now
   also acts as if nothing were unlocked and leaves the console's unlocks on
   it; they combine. The checker got a speed pass, measured on a model of
-  the ARM7 (its Thumb build in an emulator, counting instructions, branches
-  and memory accesses; it predicted the 1.4 passes a second seen on
-  hardware). Main RAM wasn't the cost, instructions were: switch tables
+  the ARM7 (now `tools/arm7_model`: its Thumb build in an emulator,
+  counting instructions, branches and memory accesses; it agrees with the
+  1.4 passes a second seen on hardware within about 15%). Main RAM wasn't the cost, instructions were: switch tables
   (`__gnu_thumb1_case_*` calls), operand values passed through memory,
   recounting where each condset phase starts. Now operand value and type
   come back in registers, sizes and comparisons are table lookups, AddSource
   and AddAddress chains have a direct path, and the commonest condition
-  types skip the switch: Platinum's pass went from about 1.83 to 1.26
-  million cycles, other sets 16-23% less, with slightly smaller code. It
+  types skip the switch: Platinum's pass went from about 1.83 to 1.25
+  million cycles, other sets 17-24% less, with slightly smaller code. It
   checks the time every 8 conditions instead of 32, so a turn rarely goes
   more than a scanline or two over (it reached 26 on a 16-line budget), and
   the budget is 20 lines. Same results as rcheevos: six real sets, and about

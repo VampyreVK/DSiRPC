@@ -1077,9 +1077,10 @@ the console only runs the result:
   than a scanline or two over. The hot paths are written for the ARM7's
   Thumb code: no switch tables for the common cases, operand values and
   types passed in registers, fast paths for AddSource and AddAddress
-  chains. On a model of the ARM7 (the Thumb build run in an emulator,
-  counting instructions and memory accesses), that took Platinum's pass
-  from about 1.83 million cycles to 1.26 million, other sets 16-23%. Platinum's set (101
+  chains. On a model of the ARM7 (`tools/arm7_model`: the Thumb build run
+  in an emulator, counting instructions and memory accesses), that took
+  Platinum's pass from about 1.83 million cycles to 1.25 million, other
+  sets 17-24% less. Platinum's set (101
   achievements, 2,635 conditions, 1,733 memory values) is about 80 KB plus
   26 KB of state.
 - **Checking it.** The interpreter is plain C. On a PC it ran side by side

@@ -13,6 +13,9 @@
 #include "cardengine_header_arm9.h"
 #include "nds_header.h"
 #include "tonccpy.h"
+#ifndef B4DS
+#include "dsirpc_ach.h" // DSiRPC: the game's achievements
+#endif
 
 void DC_InvalidateRange(const void *base, u32 size);
 void DC_FlushRange(const void *base, u32 size);
@@ -470,11 +473,22 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 
 	// Print labels
 	for(int i = 0; i < menuItemCount; i++) {
-		if(igmText.rtl)
-			printRight(0x1D, i, igmText.menu[menuItems[i]], FONT_WHITE, false);
+		const unsigned char *label;
+		#ifndef B4DS
+		if (menuItems[i] == MENU_ACHIEVEMENTS)
+			label = Ach_Label(); // DSiRPC
 		else
-			print(2, i, igmText.menu[menuItems[i]], FONT_WHITE, false);
+		#endif
+			label = igmText.menu[menuItems[i]];
+		if(igmText.rtl)
+			printRight(0x1D, i, label, FONT_WHITE, false);
+		else
+			print(2, i, label, FONT_WHITE, false);
 	}
+
+	#ifndef B4DS
+	Ach_DrawMain(); // DSiRPC: new unlocks, and how many are earned
+	#endif
 
 	// Print info
 	print(1, 0x18 - 3, igmText.ndsBootstrap, FONT_LIGHT_GRAY, false);
@@ -918,10 +932,15 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	// Let ARM7 know the menu loaded
 	sharedAddr[5] = 0x59444552; // 'REDY'
 
-	MenuItem menuItems[8];
+	MenuItem menuItems[9];
 	int menuItemCount = 0;
 	if(!exception)
 		menuItems[menuItemCount++] = MENU_EXIT;
+	#ifndef B4DS
+	Ach_Open(!exception); // DSiRPC: what the console knows of the game's achievements
+	if(Ach_HasScreen())
+		menuItems[menuItemCount++] = MENU_ACHIEVEMENTS;
+	#endif
 	menuItems[menuItemCount++] = MENU_RESET;
 	menuItems[menuItemCount++] = MENU_SCREENSHOT;
 	if(igmText.manualMaxLine > 0 && !exception)
@@ -1019,6 +1038,11 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 				case MENU_RAM_VIEWER:
 					ramViewer();
 					break;
+				#ifndef B4DS
+				case MENU_ACHIEVEMENTS:
+					Ach_Screen(); // DSiRPC
+					break;
+				#endif
 				case MENU_QUIT:
 					if (boolQuestion(igmText.quitGameMessage)) {
 						res = 0x54495845; // EXIT

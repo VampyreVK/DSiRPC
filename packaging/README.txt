@@ -82,7 +82,8 @@ achievements unlocked offline to RetroAchievements. While you play, the
 console checks the game's achievements itself and saves what you unlock to
 the SD card (new). On a DSi, the LED you picked as TWiLight Menu++'s "ROM
 read LED" pulses while there are new unlocks; opening nds-bootstrap's
-in-game menu (L + Down + SELECT) stops it.
+in-game menu (L + Down + SELECT) stops it. That menu also lists the
+game's achievements (its Achievements item), earned ones first.
 
 A game you've never started from TWiLight Menu++ has no save file yet,
 and the launcher says so: start it once from TWiLight Menu++ first.

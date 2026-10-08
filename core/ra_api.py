@@ -168,19 +168,26 @@ class RAClient:
     # -- playing -----------------------------------------------------------
 
     def start_session(self, game_id, game_hash=None):
-        """Tells RetroAchievements a game started. Returns the IDs of the
-        achievements the user already has (softcore or hardcore)."""
+        """Tells RetroAchievements a game started. Returns the achievements
+        the user already has (softcore or hardcore): {ID: when it was
+        earned, as a Unix time (the earliest of the two; 0 if not given)}."""
         fields = {"r": "startsession", "g": str(int(game_id))}
         if game_hash:
             fields["h"] = "0"
             fields["m"] = game_hash
         fields["l"] = RCHEEVOS_VERSION
         data = self._post(fields)
-        unlocked = set()
+        unlocked = {}
         for key in ("Unlocks", "HardcoreUnlocks"):
             for u in data.get(key) or []:
                 if isinstance(u, dict) and u.get("ID"):
-                    unlocked.add(int(u["ID"]))
+                    try:
+                        when = int(u.get("When") or 0)
+                    except (TypeError, ValueError):
+                        when = 0
+                    aid = int(u["ID"])
+                    old = unlocked.get(aid)
+                    unlocked[aid] = when if not old else min(old, when) if when else old
         return unlocked
 
     def ping(self, game_id, rich_presence=None, game_hash=None):

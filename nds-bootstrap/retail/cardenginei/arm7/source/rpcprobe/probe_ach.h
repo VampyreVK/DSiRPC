@@ -12,7 +12,7 @@
 
 // What probeAchLoaded says when it isn't the number of achievements
 #define PROBE_ACH_NONE       0   // no RPCSET.BIN (no set, or not started from the launcher)
-#define PROBE_ACH_E_HEADER  -1   // RPCSET.BIN isn't a version 2 set
+#define PROBE_ACH_E_HEADER  -1   // RPCSET.BIN isn't a version 2 or 3 set
 #define PROBE_ACH_E_GAME    -2   // it's another game's set
 #define PROBE_ACH_E_SIZE    -3   // too big for the memory set aside for it
 #define PROBE_ACH_E_PROGRAM -4   // the program doesn't add up
@@ -49,5 +49,12 @@ void ProbeAch_TakeStats(u16 *passes, u16 *maxLines);
 
 // The ids of the latest unlocks, oldest first (at most max). Returns how many.
 int ProbeAch_RecentIds(u32 *ids, int max);
+
+// nds-bootstrap's in-game menu opened (from probe_hook.c's
+// Probe_MenuOpened()): the anchor says it's open and which unlocks are new
+// to it (dsirpc_ach_menu.h). ProbeAch_MenuClosed() says it's closed again;
+// ProbeAch_Tick() does that too, since the ticks stop while it's open.
+void ProbeAch_MenuOpened(void);
+void ProbeAch_MenuClosed(void);
 
 #endif // PROBE_ACH_H

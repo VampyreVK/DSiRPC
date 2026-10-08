@@ -275,6 +275,24 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Achievements in nds-bootstrap's in-game menu.** The lid fix
+  worked on hardware (DSiRPC logged `Console: its lid closed ...` and the
+  DSi slept and woke fine). Sets are now version 3: after the program comes
+  a list of every achievement of the game (title, description, points, and
+  when it was earned as far as DSiRPC knows; `unlocked.json` now keeps
+  RetroAchievements' times from `startsession`, and the time of each sent
+  unlock). The console marks its own unlocks in that list (the ones waiting
+  in `RPCUNLK.BIN`, then each new one, numbered) once the set's CRC has
+  been checked, and keeps notes for the menu (the anchor) in the header's
+  spare bytes. The menu's main screen shows the new unlocks since it last
+  opened and "Achievements: 12 of 102 earned"; its new Achievements item
+  lists them, earned ones first, newest first with date and time, then the
+  locked ones, with the highlighted one's description. The menu only reads,
+  and only an anchor the ARM7 marked open. Version 2 sets are still
+  checked, without the list. Tested on a PC end to end (DSiRPC's set,
+  `probe_ach.c`, the drawn screens with keys, under AddressSanitizer), plus
+  the earlier unlock-saving and lid/LED tests; needs a hardware test. ARM7:
+  60,948 of 62,464 bytes; the menu: 33,880 of 39,936.
 - 2026-10-08: **Lid fix, second try, and the achievement LED.** The first
   lid fix (disconnect the chip and turn its interrupts off when the lid
   closes) didn't help: the DSi still switched off. It's not known yet

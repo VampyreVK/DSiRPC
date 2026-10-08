@@ -34,24 +34,45 @@ isn't counted; 0 if there was no clock. Achievements already in the file
 aren't checked again. Unlocks DSiRPC made itself (playing online) come back
 this way too; engine.py leaves out the ones it knows about.
 
-CODE.DRS (an offline set, version 2), little-endian:
+CODE.DRS (an offline set, version 3), little-endian:
 
-    header (64 bytes): "DRSE", u16 version (2), u16 header size (64),
+    header (64 bytes): "DRSE", u16 version (3), u16 header size (64),
         4 game code, u32 RA game ID, u32 stamp (CRC-32 of everything after
-        the header), u16 achievement count, u16 flags (0), u32 program size,
-        u32 state size (the RAM the console needs to run it), 32 bytes 0
+        the header), u16 achievement count (in the program), u16 flags (0),
+        u32 program size, u32 state size (the RAM the console needs to run
+        the program), u32 list size, 28 bytes 0 (the console keeps its
+        notes for nds-bootstrap's in-game menu in its RAM copy of bytes
+        40-63)
     the program: the achievements, already parsed by rcheevos on the PC
         (rcheevos.compile_offline(); the format is described in
         nds-bootstrap's rpcprobe/probe_ach_vm.c, the console's interpreter)
+    the list, for nds-bootstrap's in-game menu (build_list()):
+        "DRMN", u16 version (1), u16 entries, u32 text size, u32 0
+        an entry per achievement of the game (official, core and bonus
+        sets, RetroAchievements' order), 16 bytes each:
+            u32 achievement ID
+            u32 when it was earned: seconds since 2000-01-01 by the
+                console's clock (local time); 0 = not earned, or not known
+            u16 title, u16 description: where their text starts
+            u8 points
+            u8 flags: bit 0 earned (RetroAchievements has it, as far as
+                DSiRPC knows), bit 1 earned on the console (the console
+                sets it in RAM), bit 2 the console checks it (it's in the
+                program)
+            u16 0 (the console numbers its own unlocks here in RAM, for
+                the menu's "new" marks)
+        the text: the titles and descriptions, NUL-terminated, in plain
+            ASCII (accents dropped, other characters '?')
 
 Only the achievements left to unlock (as far as DSiRPC knows) that the
-console can check are in it: official, from the core or a bonus set, reading
-only main RAM, that rcheevos parses and that don't need floating point. The
-whole set and its state have to fit in ACH_MEMORY, the RAM nds-bootstrap
-sets aside for them less the 4 KB the console reads RPCUNLK.BIN into; the
-biggest achievements are left out until it does.
+console can check are in the program: official, from the core or a bonus
+set, reading only main RAM, that rcheevos parses and that don't need
+floating point. The whole set and its state have to fit in ACH_MEMORY, the
+RAM nds-bootstrap sets aside for them less the 4 KB the console reads
+RPCUNLK.BIN into; the biggest achievements are left out until it does.
 The launcher never looks past the header; the stamp tells it whether its
-copy is current. (Version 1 had the MemAddr text instead of a program.)
+copy is current. (Version 1 had the MemAddr text instead of a program;
+version 2 had no list.)
 
 The sync exchange (one per game started while DSiRPC can be found):
 
@@ -85,11 +106,19 @@ UNLOCK_SLOTS = 256
 UNLOCK_FILE_SIZE = UNLOCK_SLOT * UNLOCK_SLOTS
 
 SET_MAGIC = b"DRSE"
-SET_VERSION = 2
-SET_HEADER = struct.Struct("<4sHH4sIIHHII32s")
+SET_VERSION = 3
+SET_HEADER = struct.Struct("<4sHH4sIIHHIII28s")
 ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE (locations.h) less
                                           # RPCUNLK.BIN's space (probe_ach.c's ACH_SET_SPACE)
+PROGRAM_VERSION = 2                       # probe_ach_vm.c's program format
 PROGRAM_HEADER = struct.Struct("<IHHHHI")
+LIST_MAGIC = b"DRMN"
+LIST_VERSION = 1
+LIST_HEADER = struct.Struct("<4sHHII")
+LIST_ENTRY = struct.Struct("<IIHHBBH")
+LIST_EARNED, LIST_ON_CONSOLE, LIST_CHECKED = 1, 2, 4
+LIST_TEXT_MAX = 0xFFFF                    # u16 text offsets
+TITLE_MAX, DESCRIPTION_MAX = 80, 255
 
 REQUEST = struct.Struct("<4sHH4sII")
 ANSWER_HEADER = struct.Struct("<4sHHHHI")
@@ -132,6 +161,18 @@ def console_time(when):
         return (EPOCH_2000 + datetime.timedelta(seconds=int(when))).timestamp()
     except (OverflowError, OSError, ValueError):
         return None
+
+
+def console_clock(unix_time):
+    """A Unix time -> seconds since 2000 by the console's (local time)
+    clock, console_time()'s other way round. 0 for no or a bad time."""
+    try:
+        if not unix_time:
+            return 0
+        s = int((datetime.datetime.fromtimestamp(int(unix_time)) - EPOCH_2000).total_seconds())
+        return s if 0 < s < 0x100000000 else 0
+    except (OverflowError, OSError, ValueError):
+        return 0
 
 
 def _slots(data):
@@ -185,7 +226,7 @@ def _align4(n):
 def program_info(program):
     """(memrefs, achievements, conditions, [(id, bytes)]) of a compiled program."""
     version, n_plain, n_mod, n_ach, _, n_conds = PROGRAM_HEADER.unpack_from(program)
-    if version != SET_VERSION:
+    if version != PROGRAM_VERSION:
         raise FormatError(f"program version {version}")
     pos = PROGRAM_HEADER.size + n_plain * 8 + n_mod * 20
     achievements = []
@@ -205,45 +246,129 @@ def state_size(program):
     return n_mem * 8 + n_conds * 4 + _align4(n_mem) + _align4(n_ach)
 
 
-def build_set(raset, code, skip_ids=()):
+_PUNCTUATION = str.maketrans({
+    "‘": "'", "’": "'", "‚": "'", "′": "'", "´": "'",
+    "“": '"', "”": '"', "„": '"', "″": '"',
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-",
+    "…": "...", "×": "x", " ": " ", "　": " ", "ß": "ss",
+    "Æ": "AE", "æ": "ae", "Œ": "OE", "œ": "oe", "Ø": "O", "ø": "o",
+    "★": "*", "☆": "*", "♥": "<3", "→": "->", "←": "<-",
+    "\t": " ", "\r": " ", "\n": " ",
+})
+
+
+def plain_text(text, limit):
+    """`text` in what nds-bootstrap's in-game menu font surely has: printable
+    ASCII. Accents are dropped ("Pokemon"), typographic punctuation becomes
+    its plain version, anything else '?'. At most `limit` characters."""
+    import unicodedata
+    text = unicodedata.normalize("NFKD", (text or "").translate(_PUNCTUATION))
+    out = "".join(c if " " <= c <= "~" else "" if unicodedata.combining(c) else "?" for c in text)
+    out = " ".join(out.split())
+    return out if len(out) <= limit else out[:limit - 3].rstrip() + "..."
+
+
+def build_list(raset, earned=None, checked=()):
+    """The list section of a set (bytes): every achievement of the game for
+    nds-bootstrap's in-game menu. earned: {id: Unix time it was earned (0 or
+    None if not known)}; checked: the IDs in the program."""
+    earned = earned or {}
+    checked = set(checked)
+    text = bytearray()
+    where = {}
+
+    def put(s):
+        if s not in where:
+            where[s] = len(text)
+            text.extend(s.encode("ascii") + b"\0")
+        return where[s]
+
+    entries = []
+    for a in raset.playable_achievements:
+        aid = a["id"]
+        flags = (LIST_EARNED if aid in earned else 0) | (LIST_CHECKED if aid in checked else 0)
+        when = console_clock(earned.get(aid)) if aid in earned else 0
+        title = put(plain_text(a["title"], TITLE_MAX))
+        description = put(plain_text(a["description"], DESCRIPTION_MAX))
+        if len(text) > LIST_TEXT_MAX:
+            raise FormatError("too much text for the achievement list")
+        entries.append(LIST_ENTRY.pack(aid, when, title, description, min(a["points"], 255), flags, 0))
+    text.extend(bytes(_align4(len(text)) - len(text)))
+    return LIST_HEADER.pack(LIST_MAGIC, LIST_VERSION, len(entries), len(text), 0) + b"".join(entries) + bytes(text)
+
+
+def read_list(data):
+    """[{'id', 'when', 'title', 'description', 'points', 'flags', 'seq'}] from a list section."""
+    if len(data) < LIST_HEADER.size:
+        raise FormatError("achievement list too short")
+    magic, version, count, text_size, _ = LIST_HEADER.unpack_from(data)
+    text_at = LIST_HEADER.size + count * LIST_ENTRY.size
+    if magic != LIST_MAGIC or version != LIST_VERSION or text_at + text_size > len(data):
+        raise FormatError("not an achievement list")
+    text = data[text_at:text_at + text_size]
+
+    def string(at):
+        end = text.find(b"\0", at)
+        if at >= len(text) or end < 0:
+            raise FormatError("achievement list text out of range")
+        return text[at:end].decode("ascii")
+
+    out = []
+    for i in range(count):
+        aid, when, title, description, points, flags, seq = LIST_ENTRY.unpack_from(data, LIST_HEADER.size + i * LIST_ENTRY.size)
+        out.append({'id': aid, 'when': when, 'title': string(title), 'description': string(description),
+                    'points': points, 'flags': flags, 'seq': seq})
+    return out
+
+
+def build_set(raset, code, skip_ids=(), earned=None):
     """The offline set for a game (bytes), from its RaSet. skip_ids: the
-    achievements already unlocked. Needs rcheevos with DSiRPC's compiler
-    (rcheevos.RcheevosMissing otherwise)."""
+    achievements already unlocked (left out of the program); earned: {id:
+    Unix time it was earned, or 0} for the in-game menu's list. Needs
+    rcheevos with DSiRPC's compiler (rcheevos.RcheevosMissing otherwise)."""
     from .ra_game import _unreachable
     from .rcheevos import compile_offline
     todo = [(a["id"], a["memaddr"]) for a in raset.playable_achievements
             if a["id"] not in skip_ids and a["memaddr"] and not _unreachable(a["memaddr"])]
+    # The list's size doesn't depend on which achievements are checked
+    list_size = len(build_list(raset, earned))
     while True:
         program, _ = compile_offline(todo)
         n_mem, n_ach, n_conds, achievements = program_info(program)
         state = state_size(program)
-        if not achievements or _align4(SET_HEADER.size + len(program)) + state <= ACH_MEMORY:
+        if not achievements or _align4(SET_HEADER.size + len(program) + list_size) + state <= ACH_MEMORY:
             break
         # too big for the console: leave out the biggest achievement
         biggest = max(achievements, key=lambda a: a[1] + a[2] * 4)[0]
         todo = [t for t in todo if t[0] != biggest]
+    if len(program) % 4:
+        raise FormatError("program size isn't a multiple of 4")
+    body = program + build_list(raset, earned, [a[0] for a in achievements])
     header = SET_HEADER.pack(SET_MAGIC, SET_VERSION, SET_HEADER.size, code.encode(), raset.id,
-                             zlib.crc32(program) & 0xFFFFFFFF, n_ach, 0, len(program), state, b"")
-    return header + program
+                             zlib.crc32(body) & 0xFFFFFFFF, n_ach, 0, len(program), state,
+                             len(body) - len(program), b"")
+    return header + body
 
 
 def read_set(data):
-    """{'code', 'game_id', 'stamp', 'achievements': [{'id'}], 'program', 'state_size'}."""
+    """{'code', 'game_id', 'stamp', 'achievements': [{'id'}], 'program',
+    'state_size', 'list': read_list()'s}."""
     if len(data) < SET_HEADER.size or data[:4] != SET_MAGIC:
         raise FormatError("not an offline set")
     (_, version, hsize, code, game_id, stamp, count, _flags,
-     program_size, state, _) = SET_HEADER.unpack_from(data)
+     program_size, state, list_size, _) = SET_HEADER.unpack_from(data)
     if version != SET_VERSION:
         raise FormatError(f"offline set version {version}")
-    program = data[hsize:hsize + program_size]
-    if len(program) != program_size or zlib.crc32(program) & 0xFFFFFFFF != stamp:
+    body = data[hsize:hsize + program_size + list_size]
+    if len(body) != program_size + list_size or zlib.crc32(body) & 0xFFFFFFFF != stamp:
         raise FormatError("offline set damaged (stamp doesn't match)")
+    program = body[:program_size]
     _, n_ach, _, achievements = program_info(program)
     if n_ach != count or state != state_size(program):
         raise FormatError("offline set header doesn't match its program")
     return {'code': code.decode(), 'game_id': game_id, 'stamp': stamp,
             'achievements': [{'id': aid} for aid, _, _ in achievements],
-            'program': program, 'state_size': state}
+            'program': program, 'state_size': state, 'list': read_list(body[program_size:])}
 
 
 def set_stamp(data):

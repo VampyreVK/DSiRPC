@@ -29,7 +29,9 @@ happened on the console; ones taken while signed out wait in the same file
 for whoever signs in next.
 
 What's known to be unlocked (from sessions and sent unlocks) is kept in
-ra/cache/unlocked.json, so offline sets leave those out (known_unlocks()).
+ra/cache/unlocked.json, with when (RetroAchievements' time for the ones a
+session reports), so offline sets leave those out and list them as earned
+in nds-bootstrap's in-game menu (known_unlocks(), known_unlock_times()).
 
 blank (dsirpc.py --blank-ra, and --dry-run): DSiRPC acts as if the account
 had nothing unlocked. known_unlocks() is empty, so the console gets whole
@@ -56,6 +58,24 @@ from .ra_hash import RomIndex
 REFRESH_SET_AFTER = 24 * 3600
 TITLE_LIST_DAYS = 7
 CACHE_DIR = os.path.join(ra_set.RA_DIR, "cache")
+
+
+def _times(stored):
+    """{ID: Unix time or 0} from unlocked.json's entry for a game: a dict of
+    "ID": time, or (older files) a list of IDs."""
+    out = {}
+    if isinstance(stored, dict):
+        items = stored.items()
+    elif isinstance(stored, (list, tuple, set)):
+        items = ((i, 0) for i in stored)
+    else:
+        return out
+    for aid, when in items:
+        try:
+            out[int(aid)] = int(when or 0)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def queue_offline(unlocks, ra_dir=ra_set.RA_DIR):
@@ -269,7 +289,7 @@ class RALink:
                 if self.blank and unlocked:
                     logging.info(f"RetroAchievements: --blank-ra: checking {code} as if none of your "
                                  f"{len(unlocked)} unlock(s) were there")
-                game.inbox.put(("session", set() if self.blank else unlocked))
+                game.inbox.put(("session", set() if self.blank else set(unlocked)))
         except RANetworkError as e:
             delay = min(120, 15 * (attempt + 1))
             logging.warning(f"RetroAchievements: {e}; trying again in {delay} s")
@@ -335,20 +355,32 @@ class RALink:
     def known_unlocks(self, game_id):
         """IDs of a game's achievements known to be unlocked on this account
         (none with blank)."""
+        return set(self.known_unlock_times(game_id))
+
+    def known_unlock_times(self, game_id):
+        """{ID: when it was unlocked, a Unix time (0: not known)} for a game's
+        achievements known to be unlocked on this account (none with blank)."""
         if not game_id or self.blank:
-            return set()
+            return {}
         with self._lock:
             mine = self._read_unlocked().get(self.api.username or "", {})
-            return set(mine.get(str(game_id), []))
+            return _times(mine.get(str(game_id)))
 
     def _remember(self, game_id, ids, replace=False):
+        """ids: achievement IDs, or {ID: when} (a Unix time; 0 if not known).
+        A time already known is kept unless `replace` (a session's list,
+        which has RetroAchievements' own times, replaces the game's)."""
         if not game_id or not self.api.username:
             return
+        new = _times(ids)
         with self._lock:
             data = self._read_unlocked()
             mine = data.setdefault(self.api.username, {})
-            have = set() if replace else set(mine.get(str(game_id), []))
-            mine[str(game_id)] = sorted(have | {int(i) for i in ids})
+            have = {} if replace else _times(mine.get(str(game_id)))
+            for aid, when in new.items():
+                if when or aid not in have:
+                    have[aid] = when if replace or not have.get(aid) else have[aid]
+            mine[str(game_id)] = {str(aid): have[aid] for aid in sorted(have)}
             try:
                 os.makedirs(self.cache_dir, exist_ok=True)
                 with open(self.unlocked_file + ".tmp", "w", encoding="utf-8") as f:
@@ -441,7 +473,7 @@ class RALink:
             self._done(entry)
             return
         self._done(entry)
-        self._remember(entry.get("game_id"), [entry["id"]])
+        self._remember(entry.get("game_id"), {entry["id"]: entry["when"]})
         if answer.get("AlreadyHad"):
             logging.info(f"RetroAchievements: you already had achievement {entry['id']}")
         else:

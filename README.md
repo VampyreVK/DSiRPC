@@ -110,6 +110,16 @@ checker is working without DSiRPC. With DSiRPC's nds-bootstrap that LED no
 longer flashes for ROM reads; set the setting to None to turn the
 achievement LED off.
 
+The in-game menu shows them too. When you open it, it says how many new
+achievements there are since you last looked, with their names, and how
+many of the game's you've earned. Its **Achievements** item lists them all:
+the ones you've earned first, newest first with the date and time (in lime
+if this console earned it and DSiRPC hasn't had it yet, with NEW on the new
+ones), then the ones still to get, with the highlighted one's description at
+the bottom. Up/Down move, L/R turn the page, B goes back. The list comes
+with the set at each sync, so it includes what you'd already earned on
+RetroAchievements.
+
 This works on hardware since 2026-10-08 (an offline unlock in Tetris DS
 reached RetroAchievements at the next sync), but it's new: see the
 [roadmap](#known-issues-and-roadmap).

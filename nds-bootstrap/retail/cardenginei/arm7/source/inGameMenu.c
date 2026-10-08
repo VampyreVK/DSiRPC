@@ -138,6 +138,9 @@ void inGameMenu(void) {
 				case 0x54455352: // RSET
 					exitMenu = true;
 					timeTillStatusRefresh = 7;
+					#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+					Probe_MenuClosed(); // DSiRPC
+					#endif
 					unloadInGameMenu();
 					#ifdef TWLSDK
 					i2cWriteRegister(0x4A, 0x12, 0x01);
@@ -145,6 +148,9 @@ void inGameMenu(void) {
 					reset(false);
 					break;
 				case 0x54495551: // QUIT
+					#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+					Probe_MenuClosed(); // DSiRPC
+					#endif
 					unloadInGameMenu();
 					returnToLoader(false);
 					exitMenu = true;

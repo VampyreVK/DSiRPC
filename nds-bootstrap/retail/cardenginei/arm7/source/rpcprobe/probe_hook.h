@@ -24,7 +24,12 @@ void Probe_HaltTick(int *sdMutex);
 void Probe_LidClosed(void);
 
 // nds-bootstrap's in-game menu opened: the achievements unlocked so far
-// count as seen, so the achievement LED stops pulsing (probe_hook.c).
+// count as seen, so the achievement LED stops pulsing (probe_hook.c), and
+// the menu can show them (probe_ach.c, dsirpc_ach_menu.h).
 void Probe_MenuOpened(void);
+
+// The in-game menu is resetting or quitting the game, so no VBlank tick
+// will say it closed (probe_ach.c's ProbeAch_MenuClosed()).
+void Probe_MenuClosed(void);
 
 #endif // PROBE_HOOK_H

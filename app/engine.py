@@ -248,7 +248,8 @@ class Engine:
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
         unlocked is left out, including the unlocks the console just sent
-        (nothing with --blank-ra or --dry-run). --clear-ra's sync sends every
+        (nothing with --blank-ra or --dry-run), and listed as earned, with
+        when, for nds-bootstrap's in-game menu. --clear-ra's sync sends every
         set. rcheevos builds them (core/offline.py's build_set())."""
         from core import offline, ra_set
         from core.rcheevos import RcheevosError, RcheevosMissing
@@ -266,13 +267,15 @@ class Engine:
                 continue
             if not s:
                 continue
-            skip = set()
+            earned = {}
             if not self.blank_ra:
-                skip = link.known_unlocks(s.id) if link else set()
+                earned = link.known_unlock_times(s.id) if link else {}
                 if not self._clearing:
-                    skip |= {u['id'] for u in unlocks if u['code'] == code}
+                    for u in unlocks:
+                        if u['code'] == code and not earned.get(u['id']):
+                            earned[u['id']] = u['when']
             try:
-                data = offline.build_set(s, code, skip)
+                data = offline.build_set(s, code, set(earned), earned)
             except RcheevosMissing as e:
                 logging.warning(f"Offline sync: no achievement sets for the console: {e}")
                 return out

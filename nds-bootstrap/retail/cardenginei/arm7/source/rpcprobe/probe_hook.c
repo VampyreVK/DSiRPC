@@ -347,6 +347,13 @@ void Probe_MenuOpened(void) {
 #if RPCPROBE_ACH
 	hoAchSeen = probeAchTriggered;
 	ProbeLed_Tick(0, 0); // now, since the VBlank ticks stop while the menu is open
+	ProbeAch_MenuOpened(); // what the menu shows of them (dsirpc_ach_menu.h)
+#endif
+}
+
+void Probe_MenuClosed(void) {
+#if RPCPROBE_ACH
+	ProbeAch_MenuClosed();
 #endif
 }
 

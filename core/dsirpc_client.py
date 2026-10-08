@@ -73,7 +73,7 @@ def game_from_hello(text):
 
 
 # What "DSiRPC ach n=" says when it isn't a number of achievements (probe_ach.h)
-ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this build can read (update the launcher and DSiRPC together)",
+ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this nds-bootstrap can read (update nds-bootstrap and DSiRPC together)",
               -2: "RPCSET.BIN is another game's set (start the game from the launcher)",
               -3: "the set is too big for the memory set aside for it",
               -4: "the set's program doesn't add up",

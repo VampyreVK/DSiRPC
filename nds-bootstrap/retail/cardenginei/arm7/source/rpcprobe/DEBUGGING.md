@@ -105,6 +105,20 @@ From PowerShell, in the repo root:
 docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro/devkitarm:20241104 /opt/devkitpro/devkitARM/bin/arm-none-eabi-nm retail/cardenginei/arm7/build/cardenginei_arm7.elf | findstr probeStatusByte
 ```
 
+### The in-game menu's achievements
+
+The main screen of nds-bootstrap's in-game menu (L + Down + SELECT) says
+what the checker is doing: "Achievements: 12 of 102 earned", or why there
+are none ("no set loaded": the game wasn't started from the launcher;
+"checking set": the CRC isn't done yet; "set damaged", "set too big",
+"another game's", "set version?": an nds-bootstrap older than DSiRPC; "sync
+to list": a version 2 set, without the list). Nothing at all means no
+anchor: this isn't DSiRPC's nds-bootstrap, or the game runs in DSi mode. The
+anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CFB0028`) if you want to look
+at it with the RAM viewer: `"DRMA"`, the game code, the status, the last
+unlock number, the one the menu last saw, open, and the list's offset
+(`common/include/dsirpc_ach_menu.h`).
+
 ## 3. Debug build (`NDSBTSRP.LOG`)
 
 nds-bootstrap has a debug logger that writes `NDSBTSRP.LOG` to the SD root.
@@ -168,7 +182,7 @@ Two things to know:
   this build (`cardReadLED()` returns at once), so the two never fight over
   the bus.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  2.0 KB is left: 60,408 of 62,464 bytes). The achievement checker keeps its set and state in main
+  1.5 KB is left: 60,948 of 62,464 bytes). The achievement checker keeps its set and state in main
   RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

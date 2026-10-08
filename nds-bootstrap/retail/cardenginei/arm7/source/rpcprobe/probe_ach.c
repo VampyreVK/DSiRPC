@@ -2,8 +2,9 @@
 //
 // Memory: the set and the checker's state live in DSIRPC_ACH_LOCATION (main
 // RAM that the bootloader keeps the ROM cache out of; locations.h). The set
-// file is copied there whole: its 64-byte header, then the program. The
-// state (memory values, hit counts) follows it. The last 4 KB are kept free
+// file is copied there whole: its 64-byte header, then the program, then
+// (version 3) the in-game menu's list. The state (memory values, hit
+// counts) follows it. The last 4 KB are kept free
 // (DSiRPC builds sets to fit ACH_SET_SPACE) to read RPCUNLK.BIN into when
 // the game starts.
 //
@@ -20,11 +21,20 @@
 // launcher's clock (RPCHAND.TXT's time=) plus the VBlanks since, so time
 // spent asleep (lid closed) isn't counted. Achievements already in
 // RPCUNLK.BIN when the game starts aren't checked again.
+//
+// In-game menu: a version 3 set has a list of every achievement of the game
+// after the program (dsirpc_ach_menu.h). Once the set's CRC has been
+// checked, this game's unlocks waiting in RPCUNLK.BIN and each new unlock
+// are marked in it (earned on the console, when, and an unlock number for
+// the menu's "new" marks), and the anchor in the header's bytes 40-63 says
+// where it is. nds-bootstrap's in-game menu reads it (arm9_igm's
+// dsirpc_ach.c). Version 2 sets have no list and are still checked.
 
 #include <nds/ndstypes.h>
 #include "rpcprobe_build.h"
 #include "locations.h"
 #include "my_fat.h"
+#include "dsirpc_ach_menu.h"
 #include "probe_ach.h"
 #include "probe_ach_vm.h"
 
@@ -59,7 +69,16 @@ u16 probeAchWaiting = 0;
 
 static u8 stage = STAGE_OFF;
 static AchVm vm;
-static u32 bodySize, crcPos, crc, crcWanted;
+static u32 bodySize, crcPos, crc, crcWanted;   // body: the program, then the list
+
+// The in-game menu's list and the anchor (dsirpc_ach_menu.h)
+#define ACH_ANCHOR ((volatile DsirpcMenuAnchor *)(DSIRPC_ACH_LOCATION + DSIRPC_MENU_ANCHOR_OFFSET))
+static u32 listOffset, listSize;       // where the set's list is, from DSIRPC_ACH_LOCATION
+static DsirpcListEntry *listEntries;   // set once the CRC has been checked
+static u16 listCount;
+static u16 unlockSeq;                  // the console's unlocks this game
+static u16 menuSeen;                   // unlockSeq when the menu last opened
+static u8 menuOpen;
 static u16 passes, maxLines;
 static u32 recent[ACH_RECENT];
 static u8 recentCount, recentNext;
@@ -95,9 +114,31 @@ static const u32 crcTable[16] = {
 	0xEDB88320, 0xF00F9344, 0xD6D6A3E8, 0xCB61B38C, 0x9B64C2B0, 0x86D3D2D4, 0xA00AE278, 0xBDBDF21C
 };
 
+// The anchor, when the game starts (the header has just been read over it,
+// or there's no set): which game, `status`, no list yet, the menu closed
+static void anchorStart(const void *ndsHeader, s16 status) {
+	volatile DsirpcMenuAnchor *a = ACH_ANCHOR;
+	const u8 *game = (const u8 *)ndsHeader + 0x0C;
+	for (int i = 0; i < 4; i++) a->game[i] = game[i];
+	a->status = status;
+	a->unlocks = 0;
+	a->newFrom = 0;
+	a->open = 0;
+	a->list = 0;
+	a->reserved = 0;
+	a->magic = DSIRPC_MENU_ANCHOR_MAGIC;
+}
+
 static void loadFailed(s16 why) {
 	probeAchLoaded = why;
 	stage = STAGE_OFF;
+	ACH_ANCHOR->status = why;
+}
+
+// A valid RPCUNLK.BIN slot of this game: its achievement ID, else 0
+static u32 slotId(const u8 *s, u32 game) {
+	u32 id = rd32(s);
+	return (id && rd32(s + 4) == game && slotCheck(s) == (s[14] | (s[15] << 8))) ? id : 0;
 }
 
 // RPCUNLK.BIN, read into the space the set leaves free: unlocks are saved
@@ -117,28 +158,70 @@ static void loadUnlocks(u32 game) {
 	u16 next = 1;
 	for (u16 i = 1; i < ACH_UNLOCK_SLOTS; i++) {
 		const u8 *s = buf + i * ACH_UNLOCK_SLOT;
-		u32 id = rd32(s);
-		if (id | rd32(s + 4) | rd32(s + 8) | rd32(s + 12)) next = i + 1;
-		if (id && rd32(s + 4) == game && slotCheck(s) == (s[14] | (s[15] << 8)) &&
-		    AchVm_SetUnlocked(&vm, id)) {
-			probeAchWaiting++;
-		}
+		u32 id = slotId(s, game);
+		if (rd32(s) | rd32(s + 4) | rd32(s + 8) | rd32(s + 12)) next = i + 1;
+		if (id && AchVm_SetUnlocked(&vm, id)) probeAchWaiting++;
 	}
 	unlockNext = next;
 }
 
+// The menu's list: an achievement earned on the console. when: 0 = not
+// known (no clock); seq: its unlock number this game, 0 for one that was
+// already waiting in RPCUNLK.BIN.
+static void listMark(u32 id, u32 when, u16 seq) {
+	for (u16 i = 0; i < listCount; i++) {
+		DsirpcListEntry *e = &listEntries[i];
+		if (e->id != id) continue;
+		e->flags |= DSIRPC_LIST_ON_CONSOLE;
+		if (when) e->when = when;
+		if (seq) e->seq = seq;
+		return;
+	}
+}
+
+// Once the CRC has been checked (the list mustn't change before): the
+// list, if the set has a good one, with this game's waiting unlocks marked.
+static void listStart(void) {
+	u8 *base = (u8 *)DSIRPC_ACH_LOCATION;
+	const DsirpcList *l = (const DsirpcList *)(base + listOffset);
+	if (listSize < sizeof(DsirpcList) || l->magic != DSIRPC_LIST_MAGIC ||
+	    l->version != DSIRPC_LIST_VERSION ||
+	    sizeof(DsirpcList) + l->count * sizeof(DsirpcListEntry) + l->textSize > listSize) {
+		return;
+	}
+	listEntries = (DsirpcListEntry *)(base + listOffset + sizeof(DsirpcList));
+	listCount = l->count;
+	if (unlockNext) {
+		u32 game = rd32(base + 8);
+		const u8 *buf = base + ACH_SET_SPACE;
+		for (u16 i = 1; i < ACH_UNLOCK_SLOTS; i++) {
+			const u8 *s = buf + i * ACH_UNLOCK_SLOT;
+			u32 id = slotId(s, game);
+			if (id) listMark(id, rd32(s + 8), 0);
+		}
+	}
+	ACH_ANCHOR->list = listOffset;
+}
+
 void ProbeAch_Load(const void *ndsHeader) {
+	listEntries = 0; // (no list until the CRC has been checked)
+	listCount = 0;
 	aFile file;
 	getBootFileCluster(&file, "RPCSET.BIN", 0);
-	if (file.firstCluster == CLUSTER_FREE) return; // no set: nothing to do
+	if (file.firstCluster == CLUSTER_FREE) { // no set: nothing to do
+		anchorStart(ndsHeader, DSIRPC_MENU_NO_SET);
+		return;
+	}
 
 	u8 *base = (u8 *)DSIRPC_ACH_LOCATION;
 	fileRead((char *)base, &file, 0, ACH_HEADER_SIZE);
+	anchorStart(ndsHeader, DSIRPC_MENU_CHECKING);
 
-	// "DRSE", version 2, header size 64, game code, RA game id, stamp,
-	// achievements, flags, program size, state size
+	// "DRSE", version 2 or 3, header size 64, game code, RA game id, stamp,
+	// achievements, flags, program size, state size, (3:) list size
+	u16 version = base[4] | (base[5] << 8);
 	if (base[0] != 'D' || base[1] != 'R' || base[2] != 'S' || base[3] != 'E' ||
-	    (base[4] | (base[5] << 8)) != 2 || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
+	    (version != 2 && version != 3) || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
 		loadFailed(PROBE_ACH_E_HEADER);
 		return;
 	}
@@ -149,17 +232,20 @@ void ProbeAch_Load(const void *ndsHeader) {
 			return;
 		}
 	}
-	bodySize = rd32(base + 24);
+	u32 programSize = rd32(base + 24);
 	u32 stateSize = rd32(base + 28);
+	listSize = (version >= 3) ? rd32(base + 32) : 0;
+	listOffset = ACH_HEADER_SIZE + programSize;
+	bodySize = programSize + listSize;
 	u32 stateOffset = (ACH_HEADER_SIZE + bodySize + 3) & ~3u;
-	if (bodySize > ACH_SET_SPACE || stateSize > ACH_SET_SPACE ||
-	    stateOffset + stateSize > ACH_SET_SPACE) {
+	if (programSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE || stateSize > ACH_SET_SPACE ||
+	    stateOffset + stateSize > ACH_SET_SPACE || (listSize && (programSize & 3))) {
 		loadFailed(PROBE_ACH_E_SIZE);
 		return;
 	}
 
 	fileRead((char *)base + ACH_HEADER_SIZE, &file, ACH_HEADER_SIZE, bodySize);
-	if (AchVm_Load(&vm, base + ACH_HEADER_SIZE, bodySize, base + stateOffset, stateSize,
+	if (AchVm_Load(&vm, base + ACH_HEADER_SIZE, programSize, base + stateOffset, stateSize,
 	               ACH_RAM, ACH_RAM_SIZE) != ACHVM_OK) {
 		loadFailed(PROBE_ACH_E_PROGRAM);
 		return;
@@ -178,6 +264,11 @@ static void onTriggered(u32 id, void *ud) {
 	recent[recentNext] = id;
 	recentNext = (recentNext + 1) % ACH_RECENT;
 	if (recentCount < ACH_RECENT) recentCount++;
+	u32 when = clockStart ? clockStart + clockSeconds : 0;
+
+	// In the menu's list, whether or not it can be saved
+	listMark(id, when, ++unlockSeq);
+	ACH_ANCHOR->unlocks = unlockSeq;
 
 	// Queued for ProbeAch_SaveOne(), with when it happened
 	u8 head = pendHead, next = (head + 1) & (ACH_PENDING - 1);
@@ -186,7 +277,7 @@ static void onTriggered(u32 id, void *ud) {
 		return;
 	}
 	pendId[head] = id;
-	pendWhen[head] = clockStart ? clockStart + clockSeconds : 0;
+	pendWhen[head] = when;
 	pendHead = next;
 }
 
@@ -194,6 +285,7 @@ static int keepGoing(void *ud) {
 	return linesSince(*(const u16 *)ud) < RPCPROBE_ACH_LINES_PER_VBLANK;
 }
 
+// The stamp is the CRC-32 of the body: the program, then (version 3) the list
 static void checkStamp(u16 start) {
 	const u8 *p = (const u8 *)DSIRPC_ACH_LOCATION + ACH_HEADER_SIZE;
 	u32 c = crc, pos = crcPos;
@@ -217,13 +309,30 @@ static void checkStamp(u16 start) {
 	}
 	probeAchLoaded = (s16)vm.nAch;
 	stage = STAGE_RUNNING;
+	listStart();
+	ACH_ANCHOR->status = DSIRPC_MENU_READY;
 }
 
 void ProbeAch_SetTime(u32 secondsSince2000) {
 	clockStart = secondsSince2000;
 }
 
+void ProbeAch_MenuOpened(void) {
+	volatile DsirpcMenuAnchor *a = ACH_ANCHOR;
+	a->newFrom = menuSeen; // new to the menu: the unlocks since it last opened
+	menuSeen = unlockSeq;
+	a->open = 1;
+	menuOpen = 1;
+}
+
+void ProbeAch_MenuClosed(void) {
+	if (!menuOpen) return;
+	ACH_ANCHOR->open = 0;
+	menuOpen = 0;
+}
+
 void ProbeAch_Tick(u16 tickStart) {
+	ProbeAch_MenuClosed(); // the VBlank ticks only run while the menu is closed
 	clockPart += 1000;
 	if (clockPart >= ACH_VBLANKS_X1000) {
 		clockPart -= ACH_VBLANKS_X1000;

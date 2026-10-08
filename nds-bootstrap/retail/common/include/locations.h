@@ -121,6 +121,12 @@
 #define DSI_HEADER         0x027FE000
 #define DSI_HEADER_SDK5    0x02FFE000 // __DSiHeader
 
+// DSiRPC: the in-game achievement checker's set and state (rpcprobe's
+// probe_ach.c). The ROM cache and ROM-in-RAM loading skip it
+// (romLocationAdjust() in bootloaderi's main.arm7.c).
+#define DSIRPC_ACH_LOCATION        0x0CFB0000
+#define DSIRPC_ACH_SIZE            0x40000
+
 #define ROM_LOCATION               0x0C3EC000
 #define ROM_LOCATION_ALT           0x0C400000
 #define ROM_LOCATION_DSIMODE       0x0C800000

@@ -80,14 +80,20 @@ once when it connects and again when you start a game (**B** skips that):
 - DSiRPC sends it the [achievement sets](#retroachievements) you have, and
   downloads the set of the game you're starting if it can. The launcher keeps
   them in `sd:/DSiRPC/sets`, each with only the achievements you haven't
-  unlocked yet.
+  unlocked yet, already turned into what the console runs (DSiRPC does that
+  with rcheevos, RetroAchievements' own library).
 - The launcher hands DSiRPC the achievements unlocked while playing offline,
   and DSiRPC sends them to RetroAchievements (if sending unlocks is on in
   setup), with the time you unlocked them, and tells you in a notification.
 
-**Work in progress:** for now, games don't check achievements while you play
-offline yet; that's next (see the [roadmap](#known-issues-and-roadmap)). The
-launcher and DSiRPC already do their part.
+While you play, the console checks the game's achievements itself, many
+times a second, Wi-Fi or not.
+
+**Work in progress:** the console doesn't save what it unlocks yet, so
+offline unlocks don't reach RetroAchievements yet; that's next (see the
+[roadmap](#known-issues-and-roadmap)). With Wi-Fi and DSiRPC running, the
+console reports its unlocks to DSiRPC's log (`Console: its checker unlocked
+achievement ...`), next to DSiRPC's own, so the two can be compared.
 
 ### The tray icon
 
@@ -225,8 +231,8 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       battle views.
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
 - [ ] Achievements while [playing offline](#playing-offline): the launcher
-      already keeps the sets on the SD card and syncs unlocks with DSiRPC;
-      checking them in the game is next.
+      keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
+      console checks them in game; saving its unlocks to the SD card is next.
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets

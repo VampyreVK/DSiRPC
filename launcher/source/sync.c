@@ -243,6 +243,9 @@ static bool clear_unlocks(const char *path)
 // ---------------------------------------------------------------------------
 // Sets
 
+// Any version of the set format: the launcher only needs the code and the
+// stamp, which every version has in the same place, and the in-game side
+// checks the version itself.
 static bool read_set_header(const char *path, uint8_t header[SET_HEADER_SIZE])
 {
     FILE *f = fopen(path, "rb");
@@ -250,8 +253,7 @@ static bool read_set_header(const char *path, uint8_t header[SET_HEADER_SIZE])
         return false;
     size_t n = fread(header, 1, SET_HEADER_SIZE, f);
     fclose(f);
-    return n == SET_HEADER_SIZE && memcmp(header, "DRSE", 4) == 0 &&
-           get16(header + 4) == SYNC_VERSION && valid_code(header + 8);
+    return n == SET_HEADER_SIZE && memcmp(header, "DRSE", 4) == 0 && valid_code(header + 8);
 }
 
 // The sets already on the SD card, as (code, stamp) pairs in stamp_buf.

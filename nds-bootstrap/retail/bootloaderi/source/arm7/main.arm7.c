@@ -888,6 +888,10 @@ bool romLocationAdjust(const tNDSHeader* ndsHeader, const bool laterSdk, const b
 	} else if (*romLocation == 0x0D000000-blockSize) {
 		*romLocation += blockSize;
 	}
+	// DSiRPC: keep out of the in-game achievement checker's memory
+	if (*romLocation < DSIRPC_ACH_LOCATION+DSIRPC_ACH_SIZE && *romLocation+blockSize > DSIRPC_ACH_LOCATION) {
+		*romLocation = DSIRPC_ACH_LOCATION+DSIRPC_ACH_SIZE;
+	}
 	if (*romLocation == (consoleModel > 0 ? 0x0E000000 : 0x0D000000)) {
 		*romLocation = sharedWramEnabled ? 0x036F8000 : 0x03700000;
 	}
@@ -920,6 +924,7 @@ static bool isROMLoadableInRAM(const tDSiHeader* dsiHeader, const tNDSHeader* nd
 		if (consoleModel > 0) {
 			romSizeLimit += 0x01000000;
 		}
+		romSizeLimit -= DSIRPC_ACH_SIZE; // DSiRPC: romLocationAdjust() skips it
 		const bool nandSave = (romTid[0] == 'U');
 		if (nandSave) {
 			romSizeLimit -= retail_CACHE_ADRESS_SIZE_TWLSDK_SMALL;

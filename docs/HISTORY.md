@@ -275,6 +275,28 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Offline play, phase 2 (the in-game checker).** Phase 1
+  worked on hardware: the launcher found DSiRPC and took five sets. Now the
+  console runs the game's achievements itself. To keep the console's part
+  small and exact, DSiRPC has rcheevos parse the set (as it does for itself)
+  and a small addition to the library (`third_party/rcheevos/dsirpc_offline.c`)
+  writes out what rcheevos parsed: the memory values, including the
+  AddSource/AddAddress/Remember chains rcheevos 12 keeps as "modified
+  memrefs", and every condition in rcheevos' evaluation order. Sets became
+  version 2 (that program instead of the MemAddr text). In nds-bootstrap,
+  `rpcprobe/probe_ach_vm.c` is a port of rcheevos 12.5's evaluation without
+  floating point (3.5 KB of ARM7 code), and `probe_ach.c` loads
+  `RPCSET.BIN` on the first VBlank into 256 KB the bootloader now keeps the
+  ROM cache out of, checks its CRC, and runs it about 1 ms per VBlank,
+  stopping after any 32 conditions and carrying on next time. Tested on a
+  PC side by side with rcheevos: five real sets and tens of thousands of
+  random achievements, every achievement state and hit count equal after
+  every frame. Along the way: rcheevos treats a value compared with its own
+  delta as unchanged by the operator alone, even when the two sides read
+  different bits (copied), and a Remember used by an earlier PauseIf reads
+  last frame's value (copied). With Wi-Fi, a "DSiRPC ach" packet after each
+  hello reports what the checker unlocked and how fast it runs, and DSiRPC
+  logs it. Next: phase 3, saving its unlocks into `RPCUNLK.BIN`.
 - 2026-10-07: **Offline play, phase 1 (the launcher and DSiRPC).** The goal:
   take the console anywhere, unlock achievements without DSiRPC around, and
   have them reach RetroAchievements the next time the launcher finds DSiRPC.

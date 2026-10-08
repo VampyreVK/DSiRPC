@@ -136,7 +136,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
-| `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set) |
+| `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
 | `RPCUNLK.BIN` | SD root | Unlocks from offline play waiting for DSiRPC; the launcher makes it (4096 bytes) and clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
@@ -556,7 +556,7 @@ numbers mean.
 
 | Module | What it does |
 |---|---|
-| `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. |
+| `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. `AchReport` logs the console checker's reports (section 7). |
 | `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `tools/dsi_status.py`; the hub uses `DSiClient` directly and waits indefinitely). `SparseRam` does the same with exact byte ranges (ranges under 16 bytes apart merged), for the scattered values of an achievement set. |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
@@ -574,13 +574,13 @@ numbers mean.
 | `core/game_titles.py` | DS game titles by game code from GameTDB's list (`dstdb.txt`, downloaded into `ra/cache/` and refreshed monthly): `titles(code, cache_dir)` gives the code's title, the same game's US and European titles, then `core/games.py`'s name, for title matching when the header can't be read |
 | `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
 | `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
-| `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`) |
+| `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`), and `compile_offline()`, the console's program for offline play (DSiRPC's `dsirpc_offline.c` in the library) |
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
 | `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
-| `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()`, `read_set()`), the sync request and answer (section 7) |
+| `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `read_set()`, `state_size()`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
 | `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
@@ -745,9 +745,14 @@ the file is sent again the next time DSiRPC starts with the same account.
 set for the game being started (from `ra/`, or downloaded by its code) and
 for every other game in `ra/`, built by `core/offline.py`: the official
 core and bonus achievements, minus the ones you're known to have (from
-`startsession` and sent unlocks, `ra/cache/unlocked.json`), minus the ones
-past main RAM and any rcheevos can't parse. Each goes only if the console's
-copy is missing or has another stamp. The unlocks the console hands over
+`startsession` and sent unlocks, `ra/cache/unlocked.json`) and the ones
+past main RAM. rcheevos parses them, as it does for DSiRPC itself, and
+DSiRPC's addition to the library (`third_party/rcheevos/dsirpc_offline.c`)
+writes out what it parsed as the program the console's checker runs
+(section 8). Left out: achievements rcheevos can't parse, those that need
+floating point (the console's ARM7 has none), and, if the set and its state
+don't fit in the 256 KB the console sets aside, the biggest ones. Each set
+goes only if the console's copy is missing or has another stamp. The unlocks the console hands over
 are logged (`(offline play)` in `achievements.log`), announced in one
 notification and, with `submit_unlocks` on, sent like any other unlock, with
 `o` set from the console's time of the unlock (a time more than a day ahead
@@ -946,14 +951,37 @@ achievement ID u32 (0: empty) | game code[4] | when u32 | seq u16 | check u16
 partly written is skipped. The in-game side will write each unlock into a
 free slot; it never has to make or grow the file.
 
-**`CODE.DRS`** (a set) has a 32-byte header: `"DRSE"`, u16 version (1), u16
-header size, game code[4], u32 RetroAchievements game ID, u32 stamp (CRC-32
-of everything after the header), u16 achievement count, u16 flags, u32 table
-offset, u32 strings offset. The table has 12 bytes per achievement: u32 ID,
-u16 points, u16 flags (1: reads through a pointer, 2: from a bonus set), u32
-offset of its condition in the strings. The strings are the conditions in
-RetroAchievements' MemAddr text, NUL-terminated. The launcher only reads the
-header.
+**`CODE.DRS`** (a set, version 2) has a 64-byte header: `"DRSE"`, u16
+version (2), u16 header size (64), game code[4], u32 RetroAchievements game
+ID, u32 stamp (CRC-32 of the program), u16 achievement count, u16 flags (0),
+u32 program size, u32 state size (the RAM the checker needs for it), then
+32 bytes of zeros. The program follows: rcheevos' parse of the
+achievements, as the checker runs them. Its layout is described at the top
+of nds-bootstrap's `rpcprobe/probe_ach_vm.c`: the memory values to read
+(plain ones and rcheevos' "modified" ones, the AddSource / AddAddress /
+Remember chains), then each achievement's groups with their conditions in
+the order rcheevos evaluates them, 16 bytes each. The launcher only reads the
+code and the stamp, which are in the same place in every version. (Version 1
+had the MemAddr text instead of a program.)
+
+### The checker's report (DSi -> broadcast, after each hello)
+
+While a set is loaded (or failed to load), the VBlank after each hello also
+broadcasts, on UDP 4244:
+
+```
+DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> ids=<id,id,...>
+```
+
+`n` is how many achievements the checker runs, or why it isn't running: -1
+`RPCSET.BIN` isn't a version 2 set, -2 it's another game's set, -3 it's too
+big, -4 its program doesn't add up, -5 it's damaged (CRC). `t` counts the
+achievements it has unlocked since the game started, `ids` are the latest
+(up to 8), `p` is how many passes over every achievement it finished since
+the last report (so, a second), and `l` the most scanlines it took in one
+VBlank (a frame has 263). `DSiClient` (`AchReport`) logs the checker
+starting, each of its unlocks (`Console: its checker unlocked achievement
+...`) and once a minute its speed. Older DSiRPC versions ignore the packet.
 
 ---
 
@@ -971,7 +999,8 @@ All paths below are under `nds-bootstrap/retail/`.
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
-| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives |
+| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory, and the ROM-in-RAM size limit is 256 KB smaller to match |
+| `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFB0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area at the top of the DSi's 16 MB (the middle of the 3DS's 32 MB) |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
 
 ### `rpcprobe/` files
@@ -984,8 +1013,47 @@ All paths below are under `nds-bootstrap/retail/`.
 | `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT`; defines the UDP port (4244) |
-| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, and the per-VBlank receive limits |
+| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` on the first VBlank, checks its CRC, runs it a slice each VBlank, and keeps the latest unlocks for the report (below) |
+| `probe_ach_vm.c/.h` | The checker's interpreter: a port of rcheevos 12.5's evaluation, without floating point, for the program DSiRPC builds. Plain C; the same file is tested against rcheevos on a PC |
+| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_LINES_PER_VBLANK` and `RPCPROBE_ACH_SKIP_AFTER_LINES` |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
+
+### The achievement checker (`probe_ach.c`)
+
+For offline play the console checks the game's achievements itself, with
+or without Wi-Fi. DSiRPC has already had rcheevos parse them (section 6), so
+the console only runs the result:
+
+- **Loading.** On the game's first VBlank (the only time rpcprobe may touch
+  the SD card), `RPCSET.BIN` is read into `DSIRPC_ACH_LOCATION`, the 256 KB
+  the bootloader keeps the ROM cache out of: the set, then the checker's
+  state (every memory value with its last change, every condition's hit
+  count). It's only used if its game code is the running game's. Over the
+  next few VBlanks its CRC-32 is checked, a slice at a time; then it runs.
+- **Running.** `probe_ach_vm.c` follows rcheevos' `rc_runtime_do_frame`: a
+  pass reads every memory value (pointers and AddSource chains included),
+  then evaluates every achievement, with rcheevos' rules for hit counts,
+  ResetIf, PauseIf, AndNext/OrNext, AddHits, Measured, alt groups, and an
+  achievement having to be false once before it can trigger. A pass is
+  rcheevos' "frame".
+- **Time.** It all happens in the VBlank interrupt, so the checker gets
+  `RPCPROBE_ACH_LINES_PER_VBLANK` (16) scanlines, about 1 ms, after the rest
+  of the tick, and skips its turn if the tick already took
+  `RPCPROBE_ACH_SKIP_AFTER_LINES` (40). It can stop after any 32 memory
+  values or conditions and carry on next VBlank, so a big set takes a few
+  VBlanks per pass instead of one long one. Platinum's set (101
+  achievements, 2,635 conditions, 1,733 memory values) is about 80 KB plus
+  26 KB of state.
+- **Checking it.** The interpreter is plain C. On a PC it ran side by side
+  with rcheevos on the same memory for thousands of frames, on five real
+  sets (with a Platinum RAM dump) and on tens of thousands of random
+  achievements using every condition type, size and operator, stopping at
+  random points: every achievement's state and every condition's hit count
+  matched after every frame. With Wi-Fi, its report (section 7) shows on
+  hardware what it unlocks and how long it takes.
+
+Its unlocks aren't saved yet; writing them into `RPCUNLK.BIN` (outside the
+VBlank interrupt, because of the SD card rule) is the next step.
 
 The original hand-rolled DS-mode Wi-Fi + WPA2 driver (from before the
 DSi-mode handoff) has been removed. It was never committed to any repository,
@@ -1000,7 +1068,9 @@ described in [HISTORY.md](HISTORY.md).
   and hang or corrupt things. This caused the white screen and the
   party-menu crash.
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 53,448 of 62,464 bytes are used with the per-frame capture), so every addition counts.
+  (61 KB in total; 58,924 of 62,464 bytes are used with the per-frame capture
+  and the achievement checker), so every addition counts. Anything big
+  goes in main RAM, like the checker's set and state.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
   the receive path handles at most one packet per VBlank.
 
@@ -1267,11 +1337,13 @@ section 8).
   confirmed on hardware; Y keeps the two-step way. TWiLight's per-game
   settings other than the save slot aren't applied to a game picked there.
 - **Offline play is in progress.** The launcher plays without Wi-Fi, keeps
-  the sets on the SD card and syncs the unlock file with DSiRPC (both sides
-  tested against each other on a PC; the console side still needs hardware
-  testing). Nothing in the game checks achievements offline or writes
-  unlocks yet: that's the next step, an achievement checker in the in-game
-  side that reads `RPCSET.BIN` and writes `RPCUNLK.BIN`.
+  the sets on the SD card and syncs the unlock file with DSiRPC (on hardware
+  since 2026-10-07), and the in-game checker runs the set (section 8; it
+  matched rcheevos exactly on PC tests, but hasn't run on hardware yet).
+  Its unlocks aren't saved yet: writing them into `RPCUNLK.BIN` is the next
+  step. The checker reads main RAM from the ARM7, so it can see values a
+  frame or more late, like DSiRPC's own reads; and with a big set one pass
+  takes a few frames, so a hit count of 60 takes longer than a second.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group
   handshake after the launcher exits. So far it hasn't caused problems; the
   `eap` counter is the early warning.
@@ -1319,7 +1391,7 @@ section 8).
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
 | `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
 | `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent, the unlocks you have); all gitignored |
-| `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT |
+| `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT, with DSiRPC's `dsirpc_offline.c` (offline play's set compiler) built in |
 | `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
 | `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |

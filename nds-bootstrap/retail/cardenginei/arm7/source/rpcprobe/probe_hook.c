@@ -5,13 +5,15 @@
 // (WPA2 is handled by the chip). This file loads /RPCHAND.TXT, checks the
 // chip still answers, then broadcasts a hello packet once a second (so the
 // PC finds the DSi without any configuration) and, with RPCPROBE_REQUESTS,
-// answers memory requests from the PC.
+// answers memory requests from the PC. With RPCPROBE_ACH it also runs the
+// achievement checker for offline play (probe_ach.c), Wi-Fi or not.
 //
 // SD card rule: the SD card is only touched on the very first VBlank (loading
-// RPCHAND.TXT). After that the game's own ARM7 code reads its save from the
-// SD card outside interrupts, and a VBlank that touches the SD card in the
-// middle of that corrupts nds-bootstrap's SD/file state and hangs the game.
-// Diagnostics after the first VBlank go into the hello packets instead.
+// RPCHAND.TXT and RPCSET.BIN). After that the game's own ARM7 code reads its
+// save from the SD card outside interrupts, and a VBlank that touches the SD
+// card in the middle of that corrupts nds-bootstrap's SD/file state and hangs
+// the game. Diagnostics after the first VBlank go into the hello packets
+// instead.
 
 #include <nds/ndstypes.h>
 #include "debug_file.h"
@@ -22,6 +24,9 @@
 #if RPCPROBE_REQUESTS
 #include "probe_req.h"
 #include "probe_watch.h"
+#endif
+#if RPCPROBE_ACH
+#include "probe_ach.h"
 #endif
 
 // One-byte live status, readable with nds-bootstrap's in-game RAM viewer:
@@ -53,6 +58,9 @@ static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 176)
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
+#if RPCPROBE_ACH
+static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
+#endif
 
 // Which game is running, from its NDS header, taken on the first tick (the
 // bootloader has just written the header; a game can reuse that memory
@@ -73,6 +81,14 @@ static void gameLoad(const u8 *hdr) {
 
 static int putDec(char *p, u16 v) {
 	char tmp[5];
+	int n = 0;
+	do { tmp[n++] = (char)('0' + (v % 10)); v /= 10; } while (v);
+	for (int i = 0; i < n; i++) p[i] = tmp[n - 1 - i];
+	return n;
+}
+
+static int putDec32(char *p, u32 v) {
+	char tmp[10];
 	int n = 0;
 	do { tmp[n++] = (char)('0' + (v % 10)); v /= 10; } while (v);
 	for (int i = 0; i < n; i++) p[i] = tmp[n - 1 - i];
@@ -200,7 +216,48 @@ static void handoffSend(void) {
 	} else {
 		hoSendFails = 0;
 	}
+#if RPCPROBE_ACH
+	hoAchDue = (probeAchLoaded != PROBE_ACH_NONE);
+#endif
 }
+
+#if RPCPROBE_ACH
+// "DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> ids=<ids>",
+// in the VBlank after each hello: n is the number being checked (0 = no set,
+// below 0 = probe_ach.h's PROBE_ACH_E_*), t the unlocks so far, p the passes
+// over every achievement since the last one (about a second ago), l the
+// longest checker tick in scanlines, ids the latest unlocks (at most 8).
+// DSiRPC logs them, to compare with its own unlocks.
+static void achSend(void) {
+	static char msg[128];
+	int n = 0;
+	u16 passes, lines;
+	u32 ids[8];
+
+	ProbeAch_TakeStats(&passes, &lines);
+	n += putStr(&msg[n], "DSiRPC ach n=");
+	if (probeAchLoaded < 0) {
+		msg[n++] = '-';
+		n += putDec(&msg[n], (u16)-probeAchLoaded);
+	} else {
+		n += putDec(&msg[n], (u16)probeAchLoaded);
+	}
+	n += putStr(&msg[n], " t=");
+	n += putDec(&msg[n], probeAchTriggered);
+	n += putStr(&msg[n], " p=");
+	n += putDec(&msg[n], passes);
+	n += putStr(&msg[n], " l=");
+	n += putDec(&msg[n], lines);
+	int k = ProbeAch_RecentIds(ids, 8);
+	for (int i = 0; i < k; i++) {
+		n += putStr(&msg[n], i ? "," : " ids=");
+		n += putDec32(&msg[n], ids[i]);
+	}
+
+	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
+	TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen, 1);
+}
+#endif
 
 void Probe_VBlankTick(const void *ndsHeader) {
 	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
@@ -211,9 +268,22 @@ void Probe_VBlankTick(const void *ndsHeader) {
 	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
 	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service();
 #endif
-	if (hoStage == HO_LOAD && hoTimer == 0) gameLoad((const u8 *)ndsHeader);
+	if (hoStage == HO_LOAD && hoTimer == 0) {
+		gameLoad((const u8 *)ndsHeader);
+#if RPCPROBE_ACH
+		ProbeAch_Load(ndsHeader); // first VBlank: the SD card is safe to read
+#endif
+	}
 	if (hoTimer) {
 		hoTimer--;
+#if RPCPROBE_ACH
+		// the checker's report, a VBlank after the hello
+		if (hoAchDue && hoStage == HO_RUN && !sentThisTick && !TwlWifi_RxBusy()) {
+			hoAchDue = 0;
+			achSend();
+			sentThisTick = 1;
+		}
+#endif
 	} else if (hoStage == HO_RUN && (sentThisTick || TwlWifi_RxBusy())) {
 		// Keep each tick short: no hello in a tick that already sent a reply,
 		// or while a packet is half read. Try again next VBlank.
@@ -229,6 +299,11 @@ void Probe_VBlankTick(const void *ndsHeader) {
 	}
 
 	probeStatusByte = 0x80 | (u8)(hoStage << 4) | (u8)(hoSent & 0x0F);
+
+#if RPCPROBE_ACH
+	// Last, with whatever time this tick has left
+	ProbeAch_Tick(lineStart);
+#endif
 
 	u16 lineEnd = HO_REG_VCOUNT & 0x1FF;
 	u16 lines = (lineEnd >= lineStart) ? lineEnd - lineStart

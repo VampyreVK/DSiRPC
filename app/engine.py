@@ -238,42 +238,33 @@ class Engine:
         """[(code, .DRS bytes)] for the console: the game it's starting
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
-        unlocked is left out, including the unlocks the console just sent."""
+        unlocked is left out, including the unlocks the console just sent.
+        rcheevos builds them (core/offline.py's build_set())."""
         from core import offline, ra_set
+        from core.rcheevos import RcheevosError, RcheevosMissing
         link = self.ra_link if self.ra_enabled else None
         codes = ([game] if game else []) + [c for c in ra_set.codes() if c != game]
-        check, runtime = None, None
-        try:
-            from core.rcheevos import Runtime, RcheevosError
-            runtime = Runtime()
-
-            def check(memaddr):
-                try:
-                    runtime.activate_achievement(1, memaddr)
-                    runtime.deactivate_achievement(1)
-                    return True
-                except RcheevosError:
-                    return False
-        except Exception as e:  # no rcheevos library: send them unchecked
-            logging.debug(f"Offline sets aren't checked with rcheevos: {e}")
         out = []
-        try:
-            for code in codes:
-                try:
-                    s = link.set_for_code(code) if (link and code == game) else ra_set.for_game(code)
-                except ra_set.SetFileError as e:
-                    logging.info(f"Offline sync: {code}: {e}")
-                    continue
-                if not s:
-                    continue
-                skip = link.known_unlocks(s.id) if link else set()
-                skip |= {u['id'] for u in unlocks if u['code'] == code}
-                data = offline.build_set(s, code, skip, check)
-                if stamps.get(code) != offline.set_stamp(data):
-                    out.append((code, data))
-        finally:
-            if runtime:
-                runtime.close()
+        for code in codes:
+            try:
+                s = link.set_for_code(code) if (link and code == game) else ra_set.for_game(code)
+            except ra_set.SetFileError as e:
+                logging.info(f"Offline sync: {code}: {e}")
+                continue
+            if not s:
+                continue
+            skip = link.known_unlocks(s.id) if link else set()
+            skip |= {u['id'] for u in unlocks if u['code'] == code}
+            try:
+                data = offline.build_set(s, code, skip)
+            except RcheevosMissing as e:
+                logging.warning(f"Offline sync: no achievement sets for the console: {e}")
+                return out
+            except (RcheevosError, offline.FormatError) as e:
+                logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
+                continue
+            if stamps.get(code) != offline.set_stamp(data):
+                out.append((code, data))
         return out
 
     def _offline_unlocks(self, unlocks):

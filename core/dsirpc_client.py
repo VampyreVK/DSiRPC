@@ -26,6 +26,12 @@ on the same port at the same time (DSiRPC itself, or the tools in tools/) -
 they'd fight over it. Newer builds also say which game is
 running (gc=, v=, hc=); see DSiClient.game.
 
+Builds with offline play's achievement checker (rpcprobe/probe_ach.c) also
+send "DSiRPC ach ..." a moment after each hello while the game has a set:
+how many achievements the console is checking, what it has unlocked, and how
+fast it goes. DSiClient logs them (see AchReport), so the console's unlocks
+can be compared with DSiRPC's own.
+
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
   python core/dsirpc_client.py --read 0x02000BBC:8 0x02101D40:4
@@ -36,6 +42,7 @@ Usage, from the repo root:
 
 import argparse
 import collections
+import logging
 import re
 import socket
 import struct
@@ -63,6 +70,58 @@ def game_from_hello(text):
         return None
 
 
+# What "DSiRPC ach n=" says when it isn't a number of achievements (probe_ach.h)
+ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this build can read (update the launcher and DSiRPC together)",
+              -2: "RPCSET.BIN is another game's set (start the game from the launcher)",
+              -3: "the set is too big for the memory set aside for it",
+              -4: "the set's program doesn't add up",
+              -5: "RPCSET.BIN is damaged"}
+
+
+class AchReport:
+    """Follows the console's "DSiRPC ach" reports and logs what's new: the
+    checker starting (or why it can't), each unlock, and once a minute how
+    fast it goes (passes over every achievement a second, and the longest
+    the checker took in one VBlank, in scanlines; a frame has 263)."""
+
+    def __init__(self):
+        self.latest = None
+        self._loaded = None
+        self._unlocked = 0
+        self._reports = 0
+        self._passes = self._lines = 0
+
+    def take(self, text):
+        f = _hello_fields(text)
+        try:
+            loaded = int(f.get("n", "0"))
+            unlocked = int(f.get("t", "0"))
+            passes, lines = int(f.get("p", "0")), int(f.get("l", "0"))
+            ids = [int(i) for i in f["ids"].split(",")] if f.get("ids") else []
+        except ValueError:
+            return
+        self.latest = {'loaded': loaded, 'unlocked': unlocked, 'passes': passes, 'lines': lines, 'ids': ids}
+        if loaded != self._loaded or unlocked < self._unlocked:  # another game, or the same one again
+            self._loaded, self._unlocked = loaded, 0
+            self._reports = self._passes = self._lines = 0
+            if loaded > 0:
+                logging.info(f"Console: checking {loaded} achievement(s) in game (offline play's checker)")
+            elif loaded < 0:
+                logging.warning(f"Console: no achievement checker: {ACH_ERRORS.get(loaded, loaded)}")
+        new = unlocked - self._unlocked
+        if new > 0:
+            for aid in ids[-new:]:
+                logging.info(f"Console: its checker unlocked achievement {aid}")
+            self._unlocked = unlocked
+        self._reports += 1
+        self._passes += passes
+        self._lines = max(self._lines, lines)
+        if loaded > 0 and self._reports % 60 == 0:
+            logging.info(f"Console: its checker did {self._passes / 60:.1f} passes a second over the last "
+                         f"minute; its longest turn took {self._lines} scanlines")
+            self._passes = self._lines = 0
+
+
 class DSiClient:
     def __init__(self, port=4244, dsi_ip=None, timeout=1.0, verbose=False):
         self.port = port
@@ -73,6 +132,7 @@ class DSiClient:
         self.last_hello = None
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
+        self.ach = AchReport()
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
 
@@ -87,6 +147,8 @@ class DSiClient:
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
             elif self.verbose:
                 print(f"  hello: {self.last_hello}")
+        elif data.startswith(b"DSiRPC ach "):
+            self.ach.take(data.decode(errors="replace"))
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
 

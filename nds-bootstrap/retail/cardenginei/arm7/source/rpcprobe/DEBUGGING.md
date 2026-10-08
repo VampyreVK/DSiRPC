@@ -51,6 +51,29 @@ No hellos at all means one of the startup steps failed. Check, in order:
 
 If all of that looks right, use a debug build (section 3).
 
+### The achievement checker's report
+
+With a set loaded for offline play (`RPCSET.BIN`, see `probe_ach.c`), the
+VBlank after each hello also sends:
+
+```
+DSiRPC ach n=N t=N p=N l=N ids=ID,ID,...
+```
+
+DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
+
+| Field | Meaning |
+|---|---|
+| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 set (the launcher or DSiRPC is older than this build), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 256 KB, `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `t` | Achievements it has unlocked since the game started |
+| `p` | Passes over every achievement since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
+| `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 16; it can go a little over, since it checks the time every 32 conditions). `vb=` in the hello includes it. |
+| `ids` | The latest unlocks, at most 8 |
+
+If the game stutters with a set loaded and not without one (rename
+`RPCSET.BIN` to test), lower `RPCPROBE_ACH_LINES_PER_VBLANK`, or set
+`RPCPROBE_ACH 0` to build without the checker.
+
 ## 2. RAM viewer status byte
 
 `probe_hook.c` keeps a one-byte status, `probeStatusByte`, that you can
@@ -103,13 +126,15 @@ Two things to know:
 ## Rules the in-game code has to follow
 
 - **The SD card is only touched on the very first VBlank** (loading
-  `RPCHAND.TXT`). Later, the game reads its save from the SD card outside
+  `RPCHAND.TXT` and `RPCSET.BIN`). Later, the game reads its save from the SD card outside
   interrupts, and SD access from the VBlank interrupt in the middle of that
   hangs the game (seen as a white screen).
 - **Everything runs inside the VBlank interrupt,** so each tick has to stay
   short. The receive path reads at most `RPCPROBE_RX_BYTES_PER_VBLANK`
   bytes per VBlank, and no hello goes out in a tick that already sent a
   reply. `vb=` in the hellos shows the longest tick.
-- **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region.
+- **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
+  3.5 KB is left). The achievement checker keeps its set and state in main
+  RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

@@ -78,14 +78,15 @@ launcher turns Wi-Fi off and works the same way, minus the syncs.
 
 | File | What |
 |---|---|
-| `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: only the achievements left to unlock that the console can check |
-| `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root |
+| `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: the achievements left to unlock, already turned into the program the console's checker runs |
+| `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root; nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
 | `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side only ever writes into it |
 
 The formats are in DSiRPC's `core/offline.py` and in
 [docs/DOCUMENTATION.md](../docs/DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245).
-The launcher never looks past a set's header: DSiRPC builds them, and the
-in-game side will read them.
+The launcher never looks past a set's header (any version: it only needs the
+game code and the stamp): DSiRPC builds them, and the in-game side reads
+them.
 
 ### The sync with DSiRPC
 
@@ -150,11 +151,10 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
   If it doesn't work, **Y** still exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
-- **Offline play only gets as far as the launcher for now.** It keeps the
-  sets and syncs the unlock file, but nothing in the game checks
-  achievements offline or writes unlocks yet (the next phases).
-- **The sync is new** and needs testing on hardware. It was tested against
-  DSiRPC with a PC build of `source/sync.c`.
+- **Offline play doesn't save unlocks yet.** The launcher keeps the sets
+  and syncs the unlock file (it worked on hardware on 2026-10-07), and the
+  game checks the achievements, but nothing writes them into
+  `RPCUNLK.BIN` yet (the next phase).
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is
   running that driver. If hello packets stop at a suspiciously regular

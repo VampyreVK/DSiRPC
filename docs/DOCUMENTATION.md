@@ -271,7 +271,9 @@ DSi), the Discord Rich Presence as a hub listener
 | `--overlay` | off | Also open the overlay window (run mode) |
 | `--no-discord` | off | Show nothing on Discord |
 | `--no-ra` | off | No RetroAchievements at all: no achievements, no downloads, nothing sent |
-| `--dry-run` | off | Log the presence instead of sending it, and send nothing to RetroAchievements (no session, pings or unlocks) |
+| `--dry-run` | off | Log the presence instead of sending it, and send nothing to RetroAchievements (no session, pings or unlocks). Also acts as if nothing were unlocked (as `--blank-ra`), and leaves the console's waiting unlocks on it (the sync answers that it took none) |
+| `--blank-ra` | off | Act as if the RetroAchievements account had nothing unlocked: `RALink.known_unlocks()` is empty and sessions report nothing unlocked, so every achievement is checked, the console gets whole sets, and every unlock is sent (`unlocked.json` still records the real state) |
+| `--clear-ra` | off | At the console's first sync in this run: take its waiting unlocks without sending them (so the launcher clears them) and send every set again, even current ones |
 | `--client-id ID` | from `dsirpc.cfg` | Discord application ID for every game |
 | `--interval S` | `5`, or `2` with the overlay | Seconds between reads. Discord accepts about one update per 5 s. |
 | `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi. With `--dry-run` (and no overlay) it prints the presence once and exits |
@@ -556,7 +558,7 @@ numbers mean.
 
 | Module | What it does |
 |---|---|
-| `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. `AchReport` logs the console checker's reports (section 7). |
+| `core/dsirpc_client.py` | `DSiClient`: the UDP protocol client. It learns the DSi's IP from hellos, splits and batches reads, and retries. `game` is the running game from the hellos (code, ROM version, header CRC; `None` with older builds), `set_watch()` and `fetch_frames()` drive the per-frame capture, and `listen()` takes in hellos while nothing else is being sent. `AchReport` logs the console checker's reports (section 7) and hands its new unlocks to `on_unlocks` (`DsiSource` passes them to `RaGame`). |
 | `core/dsi_memory.py` | `DsiRam`: behaves like the 4 MB dump the parser expects (length and slicing), but fetches only the bytes that are read, in 64-byte blocks, batched per `prefetch()`. `connect()` waits up to 15 s for the DSi (used by `tools/dsi_status.py`; the hub uses `DSiClient` directly and waits indefinitely). `SparseRam` does the same with exact byte ranges (ranges under 16 bytes apart merged), for the scattered values of an achievement set. |
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
@@ -566,8 +568,8 @@ numbers mean.
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
-| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. `RaSettings` holds the `[ra]` choices |
-| `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in |
+| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way. `RaSettings` holds the `[ra]` choices |
+| `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in. With `blank` (`--blank-ra`, `--dry-run`) it acts as if nothing were unlocked |
 | `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
 | `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
 | `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
@@ -581,7 +583,7 @@ numbers mean.
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `read_set()`, `state_size()`), the sync request and answer (section 7) |
-| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks |
+| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run) |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
 | `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
 
@@ -761,7 +763,10 @@ are logged (`(offline play)` in `achievements.log`), announced in one
 notification and, with `submit_unlocks` on, sent like any other unlock, with
 `o` set from the console's time of the unlock (a time more than a day ahead
 or two years behind is taken as now). Signed out, they wait in
-`pending_unlocks.json` for the next account that signs in.
+`pending_unlocks.json` for the next account that signs in. For testing,
+`--dry-run` leaves them on the console, `--clear-ra` throws them away at the
+first sync (and sends every set again), and `--blank-ra` builds whole sets
+and sends everything (the flags are in section 5).
 
 ---
 
@@ -999,7 +1004,10 @@ once, a failed write) and `w` how many of the game's unlocks were already
 waiting in the file when it started. `DSiClient` (`AchReport`) logs the
 checker starting, each of its unlocks (`Console: its checker unlocked
 achievement ...`), the saves (`Console: saved N unlock(s) to its SD card for
-DSiRPC`, or a warning for `x`) and once a minute its speed. Older DSiRPC
+DSiRPC`, or a warning for `x`) and once a minute its speed. Each new unlock
+also counts in DSiRPC right away (`core/ra_game.py`: sent if sending is on,
+notified, no longer checked on the PC), so it doesn't wait for the next sync;
+when that sync brings it again, DSiRPC already has it. Older DSiRPC
 versions ignore the packet, and older consoles' packets have no `s`, `x` or
 `w`.
 
@@ -1061,15 +1069,21 @@ the console only runs the result:
   achievement having to be false once before it can trigger. A pass is
   rcheevos' "frame".
 - **Time.** It all happens in the VBlank interrupt, so the checker gets
-  `RPCPROBE_ACH_LINES_PER_VBLANK` (16) scanlines, about 1 ms, after the rest
-  of the tick, and skips its turn if the tick already took
-  `RPCPROBE_ACH_SKIP_AFTER_LINES` (40). It can stop after any 32 memory
+  `RPCPROBE_ACH_LINES_PER_VBLANK` (20) scanlines, about 1.3 ms, after the
+  rest of the tick, and skips its turn if the tick already took
+  `RPCPROBE_ACH_SKIP_AFTER_LINES` (40). It can stop after any 8 memory
   values or conditions and carry on next VBlank, so a big set takes a few
-  VBlanks per pass instead of one long one. Platinum's set (101
+  VBlanks per pass instead of one long one, and a turn rarely runs more
+  than a scanline or two over. The hot paths are written for the ARM7's
+  Thumb code: no switch tables for the common cases, operand values and
+  types passed in registers, fast paths for AddSource and AddAddress
+  chains. On a model of the ARM7 (the Thumb build run in an emulator,
+  counting instructions and memory accesses), that took Platinum's pass
+  from about 1.83 million cycles to 1.26 million, other sets 16-23%. Platinum's set (101
   achievements, 2,635 conditions, 1,733 memory values) is about 80 KB plus
   26 KB of state.
 - **Checking it.** The interpreter is plain C. On a PC it ran side by side
-  with rcheevos on the same memory for thousands of frames, on five real
+  with rcheevos on the same memory for thousands of frames, on six real
   sets (with a Platinum RAM dump) and on tens of thousands of random
   achievements using every condition type, size and operator, stopping at
   random points: every achievement's state and every condition's hit count
@@ -1105,7 +1119,7 @@ described in [HISTORY.md](HISTORY.md).
   and the party-menu crash. The checker's unlocks are written from the
   swiHalt hook instead, holding nds-bootstrap's `saveMutex` (above).
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 60,012 of 62,464 bytes are used with the per-frame capture
+  (61 KB in total; 59,956 of 62,464 bytes are used with the per-frame capture
   and the achievement checker), so every addition counts. Anything big
   goes in main RAM, like the checker's set and state.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
@@ -1378,8 +1392,8 @@ section 8).
   since 2026-10-07), and the in-game checker runs the set (section 8; it
   matched rcheevos exactly on PC tests, and runs on hardware since
   2026-10-08: Platinum's 101 achievements at about 1.4 passes a second).
-  Saving its unlocks into `RPCUNLK.BIN` from the swiHalt hook is new and
-  needs a hardware test. Unlock times don't count time asleep (the console's
+  Saving its unlocks into `RPCUNLK.BIN` from the swiHalt hook works on
+  hardware since 2026-10-08 (Tetris DS), with few games tried. Unlock times don't count time asleep (the console's
   clock is only read by the launcher). The checker reads main RAM from the ARM7, so it can see values a
   frame or more late, like DSiRPC's own reads; and with a big set one pass
   takes a few frames, so a hit count of 60 takes longer than a second.

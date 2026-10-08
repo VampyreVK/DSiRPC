@@ -83,10 +83,13 @@ class AchReport:
     checker starting (or why it can't), each unlock, the unlocks saved to
     the SD card (or not), and once a minute how fast it goes (passes over
     every achievement a second, and the longest the checker took in one
-    VBlank, in scanlines; a frame has 263)."""
+    VBlank, in scanlines; a frame has 263). on_unlocks(ids), if set, gets
+    each batch of new unlocks (core/hub.py hands them to core/ra_game.py,
+    which counts them right away)."""
 
     def __init__(self):
         self.latest = None
+        self.on_unlocks = None
         self._loaded = None
         self._unlocked = self._saved = self._lost = 0
         self._reports = 0
@@ -118,6 +121,8 @@ class AchReport:
             for aid in ids[-new:]:
                 logging.info(f"Console: its checker unlocked achievement {aid}")
             self._unlocked = unlocked
+            if self.on_unlocks and ids:
+                self.on_unlocks(ids[-new:])
         if saved > self._saved:
             logging.info(f"Console: saved {saved - self._saved} unlock(s) to its SD card for DSiRPC")
             self._saved = saved

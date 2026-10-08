@@ -42,6 +42,10 @@ enum {
 };
 enum { T_NONE, T_UNSIGNED, T_SIGNED };
 
+// How often AchVm_Run() asks keepGoing(): every this many memory values or
+// conditions (a power of 2)
+#define ACHVM_CHECK_EVERY 8
+
 #define PLAIN_SIZE  8
 #define MOD_SIZE    20
 #define SET_SIZE    12
@@ -88,21 +92,18 @@ static uint32_t peekSized(const AchVm *vm, uint32_t a, uint8_t size) {
 	return v & masks[size];
 }
 
-// rc_transform_memref_value (integer sizes)
-static uint32_t transformSize(uint32_t v, uint8_t size) {
+// rc_transform_memref_value (integer sizes). Sizes up to S_BIT7 are a mask
+// and a shift: (v & masks[size]) >> maskShifts[size].
+static const uint8_t maskShifts[S_BITCOUNT] = { 0, 0, 0, 0, 0, 4, 0, 1, 2, 3, 4, 5, 6, 7 };
+
+static uint32_t transformSize(uint32_t v, uint32_t size) {
+	if (size < S_BITCOUNT) return (v & masks[size]) >> maskShifts[size];
 	switch (size) {
-		case S_8:  return v & 0xff;
-		case S_16: return v & 0xffff;
-		case S_24: return v & 0xffffff;
-		case S_LOW: return v & 0x0f;
-		case S_HIGH: return (v >> 4) & 0x0f;
 		case S_BITCOUNT: return bitsSet[v & 0x0f] + bitsSet[(v >> 4) & 0x0f];
 		case S_16BE: return ((v & 0xff00) >> 8) | ((v & 0x00ff) << 8);
 		case S_24BE: return ((v & 0xff0000) >> 16) | (v & 0x00ff00) | ((v & 0x0000ff) << 16);
 		case S_32BE: return (v >> 24) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) | (v << 24);
-		default:
-			if (size >= S_BIT0 && size <= S_BIT7) return (v >> (size - S_BIT0)) & 1;
-			return v; // S_32
+		default: return v;
 	}
 }
 
@@ -149,24 +150,20 @@ static uint32_t memrefRead(const AchVm *vm, uint32_t i, uint8_t read) {
 	return vm->memValue[i];
 }
 
-// rc_evaluate_operand
-static void evalOperand(const AchVm *vm, uint8_t kind, uint8_t size, uint8_t read, uint32_t value, Tv *out) {
-	if (kind == K_CONST) {
-		out->v = value;
-		out->t = T_UNSIGNED;
-		return;
-	}
-	if (kind != K_RECALL)
-		read = (kind == K_DELTA) ? READ_DELTA : (kind == K_PRIOR) ? READ_PRIOR : READ_VALUE;
-	if (value >= (uint32_t)vm->nPlain + vm->nMod) { // can't happen with a checked program
-		out->v = 0;
-		out->t = T_UNSIGNED;
-		return;
-	}
-	out->t = memrefType(vm, value);
-	out->v = transformSize(memrefRead(vm, value, read), size);
-	if (out->t == T_UNSIGNED && kind != K_RECALL)
-		out->v = transformOperand(out->v, kind, size);
+// rc_evaluate_operand: the value in the low 32 bits, its type above, so
+// both come back in registers. A memref operand always names one of the
+// program's memrefs (checkProgram() makes sure).
+#define TV(t, v) (((uint64_t)(t) << 32) | (uint32_t)(v))
+#define TV_T(p)  ((uint32_t)((p) >> 32))
+#define TV_V(p)  ((uint32_t)(p))
+
+static uint64_t operand(const AchVm *vm, uint32_t kind, uint32_t size, uint32_t read, uint32_t value) {
+	if (kind == K_CONST) return TV(T_UNSIGNED, value);
+	if (kind != K_RECALL) read = (kind == K_DELTA) | ((uint32_t)(kind == K_PRIOR) << 1);
+	uint32_t t = memrefType(vm, value);
+	uint32_t v = transformSize(memrefRead(vm, value, read), size);
+	if ((kind == K_BCD || kind == K_INVERTED) && t == T_UNSIGNED) v = transformOperand(v, kind, size);
+	return TV(t, v);
 }
 
 // -- typed values (rcheevos' value.c, without floats) ------------------------
@@ -235,48 +232,47 @@ static void combine(Tv *v, Tv *a, uint8_t oper) {
 	}
 }
 
-// rc_typed_value_compare
-static int compare(const Tv *a, Tv *b, uint8_t oper) {
-	if (b->t != a->t) convert(b, a->t);
-	if (a->t == T_UNSIGNED) {
-		switch (oper) {
-			case O_EQ: return a->v == b->v;
-			case O_NE: return a->v != b->v;
-			case O_LT: return a->v < b->v;
-			case O_LE: return a->v <= b->v;
-			case O_GT: return a->v > b->v;
-			case O_GE: return a->v >= b->v;
-			default: return 1;
-		}
+// rc_typed_value_compare. Which outcomes (bit 0 less, 1 equal, 2 greater)
+// each operator accepts: EQ, LT, LE, GT, GE, NE, NONE.
+static const uint8_t accepts[O_NONE + 1] = { 2, 1, 3, 4, 6, 5, 7 };
+
+// (b takes a's type first: a value that isn't a number becomes 0, and
+// anything compared with a non-number is true)
+static int compare(uint64_t pa, uint64_t pb, uint32_t oper) {
+	uint32_t at = TV_T(pa), av = TV_V(pa), bt = TV_T(pb), bv = TV_V(pb), outcome;
+	if (bt != T_UNSIGNED && bt != T_SIGNED) bv = 0;
+	if (oper > O_NONE) return 1;
+	if (at == T_UNSIGNED) {
+		outcome = (av < bv) ? 1 : (av == bv) ? 2 : 4;
+	} else if (at == T_SIGNED) {
+		outcome = ((int32_t)av < (int32_t)bv) ? 1 : (av == bv) ? 2 : 4;
+	} else {
+		return 1;
 	}
-	if (a->t == T_SIGNED) {
-		int32_t x = (int32_t)a->v, y = (int32_t)b->v;
-		switch (oper) {
-			case O_EQ: return x == y;
-			case O_NE: return x != y;
-			case O_LT: return x < y;
-			case O_LE: return x <= y;
-			case O_GT: return x > y;
-			case O_GE: return x >= y;
-			default: return 1;
-		}
-	}
-	return 1;
+	return (accepts[oper] & outcome) != 0;
 }
 
 // -- memrefs ------------------------------------------------------------------
 
-static void evalPackedOperand(const AchVm *vm, const uint8_t *op, Tv *out) {
-	evalOperand(vm, op[0], op[1], op[2], rd32(op + 4), out);
+static uint64_t packedOperand(const AchVm *vm, const uint8_t *op) {
+	uint32_t ksr = rd32(op); // kind, size, read, 0
+	return operand(vm, ksr & 0xff, (ksr >> 8) & 0xff, (ksr >> 16) & 0xff, rd32(op + 4));
 }
 
 // rc_get_modified_memref_value
 static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
-	Tv value, modifier;
-	uint8_t size = m[0], type = m[1];
-	evalPackedOperand(vm, m + 4, &value);
-	evalPackedOperand(vm, m + 12, &modifier);
-	switch (m[2]) {
+	uint32_t head = rd32(m); // size, type, modifier type, 0
+	uint64_t pv = packedOperand(vm, m + 4), pm = packedOperand(vm, m + 12);
+	uint32_t oper = (head >> 16) & 0xff;
+	if (isInt(TV_T(pv)) && isInt(TV_T(pm))) {
+		// two numbers: what the general code below works out, directly
+		if (oper == O_ADD_ACCUMULATOR) return TV_V(pv) + TV_V(pm);
+		if (oper == O_SUB_ACCUMULATOR) return TV_V(pv) - TV_V(pm);
+		if (oper == O_INDIRECT_READ) return peekSized(vm, TV_V(pv) + TV_V(pm), head & 0xff);
+	}
+	Tv value = { TV_V(pv), (uint8_t)TV_T(pv) }, modifier = { TV_V(pm), (uint8_t)TV_T(pm) };
+	uint8_t size = head & 0xff, type = (head >> 8) & 0xff;
+	switch (oper) {
 		case O_INDIRECT_READ:
 			add(&value, &modifier);
 			convert(&value, T_UNSIGNED);
@@ -293,7 +289,7 @@ static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
 			add(&value, &modifier);
 			break;
 		default:
-			combine(&value, &modifier, m[2]);
+			combine(&value, &modifier, oper);
 			break;
 	}
 	convert(&value, type);
@@ -301,7 +297,7 @@ static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
 }
 
 // rc_update_memref_value
-static void setMemref(AchVm *vm, uint32_t i, uint32_t v) {
+static inline __attribute__((always_inline)) void setMemref(AchVm *vm, uint32_t i, uint32_t v) {
 	if (vm->memValue[i] == v) {
 		vm->memChanged[i] = 0;
 	} else {
@@ -314,18 +310,22 @@ static void setMemref(AchVm *vm, uint32_t i, uint32_t v) {
 // rc_update_memref_values, from memref vm->memNext on. Returns 1 when
 // they're all done, 0 if it stopped for keepGoing.
 static int updateMemrefs(AchVm *vm, int (*keepGoing)(void *ud), void *ud) {
-	uint32_t nMem = (uint32_t)vm->nPlain + vm->nMod;
-	while (vm->memNext < nMem) {
-		uint32_t i = vm->memNext;
-		if (i < vm->nPlain) {
+	uint32_t nPlain = vm->nPlain, nMem = nPlain + vm->nMod, i = vm->memNext;
+	while (i < nMem) {
+		if (i < nPlain) {
 			const uint8_t *p = vm->plain + i * PLAIN_SIZE;
-			if (p[5] != T_NONE) setMemref(vm, i, peekSized(vm, rd32(p), p[4]));
+			uint32_t head = rd32(p + 4); // size, type
+			if (((head >> 8) & 0xff) != T_NONE) setMemref(vm, i, peekSized(vm, rd32(p), head & 0xff));
 		} else {
-			setMemref(vm, i, modifiedValue(vm, vm->mod + (i - vm->nPlain) * MOD_SIZE));
+			setMemref(vm, i, modifiedValue(vm, vm->mod + (i - nPlain) * MOD_SIZE));
 		}
-		vm->memNext = ++i;
-		if (!(i & 31) && i < nMem && keepGoing && !keepGoing(ud)) return 0;
+		i++;
+		if (!(i & (ACHVM_CHECK_EVERY - 1)) && i < nMem && keepGoing && !keepGoing(ud)) {
+			vm->memNext = i;
+			return 0;
+		}
 	}
+	vm->memNext = i;
 	return 1;
 }
 
@@ -338,15 +338,14 @@ static int updateMemrefs(AchVm *vm, int (*keepGoing)(void *ud), void *ud) {
 
 // rc_test_condition
 static int testCondition(const AchVm *vm, const uint8_t *c, uint32_t w) {
-	Tv a, b;
 	if ((w & COND_SAME_DELTA) && !vm->memChanged[rd32(c + 4)]) {
 		// rcheevos' shortcut: unchanged, so "equal", whichever bits each side reads
 		uint8_t oper = COND_OPER(w);
 		return oper == O_EQ || oper == O_GE || oper == O_LE;
 	}
-	evalOperand(vm, (w >> 8) & 0x0f, (w >> 16) & 0x1f, (w >> 27) & 3, rd32(c + 4), &a);
-	evalOperand(vm, (w >> 12) & 0x0f, (w >> 21) & 0x1f, (w >> 29) & 3, rd32(c + 8), &b);
-	return compare(&a, &b, COND_OPER(w));
+	uint64_t a = operand(vm, (w >> 8) & 0x0f, (w >> 16) & 0x1f, (w >> 27) & 3, rd32(c + 4));
+	uint64_t b = operand(vm, (w >> 12) & 0x0f, (w >> 21) & 0x1f, (w >> 29) & 3, rd32(c + 8));
+	return compare(a, b, COND_OPER(w));
 }
 
 // rc_condset_evaluate_condition_no_add_hits
@@ -403,17 +402,24 @@ static int evalCondition(const AchVm *vm, Ev *ev, const uint8_t *c, uint32_t w, 
 static int testConditions(const AchVm *vm, AchVm_Cursor *cur, const uint8_t *c, uint32_t *hits,
                           uint32_t n, int canShort, int (*keepGoing)(void *ud), void *ud) {
 	Ev *ev = &cur->ev;
-	c += cur->i * COND_SIZE;
-	hits += cur->i;
-	while (cur->i < n) {
-		uint32_t w = rd32(c);
+	uint32_t i = cur->i;
+	c += i * COND_SIZE;
+	hits += i;
+	while (i < n) {
+		uint32_t w = rd32(c), type = COND_TYPE(w);
 		int valid;
-		switch (COND_TYPE(w)) {
-			case C_STANDARD:
-				valid = evalCondition(vm, ev, c, w, hits);
-				ev->isTrue &= valid;
-				if (!valid && canShort) ev->stop = 1;
-				break;
+		// the commonest types first, without the switch's table lookup
+		if (type == C_STANDARD) {
+			valid = evalCondition(vm, ev, c, w, hits);
+			ev->isTrue &= valid;
+			if (!valid && canShort) ev->stop = 1;
+		} else if (type == C_AND_NEXT) {
+			ev->andNext = (uint8_t)evalNoAddHits(vm, ev, c, w, hits);
+		} else if (type == C_ADD_HITS) {
+			evalNoAddHits(vm, ev, c, w, hits);
+			ev->addHits += (int32_t)*hits;
+			ev->resetNext = 0;
+		} else switch (type) {
 			case C_PAUSE_IF:
 				valid = evalCondition(vm, ev, c, w, hits);
 				if (valid) {
@@ -453,11 +459,6 @@ static int testConditions(const AchVm *vm, AchVm_Cursor *cur, const uint8_t *c, 
 			case C_ADD_ADDRESS:
 			case C_REMEMBER:
 				break; // done by the modified memrefs
-			case C_ADD_HITS:
-				evalNoAddHits(vm, ev, c, w, hits);
-				ev->addHits += (int32_t)*hits;
-				ev->resetNext = 0;
-				break;
 			case C_SUB_HITS:
 				evalNoAddHits(vm, ev, c, w, hits);
 				ev->addHits -= (int32_t)*hits;
@@ -465,9 +466,6 @@ static int testConditions(const AchVm *vm, AchVm_Cursor *cur, const uint8_t *c, 
 				break;
 			case C_RESET_NEXT_IF:
 				ev->resetNext = (uint8_t)evalNoAddHits(vm, ev, c, w, hits);
-				break;
-			case C_AND_NEXT:
-				ev->andNext = (uint8_t)evalNoAddHits(vm, ev, c, w, hits);
 				break;
 			case C_OR_NEXT:
 				ev->orNext = (uint8_t)evalNoAddHits(vm, ev, c, w, hits);
@@ -477,19 +475,25 @@ static int testConditions(const AchVm *vm, AchVm_Cursor *cur, const uint8_t *c, 
 				ev->isTrue = 0;
 				break;
 		}
-		cur->i++;
+		i++;
 		c += COND_SIZE;
 		hits++;
 		if (ev->stop && canShort) break;
-		if (!(cur->i & 31) && cur->i < n && keepGoing && !keepGoing(ud)) return 0;
+		if (!(i & (ACHVM_CHECK_EVERY - 1)) && i < n && keepGoing && !keepGoing(ud)) {
+			cur->i = (uint16_t)i;
+			return 0;
+		}
 	}
+	cur->i = (uint16_t)i;
 	return 1;
 }
 
 enum { PH_PAUSE, PH_RESET, PH_HIT, PH_MEASURED, PH_OTHER, PH_DONE };
 
 static void beginCondset(AchVm_Cursor *cur) {
-	for (int k = 0; k < 5; k++) cur->n[k] = (uint16_t)rd16(cur->cs + 2 * k);
+	uint32_t at = 0;
+	cur->off[0] = 0;
+	for (int k = 0; k < 5; k++) cur->off[k + 1] = (uint16_t)(at += rd16(cur->cs + 2 * k));
 	cur->phase = PH_PAUSE;
 	cur->i = 0;
 	cur->ev.addHits = 0;
@@ -502,7 +506,7 @@ static void beginCondset(AchVm_Cursor *cur) {
 }
 
 static uint32_t condsetSize(const AchVm_Cursor *cur) {
-	return cur->n[0] + cur->n[1] + cur->n[2] + cur->n[3] + cur->n[4];
+	return cur->off[5];
 }
 
 // rc_test_condset (triggers can't short circuit), a phase at a time.
@@ -510,8 +514,7 @@ static uint32_t condsetSize(const AchVm_Cursor *cur) {
 static int runCondset(const AchVm *vm, AchVm_Cursor *cur, int (*keepGoing)(void *ud), void *ud) {
 	Ev *ev = &cur->ev;
 	while (cur->phase < PH_DONE) {
-		uint32_t p = cur->phase, n = cur->n[p], start = 0;
-		for (uint32_t k = 0; k < p; k++) start += cur->n[k];
+		uint32_t p = cur->phase, start = cur->off[p], n = cur->off[p + 1] - start;
 		const uint8_t *c = cur->cs + SET_SIZE + start * COND_SIZE;
 		uint32_t *h = cur->hits + start;
 

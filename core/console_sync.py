@@ -10,8 +10,10 @@ yet, so they're on the SD card for the next time it plays without DSiRPC.
     sync.stop()
 
 sets_for(game, stamps, unlocks) -> [(code, .DRS bytes)] and
-on_unlocks([unlock]) are the engine's (app/engine.py). Everything here runs
-on this module's thread; the console waits while it works.
+on_unlocks([unlock]) are the engine's (app/engine.py). on_unlocks returns
+False to leave the unlocks on the console (a dry run), anything else lets the
+launcher clear them. Everything here runs on this module's thread; the
+console waits while it works.
 """
 
 import logging
@@ -123,11 +125,11 @@ class ConsoleSync:
         except Exception:
             logging.exception("Offline sync: couldn't make the achievement sets")
             sets = []
-        if unlocks:
-            self.on_unlocks(unlocks)
+        keep = bool(unlocks) and self.on_unlocks(unlocks) is False
         # "Taken" is every valid slot in the file (repeats included): the
-        # launcher clears the file only when that matches its own count.
-        taken = offline.count_unlocks(unlock_bytes)
+        # launcher clears the file only when that matches its own count, so
+        # 0 leaves them there.
+        taken = 0 if keep else offline.count_unlocks(unlock_bytes)
         conn.sendall(offline.build_answer(0, taken, sets))
         self._await_hangup(conn)
         self.last = {'from': addr[0], 'game': game, 'unlocks': unlocks, 'taken': taken,

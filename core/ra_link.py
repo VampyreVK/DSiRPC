@@ -30,6 +30,12 @@ for whoever signs in next.
 
 What's known to be unlocked (from sessions and sent unlocks) is kept in
 ra/cache/unlocked.json, so offline sets leave those out (known_unlocks()).
+
+blank (dsirpc.py --blank-ra, and --dry-run): DSiRPC acts as if the account
+had nothing unlocked. known_unlocks() is empty, so the console gets whole
+sets and its unlocks all count, and a session tells core/ra_game.py nothing
+is unlocked, so it checks every achievement. unlocked.json still records
+the real state.
 """
 
 import heapq
@@ -74,10 +80,12 @@ def queue_offline(unlocks, ra_dir=ra_set.RA_DIR):
 
 
 class RALink:
-    def __init__(self, username=None, token=None, roms=None, settings=None, ra_dir=ra_set.RA_DIR, api=None):
+    def __init__(self, username=None, token=None, roms=None, settings=None, ra_dir=ra_set.RA_DIR, api=None,
+                 blank=False):
         self.api = api or RAClient(username, token)
         self.roms = roms
         self.settings = settings
+        self.blank = blank
         self.ra_dir = ra_dir
         self.cache_dir = os.path.join(ra_dir, "cache")
         self.pending_file = os.path.join(self.cache_dir, "pending_unlocks.json")
@@ -258,7 +266,10 @@ class RALink:
             if settings is None or settings.profile or settings.submit:
                 unlocked = self.api.start_session(game_id, game_hash)
                 self._remember(game_id, unlocked, replace=True)
-                game.inbox.put(("session", unlocked))
+                if self.blank and unlocked:
+                    logging.info(f"RetroAchievements: --blank-ra: checking {code} as if none of your "
+                                 f"{len(unlocked)} unlock(s) were there")
+                game.inbox.put(("session", set() if self.blank else unlocked))
         except RANetworkError as e:
             delay = min(120, 15 * (attempt + 1))
             logging.warning(f"RetroAchievements: {e}; trying again in {delay} s")
@@ -322,8 +333,9 @@ class RALink:
             return {}
 
     def known_unlocks(self, game_id):
-        """IDs of a game's achievements known to be unlocked on this account."""
-        if not game_id:
+        """IDs of a game's achievements known to be unlocked on this account
+        (none with blank)."""
+        if not game_id or self.blank:
             return set()
         with self._lock:
             mine = self._read_unlocked().get(self.api.username or "", {})

@@ -59,7 +59,8 @@ class Engine:
     STATE_EVERY = 30.0
 
     def __init__(self, cfg, file=None, game=None, demo=False, demo_name=None, dsi_ip=None, port=4244,
-                 interval=None, client_id=None, dry_run=False, discord=True, check_images=True, ra=True):
+                 interval=None, client_id=None, dry_run=False, discord=True, check_images=True, ra=True,
+                 blank_ra=False, clear_ra=False):
         from core.charmap import parse_charmap_txt
         from core.hub import DsiSource, FileSource, StateHub
         from core.ra_game import RaSettings
@@ -70,6 +71,13 @@ class Engine:
         self.fixed_interval = interval
         self.ra_enabled = ra
         self.dry_run = dry_run
+        # Debugging (dsirpc.py --blank-ra / --clear-ra; README's "Debugging
+        # options"): act as if nothing were unlocked (a dry run does too), and
+        # wipe the console's offline state at the first sync.
+        self.blank_ra = blank_ra or dry_run
+        self.clear_ra = clear_ra
+        self._cleared = False      # --clear-ra's sync has happened
+        self._clearing = False     # this sync is it
         self.ra_settings = RaSettings()
         self._apply_ra_settings()
         self.ra_link = None
@@ -83,7 +91,8 @@ class Engine:
         else:
             if ra and cfg.ra_signed_in:
                 from core.ra_link import RALink
-                self.ra_link = RALink(cfg.ra_username, cfg.ra_token, cfg.ra_roms or None, self.ra_settings)
+                self.ra_link = RALink(cfg.ra_username, cfg.ra_token, cfg.ra_roms or None, self.ra_settings,
+                                      blank=self.blank_ra)
             try:
                 source = DsiSource(charmap, port=port, dsi_ip=dsi_ip, ra_link=self.ra_link,
                                    ra_settings=self.ra_settings)
@@ -168,7 +177,7 @@ class Engine:
             # Just signed in (setup): connect, and start the game's RA side over with it.
             from core.ra_link import RALink
             self.ra_link = RALink(self.cfg.ra_username, self.cfg.ra_token, self.cfg.ra_roms or None,
-                                  self.ra_settings)
+                                  self.ra_settings, blank=self.blank_ra)
             self.source.ra_link = self.ra_link
             self.source.ra_code = None
         logging.info(f"Reloaded {self.cfg.path}")
@@ -238,10 +247,14 @@ class Engine:
         """[(code, .DRS bytes)] for the console: the game it's starting
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
-        unlocked is left out, including the unlocks the console just sent.
-        rcheevos builds them (core/offline.py's build_set())."""
+        unlocked is left out, including the unlocks the console just sent
+        (nothing with --blank-ra or --dry-run). --clear-ra's sync sends every
+        set. rcheevos builds them (core/offline.py's build_set())."""
         from core import offline, ra_set
         from core.rcheevos import RcheevosError, RcheevosMissing
+        # Each exchange calls this first, then _offline_unlocks()
+        self._clearing = self.clear_ra and not self._cleared
+        self._cleared = self._cleared or self._clearing
         link = self.ra_link if self.ra_enabled else None
         codes = ([game] if game else []) + [c for c in ra_set.codes() if c != game]
         out = []
@@ -253,8 +266,11 @@ class Engine:
                 continue
             if not s:
                 continue
-            skip = link.known_unlocks(s.id) if link else set()
-            skip |= {u['id'] for u in unlocks if u['code'] == code}
+            skip = set()
+            if not self.blank_ra:
+                skip = link.known_unlocks(s.id) if link else set()
+                if not self._clearing:
+                    skip |= {u['id'] for u in unlocks if u['code'] == code}
             try:
                 data = offline.build_set(s, code, skip)
             except RcheevosMissing as e:
@@ -263,17 +279,29 @@ class Engine:
             except (RcheevosError, offline.FormatError) as e:
                 logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
                 continue
-            if stamps.get(code) != offline.set_stamp(data):
+            if self._clearing or stamps.get(code) != offline.set_stamp(data):
                 out.append((code, data))
+        if self._clearing:
+            logging.info(f"Offline sync: --clear-ra: sending all {len(out)} set(s) again")
         return out
 
     def _offline_unlocks(self, unlocks):
         """Unlocks from offline play: sent to RetroAchievements like any
         other (with when they happened), if that's on in setup. The console
         saves every unlock, so the ones DSiRPC already knows about (unlocked
-        while it was watching) are left out."""
+        while it was watching) are left out. Returns False to leave them on
+        the console (--dry-run); --clear-ra's sync takes them without
+        sending them."""
         from core import ra_set
         from core.ra_link import queue_offline
+        if self._clearing:
+            logging.info(f"Offline sync: --clear-ra: cleared {len(unlocks)} unlock(s) off the console, "
+                         "nothing sent")
+            return True
+        if self.dry_run:
+            logging.info(f"Offline sync: --dry-run: {len(unlocks)} unlock(s) from the console, not sent "
+                         f"and left on it: {', '.join(str(u['id']) for u in unlocks)}")
+            return False
         sending = self.cfg.ra_submit and self.ra_enabled and not self.dry_run
         link = self.ra_link
         sets, rows, known = {}, [], 0

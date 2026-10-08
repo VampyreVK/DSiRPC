@@ -151,11 +151,10 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
   If it doesn't work, **Y** still exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
-- **Saving offline unlocks is new.** The launcher keeps the sets and syncs
-  the unlock file (it worked on hardware on 2026-10-07), and the game checks
-  the achievements (2026-10-08); writing its unlocks into `RPCUNLK.BIN` in
-  game needs a hardware test. 255 unlocks fit before the launcher has to
-  hand them to DSiRPC.
+- **Saving offline unlocks is new.** The whole loop worked on hardware on
+  2026-10-08 (a Tetris DS unlock made offline reached RetroAchievements at
+  the next sync), with only a few games tried so far. 255 unlocks fit
+  before the launcher has to hand them to DSiRPC.
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is
   running that driver. If hello packets stop at a suspiciously regular

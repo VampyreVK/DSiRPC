@@ -67,7 +67,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 | `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 set (the launcher or DSiRPC is older than this build), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 252 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into), `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
 | `p` | Passes over every achievement since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
-| `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 16; it can go a little over, since it checks the time every 32 conditions). `vb=` in the hello includes it. |
+| `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |
 | `s` | Of those, how many were saved to `RPCUNLK.BIN` |
 | `x` | Of those, how many couldn't be: no `RPCUNLK.BIN` (the game wasn't started from the launcher), the file is full (255 unlocks wait for DSiRPC), more than 7 waiting to be saved at once, or a write that failed |
 | `w` | This game's unlocks already waiting in `RPCUNLK.BIN` when it started; those aren't checked again |
@@ -150,7 +150,7 @@ Two things to know:
   bytes per VBlank, and no hello goes out in a tick that already sent a
   reply. `vb=` in the hellos shows the longest tick.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  2.4 KB is left: 60,012 of 62,464 bytes). The achievement checker keeps its set and state in main
+  2.4 KB is left: 59,956 of 62,464 bytes). The achievement checker keeps its set and state in main
   RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

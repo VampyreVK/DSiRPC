@@ -100,8 +100,9 @@ and DSiRPC running, the console also reports to DSiRPC's log
 unlock(s) to its SD card for DSiRPC`), next to DSiRPC's own unlocks, so the
 two can be compared.
 
-**New:** saving unlocks in game hasn't been tested on hardware yet (see the
-[roadmap](#known-issues-and-roadmap)).
+This works on hardware since 2026-10-08 (an offline unlock in Tetris DS
+reached RetroAchievements at the next sync), but it's new: see the
+[roadmap](#known-issues-and-roadmap).
 
 ### The tray icon
 
@@ -157,6 +158,11 @@ in setup**, off unless you turn it on, and always softcore:
 
 Unlocks that can't be sent right away (no internet) are kept and sent later.
 
+A game started from the DSiRPC launcher is also checked by the console
+itself, about twice a second (it's what makes [offline play](#playing-offline)
+work). When DSiRPC hears the console unlock an achievement, that counts right
+away too, like its own unlocks (the log says `by the console's checker`).
+
 ## Stream overlay window
 
 The overlay window (tray menu > **Overlay window**) shows your party, and
@@ -191,6 +197,22 @@ the first time they're needed, then kept.
 More, including what the console sends and how to read it, is in
 [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
 The log is `logs\dsirpc.log` in DSiRPC's folder.
+
+### Debugging options
+
+For testing achievements without your real progress getting in the way,
+`python dsirpc.py` (or `python dsirpc.py tray`) takes these flags. They
+combine.
+
+| Flag | What it does |
+|---|---|
+| `--dry-run` | Sends nothing anywhere: the Discord presence is logged instead, and nothing goes to RetroAchievements. DSiRPC acts as if your account had nothing unlocked (like `--blank-ra`), and unlocks waiting on the console stay there (the launcher says so). |
+| `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked: every achievement is checked, the console gets whole sets, and every unlock is sent (RetroAchievements answers that you already had the ones you had). What's really unlocked stays recorded in `ra\cache\unlocked.json`. |
+| `--clear-ra` | At the console's first sync, throws away the unlocks waiting on it (nothing is sent) and sends it every set again. Later syncs in the same run are normal. |
+
+For example, `python dsirpc.py --blank-ra` while you collect test unlocks,
+then `python dsirpc.py --clear-ra` once to put the console back to your real
+state (add `--blank-ra` to give it whole sets instead).
 
 ## Updating and removing
 
@@ -238,10 +260,10 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       Platinum USA Rev 1 gets the full presence and the overlay's party and
       battle views.
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
-- [ ] Achievements while [playing offline](#playing-offline): the launcher
+- [x] Achievements while [playing offline](#playing-offline): the launcher
       keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
-      console checks them in game and saves its unlocks to the SD card; the
-      whole loop still needs a hardware test.
+      console checks them in game and saves its unlocks to the SD card
+      (works on hardware since 2026-10-08; more games to try).
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets

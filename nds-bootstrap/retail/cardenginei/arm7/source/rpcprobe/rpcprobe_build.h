@@ -49,8 +49,10 @@
 
 // Scanlines (about 64 us each) the checker may use in a VBlank, and how
 // many the rest of the tick may already have used before it skips its turn.
-// A big set takes a few VBlanks for one pass over every achievement.
-#define RPCPROBE_ACH_LINES_PER_VBLANK 16
+// A big set takes a few VBlanks for one pass over every achievement. It
+// checks the time every 8 conditions, so it usually goes over by a
+// scanline or two (16 with checks every 32 went up to 26 on hardware).
+#define RPCPROBE_ACH_LINES_PER_VBLANK 20
 #define RPCPROBE_ACH_SKIP_AFTER_LINES 40
 
 // Unlocks are saved to sd:/RPCUNLK.BIN from nds-bootstrap's swiHalt hook

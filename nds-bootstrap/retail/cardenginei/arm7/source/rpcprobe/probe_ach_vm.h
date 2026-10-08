@@ -41,7 +41,8 @@ typedef struct {
 	AchVm_Eval ev;
 	const uint8_t *cs;          // the condset being checked
 	uint32_t *hits;             // its first hit count
-	uint16_t n[5];              // its pause, reset, hit target, measured and other counts
+	uint16_t off[6];            // where its pause, reset, hit target, measured and other
+	                            // conditions start (in conditions), and its total
 	uint16_t i;                 // the next condition in the current one of those
 	uint8_t phase;              // which one (5: the condset is done)
 	uint8_t set;                // the condset's number in the achievement
@@ -95,7 +96,7 @@ uint32_t AchVm_StateSize(const void *program, uint32_t size);
 typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
 
 // Runs a pass: reads every memory value (rcheevos' memref update), then
-// checks achievements in order. Asks keepGoing(ud) every 32 values or
+// checks achievements in order. Asks keepGoing(ud) every 8 values or
 // conditions and after each achievement; when it returns 0 (a time budget),
 // stops there and carries on from there next time. Returns 1 if this call
 // finished a pass.

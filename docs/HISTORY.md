@@ -275,6 +275,33 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Offline play works end to end; console unlocks count live;
+  a faster checker.** On hardware, Tetris DS's "Infinite Rotating" (230052)
+  unlocked with the console offline, was saved to `RPCUNLK.BIN`, and went to
+  RetroAchievements at the next sync with the time it happened. Since the
+  console checks about twice a second and DSiRPC about once, DSiRPC now
+  counts the console's unlocks as soon as its report arrives (sent,
+  notified, no longer checked on the PC); the same unlock coming back at
+  the next sync is already known. For testing: `--blank-ra` (act as if
+  nothing were unlocked: whole sets for the console, every achievement
+  checked, everything sent), `--clear-ra` (throw away the console's waiting
+  unlocks at its first sync and send every set again), and `--dry-run` now
+  also acts as if nothing were unlocked and leaves the console's unlocks on
+  it; they combine. The checker got a speed pass, measured on a model of
+  the ARM7 (its Thumb build in an emulator, counting instructions, branches
+  and memory accesses; it predicted the 1.4 passes a second seen on
+  hardware). Main RAM wasn't the cost, instructions were: switch tables
+  (`__gnu_thumb1_case_*` calls), operand values passed through memory,
+  recounting where each condset phase starts. Now operand value and type
+  come back in registers, sizes and comparisons are table lookups, AddSource
+  and AddAddress chains have a direct path, and the commonest condition
+  types skip the switch: Platinum's pass went from about 1.83 to 1.26
+  million cycles, other sets 16-23% less, with slightly smaller code. It
+  checks the time every 8 conditions instead of 32, so a turn rarely goes
+  more than a scanline or two over (it reached 26 on a 16-line budget), and
+  the budget is 20 lines. Same results as rcheevos: six real sets, and about
+  77,000 random achievements, with and without stopping at random points.
+  ARM7: 59,956 of 62,464 bytes.
 - 2026-10-08: **Offline play, phase 3 (saving unlocks in game).** Phase 2
   ran on hardware: Platinum's 101 achievements at about 1.4 passes a second,
   25-27 scanlines at most per VBlank. A test unlock (96047, all eight badges

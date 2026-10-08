@@ -163,7 +163,9 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `dsirpc.py setup` | Setup (what `Setup.bat` runs), safe to run again |
 | `dsirpc.py` | DSiRPC in a console until Ctrl+C, logging what Discord shows |
 | `dsirpc.py --overlay` | ...with the overlay window; closing it stops DSiRPC |
-| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements |
+| `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements; acts as if nothing were unlocked and leaves the console's waiting unlocks on it |
+| `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked (every achievement checked, whole sets for the console), still sending unlocks |
+| `--clear-ra` | At the console's first sync, throws its waiting unlocks away (unsent) and sends it every set again |
 | `--no-discord` | Nothing on Discord (for the overlay alone) |
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |

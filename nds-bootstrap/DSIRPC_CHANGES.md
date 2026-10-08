@@ -11,7 +11,7 @@ this folder is unchanged upstream code.
 |---|---|
 | `retail/cardenginei/arm9/source/cardengine.c` | `myIrqHandlerIPC` calls `dsirpcWatchService()` (the ARM9 half of the per-frame capture: puts its VBlank hook in when rpcprobe rings), except in the DLDI, GSDD and TWLSDK variants. |
 | `retail/cardenginei/arm9/source/misc.c` | `reset()` calls `dsirpcWatchReset()`, so a soft reset frees the per-frame capture's VBlank hooks for the reloaded game (same variants). |
-| `retail/cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader)` from `myIrqHandlerVBlank` (not in the `ALTERNATIVE`/`TWLSDK` variants). Also fixes four compile errors in upstream's debug-only code (`fatTableCache`, `getBootFileCluster` arguments, `calledViaIPC`, `nocashMessage.h`). |
+| `retail/cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank`, and `Probe_HaltTick(&saveMutex)` at the end of `runCardEngineCheckHalt()` (the swiHalt hook, outside interrupts), which saves the achievement checker's unlocks to the SD card while it holds `saveMutex` (not in the `ALTERNATIVE`/`TWLSDK` variants). Also fixes four compile errors in upstream's debug-only code (`fatTableCache`, `getBootFileCluster` arguments, `calledViaIPC`, `nocashMessage.h`). |
 | `retail/common/source/my_fat.c`, `retail/common/source/my_sd.c` | Fix compile errors in upstream's debug-only code with GCC 14: `#include "nocashMessage.h"` (only when `DEBUG` is defined) and `(u32)` casts on the pointers passed to `dbg_hexa()` in `my_fat.c`. Non-debug builds are byte-identical. |
 | `retail/cardenginei/arm7/Makefile` | Adds `source/rpcprobe` to `SOURCES`. Builds with `-Os` instead of `-O2` to stay inside the 61 KB ARM7 region. |
 | `retail/bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips switching the Wi-Fi board to old DS mode, so the launcher's DSi-mode connection survives into the game. As a result, the game's own Wi-Fi doesn't work. Also, `romLocationAdjust()` skips the achievement checker's memory (`DSIRPC_ACH_LOCATION`, below), so the ROM cache and ROM-in-RAM loading never use it, and `isROMLoadableInRAM()`'s limit is `DSIRPC_ACH_SIZE` smaller to make up for it. |
@@ -24,15 +24,15 @@ this folder is unchanged upstream code.
 
 | File | Role |
 |---|---|
-| `probe_hook.c/.h` | VBlank state machine: load `/RPCHAND.TXT`, probe the chip, broadcast hellos (with the game's code, ROM version and header CRC), service requests |
+| `probe_hook.c/.h` | VBlank state machine: load `/RPCHAND.TXT`, probe the chip, broadcast hellos (with the game's code, ROM version and header CRC), service requests; `Probe_HaltTick()` saves the checker's unlocks (and the VBlank does, only if the swiHalt hook never runs) |
 | `twl_wifi.c/.h` | Minimal SDIO access to the DSi's Atheros chip (cut down from BlocksDS DSWiFi, MIT): CMD53 block transfers for sending and receiving frames, CMD52 for register reads (and as the fallback each direction switches to by itself if CMD53 fails) |
 | `probe_req.c/.h` | Answers memory requests (`'R'`) and ARP, hands `'W'`/`'F'` to `probe_watch.c`, counts EAPOL |
 | `probe_watch.c/.h` | Per-frame capture: up to 8 watched values recorded every VBlank into a 2 KB ring, drained by the PC; records the ARM9 half's snapshot of them and reads main RAM itself when there's none |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
-| `rpcprobe_config.c/.h` | Reads `/RPCHAND.TXT` (written by the launcher); defines the UDP port, 4244 |
-| `probe_ach.c/.h` | Offline play's achievement checker: loads `/RPCSET.BIN` (from the launcher) on the first VBlank, checks its CRC, runs it in a time budget every VBlank, and reports with a "DSiRPC ach" packet after each hello |
+| `rpcprobe_config.c/.h` | Reads `/RPCHAND.TXT` (written by the launcher; `time=` is the console's clock, which dates offline unlocks); defines the UDP port, 4244 |
+| `probe_ach.c/.h` | Offline play's achievement checker: loads `/RPCSET.BIN` (from the launcher) and `/RPCUNLK.BIN` on the first VBlank, checks the set's CRC, runs it in a time budget every VBlank, saves each unlock into its own `/RPCUNLK.BIN` slot (from the swiHalt hook), and reports with a "DSiRPC ach" packet after each hello |
 | `probe_ach_vm.c/.h` | The checker's interpreter, a port of rcheevos 12.5's evaluation without floating point, for the program DSiRPC builds with rcheevos (its `third_party/rcheevos/dsirpc_offline.c`) |
-| `rpcprobe_build.h` | Build switches: `RPCPROBE_REQUESTS` (0 = hello packets only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (0 = CMD52 only for that direction), how often a hello still goes out with CMD52, the per-VBlank receive limits, and the achievement checker's `RPCPROBE_ACH` (0 = off) and time budget |
+| `rpcprobe_build.h` | Build switches: `RPCPROBE_REQUESTS` (0 = hello packets only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (0 = CMD52 only for that direction), how often a hello still goes out with CMD52, the per-VBlank receive limits, and the achievement checker's `RPCPROBE_ACH` (0 = off), time budget and `RPCPROBE_ACH_SAVE_FALLBACK` |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide and chip notes |
 
 Also added, outside `rpcprobe/`:

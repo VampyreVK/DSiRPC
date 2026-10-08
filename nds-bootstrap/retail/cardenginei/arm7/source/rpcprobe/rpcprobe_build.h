@@ -53,4 +53,10 @@
 #define RPCPROBE_ACH_LINES_PER_VBLANK 16
 #define RPCPROBE_ACH_SKIP_AFTER_LINES 40
 
+// Unlocks are saved to sd:/RPCUNLK.BIN from nds-bootstrap's swiHalt hook
+// (outside interrupts). If that hook hasn't run for this many VBlanks (a
+// game whose swiHalt nds-bootstrap couldn't hook), the VBlank saves them
+// instead, when nds-bootstrap's SD card lock is free. At most 255.
+#define RPCPROBE_ACH_SAVE_FALLBACK 120
+
 #endif // RPCPROBE_BUILD_H

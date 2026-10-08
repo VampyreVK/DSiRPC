@@ -44,7 +44,8 @@
 #include "nds_header.h"
 #include "igm_text.h"
 
-// DSiRPC: memory-request hook (rpcprobe/), ticked once per VBlank below
+// DSiRPC: memory-request hook (rpcprobe/), ticked once per VBlank and from
+// the swiHalt hook below
 #include "rpcprobe/probe_hook.h"
 
 #ifndef TWLSDK
@@ -1790,6 +1791,10 @@ void runCardEngineCheckHalt(void) {
         //}
   		// unlockMutex(&cardEgnineCommandMutex);
   	// }
+
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	Probe_HaltTick(&saveMutex); // rpcprobe: saves offline play's unlocks
+	#endif
 }
 
 //---------------------------------------------------------------------------------
@@ -2109,7 +2114,7 @@ void myIrqHandlerVBlank(void) {
 		while (REG_VCOUNT == 191) swiDelay(100);
 	} else {
 		#if !defined(ALTERNATIVE) && !defined(TWLSDK)
-		Probe_VBlankTick(ndsHeader); // rpcprobe
+		Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex); // rpcprobe
 		#endif
 		break;
 	}

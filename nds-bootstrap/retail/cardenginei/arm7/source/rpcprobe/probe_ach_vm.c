@@ -724,3 +724,14 @@ uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i) {
 	while (i-- > 0) a += achBytes(a);
 	return rd32(a);
 }
+
+int AchVm_SetUnlocked(AchVm *vm, uint32_t id) {
+	const uint8_t *a = vm->achStart;
+	for (uint16_t i = 0; i < vm->nAch; i++, a += achBytes(a)) {
+		if (rd32(a) == id) {
+			vm->achState[i] = ACHVM_TRIGGERED;
+			return 1;
+		}
+	}
+	return 0;
+}

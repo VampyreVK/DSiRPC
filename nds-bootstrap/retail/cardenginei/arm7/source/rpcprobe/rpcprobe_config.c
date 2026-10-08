@@ -85,6 +85,10 @@ static void applyHandoffLine(char *line) {
 		parseIp(value, rpcProbeHandoff.dsiIp);
 	} else if (strcmp(key, "gateway") == 0) {
 		parseIp(value, rpcProbeHandoff.gateway);
+	} else if (strcmp(key, "time") == 0) {
+		u32 t = 0;
+		while (*value >= '0' && *value <= '9') t = t * 10 + (u32)(*value++ - '0');
+		rpcProbeHandoff.time = t;
 	}
 }
 

@@ -1,19 +1,26 @@
 // probe_hook.c - DSiRPC's in-game side. cardengine.c's myIrqHandlerVBlank()
-// calls Probe_VBlankTick() once per VBlank for the whole game session.
+// calls Probe_VBlankTick() once per VBlank for the whole game session, and
+// its swiHalt hook calls Probe_HaltTick() whenever the game's ARM7 idles.
 //
 // The DSiRPC launcher has already connected the DSi's wifi chip in DSi mode
 // (WPA2 is handled by the chip). This file loads /RPCHAND.TXT, checks the
 // chip still answers, then broadcasts a hello packet once a second (so the
 // PC finds the DSi without any configuration) and, with RPCPROBE_REQUESTS,
 // answers memory requests from the PC. With RPCPROBE_ACH it also runs the
-// achievement checker for offline play (probe_ach.c), Wi-Fi or not.
+// achievement checker for offline play (probe_ach.c), Wi-Fi or not, and
+// saves its unlocks to the SD card.
 //
-// SD card rule: the SD card is only touched on the very first VBlank (loading
-// RPCHAND.TXT and RPCSET.BIN). After that the game's own ARM7 code reads its
-// save from the SD card outside interrupts, and a VBlank that touches the SD
-// card in the middle of that corrupts nds-bootstrap's SD/file state and hangs
-// the game. Diagnostics after the first VBlank go into the hello packets
-// instead.
+// SD card rule: the VBlank only reads the SD card on the very first VBlank
+// (RPCHAND.TXT, RPCSET.BIN and RPCUNLK.BIN). After that the game's own ARM7
+// code reads its save and ROM from the SD card outside interrupts, and a
+// VBlank that touches the SD card in the middle of that corrupts
+// nds-bootstrap's SD/file state and hangs the game. Diagnostics after the
+// first VBlank go into the hello packets instead. The one later SD access,
+// saving the achievement checker's unlocks, happens in Probe_HaltTick()
+// (outside interrupts) and only while it holds nds-bootstrap's SD card lock
+// (saveMutex), which its save and ROM reads take too. Only for a game whose
+// swiHalt nds-bootstrap couldn't hook does the VBlank save them, with the
+// same lock and only when no ROM read is under way.
 
 #include <nds/ndstypes.h>
 #include "debug_file.h"
@@ -60,6 +67,9 @@ static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
+static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
+extern int tryLockMutex(int *addr);   // card_engine_header.s
+extern int unlockMutex(int *addr);
 #endif
 
 // Which game is running, from its NDS header, taken on the first tick (the
@@ -111,7 +121,11 @@ static int putStr(char *p, const char *str) {
 }
 
 static void handoffLoad(void) {
-	if (RpcProbeHandoff_Load()) {
+	u8 valid = RpcProbeHandoff_Load();
+#if RPCPROBE_ACH
+	ProbeAch_SetTime(rpcProbeHandoff.time); // offline too: it dates the unlocks
+#endif
+	if (valid) {
 		#ifdef DEBUG
 		dbg_printf("rpcprobe: handoff ready, hellos will be broadcast\n");
 		#endif
@@ -222,14 +236,17 @@ static void handoffSend(void) {
 }
 
 #if RPCPROBE_ACH
-// "DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> ids=<ids>",
-// in the VBlank after each hello: n is the number being checked (0 = no set,
-// below 0 = probe_ach.h's PROBE_ACH_E_*), t the unlocks so far, p the passes
-// over every achievement since the last one (about a second ago), l the
-// longest checker tick in scanlines, ids the latest unlocks (at most 8).
-// DSiRPC logs them, to compare with its own unlocks.
+// "DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> s=<saved>
+// x=<not saved> w=<waiting> ids=<ids>", in the VBlank after each hello: n is
+// the number being checked (0 = no set, below 0 = probe_ach.h's
+// PROBE_ACH_E_*), t the unlocks so far, p the passes over every achievement
+// since the last one (about a second ago), l the longest checker tick in
+// scanlines, s and x how many of the unlocks were saved to RPCUNLK.BIN and
+// how many couldn't be, w how many were already waiting there when the game
+// started, ids the latest unlocks (at most 8). At most 158 bytes. DSiRPC
+// logs them, to compare with its own unlocks.
 static void achSend(void) {
-	static char msg[128];
+	static char msg[176];
 	int n = 0;
 	u16 passes, lines;
 	u32 ids[8];
@@ -248,6 +265,12 @@ static void achSend(void) {
 	n += putDec(&msg[n], passes);
 	n += putStr(&msg[n], " l=");
 	n += putDec(&msg[n], lines);
+	n += putStr(&msg[n], " s=");
+	n += putDec(&msg[n], probeAchSaved);
+	n += putStr(&msg[n], " x=");
+	n += putDec(&msg[n], probeAchLost + probeAchSaveFailed);
+	n += putStr(&msg[n], " w=");
+	n += putDec(&msg[n], probeAchWaiting);
 	int k = ProbeAch_RecentIds(ids, 8);
 	for (int i = 0; i < k; i++) {
 		n += putStr(&msg[n], i ? "," : " ids=");
@@ -257,9 +280,27 @@ static void achSend(void) {
 	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
 	TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen, 1);
 }
+
+// Saves the oldest waiting unlock, if there is one and the SD card lock is
+// free (nds-bootstrap's own SD access holds it; see the SD card rule above)
+static void achSave(int *sdMutex) {
+	if (ProbeAch_SavePending() && tryLockMutex(sdMutex)) {
+		ProbeAch_SaveOne();
+		unlockMutex(sdMutex);
+	}
+}
 #endif
 
-void Probe_VBlankTick(const void *ndsHeader) {
+void Probe_HaltTick(int *sdMutex) {
+#if RPCPROBE_ACH
+	hoNoHalt = 0;
+	achSave(sdMutex);
+#else
+	(void)sdMutex;
+#endif
+}
+
+void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
 	int sentThisTick = 0;
 #if RPCPROBE_REQUESTS
@@ -303,6 +344,14 @@ void Probe_VBlankTick(const void *ndsHeader) {
 #if RPCPROBE_ACH
 	// Last, with whatever time this tick has left
 	ProbeAch_Tick(lineStart);
+
+	// Unlocks are saved from Probe_HaltTick(). If that hasn't run for a
+	// while (nds-bootstrap couldn't hook this game's swiHalt), here instead,
+	// unless a ROM read is under way (sdMutex is NULL then).
+	if (hoNoHalt < 255) hoNoHalt++;
+	if (hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK && sdMutex) achSave(sdMutex);
+#else
+	(void)sdMutex;
 #endif
 
 	u16 lineEnd = HO_REG_VCOUNT & 0x1FF;

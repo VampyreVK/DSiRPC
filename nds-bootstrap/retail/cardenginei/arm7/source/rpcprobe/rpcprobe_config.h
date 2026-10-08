@@ -1,6 +1,7 @@
 // rpcprobe_config.h - reads /RPCHAND.TXT off the SD card root, once, on the
-// first VBlank. The DSiRPC launcher writes that file after it connects: the
-// DSi's MAC and IP. Nothing else is configured on the SD card: hellos are
+// first VBlank. The DSiRPC launcher writes that file before it starts a game:
+// the DSi's MAC and IP (online only) and the console's clock (time=, which
+// dates offline unlocks). Nothing else is configured on the SD card: hellos are
 // broadcast, so the DSi doesn't need to know the PC's address, and memory
 // replies go back to whoever sent the request.
 //
@@ -24,6 +25,7 @@ typedef struct {
 	u8 dsiIp[4];
 	u8 gateway[4];
 	u8 valid; // 1 if the file was found and had a usable mac= and ip=
+	u32 time; // time=: the console's clock at the handoff, seconds since 2000 (0 = none)
 } RpcProbeHandoff;
 
 extern RpcProbeHandoff rpcProbeHandoff;

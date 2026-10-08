@@ -89,11 +89,19 @@ once when it connects and again when you start a game (**B** skips that):
 While you play, the console checks the game's achievements itself, many
 times a second, Wi-Fi or not.
 
-**Work in progress:** the console doesn't save what it unlocks yet, so
-offline unlocks don't reach RetroAchievements yet; that's next (see the
-[roadmap](#known-issues-and-roadmap)). With Wi-Fi and DSiRPC running, the
-console reports its unlocks to DSiRPC's log (`Console: its checker unlocked
-achievement ...`), next to DSiRPC's own, so the two can be compared.
+Each unlock is saved to the SD card (`sd:/RPCUNLK.BIN`) right away, with
+when it happened: the console's clock when the launcher started the game,
+plus the time played since (time with the lid closed isn't counted). The
+next time the launcher finds DSiRPC it hands them over, and DSiRPC sends the
+ones it didn't already have. This works for games started from the
+launcher, which puts the set and the unlock file on the SD card. With Wi-Fi
+and DSiRPC running, the console also reports to DSiRPC's log
+(`Console: its checker unlocked achievement ...`, `Console: saved 1
+unlock(s) to its SD card for DSiRPC`), next to DSiRPC's own unlocks, so the
+two can be compared.
+
+**New:** saving unlocks in game hasn't been tested on hardware yet (see the
+[roadmap](#known-issues-and-roadmap)).
 
 ### The tray icon
 
@@ -232,7 +240,8 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
 - [ ] Achievements while [playing offline](#playing-offline): the launcher
       keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
-      console checks them in game; saving its unlocks to the SD card is next.
+      console checks them in game and saves its unlocks to the SD card; the
+      whole loop still needs a hardware test.
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets

@@ -80,14 +80,15 @@ ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this build can read (update the launch
 
 class AchReport:
     """Follows the console's "DSiRPC ach" reports and logs what's new: the
-    checker starting (or why it can't), each unlock, and once a minute how
-    fast it goes (passes over every achievement a second, and the longest
-    the checker took in one VBlank, in scanlines; a frame has 263)."""
+    checker starting (or why it can't), each unlock, the unlocks saved to
+    the SD card (or not), and once a minute how fast it goes (passes over
+    every achievement a second, and the longest the checker took in one
+    VBlank, in scanlines; a frame has 263)."""
 
     def __init__(self):
         self.latest = None
         self._loaded = None
-        self._unlocked = 0
+        self._unlocked = self._saved = self._lost = 0
         self._reports = 0
         self._passes = self._lines = 0
 
@@ -97,15 +98,19 @@ class AchReport:
             loaded = int(f.get("n", "0"))
             unlocked = int(f.get("t", "0"))
             passes, lines = int(f.get("p", "0")), int(f.get("l", "0"))
+            saved, lost, waiting = int(f.get("s", "0")), int(f.get("x", "0")), int(f.get("w", "0"))
             ids = [int(i) for i in f["ids"].split(",")] if f.get("ids") else []
         except ValueError:
             return
-        self.latest = {'loaded': loaded, 'unlocked': unlocked, 'passes': passes, 'lines': lines, 'ids': ids}
+        self.latest = {'loaded': loaded, 'unlocked': unlocked, 'passes': passes, 'lines': lines,
+                       'saved': saved, 'lost': lost, 'waiting': waiting, 'ids': ids}
         if loaded != self._loaded or unlocked < self._unlocked:  # another game, or the same one again
-            self._loaded, self._unlocked = loaded, 0
+            self._loaded = loaded
+            self._unlocked = self._saved = self._lost = 0
             self._reports = self._passes = self._lines = 0
             if loaded > 0:
-                logging.info(f"Console: checking {loaded} achievement(s) in game (offline play's checker)")
+                logging.info(f"Console: checking {loaded} achievement(s) in game (offline play's checker)"
+                             + (f"; {waiting} unlocked earlier wait on its SD card for DSiRPC" if waiting else ""))
             elif loaded < 0:
                 logging.warning(f"Console: no achievement checker: {ACH_ERRORS.get(loaded, loaded)}")
         new = unlocked - self._unlocked
@@ -113,6 +118,13 @@ class AchReport:
             for aid in ids[-new:]:
                 logging.info(f"Console: its checker unlocked achievement {aid}")
             self._unlocked = unlocked
+        if saved > self._saved:
+            logging.info(f"Console: saved {saved - self._saved} unlock(s) to its SD card for DSiRPC")
+            self._saved = saved
+        if lost > self._lost:
+            logging.warning(f"Console: couldn't save {lost - self._lost} unlock(s) to its SD card "
+                            f"(no RPCUNLK.BIN, or it's full: start games from the DSiRPC launcher)")
+            self._lost = lost
         self._reports += 1
         self._passes += passes
         self._lines = max(self._lines, lines)

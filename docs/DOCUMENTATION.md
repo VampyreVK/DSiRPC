@@ -137,7 +137,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `RPCUNLK.BIN` | SD root | Unlocks from offline play waiting for DSiRPC; the launcher makes it (4096 bytes) and clears it once DSiRPC has them |
+| `RPCUNLK.BIN` | SD root | Unlocks from offline play waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
@@ -751,8 +751,12 @@ DSiRPC's addition to the library (`third_party/rcheevos/dsirpc_offline.c`)
 writes out what it parsed as the program the console's checker runs
 (section 8). Left out: achievements rcheevos can't parse, those that need
 floating point (the console's ARM7 has none), and, if the set and its state
-don't fit in the 256 KB the console sets aside, the biggest ones. Each set
-goes only if the console's copy is missing or has another stamp. The unlocks the console hands over
+don't fit in the 252 KB the console sets aside (256 KB less 4 KB for
+reading `RPCUNLK.BIN`), the biggest ones. Each set
+goes only if the console's copy is missing or has another stamp. The console
+saves every unlock, including the ones made while DSiRPC was watching, so
+the ones DSiRPC already knows you have (`unlocked.json`) are only counted in
+the log (`... unlock(s) from the console DSiRPC already had`). The rest
 are logged (`(offline play)` in `achievements.log`), announced in one
 notification and, with `submit_unlocks` on, sent like any other unlock, with
 `o` set from the console's time of the unlock (a time more than a day ahead
@@ -948,14 +952,24 @@ achievement ID u32 (0: empty) | game code[4] | when u32 | seq u16 | check u16
 
 `when` is seconds since 2000-01-01 by the console's clock (local time).
 `check` is `0x5AA5` plus the first seven u16s, so a slot that was only
-partly written is skipped. The in-game side will write each unlock into a
-free slot; it never has to make or grow the file.
+partly written is skipped. The in-game side (`rpcprobe/probe_ach.c`) writes
+each unlock into the slot after the last one in use (a half-written slot
+counts as used), one 16-byte write per unlock; it never has to make or grow
+the file. Its `seq` is the slot number, and its `when` is the launcher's
+clock (`RPCHAND.TXT`'s `time=`) plus the VBlanks since the game started, so
+time asleep isn't counted (0 if there was no `time=`; DSiRPC then uses the
+time it gets them). The game's unlocks already in the file when it starts
+aren't checked again, so a session never saves the same achievement twice.
+The console saves every unlock, online too, so DSiRPC leaves out the ones it
+already knows about (`engine._offline_unlocks()`, `RALink.known_unlocks()`).
 
 **`CODE.DRS`** (a set, version 2) has a 64-byte header: `"DRSE"`, u16
 version (2), u16 header size (64), game code[4], u32 RetroAchievements game
 ID, u32 stamp (CRC-32 of the program), u16 achievement count, u16 flags (0),
 u32 program size, u32 state size (the RAM the checker needs for it), then
-32 bytes of zeros. The program follows: rcheevos' parse of the
+32 bytes of zeros. The set and its state have to fit in 252 KB
+(`offline.ACH_MEMORY`: nds-bootstrap's 256 KB less the 4 KB the console
+reads `RPCUNLK.BIN` into). The program follows: rcheevos' parse of the
 achievements, as the checker runs them. Its layout is described at the top
 of nds-bootstrap's `rpcprobe/probe_ach_vm.c`: the memory values to read
 (plain ones and rcheevos' "modified" ones, the AddSource / AddAddress /
@@ -970,7 +984,7 @@ While a set is loaded (or failed to load), the VBlank after each hello also
 broadcasts, on UDP 4244:
 
 ```
-DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> ids=<id,id,...>
+DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> s=<saved> x=<not saved> w=<waiting> ids=<id,id,...>
 ```
 
 `n` is how many achievements the checker runs, or why it isn't running: -1
@@ -979,9 +993,15 @@ big, -4 its program doesn't add up, -5 it's damaged (CRC). `t` counts the
 achievements it has unlocked since the game started, `ids` are the latest
 (up to 8), `p` is how many passes over every achievement it finished since
 the last report (so, a second), and `l` the most scanlines it took in one
-VBlank (a frame has 263). `DSiClient` (`AchReport`) logs the checker
-starting, each of its unlocks (`Console: its checker unlocked achievement
-...`) and once a minute its speed. Older DSiRPC versions ignore the packet.
+VBlank (a frame has 263). `s` is how many of its unlocks it saved to
+`RPCUNLK.BIN`, `x` how many it couldn't (no file, file full, too many at
+once, a failed write) and `w` how many of the game's unlocks were already
+waiting in the file when it started. `DSiClient` (`AchReport`) logs the
+checker starting, each of its unlocks (`Console: its checker unlocked
+achievement ...`), the saves (`Console: saved N unlock(s) to its SD card for
+DSiRPC`, or a warning for `x`) and once a minute its speed. Older DSiRPC
+versions ignore the packet, and older consoles' packets have no `s`, `x` or
+`w`.
 
 ---
 
@@ -995,7 +1015,7 @@ All paths below are under `nds-bootstrap/retail/`.
 | File | Change |
 |---|---|
 | `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/misc.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | The ARM9 half of the per-frame capture: a hook in front of the game's VBlank handler snapshots the watched values at the start of every VBlank, and `myIrqHandlerIPC` calls `dsirpcWatchService()`, which puts the hook in when rpcprobe rings (see [section 7](#7-wire-protocol)); `reset()` (`misc.c`) frees the hooks for the reloaded game on a soft reset. Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. 952 bytes; 888 bytes of that cardengine are still free. |
-| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running) (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
+| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running), and `Probe_HaltTick(&saveMutex)` at the end of `runCardEngineCheckHalt()`, the swiHalt hook, where the checker's unlocks are saved (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
@@ -1007,15 +1027,15 @@ All paths below are under `nds-bootstrap/retail/`.
 
 | File | Role |
 |---|---|
-| `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests, and on the first tick reads the game's code, ROM version and header CRC from its header for the hellos. |
+| `probe_hook.c/.h` | The VBlank state machine: load files, restore DSi mode if needed, probe the chip, run (or fail). It sends hellos and services requests, and on the first tick reads the game's code, ROM version and header CRC from its header for the hellos. `Probe_HaltTick()` saves the checker's unlocks. |
 | `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction) |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP (and hands `'W'`/`'F'` to `probe_watch.c`), counts EAPOL |
 | `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
-| `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT`; defines the UDP port (4244) |
-| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` on the first VBlank, checks its CRC, runs it a slice each VBlank, and keeps the latest unlocks for the report (below) |
+| `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT` (`time=` dates offline unlocks); defines the UDP port (4244) |
+| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, runs it a slice each VBlank, saves each unlock into `RPCUNLK.BIN` and keeps the latest for the report (below) |
 | `probe_ach_vm.c/.h` | The checker's interpreter: a port of rcheevos 12.5's evaluation, without floating point, for the program DSiRPC builds. Plain C; the same file is tested against rcheevos on a PC |
-| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_LINES_PER_VBLANK` and `RPCPROBE_ACH_SKIP_AFTER_LINES` |
+| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_LINES_PER_VBLANK`, `RPCPROBE_ACH_SKIP_AFTER_LINES` and `RPCPROBE_ACH_SAVE_FALLBACK` |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
 
 ### The achievement checker (`probe_ach.c`)
@@ -1024,12 +1044,16 @@ For offline play the console checks the game's achievements itself, with
 or without Wi-Fi. DSiRPC has already had rcheevos parse them (section 6), so
 the console only runs the result:
 
-- **Loading.** On the game's first VBlank (the only time rpcprobe may touch
-  the SD card), `RPCSET.BIN` is read into `DSIRPC_ACH_LOCATION`, the 256 KB
-  the bootloader keeps the ROM cache out of: the set, then the checker's
-  state (every memory value with its last change, every condition's hit
-  count). It's only used if its game code is the running game's. Over the
-  next few VBlanks its CRC-32 is checked, a slice at a time; then it runs.
+- **Loading.** On the game's first VBlank (the only time the VBlank may
+  touch the SD card), `RPCSET.BIN` is read into `DSIRPC_ACH_LOCATION`, the
+  256 KB the bootloader keeps the ROM cache out of: the set, then the
+  checker's state (every memory value with its last change, every
+  condition's hit count). It's only used if its game code is the running
+  game's. `RPCUNLK.BIN` is read into the last 4 KB (sets are built to leave
+  them free) to find where the next unlock goes and which of the game's
+  achievements already wait there; those aren't checked again. Over the
+  next few VBlanks the set's CRC-32 is checked, a slice at a time; then it
+  runs.
 - **Running.** `probe_ach_vm.c` follows rcheevos' `rc_runtime_do_frame`: a
   pass reads every memory value (pointers and AddSource chains included),
   then evaluates every achievement, with rcheevos' rules for hit counts,
@@ -1052,8 +1076,20 @@ the console only runs the result:
   matched after every frame. With Wi-Fi, its report (section 7) shows on
   hardware what it unlocks and how long it takes.
 
-Its unlocks aren't saved yet; writing them into `RPCUNLK.BIN` (outside the
-VBlank interrupt, because of the SD card rule) is the next step.
+- **Saving.** Each unlock goes into a small queue (7 places) with its time:
+  `RPCHAND.TXT`'s `time=` plus the VBlanks counted since (59.8261 a second).
+  The SD card can't be touched from the VBlank interrupt later on (rules
+  below), so the queue is written out from nds-bootstrap's swiHalt hook
+  instead: `runCardEngineCheckHalt()` runs whenever the game's ARM7 idles,
+  outside interrupts, and serves the ARM9's ROM reads there under
+  `saveMutex`. `Probe_HaltTick()` takes the same lock with `tryLockMutex()`
+  (so never while a save or ROM read is under way) and writes one 16-byte
+  slot (section 7). For a game whose swiHalt nds-bootstrap couldn't hook,
+  the VBlank does it after two seconds without a halt, under the same lock
+  and only while no non-blocking ROM read is in flight (`readOngoing`).
+  Without `RPCUNLK.BIN` (the game wasn't started from the launcher), or
+  with 255 unlocks already waiting, unlocks are counted (`x` in the report)
+  but not saved.
 
 The original hand-rolled DS-mode Wi-Fi + WPA2 driver (from before the
 DSi-mode handoff) has been removed. It was never committed to any repository,
@@ -1062,13 +1098,14 @@ described in [HISTORY.md](HISTORY.md).
 
 ### Rules the ARM7 code must follow
 
-- **Only touch the SD card on the very first VBlank.** The game reads its
-  save from the SD card in thread context. Any SD access from the VBlank
-  interrupt later on (a log line, a file read) can land in the middle of that
-  and hang or corrupt things. This caused the white screen and the
-  party-menu crash.
+- **Only touch the SD card from the VBlank on the very first VBlank.** The
+  game reads its save from the SD card in thread context. Any SD access from
+  the VBlank interrupt later on (a log line, a file read) can land in the
+  middle of that and hang or corrupt things. This caused the white screen
+  and the party-menu crash. The checker's unlocks are written from the
+  swiHalt hook instead, holding nds-bootstrap's `saveMutex` (above).
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 58,924 of 62,464 bytes are used with the per-frame capture
+  (61 KB in total; 60,012 of 62,464 bytes are used with the per-frame capture
   and the achievement checker), so every addition counts. Anything big
   goes in main RAM, like the checker's set and state.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
@@ -1339,9 +1376,11 @@ section 8).
 - **Offline play is in progress.** The launcher plays without Wi-Fi, keeps
   the sets on the SD card and syncs the unlock file with DSiRPC (on hardware
   since 2026-10-07), and the in-game checker runs the set (section 8; it
-  matched rcheevos exactly on PC tests, but hasn't run on hardware yet).
-  Its unlocks aren't saved yet: writing them into `RPCUNLK.BIN` is the next
-  step. The checker reads main RAM from the ARM7, so it can see values a
+  matched rcheevos exactly on PC tests, and runs on hardware since
+  2026-10-08: Platinum's 101 achievements at about 1.4 passes a second).
+  Saving its unlocks into `RPCUNLK.BIN` from the swiHalt hook is new and
+  needs a hardware test. Unlock times don't count time asleep (the console's
+  clock is only read by the launcher). The checker reads main RAM from the ARM7, so it can see values a
   frame or more late, like DSiRPC's own reads; and with a big set one pass
   takes a few frames, so a hit count of 60 takes longer than a second.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group

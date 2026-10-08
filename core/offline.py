@@ -6,8 +6,9 @@ console only stores what it's given and what it unlocked.
 
 On the SD card (the launcher writes them; see launcher/source/sync.c):
 
-    sd:/RPCUNLK.BIN       unlocks waiting for DSiRPC (the in-game side will
-                          write them; read and cleared by the launcher)
+    sd:/RPCUNLK.BIN       unlocks waiting for DSiRPC (written in game by
+                          nds-bootstrap's rpcprobe/probe_ach.c; read and
+                          cleared by the launcher)
     <launcher>/sets/CODE.DRS
                           each game's achievements, from DSiRPC (build_set())
     sd:/RPCSET.BIN        the set of the game being started (a copy, so the
@@ -26,7 +27,12 @@ count (256), 6 bytes reserved. Slots 1-255 are unlocks:
         that was only partly written is ignored
 
 Each unlock is one slot, written on its own, so there's never a half-written
-list; the launcher zeroes the slots once DSiRPC has them.
+list; the launcher zeroes the slots once DSiRPC has them. In game, unlocks go
+after the last slot in use (sequence number = slot number), dated by the
+launcher's clock (RPCHAND.TXT's time=) plus the VBlanks since, so time asleep
+isn't counted; 0 if there was no clock. Achievements already in the file
+aren't checked again. Unlocks DSiRPC made itself (playing online) come back
+this way too; engine.py leaves out the ones it knows about.
 
 CODE.DRS (an offline set, version 2), little-endian:
 
@@ -42,7 +48,8 @@ Only the achievements left to unlock (as far as DSiRPC knows) that the
 console can check are in it: official, from the core or a bonus set, reading
 only main RAM, that rcheevos parses and that don't need floating point. The
 whole set and its state have to fit in ACH_MEMORY, the RAM nds-bootstrap
-sets aside for them; the biggest achievements are left out until it does.
+sets aside for them less the 4 KB the console reads RPCUNLK.BIN into; the
+biggest achievements are left out until it does.
 The launcher never looks past the header; the stamp tells it whether its
 copy is current. (Version 1 had the MemAddr text instead of a program.)
 
@@ -80,7 +87,8 @@ UNLOCK_FILE_SIZE = UNLOCK_SLOT * UNLOCK_SLOTS
 SET_MAGIC = b"DRSE"
 SET_VERSION = 2
 SET_HEADER = struct.Struct("<4sHH4sIIHHII32s")
-ACH_MEMORY = 0x40000   # nds-bootstrap's DSIRPC_ACH_SIZE (locations.h)
+ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE (locations.h) less
+                                          # RPCUNLK.BIN's space (probe_ach.c's ACH_SET_SPACE)
 PROGRAM_HEADER = struct.Struct("<IHHHHI")
 
 REQUEST = struct.Struct("<4sHH4sII")

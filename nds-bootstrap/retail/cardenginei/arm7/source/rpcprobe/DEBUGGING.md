@@ -57,18 +57,26 @@ With a set loaded for offline play (`RPCSET.BIN`, see `probe_ach.c`), the
 VBlank after each hello also sends:
 
 ```
-DSiRPC ach n=N t=N p=N l=N ids=ID,ID,...
+DSiRPC ach n=N t=N p=N l=N s=N x=N w=N ids=ID,ID,...
 ```
 
 DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 
 | Field | Meaning |
 |---|---|
-| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 set (the launcher or DSiRPC is older than this build), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 256 KB, `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 set (the launcher or DSiRPC is older than this build), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 252 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into), `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
 | `p` | Passes over every achievement since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
 | `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 16; it can go a little over, since it checks the time every 32 conditions). `vb=` in the hello includes it. |
+| `s` | Of those, how many were saved to `RPCUNLK.BIN` |
+| `x` | Of those, how many couldn't be: no `RPCUNLK.BIN` (the game wasn't started from the launcher), the file is full (255 unlocks wait for DSiRPC), more than 7 waiting to be saved at once, or a write that failed |
+| `w` | This game's unlocks already waiting in `RPCUNLK.BIN` when it started; those aren't checked again |
 | `ids` | The latest unlocks, at most 8 |
+
+`s` should follow `t` within a frame. If `t` goes up and `s` doesn't (and
+`x` doesn't either), nothing is saving them: the swiHalt hook isn't running
+and the VBlank fallback hasn't kicked in (`RPCPROBE_ACH_SAVE_FALLBACK`, two
+seconds).
 
 If the game stutters with a set loaded and not without one (rename
 `RPCSET.BIN` to test), lower `RPCPROBE_ACH_LINES_PER_VBLANK`, or set
@@ -125,16 +133,24 @@ Two things to know:
 
 ## Rules the in-game code has to follow
 
-- **The SD card is only touched on the very first VBlank** (loading
-  `RPCHAND.TXT` and `RPCSET.BIN`). Later, the game reads its save from the SD card outside
+- **The VBlank only reads the SD card on the very first VBlank** (loading
+  `RPCHAND.TXT`, `RPCSET.BIN` and `RPCUNLK.BIN`). Later, the game reads its save from the SD card outside
   interrupts, and SD access from the VBlank interrupt in the middle of that
   hangs the game (seen as a white screen).
+- **Unlocks are saved outside interrupts, under nds-bootstrap's lock.**
+  `Probe_HaltTick()`, called from nds-bootstrap's swiHalt hook
+  (`runCardEngineCheckHalt()`), writes one 16-byte `RPCUNLK.BIN` slot at a
+  time, only when `tryLockMutex(&saveMutex)` succeeds: the same lock
+  nds-bootstrap's own save and ROM reads hold. Only if that hook hasn't run
+  for `RPCPROBE_ACH_SAVE_FALLBACK` VBlanks (a game whose swiHalt couldn't be
+  hooked) does the VBlank save them, with the same lock and only when no
+  non-blocking ROM read is under way (`readOngoing`).
 - **Everything runs inside the VBlank interrupt,** so each tick has to stay
   short. The receive path reads at most `RPCPROBE_RX_BYTES_PER_VBLANK`
   bytes per VBlank, and no hello goes out in a tick that already sent a
   reply. `vb=` in the hellos shows the longest tick.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  3.5 KB is left). The achievement checker keeps its set and state in main
+  2.4 KB is left: 60,012 of 62,464 bytes). The achievement checker keeps its set and state in main
   RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

@@ -275,6 +275,31 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Offline play, phase 3 (saving unlocks in game).** Phase 2
+  ran on hardware: Platinum's 101 achievements at about 1.4 passes a second,
+  25-27 scanlines at most per VBlank. A test unlock (96047, all eight badges
+  at full shine) didn't trigger on the console, but DSiRPC's own rcheevos,
+  watching the same session, didn't unlock it either, so the two agreed.
+  Now each unlock is written into its own `RPCUNLK.BIN` slot. The SD card
+  can't be touched from the VBlank interrupt after the first one (the white
+  screen), so the writes happen in nds-bootstrap's swiHalt hook, outside
+  interrupts, where it already serves the ARM9's ROM reads under
+  `saveMutex`: `Probe_HaltTick()` takes that lock with `tryLockMutex()` and
+  writes one 16-byte slot. A game whose swiHalt couldn't be hooked gets them
+  written from the VBlank after two seconds, under the same lock and only
+  while no ROM read is in flight. The unlock's time is the launcher's clock
+  (`time=` in `RPCHAND.TXT`) plus the VBlanks since, so the game's ARM7
+  never has to read the real-time clock (time asleep isn't counted).
+  `RPCUNLK.BIN` is read on the first VBlank into the last 4 KB of the
+  checker's memory, which sets now leave free: unlocks go after the last
+  slot in use, and the game's achievements already waiting there aren't
+  checked again. Since the console saves online unlocks too, DSiRPC leaves
+  out the ones it already knows about when they come back. The report
+  gained `s=` (saved), `x=` (couldn't be saved) and `w=` (waiting from
+  before). Tested on a PC: the console side (probe_ach.c with the file
+  calls in memory) against DSiRPC's reader, and the whole loop through the
+  launcher's sync code and DSiRPC's `ConsoleSync`. ARM7: 60,012 of 62,464
+  bytes. Needs a hardware test.
 - 2026-10-08: **Offline play, phase 2 (the in-game checker).** Phase 1
   worked on hardware: the launcher found DSiRPC and took five sets. Now the
   console runs the game's achievements itself. To keep the console's part

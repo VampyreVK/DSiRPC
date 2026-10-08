@@ -80,7 +80,7 @@ launcher turns Wi-Fi off and works the same way, minus the syncs.
 |---|---|
 | `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: the achievements left to unlock, already turned into the program the console's checker runs |
 | `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root; nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
-| `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side only ever writes into it |
+| `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side (`rpcprobe/probe_ach.c`) only ever writes into it, a 16-byte slot per unlock |
 
 The formats are in DSiRPC's `core/offline.py` and in
 [docs/DOCUMENTATION.md](../docs/DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245).
@@ -151,10 +151,11 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
   If it doesn't work, **Y** still exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
-- **Offline play doesn't save unlocks yet.** The launcher keeps the sets
-  and syncs the unlock file (it worked on hardware on 2026-10-07), and the
-  game checks the achievements, but nothing writes them into
-  `RPCUNLK.BIN` yet (the next phase).
+- **Saving offline unlocks is new.** The launcher keeps the sets and syncs
+  the unlock file (it worked on hardware on 2026-10-07), and the game checks
+  the achievements (2026-10-08); writing its unlocks into `RPCUNLK.BIN` in
+  game needs a hardware test. 255 unlocks fit before the launcher has to
+  hand them to DSiRPC.
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is
   running that driver. If hello packets stop at a suspiciously regular

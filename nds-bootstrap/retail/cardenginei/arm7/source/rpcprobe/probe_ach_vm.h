@@ -104,4 +104,9 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 // The id and state of achievement i (for tests and status).
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i);
 
+// Marks achievement id as unlocked already (an earlier session saved it),
+// so it isn't checked or reported again. Call it after AchVm_Load().
+// Returns 1 if the program has that achievement.
+int AchVm_SetUnlocked(AchVm *vm, uint32_t id);
+
 #endif // PROBE_ACH_VM_H

@@ -269,12 +269,14 @@ class Engine:
 
     def _offline_unlocks(self, unlocks):
         """Unlocks from offline play: sent to RetroAchievements like any
-        other (with when they happened), if that's on in setup."""
+        other (with when they happened), if that's on in setup. The console
+        saves every unlock, so the ones DSiRPC already knows about (unlocked
+        while it was watching) are left out."""
         from core import ra_set
         from core.ra_link import queue_offline
         sending = self.cfg.ra_submit and self.ra_enabled and not self.dry_run
         link = self.ra_link
-        sets, rows = {}, []
+        sets, rows, known = {}, [], 0
         for u in unlocks:
             if u['code'] not in sets:
                 try:
@@ -282,6 +284,9 @@ class Engine:
                 except ra_set.SetFileError:
                     sets[u['code']] = None
             s = sets[u['code']]
+            if s and link and u['id'] in link.known_unlocks(s.id):
+                known += 1
+                continue
             a = next((a for a in s.achievements if a['id'] == u['id']), None) if s else None
             row = {'id': u['id'], 'when': u['when'], 'game': s.title if s else u['code'],
                    'game_id': s.id if s else 0, 'title': a['title'] if a else f"achievement {u['id']}",
@@ -289,6 +294,10 @@ class Engine:
             rows.append(row)
             if sending and link:
                 link.award_offline(row['id'], row['when'], row['game'], row['game_id'])
+        if known:
+            logging.info(f"Offline play: {known} unlock(s) from the console DSiRPC already had")
+        if not rows:
+            return
         if sending and not link:
             queue_offline(rows)
         lines = [f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(r['when']))}\t{r['game']}\t{r['id']}\t"

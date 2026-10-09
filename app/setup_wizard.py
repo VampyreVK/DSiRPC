@@ -328,7 +328,8 @@ def detect_game(port=4244, wait=10.0):
     try:
         client = DSiClient(port=port)
     except OSError:
-        state_file = os.path.join(ROOT, "logs", "state.json")
+        from core.paths import DATA
+        state_file = os.path.join(DATA, "logs", "state.json")
         try:
             with open(state_file, encoding="utf-8") as f:
                 state = json.load(f)

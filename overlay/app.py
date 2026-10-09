@@ -21,11 +21,11 @@ import threading
 
 import pygame
 
+from core.paths import DATA
 from .scenes import Overlay, W, H
 from .sprites import SpriteBank
 from . import ui
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CAPTIONS = {'auto': "DSiRPC", 'battle': "DSiRPC (battle)", 'party': "DSiRPC (party screen: V to go back)"}
 
 
@@ -71,7 +71,7 @@ class OverlayWindow:
             caption = CAPTIONS['auto']
             pygame.display.set_caption(caption)
             canvas = pygame.Surface((W, H)).convert()
-            overlay = Overlay(SpriteBank(os.path.join(HERE, "Assets")))
+            overlay = Overlay(SpriteBank(os.path.join(DATA, "Assets")))
             overlay.hires_ok = True  # present() draws its sprites at the window's resolution
             clock = pygame.time.Clock()
             dt = 0

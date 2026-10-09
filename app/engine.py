@@ -26,7 +26,8 @@ import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOG_DIR = os.path.join(ROOT, "logs")
+from core.paths import DATA  # noqa: E402  (where DSiRPC writes; the macOS app's data folder)
+LOG_DIR = os.path.join(DATA, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "dsirpc.log")
 STATE_FILE = os.path.join(LOG_DIR, "state.json")
 ACHIEVEMENTS_LOG = os.path.join(LOG_DIR, "achievements.log")
@@ -456,7 +457,9 @@ class Engine:
         if hasattr(self.source, 'parse_interval'):
             self.source.parse_interval = self.hub.interval
 
-    def _make_window(self):
+    def _make_window(self, remote=False):
+        """The overlay window; `remote`: in a process of its own (macOS's
+        menu bar, see overlay/remote.py), else on the calling thread."""
         from overlay.app import OverlayWindow
 
         def save_scale(n):
@@ -464,6 +467,11 @@ class Engine:
             if self.persist:
                 self.save_config()
         chroma = self.cfg.chroma or None
+        if remote:
+            from overlay.remote import RemoteOverlay
+            os.makedirs(LOG_DIR, exist_ok=True)
+            return RemoteOverlay(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
+                                 log_file=os.path.join(LOG_DIR, "overlay.log"))
         try:
             window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale)
         except ValueError as e:
@@ -482,11 +490,12 @@ class Engine:
             self.overlay_window = None
 
     def set_overlay(self, on, on_closed=None):
-        """Opens or closes the overlay window on its own thread (tray mode).
-        on_closed() is called if the user closes the window."""
+        """Opens or closes the overlay window on its own thread (tray mode;
+        on macOS the window is in a process of its own, as the menu bar has
+        the main thread). on_closed() is called if the user closes the window."""
         with self._overlay_lock:
             if on and not self.overlay_on:
-                window = self._make_window()
+                window = self._make_window(remote=sys.platform == "darwin")
 
                 def run():
                     closed = window.run()

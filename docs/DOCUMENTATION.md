@@ -480,8 +480,31 @@ table), so HP and moves show up quickly.
   reads `core/other_game.py`'s state, including `unlocked`, `recent` (this
   session's unlocks, from `RaGame.session_unlocks`), `latest` (the latest
   unlock: this session's, else the latest RetroAchievements has a time for,
-  `RaGame.latest_unlock()`), `ra_note` and `signed_in`. A game that gets its own parser later gets its
-  own views the way Platinum has the party and battle views.
+  `RaGame.latest_unlock()`), `ra_note` and `signed_in`. Pokémon Black and
+  White have views of their own (below).
+- **Unova view** (`overlay/unova.py`): Pokémon Black and White's main view,
+  in the games' own look, cut at runtime from the sheets in
+  `Assets/PokemonBlackUI` (`overlay/unova_art.py`; no new image files). The
+  header has the season (an icon and its name), the place (zone names from
+  `bw_data.ZONES`) and the play time. The party sits in the party screen's
+  chevron panels, three to a row (84x46, the panels' flat middle cut
+  short): name and gender, level, HP bar and numbers, status (the games'
+  own PSN/BRN/PAR/FRZ/FNT tags), a held-item mark, the red shiny star, an
+  animated icon; the lead's panel is the brighter blue, a fainted one's
+  red, an egg's green, empty slots the outline. Under it an achievements
+  panel like the game card's: count, meter and points, then the latest
+  unlock (left two thirds: NEW or LATEST, title, when, description) and
+  one still to earn (right third, changing every 6 s; MASTERED when done).
+  The footer has your trainer walking (Hilbert or Hilda, from
+  `Assets/Trainer-Overworld`), name, money, the eight Unova badges (the
+  trainer card's art, polished when earned, dimmed when not) and the
+  Pokédex. Battles use the battle view above, with the games' own sky and
+  platforms (`BattleBackgroundsTransparent.png`: ocean, mountain, field,
+  forest, cave, snow and indoor skies by day, afternoon and night; grass,
+  sand, snow, water, field, indoor and cave platforms), picked by
+  `bw_data.terrain()` from the place and season (snowy routes in winter),
+  and the game's own max PP on the move buttons. Battles in Black and
+  White don't say yet who the trainer is (see section 9).
 - **Waiting view:** while the hub is offline, in the same frame: a DSi
   looking for a connection, the hub's status, what to do on the console,
   and the last game played in the footer.
@@ -594,11 +617,13 @@ numbers mean.
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
+| `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, battlers' `pp_max`, and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name). `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads. `decode_text()` decodes Gen V text (UTF-16) |
+| `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), and `terrain()` for the battle backgrounds |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
-| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
+| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos). `ra_summary()` builds those RetroAchievements keys; Black and White's states carry them too |
 | `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, decides who checks which (`_cover()`: the console the ones in the set its checker runs, the PC every frame the ones that need it most of the rest, `capture`, and the PC about once a second the remaining ones, `in_runtime`), `tick()` once a second, `capture_tick()` often, turns triggered achievements into `achievement` events (and keeps this session's in `session_unlocks`), sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way; its reports (`("report", ...)`) say which set it runs. DSiRPC's own unlocks wait in `pending_pushes()` for the console. `RaSettings` holds the `[ra]` choices |
 | `core/frame_capture.py` | `FrameCapture`: achievements checked every frame on the PC, from the DSi's per-frame capture. `use()` picks the ones that fit in its 8 watched values (each time the one needing the fewest more, the most needed of those; none with AddAddress, whose addresses move), `service()` drains the DSi's ring and runs rcheevos on every recorded frame |
 | `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `known_unlock_times()` (the same with when each was earned, for the in-game menu's list), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in. With `blank` (`--blank-ra`, `--dry-run`) it acts as if nothing were unlocked |
@@ -609,15 +634,15 @@ numbers mean.
 | `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
 | `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
 | `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`), and `compile_offline()`, the console's program for offline play (DSiRPC's `dsirpc_offline.c` in the library) |
-| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses, with its per-frame checking drained four times a second, also between the requests of a long read (`DSiClient.idle_hook`), and its unlocks pushed to the console; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
-| `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
-| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
+| `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict, Black or White's (`is_bw()`) or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, the Black/White parser on `IRBO`/`IRAO` (the game card while it doesn't recognise what it reads, tried again every parse), `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses, with its per-frame checking drained four times a second, also between the requests of a long read (`DSiClient.idle_hook`), and its unlocks pushed to the console; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. Black and White work the same way: their quick read is each battle copy's HP and moves plus the battle flag and pointers (one request in a single battle). |
+| `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `is_bw()` / `bw_version()`: Black (`IRBO`) and White (`IRAO`), US. `name()` for status lines. |
+| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, Pokémon Black (the Unova view with an achievement unlocking, then a battle in Pinwheel Forest), another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run) |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection), `gamecard.py` (the game card for any other game), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view and battle backgrounds), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 
@@ -682,7 +707,9 @@ battle, so the sanity check is what separates a live battle from leftovers.
 ### Any other game
 
 Any game other than Platinum shows what DSiRPC can know without a parser for
-it (`core/other_game.py` reads it, `rpc/generic_presence.py` lays it out):
+it (`core/other_game.py` reads it, `rpc/generic_presence.py` lays it out).
+Pokémon Black and White show this way too for now (their state carries the
+same keys):
 
 | Field | Content |
 |---|---|
@@ -1519,6 +1546,67 @@ and ProjectPokemon's breakpoints page. The name tables and struct layouts come
 from pret/pokeplatinum. One RA note is wrong: Pokédex caught is at `+0x1340`,
 not `+0x12AC`.
 
+### Pokémon Black and White (USA)
+
+`core/bw_parser.py`. Addresses are Black's (`IRBO`); **White's (`IRAO`)
+are all `0x20` higher**. Other regions are elsewhere (JP −0x1A0, FR −0x80,
+DE −0xC0, IT −0x100, ES −0x40 from Black US, per pokebot-nds) and aren't
+read. Unlike Platinum there's no save pointer to follow: the save data sits
+1:1 in RAM at `0x0221BBAC` + its PKHeX save offset (party `0x18E00`,
+trainer `0x19400`, misc `0x21200`, dex `0x21600`). None of this is checked
+on a DSi yet: the sources tested emulators in DS mode, which is also the
+only mode rpcprobe runs in (section 12). "Confirmed" means several
+independent sources agree.
+
+| Address | What | Type | Confidence |
+|---|---|---|---|
+| `0x022349B0` | Party count | u8 | confirmed |
+| `0x022349B4` | Party, 6 x 220 bytes (below) | | confirmed |
+| `0x02234FB0` | Trainer name | 8 x u16, ends `0xFFFF` | confirmed |
+| `0x02234FC0` | Trainer ID, secret ID after it | u16, u16 | confirmed |
+| `0x02234FCD` | Gender: 0 Hilbert, 1 Hilda | u8 | confirmed |
+| `0x02234FD0` | Play time as last saved: hours, minutes, seconds | u16, u8, u8 | from PKHeX's layout |
+| `0x0223CDAC` | Money | u32 | confirmed |
+| `0x0223CDB0` | Badges, bit 0 Trio ... bit 7 Legend | u8 | confirmed |
+| `0x0223D1B0` | Pokédex flags (bit 0: national dex), then caught (`0x54` bytes, bit n-1 = #n), then seen as male, female, shiny male, shiny female (`0x54` each) | | confirmed |
+| `0x0224F90C` | Zone ID (names in `bw_data.ZONES`) | u16 | confirmed |
+| `0x0224F910` | Position x, y (height), z; the tile is the upper u16 | fx32 x3 | one source |
+| `0x0224F924` | Facing: 0 up, 4 left, 8 down, 12 right | u8 | one source |
+| `0x0224F9BC` | Season: 0 spring ... 3 winter | u8 | confirmed |
+| `0x02256FD4` | Play time, running: hours, minutes, seconds | u16, u8, u8 | one source (an Action Replay code) |
+| `0x0226ACE6` | `0x41` during a battle | u8 | one source |
+| `0x022697BE` | Opponent's trainer ID, 0 in a wild battle | u16 | one source |
+| `0x022A62F8` | Battle style: 0 single, 1 double, 2 triple, 3 rotation | u8 | one source |
+| `0x02269838` | Your side's battle copies: 7 pointers, the ones out first; the foe's 7 follow at `0x02269854` | u32 x14 | one source |
+
+The party Pokémon are Gen IV's format grown to 220 bytes: the same block
+shuffle (`((PID >> 13) & 31) % 24`) and stream cipher (the 128 bytes after
+the header keyed by the checksum, the battle stats by the PID). New in
+Gen V: the nature byte at `0x41`, the hidden-ability flag at `0x42`, and
+text is UTF-16 ending in `0xFFFF` (♂/♀ are `0x246D`/`0x246E`). The battle
+stats are status (u32, `0x88`), level (`0x8C`), HP (`0x8E`), max HP
+(`0x90`), then the other stats. They aren't updated during a battle, so
+battles read the battle copies (BTL_POKEPARAM): `+0x00` a pointer to the
+Pokémon's own 220 bytes (decrypted for its nickname, gender, shininess and
+trainer ID), `+0x0C` species, `+0x0E` max HP, `+0x10` HP, `+0x18` level,
+`+0xEE` stats (Atk, Def, SpA, SpD, Spe, u16 each), and `+0x104` the four
+moves, 14 bytes apart: u16 move, u8 PP, u8 max PP. A battle is wild when
+the trainer ID is 0 (or a foe carries your trainer IDs).
+
+Not known yet: the opponent's trainer class and name (the game looks them
+up in the ROM from the trainer ID, so the battle view says "a Trainer"),
+the battle copies' types, stat stages and status (the overlay doesn't show
+a battler's status in Black and White yet), the last move used, and the
+battle music. The RetroAchievements code notes for Pokémon Black (game
+3887) would be the place to fill these in.
+
+Sources: PKHeX (`PK5.cs`, `SAV5.cs`, `SaveBlockAccessor5BW.cs`, ...), the
+DevonStudios Gen V RNG scripts, NDS-Ironmon-Tracker, pokebot-nds,
+CasualPokePlayer's black_tas_tools, rando-pokedex, SoulBuddy, yPokeStats
+(whose US party address is the French one), the libretro Action Replay
+code lists, and the RetroAchievements rich presence for game 3887 (zone
+names).
+
 ---
 
 ## 10. Sprite assets pipeline
@@ -1536,6 +1624,7 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Pokemon-Overworld` | Lead Pokémon (small, overworld) | `process_sprites.py` (margin 4) |
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
 | `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
+| `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file) |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg` | Added by hand; any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
@@ -1549,6 +1638,10 @@ pipeline. The dioramas are made from the raw sprites; running
 
 ### Trainer sprites
 
+The overlay reads the sheets themselves (`NPC_198_Lucas.png`,
+`NPC_201_Dawn.png`, and Black and White's `BW_196_Hilbert.png` and
+`BW_197_Hilda.png`, same layout), halved and split by direction in memory;
+`TRAINER_SHEETS` in `overlay/sprites.py` maps names to files. For Discord,
 `Trainer-Overworld/process_trainer.py` turns `NPC_198_Lucas.png` and
 `NPC_201_Dawn.png` into `Lucas-Down/Left/Right/Up.gif` and the Dawn versions.
 The sheets are 256x256 grids of 64x64 cells: **rows** are directions (down,
@@ -1699,10 +1792,14 @@ section 8).
   window, the tray's status). Still to come: encounter and shiny counters, a
   Nuzlocke mode, and browser-source panels for OBS. Only one process can own
   UDP 4244, so all of it has to hang off the hub.
-- **Pokémon Black and White** are planned: a parser (memory map, Gen V data
-  tables) feeding the party and battle views, which would need the B/W
-  trainer sprites (the Pokémon sprites up to #649 are in `Assets/` already).
-  Until then they get the game card, in DS mode (above).
+- **Pokémon Black and White are new** (US only, DS mode): the parser and the
+  Unova view are tested against made-up RAM and the demo, not yet on a
+  console. If the memory doesn't look the way the parser expects, they get
+  the game card as before (logged once). Not shown yet: the opponent
+  trainer (name, class, sprite; the trainer sheet is cut and ready), a
+  battler's status, types and stat changes in battle, and the last move
+  (section 9). Discord still shows them like any other game. Black 2 and
+  White 2 are laid out differently (a base pointer) and aren't read.
 - **Windows first.** The tray, Start with Windows and the `.bat` files are
   Windows-only; `dsirpc.py` in a console works elsewhere (with a Linux or
   macOS build of rcheevos for rich presence).

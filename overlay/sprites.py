@@ -45,6 +45,11 @@ DIORAMA_BOTTOM = 126
 
 ASSETS_URL = "https://vampyrevk.github.io/DSiRPC/Assets"
 
+# Overworld walking sheets in Assets/Trainer-Overworld: 4x4 cells (rows
+# down, left, right, up; columns the walk cycle), drawn at 2x.
+TRAINER_SHEETS = {'Lucas': 'NPC_198_Lucas.png', 'Dawn': 'NPC_201_Dawn.png',
+                  'Hilbert': 'BW_196_Hilbert.png', 'Hilda': 'BW_197_Hilda.png'}
+
 
 def _download(rel, dest, timeout=15.0):
     """Fetches Assets/<rel> from GitHub Pages into dest. False if it can't."""
@@ -186,7 +191,8 @@ class SpriteBank:
         return self.get(('back', species_id, shiny))
 
     def trainer(self, character, direction):
-        """character 'Lucas' or 'Dawn', direction 'down'/'left'/'right'/'up'."""
+        """character 'Lucas', 'Dawn', 'Hilbert' or 'Hilda', direction
+        'down'/'left'/'right'/'up'."""
         return self.get(('trainer', character, direction))
 
     def platform(self, place='field', when='day'):
@@ -267,8 +273,7 @@ class SpriteBank:
             return _crop_union(frames), durs
         if kind == 'trainer':
             _, character, direction = key
-            sheet = Image.open(self._path('Trainer-Overworld',
-                                          'NPC_198_Lucas.png' if character == 'Lucas' else 'NPC_201_Dawn.png')).convert('RGBA')
+            sheet = Image.open(self._path('Trainer-Overworld', TRAINER_SHEETS.get(character, 'NPC_201_Dawn.png'))).convert('RGBA')
             row = ['down', 'left', 'right', 'up'].index(direction)
             cell = sheet.width // 4
             frames = [sheet.crop((c * cell, row * cell, (c + 1) * cell, (row + 1) * cell)) for c in range(4)]

@@ -25,6 +25,26 @@ OtherGame.read() returns the state the hub hands out for such a game:
 import time
 
 
+def ra_summary(game, ra, started):
+    """The RetroAchievements side of a game's state (every key above but
+    'kind'). Pokemon Black and White's states carry it too, for their
+    achievements panel and Discord."""
+    return {
+        'game': game,
+        'title': ra.title,
+        'header_title': ra.header_title or None,
+        'ra_set': ra.set,
+        'rich_presence': ra.rich_presence,
+        'progress': ra.progress,
+        'started': started,
+        'unlocked': frozenset(ra.unlocked),
+        'recent': ra.session_unlocks[-3:],
+        'latest': ra.latest_unlock(),
+        'ra_note': ra.note,
+        'signed_in': bool(ra.link and ra.link.signed_in),
+    }
+
+
 class OtherGame:
     HELLO_TIMEOUT = 15.0
 
@@ -63,21 +83,7 @@ class OtherGame:
         """The state now, or None if the DSi isn't answering."""
         if not self._dsi_there():
             return None
-        return {
-            'kind': 'other',
-            'game': self.game,
-            'title': self.title,
-            'header_title': self.ra.header_title or None,
-            'ra_set': self.ra.set,
-            'rich_presence': self.ra.rich_presence,
-            'progress': self.ra.progress,
-            'started': self.started,
-            'unlocked': frozenset(self.ra.unlocked),
-            'recent': self.ra.session_unlocks[-3:],
-            'latest': self.ra.latest_unlock(),
-            'ra_note': self.ra.note,
-            'signed_in': bool(self.ra.link and self.ra.link.signed_in),
-        }
+        return dict(ra_summary(self.game, self.ra, self.started), kind='other')
 
     def close(self):
         pass

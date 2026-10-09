@@ -207,6 +207,13 @@ changes and conditions show on the HP boxes and Pokémon; and the bottom box
 shows your moves with PP and how effective each one is. Banners pop up for
 shiny encounters, level-ups, fainting, new badges and achievements.
 
+Pokémon Black and White (US) get a view of their own, in the games' look:
+the party in the party screen's panels, an achievements panel with your
+latest unlock and the next one to earn, your trainer, money and the Unova
+badges, the season, and battles on the games' own backgrounds. It's new and
+not tried on a console yet (if the memory doesn't look right, they get the
+game card).
+
 Every other game gets a game card in the same style: its name and how long
 you've been playing, what you're doing in it (its RetroAchievements rich
 presence), a progress bar for its achievements with your latest unlock and
@@ -305,7 +312,9 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       its name, box art and RetroAchievements rich presence (and the
       overlay's game card), and only Platinum USA Rev 1 gets the full
       presence and the overlay's party and battle views. Pokémon Black and
-      White are next in line.
+      White (US) now have their own overlay views (new, not tried on a
+      console yet); their Discord presence and the opponent trainer in
+      battle are still to come.
 - [x] Achievements checked every frame, for the timing-sensitive ones: on the
       console (a set's frame lane) and by DSiRPC (what fits in the console's
       per-frame record). New, tested on a PC against rcheevos frame for

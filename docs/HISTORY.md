@@ -285,6 +285,39 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Pokémon Black and White get their own overlay.** (Also:
+  the overlay font has `|`, and the waiting screen's DSi has its D-pad and
+  buttons beside the touch screen instead of above it.)
+  - **A parser** (`core/bw_parser.py`, `core/bw_data.py`) for Black and
+    White US: party (Gen V's 220-byte Pokémon, the same encryption as
+    Gen IV's), trainer, money, badges, play time, zone, position, facing,
+    season, Pokédex, and battles from the battle copies (HP and PP live,
+    the max PP included). The addresses come from public emulator tools
+    (PKHeX's save layout, which sits 1:1 in RAM; the Gen V RNG scripts;
+    NDS-Ironmon-Tracker; pokebot-nds; Action Replay codes) and the zone
+    names from the RetroAchievements rich presence for game 3887; White's
+    are Black's plus `0x20`. The RetroAchievements notes attached for this
+    turned out to be Platinum's, so none of it is checked on a console yet;
+    the parser checks what it reads and the game card takes over when it
+    doesn't look like the game.
+  - **The Unova view** (`overlay/unova.py`): the party in the games' own
+    chevron panels, three to a row; an achievements panel (latest unlock,
+    next to earn, progress and points) on the main screen, which Platinum's
+    view doesn't have; the season, place and play time; Hilbert or Hilda
+    walking, money, the real Unova badges and the Pokédex. Battles use the
+    battle view on the games' own skies and platforms. All of the art is
+    cut at runtime from the sprite sheets in `Assets/PokemonBlackUI`
+    (`overlay/unova_art.py`), so no image files were added.
+  - **The hub** reads Black and White like Platinum (battlers only during
+    a battle, one request) and adds the game card's RetroAchievements keys
+    to their state. Discord shows them like any other game for now.
+  - **The demo** has a Pokémon Black stretch (the Unova view with an
+    achievement unlocking, then a battle in Pinwheel Forest).
+  - Still to do: the opponent trainer (name, class and sprite, which needs
+    the trainer data or the RetroAchievements notes for game 3887), battle
+    status, types and stat changes, the Discord presence, and a try on a
+    console.
+
 - 2026-10-09: **Achievements checked every frame.** On a 3DS, Tetris DS's
   T-Spin Single never unlocked and "Look Ma, One Hand" unlocked when it
   shouldn't have: the first needs the T-spin flag on the exact frame the

@@ -195,8 +195,8 @@ class Engine:
         """One line for the tray: what's running, or what DSiRPC waits for."""
         snap = self.hub.snapshot()
         if snap.online and snap.state:
-            from core.hub import is_other
-            title = snap.state.get('title') if is_other(snap.state) else "Pokemon Platinum"
+            from core.hub import is_bw, is_other
+            title = snap.state.get('title') if is_other(snap.state) or is_bw(snap.state) else "Pokemon Platinum"
             return f"Playing {title}"
         return snap.status or "Starting"
 
@@ -369,8 +369,9 @@ class Engine:
                 logging.exception("on_change failed")
 
     def _write_state(self, snap):
-        from core.hub import is_other
+        from core.hub import is_bw, is_other
         state = snap.state if snap.online else None
+        card = is_other(state) or is_bw(state)
         game = getattr(self.source, 'game', None)
         out = {
             'time': time.time(),
@@ -378,8 +379,8 @@ class Engine:
             'online': bool(snap.online),
             'status': snap.status,
             'game': game,
-            'title': (state.get('title') if is_other(state) else "Pokemon Platinum") if state else None,
-            'header_title': state.get('header_title') if is_other(state) else None,
+            'title': (state.get('title') if card else "Pokemon Platinum") if state else None,
+            'header_title': state.get('header_title') if card else None,
             'ra_game_id': self.ra_game.game_id if self.ra_game else 0,
             'discord': self.discord.status,
         }

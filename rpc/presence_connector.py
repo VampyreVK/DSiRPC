@@ -4,7 +4,8 @@ presence_connector.py - the Discord Rich Presence, as a state hub listener
 
   Pokemon Platinum   rpc/platinum_presence.py (party, battles, sprites)
   any other game     rpc/generic_presence.py (name, box art, and its
-                     RetroAchievements rich presence if there's a set)
+                     RetroAchievements rich presence if there's a set);
+                     Pokemon Black and White too, for now
 
 Discord is only connected while the game answers, updates are only sent when
 the presence changes (and at most about every 5 s, Discord's limit), and the
@@ -18,7 +19,7 @@ pypresence's event loop belongs to the thread that created it.
 import logging
 import time
 
-from core.hub import is_other
+from core.hub import is_bw, is_other
 from rpc import generic_presence as generic
 from rpc import platinum_presence as platinum
 
@@ -51,8 +52,9 @@ class DiscordConnector:
         self.last_sent, self.start, self.start_key = None, None, None
 
     def _presence(self, state):
-        """(presence, game code, is Platinum) for a state."""
-        if is_other(state):
+        """(presence, game code, is Platinum) for a state. Black and White
+        show like any other game for now (their state has the same keys)."""
+        if is_other(state) or is_bw(state):
             started = state.get('started')
             presence = generic.from_state(state, check_images=self.check_images, console=self.console)
             key = ('other', (state.get('game') or {}).get('code'), started)

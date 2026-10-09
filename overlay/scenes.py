@@ -5,7 +5,11 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   (trainer, badges, Pokedex)
     battle view   sky and ground, platforms, the foe and your Pokemon, their
                   HP boxes and a message box
-    game card     any game but Platinum (overlay/gamecard.py): its name, its
+    Unova view    Pokemon Black and White's main view (overlay/unova.py):
+                  the party in the games' own panels, the achievements, the
+                  trainer and badges; their battles use the battle view
+                  with the games' own backgrounds
+    game card     any other game (overlay/gamecard.py): its name, its
                   RetroAchievements rich presence and achievement progress,
                   laid out like the party view
     waiting view  shown while the DSi isn't sending data: what to do, and the
@@ -32,6 +36,7 @@ import math
 
 import pygame
 
+from core import bw_data
 from core import platinum_data as pdata
 from . import markers, ui
 from .backdrop import Backdrop, period, terrain, weather_kind
@@ -39,6 +44,8 @@ from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
+from .unova import UnovaScreen
+from .unova_art import UnovaArt
 
 W, H = 256, 192
 HEADER_H = 16
@@ -50,6 +57,10 @@ WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x
 
 TOAST_MS = 3500
 WIPE_MS = 700
+
+# Move types, categories and PP: Black and White's table holds every Gen IV
+# move as Platinum's does, plus Gen V's.
+MOVE_INFO = bw_data.MOVE_INFO
 
 
 def _upper(name):
@@ -111,6 +122,7 @@ class Overlay:
         self.font = PixelFont()
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
+        self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
         self.view = 'auto'         # 'auto', 'party' or 'battle' (V key in the window)
@@ -214,6 +226,8 @@ class Overlay:
             self.card.draw(canvas, d, t_ms)
         elif self.showing_battle and in_battle:
             self.draw_battle(canvas, d, t_ms, dt_ms)
+        elif d.get('kind') == 'bw':
+            self.unova.draw(canvas, d, t_ms, dt_ms)
         else:
             self.draw_party(canvas, d, t_ms, dt_ms)
 
@@ -382,9 +396,13 @@ class Overlay:
     def draw_battle(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
         b = d['battle']
-        place = terrain(d['location'])
+        unova = d.get('kind') == 'bw'
+        place = 'field' if unova else terrain(d['location'])
         when = period(d['misc'].get('clock'))
-        self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
+        if unova:
+            self.unova.draw_backdrop(canvas, d, when)
+        else:
+            self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
 
         foes = [m for m in b['mons'] if m['side'].startswith('foe')][:2]
         yours = [m for m in b['mons'] if m['side'].startswith('yours')][:2]
@@ -397,10 +415,12 @@ class Overlay:
         far_dx = int((intro - 1) * 200)
         near_dx = int((1 - intro) * 200)
 
-        plat = self.sprites.platform(place, when)
+        plat = None if unova else self.sprites.platform(place, when)
         box = self.sprites.platform_box
-        spots = {}
+        spots = self.unova.draw_platforms(canvas, d, when, far_dx, near_dx) if unova else {}
         for side, (cx, bottom), dx in (('foe', self.FAR_PLATFORM, far_dx), ('you', self.NEAR_PLATFORM, near_dx)):
+            if side in spots:
+                continue
             if plat and box:
                 p = plat.frames[0]
                 px, py = cx - p.get_width() // 2 + dx, bottom - p.get_height()
@@ -589,7 +609,7 @@ class Overlay:
         if last and last != before:
             if any(mv == last and via_pp for mv, _, via_pp in st['log']):
                 self.last_move_agreed += 1
-            elif used is None and self.last_move_agreed >= 2 and last in pdata.MOVE_INFO \
+            elif used is None and self.last_move_agreed >= 2 and last in MOVE_INFO \
                     and not any(mv == last for mv, _, _ in st['log']):
                 # A move PP didn't show: Struggle, or one called by another
                 # move (Metronome and friends).
@@ -601,7 +621,7 @@ class Overlay:
     def _hold_move(self, key, m, move, wild, slot):
         """Keeps a move until it's ready to play (see _ready)."""
         self.seq += 1
-        category = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
+        category = MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
         self.held.append({'key': key, 'target': 'foe0' if key.startswith('you') else 'you0',
                           'move': move, 'slot': slot, 'status': category == 'Status',
                           'hits': [], 'read_at': self.read_at or 0.0, 'seq': self.seq,
@@ -642,7 +662,7 @@ class Overlay:
         gets its turn, MOVE_GAP_MS apart."""
         key, move = h['key'], h['move']
         start = self._say(*h['lines'], t_ms)
-        mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
+        mtype, category, _ = MOVE_INFO.get(move, ('Normal', 'Physical', 0))
         fx = Effect(mtype, category, key, h['target'], start + 250)
         self.effects = self.effects[-3:] + [fx]
         st = self.battlers.get(key)
@@ -742,10 +762,12 @@ class Overlay:
             if i >= len(moves):
                 ui.move_button(canvas, self.font, self.mini, rect, None)
                 continue
-            info = pdata.MOVE_INFO.get(moves[i])
+            info = MOVE_INFO.get(moves[i])
             mtype, base = (info[0], info[2]) if info else (None, None)
             pp = pps[i] if i < len(pps) else None
             pp_max = base + (base // 5) * (ups[i] if i < len(ups) else 0) if base else None
+            if i < len((mon or {}).get('pp_max') or ()):
+                pp_max = mon['pp_max'][i]  # Black and White keep it
             effect = _effectiveness(mtype, foe) if info and info[1] != 'Status' else None
             ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max,
                            selected=i == picked, effect=effect)
@@ -890,6 +912,8 @@ class Overlay:
                 f = anim.frames[0]
                 canvas.blit(f, (22 - f.get_width() // 2, H - 3 - f.get_height()))
             title = "Pokémon Platinum" if last else "DSiRPC"
+            if last and last.get('kind') == 'bw':
+                title = last.get('title') or f"Pokémon {last.get('version', 'Black')}"
         label = "LAST PLAYED" if last else "DISCORD + RETROACHIEVEMENTS"
         self.font.draw(canvas, self.font.fit(title, W - 52), (44, FOOTER_Y + 5), t['text_light'],
                        t['text_light_shadow'])

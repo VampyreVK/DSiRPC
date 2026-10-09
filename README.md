@@ -202,7 +202,9 @@ The overlay window (tray menu > **Overlay window**) shows your party, and
 switches to a battle view when a battle starts, in a pixel-art style inspired
 by the DS games. The battle background follows the DS clock, the location
 and the weather; Pokémon slide in, flash when hit and sink when they faint;
-every move gets its "X used MOVE!" line and a type-coloured animation; stat
+every move gets its "X used MOVE!" line and an animation that fits it (a
+fist for punches, jaws for fangs, a wave for Surf, a quake that shakes the
+screen, ...) in its type's colours; stat
 changes and conditions show on the HP boxes and Pokémon; and the bottom box
 shows your moves with PP and how effective each one is. Banners pop up for
 shiny encounters, level-ups, fainting, new badges and achievements.
@@ -213,8 +215,14 @@ latest unlock and the next one to earn, your trainer, money and the Unova
 badges, the season, and battles in the games' own style (their HUD, a
 background with Black and White's detail, the field's weather, the game's
 clock for day and night, and Gym Leaders, the Elite Four and the Champion
-named and making their entrance). It's new and not tried on a console yet
-(if the memory doesn't look right, they get the game card).
+named and making their entrance). The view dresses for Unova's seasons
+(petals, sun rays, falling leaves, snow piling up), shows your Repel steps
+and the trainers and items left where you are, your badges as polished as
+on your trainer card, and panels of their own in the Battle Subway, the
+Battle Institute and the Elite Four's rooms; catches get a "Gotcha!".
+Discord shows the foe standing on the same turf as the battle view and
+your trainer walking on the place's turf. It's new and not tried on a
+console yet (if the memory doesn't look right, they get the game card).
 
 Every other game gets a game card in the same style: its name and how long
 you've been playing, what you're doing in it (its RetroAchievements rich
@@ -314,9 +322,9 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       its name, box art and RetroAchievements rich presence (and the
       overlay's game card), and only Platinum USA Rev 1 gets the full
       presence and the overlay's party and battle views. Pokémon Black and
-      White (US) now have their own overlay views (new, not tried on a
-      console yet); their Discord presence and the opponent trainer in
-      battle are still to come.
+      White (US) now have their own overlay views and Discord presence (new,
+      not tried on a console yet); ordinary trainers' names in battle are
+      still to come.
 - [x] Achievements checked every frame, for the timing-sensitive ones: on the
       console (a set's frame lane) and by DSiRPC (what fits in the console's
       per-frame record). New, tested on a PC against rcheevos frame for

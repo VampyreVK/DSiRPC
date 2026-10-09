@@ -285,6 +285,27 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White, round four: seasons, places, Discord.**
+  The Unova view dresses for the season (`overlay/seasons.py`: petals, sun
+  rays and fireflies, leaves in gusts, snow piling on the panels with
+  icicles, a drift and a night aurora, a light wash for the time of day,
+  a banner when the season turns). From the RetroAchievements notes: the
+  Repel steps, the trainers beaten and items found in each place (header
+  chips), the badges' shine (dull, clean or polished on the footer), and
+  panels of their own in the Battle Subway (streak, record, the set's
+  seven cars), the Battle Institute (rank and points) and, only while
+  challenging them, the Elite Four. In battle a wild Pokémon you own shows a
+  Poké Ball, a catch gets a "Gotcha!" and a wobbling ball, a low HP bar
+  pulses red, and in doubles your right Pokémon sits lower and in front.
+  The party icons are drawn at the window's resolution (`Overlay.present`).
+  Move animations pick a flavour by name (punches, kicks, bites, beams,
+  orbs, jets, Surf's wave, quakes with a screen shake, meteors, songs,
+  draining, stat arrows, barriers, hearts, powders, weather, ...) finished
+  in the type's own style. Discord gets a presence of its own
+  (`rpc/bw_presence.py`): the foe on the turf the battle view uses and your
+  trainer walking on the place's turf, GIFs made by
+  `Assets/Unova-Battle/process_unova.py` for Unova's Pokémon.
+
 - 2026-10-09: **Black and White's battles, round three.** The new
   background (the "Arena" concept): Diamond and Pearl's skies with Black
   and White's detail drawn in code (a 3D-stretched floor with streaks, a

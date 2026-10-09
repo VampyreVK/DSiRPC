@@ -246,22 +246,26 @@ class UnovaArt:
         return self._get('mail', lambda: self._cut(MISC_SHEET, MAIL, MISC_KEY))
 
     def badge(self, index, polished=True):
-        """Badge `index` (0 Trio ... 7 Legend): polished, or dull for one not
-        earned yet."""
+        """Badge `index` (0 Trio ... 7 Legend). polished: True (polished),
+        False (dull), or the row itself: 0 dull, 1 clean, 2 polished."""
+        row = (2 if polished else 0) if isinstance(polished, bool) else max(0, min(2, polished))
+
         def make():
             x, w = BADGE_COLUMNS[index]
-            return self._cut(CARD_SHEET, (x, BADGE_ROWS[2 if polished else 0], w, BADGE_H), CARD_KEY, trim=True)
-        return self._get(('badge', index, polished), make)
+            return self._cut(CARD_SHEET, (x, BADGE_ROWS[row], w, BADGE_H), CARD_KEY, trim=True)
+        return self._get(('badge', index, row), make)
 
     def small_badge(self, index, polished=True):
         """The badge at 2/5 size, about 22 px tall (for a row of eight)."""
+        row = (2 if polished else 0) if isinstance(polished, bool) else max(0, min(2, polished))
+
         def make():
-            b = self.badge(index, polished)
+            b = self.badge(index, row)
             if not b:
                 return None
             size = (max(1, round(b.get_width() * 0.4)), max(1, round(b.get_height() * 0.4)))
             return pygame.transform.scale(b, size)
-        return self._get(('small_badge', index, polished), make)
+        return self._get(('small_badge', index, row), make)
 
     # -- trainers ----------------------------------------------------------------
 
@@ -284,6 +288,24 @@ class UnovaArt:
             key = tuple(sheet.get_at((x + CELL_W - 2, y + CELL_H - 2)))[:3]
             return _trim(_keyed(sheet, (x, y, CELL_W, CELL_H), key))
         return self._get(('trainer', cell), make)
+
+    def portrait(self, name, size=24):
+        """A trainer's head and shoulders (size x size) from their battle
+        sprite, or None."""
+        def make():
+            body = self.battle_trainer(name)
+            if body is None:
+                return None
+            w = min(body.get_width(), size + 6)
+            x = max(0, body.get_width() // 2 - w // 2)
+            head = body.subsurface((x, 0, w, min(body.get_height(), size + 6))).copy()
+            box = head.get_bounding_rect()
+            cx = box.centerx
+            crop = pygame.Rect(cx - size // 2, box.top, size, size).clip(head.get_rect())
+            out = pygame.Surface((size, size), pygame.SRCALPHA)
+            out.blit(head, ((size - crop.w) // 2, 0), crop)
+            return out
+        return self._get(('portrait', name, size), make)
 
     # -- battle ------------------------------------------------------------------
 

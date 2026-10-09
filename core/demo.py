@@ -4,7 +4,9 @@ scenes, so the overlay can be styled without the DSi or a save file:
 overworld, a wild battle by day, a shiny in the evening rain, the rival at
 night (who switches Pokemon), a snowy route, a legendary in a cave, a level
 up, Pokemon Black (its own main view, with an achievement unlocking, a
-battle in the rain in Pinwheel Forest, and Burgh at the Castelia Gym),
+battle in the rain in Pinwheel Forest ending in a catch, Burgh at the
+Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four
+room, each in another season),
 another game (the game card every game
 without its own parser gets, with an achievement unlocking), and the DSi
 going offline.
@@ -101,13 +103,14 @@ BATTLES = {
                  moves=[(3, 'you', 'Peck', 20), (4.5, 'foe', 'Ice Shard', 9)],
                  effects=[(4.5, 'you', dict(status='Frozen'))]),
     'unova_battle': dict(place='Pinwheel Forest', clock='17:30', weather=2, weather_kind='rain', music=0x400, trainer=None,
+                         owned=True, caught_at=11.0,
                          foes=[(0, _mon(540, 19, 47, 47, 'F', moves=('Bug Bite', 'String Shot', 'Razor Leaf')))],
                          moves=[(2.5, 'you', 'Razor Shell', 16), (4, 'foe', 'Razor Leaf', 9),
                                 (8.5, 'you', 'Water Gun', 7), (10, 'foe', 'String Shot', 0)],
                          effects=[(10, 'you', dict(stages={'SPE': -1}))]),
     'unova_gym': dict(place='Castelia Gym', clock='12:10', weather=0, music=0x46C, trainer='Burgh', kind='gym',
                       foes=[(0, _mon(544, 21, 54, 54, 'M', moves=('Poison Tail', 'Screech', 'Pursuit')))],
-                      moves=[(4.5, 'you', 'Razor Shell', 14), (6, 'foe', 'Poison Tail', 8)],
+                      moves=[(4.5, 'you', 'Razor Shell', 14), (6, 'foe', 'Poison Tail', 8), (8.5, 'foe', 'Poison Tail', 42)],
                       effects=[]),
     'legend': dict(place='Turnback Cave', clock='16:00', weather=0, music=0x0, trainer=None,
                    foes=[(0, _mon(487, 47, 190, 190, 'genderless', moves=('Shadow Force', 'Dragon Claw')))],
@@ -163,7 +166,8 @@ BW_UNLOCK_AT = 6.0
 SCENES = [
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
-    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('other', 16),
+    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
+    ('other', 16),
     ('offline', 6),
 ]
 
@@ -223,6 +227,8 @@ class DemoSource:
             return self._other(into)
         if name == 'unova':
             return self._unova(into)
+        if name == 'unova_places':
+            return self._unova_places(into)
         d = self._unova(into) if name.startswith('unova_') else self._base_state(time.time() - self.t0)
         if self.name:
             d['trainer_name'] = self.name
@@ -272,6 +278,9 @@ class DemoSource:
                            mons=mons)
         if d.get('kind') == 'bw':
             d['battle']['kind'] = cfg.get('kind') or ('trainer' if trainer else 'wild')
+            mons[1]['owned'] = bool(cfg.get('owned'))
+            if cfg.get('caught_at') is not None and into >= cfg['caught_at']:
+                d['misc']['music_id'] = bw_data.CATCH_MUSIC
         elif trainer:
             d['battle']['trainer_class'] = 0x3F
         return d
@@ -296,6 +305,8 @@ class DemoSource:
             'location': {'map_id': 0x1C, 'name': 'Castelia City', 'area': 'Castelia City', 'x': 300 + step,
                          'z': 512, 'height': 0, 'facing': ['down', 'right', 'up', 'left'][step], 'weather': 0},
             'season': 'autumn', 'pokedex': {'obtained': True, 'national': False, 'seen': 58, 'caught': 31},
+            'repel': max(0, 87 - int(into)), 'badge_shine': [2, 1, 2, 2, 0, 0, 0, 0],
+            'route': {'trainers': (3, 5), 'items': (4, 4)}, 'subway': None, 'institute': None, 'league': None,
             'battle': {'pointer': '0x0', 'music_says_battle': False, 'active': False, 'wild': False,
                        'trainer': None, 'mons': [], 'style': None, 'trainer_id': 0},
             'misc': {'music_id': None, 'music': None, 'textbox_open': False, 'clock': '2026-10-09 17:30'},
@@ -304,6 +315,26 @@ class DemoSource:
             'progress': (len(earned), len(achs)), 'started': time.time() - into - 2400,
             'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
         }
+
+    def _unova_places(self, into):
+        """Pokemon Black around the places with panels of their own, a
+        season each: the Battle Subway (spring), the Battle Institute
+        (summer), an Elite Four room (winter, at night)."""
+        d = self._unova(30)
+        part = min(2, int(into // 5))
+        place, zone, season = [('Gear Station', 0x42, 'spring'), ('Battle Institute', 0x50, 'summer'),
+                               ("Grimsley's Room", 0x8D, 'winter')][part]
+        d['location'].update(name=place, area=place, map_id=zone)
+        d.update(zone=zone, season=season, route={}, repel=0)
+        if part == 0:
+            d['subway'] = {'bp': 126, 'train': 'Super Single', 'streak': 23 + int(into), 'record': 49,
+                           'trains': [('Single', 21, 21), ('Super Single', 23 + int(into), 49), ('Double', 0, 14)]}
+        elif part == 1:
+            d['institute'] = {'points': 4620, 'last': 4620, 'rank': bw_data.institute_rank(4620)}
+        else:
+            d['league'] = {'beaten': ['Shauntal'], 'here': 'Grimsley'}
+            d['misc']['clock'] = '2026-01-09 22:15'
+        return d
 
     def _other(self, into):
         achs = OTHER_SET.playable_achievements

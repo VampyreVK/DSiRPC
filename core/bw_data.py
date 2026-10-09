@@ -206,6 +206,191 @@ def opponent(zone, music, party_species, version='Black'):
     return 'trainer', None
 
 
+# Trainers and items per place, as (RetroAchievements address, bit) flags
+# set once a trainer is beaten or an item picked up (hidden ones included):
+# {place: ([trainer flags], [item flags])}. Generated from the trainer and
+# item notes for Black (docs/memory-map/), so places count only the ones
+# the notes name; White's flags are 0x20 higher like everything else.
+ROUTE_FLAGS = {
+    'Abundant Shrine': ([(0x23C021, 2), (0x23C021, 3), (0x23C021, 4), (0x23C022, 1)],
+                         [(0x23BFA6, 5), (0x23BFA6, 6), (0x23BFAC, 4), (0x23BFD4, 6), (0x23BFD5, 0), (0x23BFD5, 2), (0x23BFD5, 3), (0x23BFD5, 5)]),
+    'Baseball Stadium': ([(0x23BFF1, 3)],
+                          []),
+    'Basketball Court': ([(0x23BFE3, 6), (0x23C003, 2), (0x23C003, 5), (0x23C003, 6), (0x23C004, 4), (0x23C005, 5)],
+                          []),
+    'Battle Company': ([(0x23BFE5, 1), (0x23BFE5, 2), (0x23BFE7, 5), (0x23BFE7, 6), (0x23BFE8, 0), (0x23BFEE, 1), (0x23BFEE, 2), (0x23BFEE, 3)],
+                        [(0x23BFBF, 3), (0x23BFD4, 7)]),
+    'Castelia City': ([],
+                       [(0x23BF91, 3)]),
+    'Castelia Gym': ([(0x23BF38, 2), (0x23BF38, 3), (0x23BFF2, 0), (0x23BFF2, 2)],
+                      []),
+    'Celestial Tower': ([(0x23BFE8, 2), (0x23BFE8, 3), (0x23BFE8, 4), (0x23BFE8, 5), (0x23BFEA, 6), (0x23BFEA, 7), (0x23BFEC, 4), (0x23BFF1, 2), (0x23BFFA, 3), (0x23BFFA, 4), (0x23BFFB, 1)],
+                         [(0x23BFC1, 3), (0x23BFC1, 4), (0x23BFC1, 5), (0x23BFC6, 0), (0x23BFC6, 1)]),
+    "Challenger's Cave": ([(0x23BFF9, 7), (0x23BFFA, 0), (0x23BFFA, 1), (0x23BFFA, 2), (0x23C021, 6)],
+                           [(0x23BFA3, 1), (0x23BFA3, 2), (0x23BFA3, 3), (0x23BFA3, 4), (0x23BFA8, 6), (0x23BFA8, 7), (0x23BFA9, 0), (0x23BFC7, 0), (0x23BFC7, 2), (0x23BFC7, 4), (0x23BFC7, 6)]),
+    'Chargestone Cave': ([(0x23BFE6, 0), (0x23BFE6, 1), (0x23BFE6, 4), (0x23BFE6, 5), (0x23BFE7, 7), (0x23BFE8, 1), (0x23BFEC, 2), (0x23BFF1, 6), (0x23BFF7, 4), (0x23BFFE, 6), (0x23BFFE, 7), (0x23BFFF, 0), (0x23BFFF, 1), (0x23C000, 2), (0x23C000, 3), (0x23C025, 0)],
+                          [(0x23BFA0, 0), (0x23BFA0, 1), (0x23BFA0, 2), (0x23BFA0, 3), (0x23BFAB, 0), (0x23BFAB, 1), (0x23BFAB, 2), (0x23BFB6, 1), (0x23BFB6, 2), (0x23BFB6, 3), (0x23BFB6, 4), (0x23BFB6, 5), (0x23BFB6, 6), (0x23BFBA, 4), (0x23BFD7, 1), (0x23BFD7, 2), (0x23BFD7, 3), (0x23BFD7, 4)]),
+    'Cold Storage': ([(0x23BFE2, 4), (0x23BFE2, 5), (0x23BFE2, 6), (0x23BFE2, 7), (0x23BFE3, 0), (0x23BFE3, 1), (0x23BFEB, 0), (0x23BFEB, 1)],
+                      [(0x23BF9F, 1), (0x23BFAD, 4), (0x23BFAD, 5), (0x23BFB5, 7), (0x23BFB6, 0), (0x23BFB9, 7), (0x23BFBA, 0), (0x23BFBD, 1), (0x23BFBD, 2), (0x23BFC4, 5), (0x23BFD7, 0)]),
+    'Desert Resort': ([(0x23BFF6, 5), (0x23BFF6, 6), (0x23BFF6, 7), (0x23BFF7, 0), (0x23BFF7, 1), (0x23BFF7, 2), (0x23BFF7, 3), (0x23C01E, 1), (0x23C01E, 2), (0x23C026, 1)],
+                       [(0x23BF9E, 4), (0x23BF9E, 5), (0x23BF9E, 6), (0x23BFA8, 5), (0x23BFB5, 5), (0x23BFB5, 6), (0x23BFB9, 1), (0x23BFB9, 2), (0x23BFB9, 3), (0x23BFC4, 3), (0x23BFC4, 4)]),
+    'Dragonspiral Tower': ([(0x23BFFF, 2), (0x23BFFF, 3), (0x23BFFF, 4), (0x23C000, 4), (0x23C026, 0)],
+                            [(0x23BFBC, 0), (0x23BFC0, 1), (0x23BFC2, 5), (0x23BFC6, 6), (0x23BFC7, 3), (0x23BFC7, 5), (0x23BFC7, 7), (0x23BFC8, 0), (0x23BFD8, 2), (0x23BFD8, 3)]),
+    'Dreamyard': ([(0x23BFDA, 3), (0x23BFDA, 4), (0x23C00D, 5), (0x23C00D, 6), (0x23C00D, 7), (0x23C00E, 0), (0x23C00E, 2), (0x23C00E, 3), (0x23C00E, 4)],
+                   [(0x23BF98, 6), (0x23BF99, 2), (0x23BF99, 3), (0x23BFA8, 3), (0x23BFB2, 7), (0x23BFB3, 0), (0x23BFB3, 1), (0x23BFB7, 2), (0x23BFB7, 3), (0x23BFB7, 4), (0x23BFD6, 5), (0x23BFD7, 7)]),
+    'Driftveil City': ([],
+                        [(0x23BFAC, 1), (0x23BFC1, 7), (0x23BFC2, 0), (0x23BFC2, 1)]),
+    'Driftveil Gym': ([(0x23BFE5, 3), (0x23BFEE, 4), (0x23BFF2, 5), (0x23BFF2, 6), (0x23BFF2, 7)],
+                       []),
+    'Football Stadium': ([(0x23C002, 5), (0x23C003, 0), (0x23C003, 1), (0x23C004, 0), (0x23C005, 3)],
+                          []),
+    'Giant Chasm': ([],
+                     [(0x23BFAA, 4), (0x23BFAA, 5), (0x23BFC8, 2), (0x23BFC8, 3), (0x23BFC8, 4), (0x23BFD3, 5), (0x23BFD3, 6), (0x23BFD3, 7), (0x23BFD4, 0), (0x23BFD4, 1), (0x23BFD4, 2), (0x23BFD4, 3), (0x23BFD4, 4)]),
+    'Icirrus City': ([],
+                      [(0x23BFA2, 1), (0x23BFAD, 7), (0x23BFAE, 0), (0x23BFCD, 6)]),
+    'Icirrus Gym': ([(0x23BFF4, 0), (0x23BFF4, 1), (0x23BFF4, 2), (0x23BFF4, 3), (0x23BFF4, 4), (0x23BFF4, 5)],
+                     []),
+    'Lacunosa Town': ([],
+                       [(0x23BFA5, 1), (0x23BFA5, 2)]),
+    'Lostlorn Forest': ([],
+                         [(0x23BFAD, 6), (0x23BFC3, 2), (0x23BFD5, 7)]),
+    'Mistralton Cave': ([(0x23BFF9, 3), (0x23BFF9, 4)],
+                         [(0x23BFAB, 5), (0x23BFAB, 6), (0x23BFAB, 7), (0x23BFAD, 2), (0x23BFC4, 6), (0x23BFC4, 7), (0x23BFC5, 2), (0x23BFC5, 3), (0x23BFC5, 4), (0x23BFC5, 5), (0x23BFC5, 6)]),
+    'Mistralton City': ([],
+                         [(0x23BFA0, 4), (0x23BFA0, 5), (0x23BFA0, 6), (0x23BFC5, 7)]),
+    'Mistralton Gym': ([(0x23BFE2, 2), (0x23BFE2, 3), (0x23BFE9, 1), (0x23BFE9, 3), (0x23BFE9, 4)],
+                        []),
+    'Moor of Icirrus': ([(0x23C022, 2), (0x23C022, 3), (0x23C022, 4)],
+                         [(0x23BFA9, 5), (0x23BFA9, 6), (0x23BFA9, 7), (0x23BFCA, 7), (0x23BFCB, 3), (0x23BFCB, 7), (0x23BFCC, 2), (0x23BFCC, 3)]),
+    "N's Castle": ([],
+                    [(0x23BFD5, 6), (0x23BFD6, 3), (0x23BFD7, 5)]),
+    "N's Room": ([],
+                  [(0x23BFD8, 1)]),
+    'Nacrene City': ([],
+                      [(0x23BF99, 1), (0x23BF9D, 4), (0x23BF9D, 5)]),
+    'Nacrene Gym': ([(0x23BF38, 0), (0x23BF38, 1), (0x23BFE4, 2)],
+                     []),
+    'Nimbasa Gym': ([(0x23BFE1, 6), (0x23BFE2, 0)],
+                     []),
+    'Opelucid City': ([],
+                       [(0x23BFA3, 0)]),
+    'Opelucid Gym': ([(0x23BFFA, 5), (0x23BFFA, 6), (0x23BFFA, 7), (0x23BFFB, 2), (0x23BFFB, 3), (0x23BFFB, 4), (0x23BFFB, 6), (0x23BFFB, 7)],
+                      []),
+    'P2 Laboratory': ([(0x23C00E, 1)],
+                       [(0x23BFC0, 6), (0x23BFD6, 0)]),
+    'Pinwheel Forest': ([(0x23BFDC, 6), (0x23BFDC, 7), (0x23BFDD, 0), (0x23BFDD, 1), (0x23BFDD, 2), (0x23BFDD, 3), (0x23BFDD, 4), (0x23BFDD, 5), (0x23BFDD, 6), (0x23BFE7, 3), (0x23BFEB, 4), (0x23BFEB, 5), (0x23BFED, 4), (0x23C018, 1), (0x23C018, 2), (0x23C01D, 5)],
+                         [(0x23BF99, 4), (0x23BF9E, 0), (0x23BFB5, 0), (0x23BFB5, 1), (0x23BFB5, 2), (0x23BFB5, 3), (0x23BFB5, 4), (0x23BFB7, 7), (0x23BFB8, 0), (0x23BFB8, 1), (0x23BFB8, 2), (0x23BFBF, 6), (0x23BFC3, 5), (0x23BFC3, 7), (0x23BFCE, 0), (0x23BFD6, 7)]),
+    'Relic Castle': ([(0x23BFDF, 7), (0x23BFE0, 0), (0x23BFF5, 1), (0x23BFF5, 2), (0x23BFF5, 3), (0x23BFF5, 4), (0x23BFF5, 5), (0x23BFF5, 6), (0x23BFF5, 7)],
+                      [(0x23BFB4, 1), (0x23BFB8, 4), (0x23BFB9, 4), (0x23BFB9, 5), (0x23BFB9, 6), (0x23BFBA, 5), (0x23BFBD, 0)]),
+    'Route 1': ([(0x23C01B, 7), (0x23C01C, 0), (0x23C01C, 1)],
+                 [(0x23BFB6, 7), (0x23BFC1, 6)]),
+    'Route 10': ([(0x23BFE5, 7), (0x23BFE6, 3), (0x23BFE7, 0), (0x23BFED, 2), (0x23BFEF, 6), (0x23BFEF, 7), (0x23BFF1, 5)],
+                  [(0x23BF9F, 5), (0x23BFBC, 5), (0x23BFBC, 6), (0x23BFBC, 7), (0x23BFC8, 1), (0x23BFD5, 1)]),
+    'Route 11': ([(0x23C010, 1), (0x23C010, 4), (0x23C012, 1), (0x23C012, 3)],
+                  [(0x23BFA4, 4), (0x23BFA8, 4), (0x23BFAA, 6), (0x23BFBE, 1), (0x23BFBE, 2), (0x23BFBE, 3)]),
+    'Route 12': ([(0x23C00E, 7), (0x23C00F, 0), (0x23C011, 4), (0x23C011, 7), (0x23C012, 0)],
+                  [(0x23BFA4, 5), (0x23BFA4, 6), (0x23BFA5, 0), (0x23BFBE, 4), (0x23BFBE, 5), (0x23BFBE, 6)]),
+    'Route 13': ([(0x23C00D, 2), (0x23C00D, 4), (0x23C00E, 5), (0x23C00E, 6), (0x23C00F, 2), (0x23C00F, 5), (0x23C010, 0), (0x23C011, 2), (0x23C011, 5), (0x23C012, 5)],
+                  [(0x23BFA5, 3), (0x23BFA5, 4), (0x23BFA5, 5), (0x23BFA5, 6), (0x23BFA5, 7), (0x23BFA6, 0), (0x23BFAC, 0), (0x23BFBE, 0), (0x23BFBE, 7), (0x23BFBF, 0), (0x23BFBF, 1), (0x23BFBF, 2), (0x23BFD4, 5)]),
+    'Route 14': ([(0x23C00C, 6), (0x23C00C, 7), (0x23C00D, 3), (0x23C00F, 3), (0x23C012, 6), (0x23C021, 5)],
+                  [(0x23BFBF, 4), (0x23BFBF, 5)]),
+    'Route 15': ([(0x23C00F, 1), (0x23C011, 0), (0x23C012, 2), (0x23C012, 4), (0x23C012, 7)],
+                  [(0x23BFA6, 7), (0x23BFA9, 1), (0x23BFBF, 7), (0x23BFC0, 0)]),
+    'Route 16': ([(0x23C00C, 4), (0x23C00C, 5), (0x23C00D, 0), (0x23C010, 2), (0x23C010, 6), (0x23C010, 7)],
+                  [(0x23BFC0, 2), (0x23BFC0, 3), (0x23BFD6, 1)]),
+    'Route 17': ([(0x23C00A, 1), (0x23C00A, 2), (0x23C00D, 1), (0x23C00F, 4), (0x23C011, 3)],
+                  [(0x23BFA7, 0), (0x23BFA7, 1), (0x23BFA7, 3), (0x23BFA9, 3), (0x23BFC0, 4), (0x23BFC0, 5)]),
+    'Route 18': ([(0x23C010, 3), (0x23C010, 5), (0x23C011, 1), (0x23C011, 6), (0x23C013, 0)],
+                  [(0x23BFA7, 2), (0x23BFC0, 7), (0x23BFC1, 0), (0x23BFC1, 1), (0x23BFC1, 2), (0x23BFD2, 6)]),
+    'Route 2': ([(0x23BFD9, 5), (0x23BFD9, 6), (0x23BFE4, 1)],
+                 [(0x23BFB2, 2), (0x23BFB2, 3), (0x23BFB2, 4), (0x23BFB2, 5), (0x23BFB2, 6), (0x23BFB3, 2)]),
+    'Route 3': ([(0x23BFD9, 7), (0x23BFDA, 0), (0x23BFDB, 2), (0x23BFDB, 3), (0x23BFDB, 4), (0x23BFDB, 5), (0x23BFDB, 7), (0x23BFDC, 0), (0x23BFE4, 0), (0x23BFFE, 0)],
+                 [(0x23BF98, 7), (0x23BF99, 0), (0x23BFB3, 6), (0x23BFB3, 7), (0x23BFB4, 0), (0x23BFB7, 0), (0x23BFB7, 1), (0x23BFB7, 5), (0x23BFB7, 6), (0x23BFD6, 6)]),
+    'Route 4': ([(0x23BFDD, 7), (0x23BFDE, 0), (0x23BFDE, 1), (0x23BFDE, 3), (0x23BFDE, 4), (0x23BFDE, 5), (0x23BFDE, 6), (0x23BFEC, 5), (0x23BFED, 0), (0x23BFFD, 6), (0x23BFFD, 7), (0x23C018, 5)],
+                 [(0x23BF9E, 3), (0x23BFAC, 2), (0x23BFAC, 3), (0x23BFAE, 4), (0x23BFB4, 2), (0x23BFB8, 3), (0x23BFB8, 6), (0x23BFB8, 7), (0x23BFB9, 0), (0x23BFC4, 0), (0x23BFC4, 2)]),
+    'Route 5': ([(0x23BFDF, 0), (0x23BFDF, 1), (0x23BFDF, 3), (0x23BFDF, 4), (0x23BFDF, 5), (0x23BFDF, 6)],
+                 [(0x23BFB3, 3), (0x23BFB3, 4), (0x23BFB3, 5), (0x23BFC4, 1)]),
+    'Route 6': ([(0x23BFE7, 4), (0x23BFED, 5), (0x23BFED, 6), (0x23BFF0, 2), (0x23BFF0, 6), (0x23BFF9, 5), (0x23BFF9, 6)],
+                 [(0x23BF9F, 2), (0x23BF9F, 3), (0x23BF9F, 4), (0x23BFBA, 1), (0x23BFBA, 2), (0x23BFBA, 3), (0x23BFC2, 2), (0x23BFC2, 3)]),
+    'Route 7': ([(0x23BFEB, 2), (0x23BFEB, 3), (0x23BFEC, 6), (0x23BFEC, 7), (0x23BFF0, 3), (0x23BFF0, 7), (0x23C018, 3), (0x23C018, 4)],
+                 [(0x23BFBA, 6), (0x23BFBA, 7), (0x23BFBB, 0), (0x23BFBB, 1)]),
+    'Route 8': ([(0x23BFEC, 0), (0x23BFED, 7), (0x23BFEE, 0), (0x23BFF0, 4), (0x23BFF1, 0)],
+                 [(0x23BFA2, 4), (0x23BFAD, 3), (0x23BFBC, 1), (0x23BFBC, 2), (0x23BFC6, 4), (0x23BFD8, 0)]),
+    'Route 9': ([(0x23BFEA, 2), (0x23BFEA, 3), (0x23BFED, 1), (0x23BFF0, 0), (0x23BFF0, 1)],
+                 [(0x23BFA2, 5), (0x23BFA2, 6), (0x23BFBC, 3), (0x23BFBC, 4)]),
+    'Shopping Mall Nine': ([(0x23BFE5, 4), (0x23BFE6, 7)],
+                            []),
+    'Striaton City': ([],
+                       [(0x23BFC5, 0), (0x23BFD2, 5)]),
+    'Striaton Gym': ([(0x23BFDA, 5), (0x23BFDA, 6)],
+                      []),
+    'Tennis Court': ([(0x23C000, 6), (0x23C001, 1), (0x23C001, 2), (0x23C004, 2), (0x23C005, 4), (0x23C007, 4), (0x23C00B, 3)],
+                      []),
+    'Twist Mountain': ([(0x23BFDE, 2), (0x23BFE7, 2), (0x23BFE8, 6), (0x23BFE8, 7), (0x23BFE9, 0), (0x23BFEC, 3), (0x23BFED, 3), (0x23BFF1, 7), (0x23BFF7, 5), (0x23BFF7, 6), (0x23BFF7, 7), (0x23C01A, 2)],
+                        [(0x23BFA0, 7), (0x23BFA1, 2), (0x23BFA1, 3), (0x23BFA1, 4), (0x23BFA1, 5), (0x23BFA1, 7), (0x23BFA2, 0), (0x23BFBB, 2), (0x23BFBB, 3), (0x23BFBB, 4), (0x23BFBB, 5), (0x23BFBB, 7), (0x23BFBD, 3), (0x23BFC2, 4), (0x23BFC6, 3), (0x23BFC8, 5)]),
+    'Undella Bay': ([(0x23C020, 4), (0x23C020, 5), (0x23C020, 6), (0x23C020, 7), (0x23C021, 0), (0x23C021, 1)],
+                     [(0x23BFA6, 1), (0x23BFA6, 2), (0x23BFA6, 3)]),
+    'Undella Town': ([],
+                      [(0x23BFCC, 5)]),
+    'Victory Road': ([(0x23BF54, 1), (0x23BFF8, 0), (0x23BFF8, 1), (0x23BFF8, 2), (0x23BFF8, 3), (0x23BFF8, 4), (0x23BFF8, 5), (0x23BFF8, 6), (0x23BFF8, 7)],
+                      [(0x23BFA3, 5), (0x23BFA3, 6), (0x23BFA4, 1), (0x23BFA4, 2), (0x23BFA4, 3), (0x23BFB4, 3), (0x23BFB4, 4), (0x23BFB4, 5), (0x23BFB4, 6), (0x23BFB4, 7), (0x23BFBD, 4), (0x23BFBD, 5), (0x23BFBD, 6), (0x23BFBD, 7), (0x23BFD5, 4)]),
+    'Village Bridge': ([(0x23C021, 7), (0x23C022, 0)],
+                        [(0x23BFAE, 1), (0x23BFAE, 2), (0x23BFD6, 2), (0x23BFD6, 4)]),
+    'Wellspring Cave': ([(0x23BFF9, 0), (0x23BFF9, 1), (0x23BFF9, 2)],
+                         [(0x23BFA7, 6), (0x23BFA9, 4), (0x23BFAC, 5), (0x23BFAC, 6), (0x23BFAC, 7), (0x23BFAD, 0), (0x23BFC2, 6), (0x23BFC2, 7), (0x23BFC3, 0), (0x23BFC3, 3), (0x23BFC3, 4)]),
+}
+ROUTE_FLAGS_START, ROUTE_FLAGS_END = 0x23BF38, 0x23C027   # the bytes they live in
+
+
+def route_stats(place, flag_bytes):
+    """{'trainers': (beaten, known), 'items': (found, known)} for a place,
+    from the flag bytes read from ROUTE_FLAGS_START; {} for a place with
+    none known."""
+    entry = ROUTE_FLAGS.get(place)
+    if not entry or len(flag_bytes) < ROUTE_FLAGS_END - ROUTE_FLAGS_START:
+        return {}
+    out = {}
+    for key, flags in zip(('trainers', 'items'), entry):
+        if flags:
+            done = sum(1 for addr, bit in flags if flag_bytes[addr - ROUTE_FLAGS_START] >> bit & 1)
+            out[key] = (done, len(flags))
+    return out
+
+
+# The Battle Subway (White's notes, Black's 0x20 lower): the current and
+# record streaks per train (u16), the Battle Points, and which train you're
+# on (a u8 by the battle code: 0 single, 1 double, 2 multi, 5-7 super).
+SUBWAY_PLACES = ('Gear Station', 'Battle Subway')
+SUBWAY_TRAINS = ['Single', 'Double', 'Multi', 'Multi (friend)', None, 'Super Single', 'Super Double', 'Super Multi']
+SUBWAY_MODES = {0: 0, 1: 1, 2: 2, 5: 5, 6: 6, 7: 7}       # mode byte -> train index above
+INSTITUTE_PLACES = ('Battle Institute',)
+INSTITUTE_RANKS = [(6000, 'Master'), (5000, 'Elite'), (4000, 'Hyper'), (3000, 'Super'), (2000, 'Normal'),
+                   (1000, 'Novice'), (0, 'Beginner')]
+
+
+def institute_rank(points):
+    return next(name for floor, name in INSTITUTE_RANKS if points >= floor)
+
+
+# The League: the Elite Four you've beaten this challenge (bits 1-4 of a
+# byte, White's notes; assumed in room order), shown only in their rooms.
+LEAGUE_ROOMS = set(ELITE_ROOMS) | {CHAMPION_ROOM}
+ELITE_ORDER = [ELITE_ROOMS[z] for z in sorted(ELITE_ROOMS)]   # Shauntal, Grimsley, Marshal, Caitlin
+
+# A badge's shine (u32 each, 0x23F polished; White's notes): which row of
+# the trainer card's badge art to show.
+SHINE_MAX = 0x23F
+
+
+def shine_row(value):
+    """0 dull, 1 clean, 2 polished (unova_art's badge rows)."""
+    return 2 if value >= 0x200 else 1 if value >= 0x100 else 0
+
+
+CATCH_MUSIC = 0x518       # plays when a wild Pokemon is caught
+LOW_HP_MUSIC = 0x47A      # your Pokemon's HP is low
+
+
 # The field's weather (a u8 next to the season) -> the battle view's weather
 # particles (overlay/backdrop.py).
 WEATHER = {0: None, 1: 'snow', 2: 'rain', 3: 'sand', 4: 'heavy_snow', 5: 'hail', 6: 'storm', 7: 'heavy_rain',
@@ -240,7 +425,7 @@ _TERRAIN_WORDS = [
     (('cave', 'chargestone', 'twist mountain', 'victory road', 'challenger', 'giant chasm', 'relic castle',
       'wellspring', 'mistralton cave'), ('cave', 'cave')),
     (('gym', 'center', 'mart', 'house', 'lab', 'tower', 'castle', 'league', 'subway', 'station', 'theater',
-      'building', 'cold storage', 'mall', 'chamber', 'museum', 'hotel', 'room', 'gate'), ('indoor', 'indoor')),
+      'building', 'cold storage', 'mall', 'chamber', 'museum', 'hotel', 'room', 'gate', 'institute'), ('indoor', 'indoor')),
     (('desert', 'route 4'), ('mountain', 'sand')),
     (('forest', 'dreamyard', 'shrine'), ('forest', 'grass')),
     (('bay', 'beach', 'sea', 'undella', 'humilau'), ('ocean', 'sand')),

@@ -2,7 +2,8 @@
 unova.py - the overlay's main view for Pokemon Black and White, in the
 games' own look (overlay/unova_art.py cuts the art from the sprite sheets):
 
-    header        the season, where you are, and the play time
+    header        the season (an animated icon), where you are, trainers beaten
+                  and items found there, Repel steps, and the play time
     party         the six Pokemon in the party screen's chevron panels,
                   three to a row: name, gender, level, HP, status, held
                   item, shiny star; the lead's panel is the brighter one,
@@ -11,7 +12,14 @@ games' own look (overlay/unova_art.py cuts the art from the sprite sheets):
                   two thirds) and one still to earn (right third), as on
                   the game card
     footer        your trainer walking the way you face, name and money,
-                  the eight Unova badges (dull until earned), the Pokedex
+                  the eight Unova badges (as polished as you keep them, dull
+                  until earned), the Pokedex
+
+The achievements panel gives way to the Battle Subway's streaks, the Battle
+Institute's rank, or the Elite Four you've beaten, in those places. The
+season plays over all of it (overlay/seasons.py): petals, sunbeams and
+fireflies, falling leaves, snow piling up on the panels, by the game's
+clock.
 
 Everything comes from the Black/White parser's state (core/bw_parser.py),
 which is laid out like the Platinum parser's, plus 'season' and the
@@ -22,6 +30,7 @@ draw_backdrop, draw_platforms), HUD (foe_hud, your_hud, message_band) and
 trainer intro (trainer_intro).
 """
 
+import math
 import time
 
 import pygame
@@ -29,11 +38,13 @@ import pygame
 from core import bw_data
 from . import ui
 from .gamecard import NEW_FOR_S, NEXT_EVERY_MS, ago
+from .seasons import SeasonFX
 from .unova_backdrop import UnovaBackdrop
 
 W, H = 256, 192
 HEADER_H = 14
 SLOT_W, SLOT_H = 84, 46
+ICON_BOX = (34, 31)  # the most a party icon is shown at (canvas pixels)
 SLOT_POS = [(1 + (i % 3) * (SLOT_W + 1), 15 + (i // 3) * (SLOT_H + 1)) for i in range(6)]
 NAME_X = 11                # the name's left edge in a panel
 HP_RIGHT = 9               # the HP bar's and numbers' gap to the panel's right edge
@@ -44,8 +55,9 @@ TRAINER_MS = 2200          # a leader stands on the far turf this long at the st
 TRAINER_OUT_MS = 400       # then steps off to the right
 TITLES = {'gym': 'Gym Leader', 'elite': 'Elite Four', 'champion': 'Champion'}
 # In a double battle your two Pokemon stand this much lower (left, right)
-# than a single one, so they keep clear of the HP bars above them.
-DOUBLES_DROP = (0, 3)
+# than a single one, so they keep clear of the HP bars above them; the right
+# one is nearer the camera (lower, and drawn in front).
+DOUBLES_DROP = (0, 6)
 
 BADGES = ['Trio', 'Basic', 'Insect', 'Bolt', 'Quake', 'Jet', 'Freeze', 'Legend']
 
@@ -84,6 +96,16 @@ _SEASON_ART = {
     'winter': (["#.#.#", ".###.", "##.##", ".###.", "#.#.#"], {'#': (168, 220, 248)}),
 }
 _ITEM = ([".##.", "#oo#", "#oo#", ".##."], {'#': (120, 72, 40), 'o': (232, 184, 96)})
+# Small icons for the header and HUD.
+_BALL = ([".kkk.", "krrrk", "kkwkk", "kwwwk", ".kkk."],
+         {'k': (24, 24, 32), 'r': (232, 64, 56), 'w': (240, 240, 240)})
+_BIG_BALL = (["..kkkkk..", ".krRrrrk.", "krrrrrrrk", "krrrrrrrk", "kkkkwkkkk", "kwwkWkwwk", "kwwwkwwwk",
+              ".kwwwwwk.", "..kkkkk.."],
+             {'k': (24, 24, 32), 'r': (232, 64, 56), 'R': (255, 168, 160), 'w': (236, 236, 240), 'W': (255, 255, 255)})
+_TRAINER = ([".hh.", ".ff.", "bbbb", ".bb.", ".ll.", "l..l"],
+            {'h': (220, 72, 72), 'f': (248, 208, 168), 'b': (72, 120, 216), 'l': (60, 60, 80)})
+_REPEL = (["..k", ".pp", "pPp", "pPp", "pPp", "ppp"], {'k': (180, 180, 190), 'p': (160, 88, 200), 'P': (220, 168, 248)})
+_TRAIN = (["kkkkkk.", "kwkwkk.", "kkkkkkk", ".o..o.."], {'k': (88, 140, 220), 'w': (220, 240, 255), 'o': (40, 40, 48)})
 
 
 def season_of(d):
@@ -116,26 +138,45 @@ class UnovaScreen:
         self.o = owner
         self.art = art
         self.backdrop = UnovaBackdrop(art)
+        self.fx = SeasonFX(toast=owner.toast)
         self.font = owner.font
         self.mini = owner.mini
         self.walk_until = 0
         self.last_pos = None
+        self.now = 0               # the frame's time (set by the battle view), for pulses
 
     # -- main view -------------------------------------------------------------
 
     def draw(self, canvas, d, t_ms, dt_ms):
+        panels = [(i, (x, y, SLOT_W, SLOT_H)) for i, (x, y) in enumerate(SLOT_POS)] + [('ach', ACH_RECT)]
+        self.fx.update(season_of(d), self.time_of_day(d), t_ms, panels)
         self._background(canvas)
-        self._header(canvas, d)
-        party = d.get('party') or []
+        self._header(canvas, d, t_ms)
+        party = (d.get('party') or [])[:len(SLOT_POS)]
         for i, (x, y) in enumerate(SLOT_POS):
             if i < len(party):
-                self._slot(canvas, party[i], i, x, y, t_ms, dt_ms)
+                self._slot(canvas, party[i], i, x, y, t_ms)
             else:
                 p = self.art.panel('empty', SLOT_W)
                 if p:
                     canvas.blit(p, (x, y))
-        self._achievements(canvas, d, t_ms)
+        # The rest goes above the party icons, which the window may draw at
+        # its own resolution (Overlay.blit_hires).
+        canvas = self.o.lift(canvas)
+        for i, mon in enumerate(party):
+            self._slot_info(canvas, mon, i, *SLOT_POS[i], dt_ms)
+        if d.get('league'):
+            self._league(canvas, d, t_ms)
+        elif d.get('subway'):
+            self._subway(canvas, d['subway'], t_ms)
+        elif d.get('institute'):
+            self._institute(canvas, d['institute'], t_ms)
+        else:
+            self._achievements(canvas, d, t_ms)
+        self.fx.draw_panels(canvas, panels)
         self._footer(canvas, d, t_ms)
+        self.fx.draw_edges(canvas, HEADER_H, FOOTER_Y, t_ms)
+        self.fx.draw_front(canvas, t_ms, bool(ui.THEME['chroma']))
 
     def _background(self, canvas):
         t = ui.THEME
@@ -147,24 +188,44 @@ class UnovaScreen:
         else:
             canvas.fill(INK)
 
-    def _header(self, canvas, d):
+    def _header(self, canvas, d, t_ms):
         pygame.draw.rect(canvas, INK, (0, 0, W, HEADER_H))
         pygame.draw.line(canvas, CYAN_LO, (0, HEADER_H - 1), (W - 1, HEADER_H - 1))
+        self.fx.draw_header(canvas, HEADER_H, t_ms)
         season = season_of(d)
-        rows, pal = _SEASON_ART[season]
-        ui.pixels(canvas, 4, 4, rows, pal)
+        _, pal = _SEASON_ART[season]
+        self.fx.icon(canvas, 2, 2, t_ms)
         pt = d.get('playtime') or {}
         clock = f"{pt.get('hours', 0)}:{pt.get('minutes', 0):02d}"
-        cw = self.font.draw(canvas, clock, (W - 4, 3), WHITE, SHADOW, align='right')
-        sw = self.mini.width(season.upper())
-        self.mini.draw(canvas, season.upper(), (W - 4 - cw - 6 - sw, 5), pal['#'])
+        right = W - 4 - self.font.draw(canvas, clock, (W - 4, 3), WHITE, SHADOW, align='right') - 5
+        # Chips, right to left: Repel steps, items found here, trainers
+        # beaten here; the season's name when there's none.
+        route = d.get('route') or {}
+        chips = []
+        if d.get('repel'):
+            chips.append((_REPEL, str(d['repel']), (220, 168, 248)))
+        for key, art in (('items', _BALL), ('trainers', _TRAINER)):
+            if key in route:
+                done, total = route[key]
+                chips.append((art, f"{done}/{total}", GOLD if done == total else WHITE))
+        if not chips:
+            chips.append((None, season.upper(), pal['#']))
+        for art, text, col in chips:
+            tw = self.mini.width(text)
+            self.mini.draw(canvas, text, (right - tw, 5), col)
+            right -= tw + 2
+            if art:
+                rows_, pal_ = art
+                ui.pixels(canvas, right - len(rows_[0]), 7 - len(rows_) // 2, rows_, pal_)
+                right -= len(rows_[0]) + 5
         loc = d.get('location') or {}
         name = loc.get('name') or loc.get('area') or 'Somewhere in Unova'
-        self.font.draw(canvas, self.font.fit(name, W - 22 - cw - sw - 16), (13, 3), WHITE, SHADOW)
+        self.font.draw(canvas, self.font.fit(name, right - 13 - 4), (13, 3), WHITE, SHADOW)
 
     # -- party -----------------------------------------------------------------
 
-    def _slot(self, canvas, mon, i, x, y, t_ms, dt_ms):
+    def _slot(self, canvas, mon, i, x, y, t_ms):
+        """A party slot's panel and icon (_slot_info draws the rest)."""
         egg = mon.get('egg')
         fainted = not egg and mon.get('curr_hp', 0) == 0
         kind = 'egg' if egg else 'fainted' if fainted else 'normal'
@@ -176,18 +237,23 @@ class UnovaScreen:
         else:
             bw_box(canvas, (x, y, SLOT_W, SLOT_H))
 
-        # The icon in the panel's light corner, bobbing unless fainted.
+        # The icon in the panel's light corner, bobbing unless fainted:
+        # shrunk to fit (at the window's resolution when it can, so it keeps
+        # its detail).
         icon = self.o.sprites.party_icon(mon['species_id'], mon.get('shiny')) if not egg else None
         if icon:
-            frame = self.o._fit(icon.frame(t_ms + i * 137), 34, 32)
-            if fainted:
-                frame = frame.copy()
-                frame.fill((130, 130, 130, 255), special_flags=pygame.BLEND_RGBA_MULT)
-            clip = canvas.get_clip()
-            canvas.set_clip((x + 2, y + 12, 32, SLOT_H - 14))
+            frame = icon.frame(t_ms + i * 137)
+            fw, fh = frame.get_size()
+            k = min(1.0, ICON_BOX[0] / fw, ICON_BOX[1] / fh)
+            w, h = max(1, round(fw * k)), max(1, round(fh * k))
             bob = 0 if fainted else ui.bob(t_ms + i * 200, 900, 1)
-            canvas.blit(frame, (x + 18 - frame.get_width() // 2, y + SLOT_H - 4 - frame.get_height() + bob))
-            canvas.set_clip(clip)
+            self.o.blit_hires(canvas, frame, (x + 18 - w // 2, y + SLOT_H - 4 - h + bob, w, h),
+                              clip=(x + 2, y + 12, 32, SLOT_H - 14), dim=fainted)
+
+    def _slot_info(self, canvas, mon, i, x, y, dt_ms):
+        """A party slot's held item, name, level, status and HP."""
+        egg = mon.get('egg')
+        fainted = not egg and mon.get('curr_hp', 0) == 0
         if mon.get('item') and mon['item'] not in ('None', '#0') and not egg:
             rows, pal = _ITEM
             ui.pixels(canvas, x + 28, y + 37, rows, pal)
@@ -271,6 +337,90 @@ class UnovaScreen:
             self.mini.draw(canvas, pts, (rx + rw - self.mini.width(pts), y + 20), GOLD)
             for k, line in enumerate(self.font.wrap(a['title'], rw, 2)):
                 self.font.draw(canvas, line, (rx, y + 29 + 10 * k), WHITE, SHADOW)
+
+    def _league(self, canvas, d, t_ms):
+        """In the Elite Four's and the Champion's rooms: who's beaten this
+        challenge, and who's in this room."""
+        x, y, w, h = ACH_RECT
+        bw_box(canvas, ACH_RECT, fill=(26, 18, 40), border=(200, 160, 255), hi=(56, 40, 84))
+        lg = d['league']
+        beaten = set(lg.get('beaten') or ())
+        self.font.draw(canvas, "Elite Four", (x + 6, y + 3), WHITE, SHADOW)
+        count = f"{len(beaten)}/4"
+        self.font.draw(canvas, count, (x + w - 6, y + 3), GOLD if len(beaten) == 4 else WHITE, SHADOW, align='right')
+        names = list(bw_data.ELITE_ORDER) + [bw_data.CHAMPION]
+        slot = (w - 12) // len(names)
+        for i, name in enumerate(names):
+            cx = x + 6 + slot * i + slot // 2
+            here = name == lg.get('here')
+            done = name in beaten
+            if here:  # the one in this room glows
+                glow = pygame.Surface((30, 30), pygame.SRCALPHA)
+                a = 90 + int(60 * math.sin(t_ms / 260))
+                pygame.draw.ellipse(glow, (255, 210, 120, a), (0, 0, 30, 30))
+                canvas.blit(glow, (cx - 15, y + 14))
+            face = self.art.portrait(name, 22)
+            if face:
+                if not done and not here:
+                    face = face.copy()
+                    face.fill((70, 70, 90, 255), special_flags=pygame.BLEND_RGBA_MULT)
+                canvas.blit(face, (cx - 11, y + 15))
+            if done:
+                pygame.draw.lines(canvas, (120, 240, 140), False, [(cx + 5, y + 30), (cx + 8, y + 33), (cx + 13, y + 26)], 2)
+            label = name.upper()[:8]
+            self.mini.draw(canvas, label, (cx - self.mini.width(label) // 2, y + 40),
+                           GOLD if here else WHITE if done else MUTED)
+
+    def _subway(self, canvas, sw, t_ms):
+        """In the Battle Subway: the train you're on, its streak and record."""
+        x, y, w, h = ACH_RECT
+        bw_box(canvas, ACH_RECT, fill=(12, 26, 44), border=(120, 190, 255), hi=(32, 56, 84))
+        rows, pal = _TRAIN
+        ui.pixels(canvas, x + 6 + (t_ms // 120) % 3 - 1, y + 5, rows, pal)
+        title = f"Battle Subway: {sw['train']} Train" if sw.get('train') else "Battle Subway"
+        self.font.draw(canvas, self.font.fit(title, w - 70), (x + 16, y + 3), WHITE, SHADOW)
+        bp = f"{sw.get('bp', 0)} BP"
+        self.mini.draw(canvas, bp, (x + w - 6 - self.mini.width(bp), y + 5), GOLD)
+        pygame.draw.line(canvas, CYAN_LO, (x + 5, y + 14), (x + w - 6, y + 14))
+        for k, (label, value) in enumerate((("STREAK", sw.get('streak', 0)), ("RECORD", sw.get('record', 0)))):
+            cx = x + 8 + k * 84
+            self.mini.draw(canvas, label, (cx, y + 19), MUTED)
+            big = str(value)
+            hot = k == 0 and value and value >= sw.get('record', 0)
+            num = pygame.Surface((self.font.width(big) + 1, self.font.height + 1), pygame.SRCALPHA)
+            self.font.draw(num, big, (0, 0), GOLD if hot else WHITE, HUD_INK)
+            canvas.blit(pygame.transform.scale_by(num, 2), (cx, y + 26))
+        # this set of seven: one car lit per battle won, the next one blinking
+        streak = sw.get('streak', 0) or 0
+        done, sx = streak % 7, x + 134
+        self.mini.draw(canvas, f"SET {streak // 7 + 1}", (sx, y + 19), MUTED)
+        for c in range(7):
+            lit = c < done or (c == done and (t_ms // 400) % 2)
+            pygame.draw.rect(canvas, GOLD if c < done else (CYAN_LO if lit else HUD_INK), (sx + c * 7, y + 28, 6, 4))
+            canvas.fill(MUTED, (sx + c * 7 + 1, y + 32, 1, 1))
+            canvas.fill(MUTED, (sx + c * 7 + 4, y + 32, 1, 1))
+        # the other trains you have streaks on
+        others = [t for t in sw.get('trains') or () if t[0] != sw.get('train')][:3]
+        for k, (name, cur, rec) in enumerate(others):
+            text = f"{name.upper()[:12]} {cur}/{rec}"
+            self.mini.draw(canvas, text, (x + w - 6 - self.mini.width(text), y + 19 + 9 * k), MUTED)
+
+    def _institute(self, canvas, inst, t_ms):
+        """In the Battle Institute: your rank and points."""
+        x, y, w, h = ACH_RECT
+        bw_box(canvas, ACH_RECT, fill=(36, 22, 16), border=(255, 196, 120), hi=(70, 44, 30))
+        self.font.draw(canvas, "Battle Institute", (x + 6, y + 3), WHITE, SHADOW)
+        rank = inst.get('rank', 'Beginner')
+        self.font.draw(canvas, rank, (x + w - 6, y + 3), GOLD, SHADOW, align='right')
+        pts = inst.get('points', 0)
+        floor = next(f for f, n in bw_data.INSTITUTE_RANKS if pts >= f)
+        nxt = next((f for f, n in reversed(bw_data.INSTITUTE_RANKS) if f > pts), None)
+        frac = 1.0 if nxt is None else (pts - floor) / max(1, nxt - floor)
+        ui.meter(canvas, self.mini, x + 6, y + 18, w - 12, frac, label="RANK")
+        self.font.draw(canvas, f"{pts} points", (x + 6, y + 30), WHITE, SHADOW)
+        if nxt is not None:
+            text = f"{nxt - pts} TO {next(n for f, n in bw_data.INSTITUTE_RANKS if f == nxt).upper()}"
+            self.mini.draw(canvas, text, (x + w - 6 - self.mini.width(text), y + 32), MUTED)
 
     def _latest(self, canvas, a, when, have_progress, t_ms):
         x, y, w, h = ACH_RECT
@@ -386,6 +536,37 @@ class UnovaScreen:
             pygame.draw.rect(canvas, hi, (gx + 1, y + 1, fill, 2))
             pygame.draw.line(canvas, lo, (gx + 1, y + 3), (gx + fill, y + 3))
 
+    def _hp_pulse(self, canvas, rect, frac, hp):
+        """A red glow pulsing behind a bar whose HP is in the red."""
+        if hp <= 0 or frac > 0.2:
+            return
+        x, y, w, h = rect
+        a = int(70 + 70 * (0.5 + 0.5 * math.sin(self.now / 140)))
+        glow = pygame.Surface((w + 6, h + 6), pygame.SRCALPHA)
+        for k, alpha in ((0, a // 3), (1, a // 2), (2, a)):
+            pygame.draw.rect(glow, (255, 40, 40, alpha), (k, k, w + 6 - 2 * k, h + 6 - 2 * k), border_radius=4)
+        canvas.blit(glow, (x - 3, y - 3))
+
+    def draw_catch(self, canvas, feet, age):
+        """A wild Pokemon being caught, `age` ms after the catch: the ball
+        drops, wobbles three times, clicks shut in a burst of stars."""
+        rows, pal = _BIG_BALL
+        x, y = feet[0] - 4, feet[1] - 9
+        if age < 250:
+            y -= int((250 - age) / 250 * 30)
+        dx = 0
+        if 400 <= age < 1600:
+            phase = (age - 400) % 400
+            dx = int(round(math.sin(phase / 400 * math.pi * 2) * 2)) if phase < 260 else 0
+        ui.pixels(canvas, x + dx, y, rows, pal)
+        if age >= 1600:
+            burst = age - 1600
+            if burst < 700:
+                for k in range(6):
+                    ang = k / 6 * 2 * math.pi
+                    r = 4 + burst / 700 * 14
+                    ui.sparkle(canvas, int(x + 4 + math.cos(ang) * r), int(y + 4 + math.sin(ang) * r), burst + k * 60)
+
     def _hud_name(self, canvas, m, x, y, right):
         """Name and gender from x, 'Lv' and level ending at `right`."""
         sym, scol = ui.gender_symbol(self.font, m.get('gender'))
@@ -411,8 +592,14 @@ class UnovaScreen:
         returns their height. Returns the box's height."""
         left = x - 4
         end = left + HUD_FOE_W
-        self._hud_name(canvas, m, left + 4, y, end - 2)
+        nx = left + 4
+        if m.get('owned'):  # a wild Pokemon you've caught before
+            rows, pal = _BALL
+            ui.pixels(canvas, nx, y + 2, rows, pal)
+            nx += 7
+        self._hud_name(canvas, m, nx, y, end - 2)
         by = y + 11
+        self._hp_pulse(canvas, (left, by - 2, end + 8 - left, 13), hp / max(1, m['max_hp']), hp)
         self._hud_bar(canvas, left - 8, end, by, 'right')
         sx = left + 4 + self._hud_status(canvas, m, left + 4, by + 2)
         self._hud_gauge(canvas, max(sx, left + 26), by + 1, end - 4 - max(sx, left + 26), hp / max(1, m['max_hp']))
@@ -428,6 +615,7 @@ class UnovaScreen:
         y = bottom - h
         self._hud_name(canvas, m, left + 8, y, W - 4)
         by = y + 11
+        self._hp_pulse(canvas, (left - 8, by - 2, W - left + 8, 13), hp / max(1, m['max_hp']), hp)
         self._hud_bar(canvas, left, W + 8, by, 'left')
         sx = left + 6 + self._hud_status(canvas, m, left + 6, by + 2)
         gx = max(sx, left + 30)
@@ -508,10 +696,14 @@ class UnovaScreen:
         self.font.draw(canvas, self.font.fit(f"${d.get('money', 0):,}", 62), (32, FOOTER_Y + 16), GOLD, SHADOW)
 
         # The badges, bottoms lined up.
+        # The badges, bottoms lined up, as polished as you keep them (the
+        # trainer card's dull, clean and polished art); polished ones glint.
         earned = set(d.get('badges') or ())
+        shine = d.get('badge_shine')
         bx = 98
         for i, badge in enumerate(BADGES):
-            img = self.art.small_badge(i, badge in earned)
+            row = (shine[i] if shine else 2) if badge in earned else 0
+            img = self.art.small_badge(i, row)
             if img is None:
                 ui.badge_pip(canvas, bx + 3, FOOTER_Y + 12, i, badge in earned)
                 bx += 11
@@ -519,7 +711,13 @@ class UnovaScreen:
             if badge not in earned:
                 img = img.copy()
                 img.fill((90, 90, 100, 150), special_flags=pygame.BLEND_RGBA_MULT)
-            canvas.blit(img, (bx, H - 4 - img.get_height()))
+            by = H - 4 - img.get_height()
+            canvas.blit(img, (bx, by))
+            if badge in earned and row == 2 and (t_ms // 140 + i * 7) % 40 < 6:
+                ui.sparkle(canvas, bx + img.get_width() // 2 + (i % 3) - 1, by + 4 + (i * 5) % 12, t_ms, (255, 255, 240))
+            elif badge in earned and row == 0:
+                for k in range(3):  # a little dust
+                    canvas.set_at((bx + (k * 5 + i) % img.get_width(), by + 6 + k * 6), (150, 140, 120))
             bx += img.get_width() + 2
 
         dex = d.get('pokedex') or {}

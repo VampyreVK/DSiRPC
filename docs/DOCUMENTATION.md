@@ -425,11 +425,32 @@ table), so HP and moves show up quickly.
   (no HP numbers). A damaging move's target is whichever Pokémon on the
   other side loses HP; a move that hits both (Surf and the like) lands on
   both. They slide in at the start and on a switch. Each
-  move either side uses shows as "X used MOVE!" with an animation in the
-  move's type style (`overlay/effects.py`: flames, bubbles, leaves,
-  lightning, ice shards, rocks, rings, wisps, claw streaks, hit sparks;
-  status moves glow around the user), physical moves with a lunge; the
-  target blinks and shakes when its HP drops, and a fainted one sinks into
+  move either side uses shows as "X used MOVE!" with an animation
+  (`overlay/effects.py`) in a flavour picked by the move's name, drawn in
+  its type's colour: a fist for punches, a swinging foot for kicks, snapping
+  jaws for Bite and the fang moves, raking claws, curved cuts (crossed for
+  X-Scissor, Cross Chop and the like), quick jabs, rapid-fire needles,
+  seeds, stars or coins, a lashing whip, speed lines and a big hit for
+  tackles, a rolling wheel, a vortex (Fire Spin, Whirlpool), beams (Aurora
+  Beam cycles through colours, Psybeam carries rings), orbs (Shadow Ball,
+  Aura Sphere), jets (Flamethrower, Hydro Pump), billowing gas, a wave
+  rolling over the field (Surf), heat or cold shimmering across it, rings
+  rushing out (Discharge), cracks and dust (Earthquake), stone spikes or a
+  pillar of light from the ground (Stone Edge, Earth Power), things falling
+  from the sky (Rock Slide, Draco Meteor), a blizzard, sound waves (notes
+  for songs), wind crescents, life flowing back for the draining moves
+  (Drain Punch and Horn Leech after their hit), an explosion; for status
+  moves stat arrows (up around the user, down around the target), a
+  healing glow with plus signs, a hexagon barrier, motes spiralling onto
+  the target, hearts, falling powder, a web, the weather moves' sky, hazards
+  around the foe's feet and Trick Room's twisting walls. Most finish with a
+  burst in the type's own style (flames rise for Fire, shards fly for Ice,
+  sparks for Electric, bubbles for Water and Poison, ...), so Fire Punch and
+  Ice Punch share a fist but not a finish; a move with no flavour falls back
+  on its type's (flames, bubbles, leaves, lightning, ice shards, rocks,
+  rings, wisps, claws, hit sparks). Quakes, explosions and heavy hits shake
+  the scene (not the HUD). Physical moves come with a lunge; the target
+  blinks and shakes when its HP drops, and a fainted one sinks into
   its platform. Moves are worked out from PP: a move whose PP went down
   since the last read was just used. The game takes the PP when a move
   starts but the HP only after its animation, often a read or two later, so
@@ -485,20 +506,38 @@ table), so HP and moves show up quickly.
 - **Unova view** (`overlay/unova.py`): Pokémon Black and White's main view,
   in the games' own look, cut at runtime from the sheets in
   `Assets/PokemonBlackUI` (`overlay/unova_art.py`; no new image files). The
-  header has the season (an icon and its name), the place (zone names from
-  `bw_data.ZONES`) and the play time. The party sits in the party screen's
+  header has the season (an animated icon), the place (zone names from
+  `bw_data.ZONES`), small chips for the Repel steps left, the items found
+  and trainers beaten here (gold once they're all done; see section 9) or
+  the season's name when there's none of those, and the play time. The
+  season also dresses the whole view (`overlay/seasons.py`): spring
+  petals, summer sun rays and a warm glow (fireflies at night), autumn
+  leaves blowing in gusts, winter snow that piles up on the panels' tops,
+  icicles under the header and a drift along the footer (and an aurora at
+  night), some of it drifting behind the panels and some in front, with a
+  light wash for the time of day (stars in the header at night); a new
+  season gets a banner and a burst. The party sits in the party screen's
   chevron panels, three to a row (84x46, the panels' flat middle cut
   short; the text keeps clear of their cut corners): name and gender,
   level, HP bar and numbers, status (the games' own PSN/BRN/PAR/FRZ/FNT
-  tags), a held-item mark, the red shiny star, an animated icon; the lead's panel is the brighter blue, a fainted one's
+  tags), a held-item mark, the red shiny star, an animated icon (shrunk to
+  fit, and drawn at the window's own resolution by `Overlay.present()`, so
+  it keeps its detail at any window scale); the lead's panel is the brighter blue, a fainted one's
   red, an egg's green, empty slots the outline. Under it an achievements
   panel like the game card's: count, meter and points, then the latest
   unlock (left two thirds: NEW or LATEST, title, when, description) and
   one still to earn (right third, changing every 6 s; MASTERED when done).
+  Some places swap it for a panel of their own: the Battle Subway (the
+  train you're on, its streak and record in big numbers, a seven-car train
+  lighting up through the current set, your other trains and your BP), the
+  Battle Institute (rank, a meter to the next one and your points) and,
+  only while you're challenging them, the Elite Four (their faces, a check
+  on the ones beaten, the one whose room you're in glowing, then Alder).
   The footer has your trainer walking (Hilbert or Hilda, from
   `Assets/Trainer-Overworld`), name, money, the eight Unova badges (the
-  trainer card's art at 2/5 size, polished when earned, dimmed when not)
-  and the Pokédex. Battles use the battle view above with a background of
+  trainer card's art at 2/5 size, dimmed when not earned; earned ones show
+  how well you've polished them on the trainer card: dull with a little
+  dust, clean, or polished with a glint) and the Pokédex. Battles use the battle view above with a background of
   their own (`overlay/unova_backdrop.py`), built in code on the Diamond and
   Pearl skies of `BattleBackgroundsTransparent.png` (ocean, mountain,
   field, forest, cave, snow and indoor, by day, afternoon and night) with
@@ -524,7 +563,11 @@ table), so HP and moves show up quickly.
   as their first Pokémon comes out ("Gym Leader BURGH sent out WHIRLIPEDE!");
   the sprites are the trainer sheet's (`unova_art.TRAINER_CELLS`). In a
   double battle your two Pokémon stand a little lower (`DOUBLES_DROP`, the
-  right one more), clear of the HP bars. The battle view also has the games'
+  right one more, and drawn in front, being nearer), clear of the HP bars.
+  A wild Pokémon you've caught before has a Poké Ball by its name, and a
+  catch (the catch music) gets a "Gotcha!" banner and a ball that drops,
+  wobbles three times and bursts into stars. An HP bar at a fifth or less
+  pulses red. The battle view also has the games'
   own HUD, drawn in code in the Battle HUD sheet's colours:
   each side's name and level ride above a thin white bar with an arrow tip
   and a dark underside (the foe's runs in from the left edge, yours from
@@ -645,11 +688,12 @@ numbers mean.
 | `core/parser.py` | `PlatinumParser.parse()`: two prefetch batches (fixed addresses first, then everything hanging off the pointers), then decode |
 | `core/platinum_data.py` | Name tables by game ID: species, moves, items, natures, 593 maps (in-game location name + map header name), badges, trainer sprites, music IDs, weather IDs (`WEATHER`), and each move's type, category and base PP (`MOVE_INFO`). Generated from the pret/pokeplatinum decompilation. |
 | `core/charmap.py` | Gen IV text decoding with `PokeGen4Charmap.txt` |
-| `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, battlers' `pp_max`, and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name). `read_clock()` reads the in-game clock (two places tried, PC clock otherwise), the field's weather and the music are read too, and `identify()` names a battle's kind and, for a Gym Leader, Elite Four member or the Champion, who. `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads (with the music). `decode_text()` decodes Gen V text (UTF-16) |
-| `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), `terrain()` for the battle backgrounds, `opponent()` (Gym Leader rooms with the leader music, the Elite Four's and Champion's rooms; Striaton's leader by your first partner, Opelucid's by version), `WEATHER` (the field weather byte to the battle view's weather) and `time_of_day()` (the season's hours) |
+| `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, `repel`, `badge_shine`, `route` (trainers beaten and items found here), `subway`, `institute` and `league` (only in those places, else None), battlers' `pp_max` and `owned` (a wild foe you've caught before), and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name). `read_clock()` reads the in-game clock (two places tried, PC clock otherwise), the field's weather and the music are read too, and `identify()` names a battle's kind and, for a Gym Leader, Elite Four member or the Champion, who. `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads (with the music). `decode_text()` decodes Gen V text (UTF-16) |
+| `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), `terrain()` for the battle backgrounds, `opponent()` (Gym Leader rooms with the leader music, the Elite Four's and Champion's rooms; Striaton's leader by your first partner, Opelucid's by version), `WEATHER` (the field weather byte to the battle view's weather), `time_of_day()` (the season's hours), `ROUTE_FLAGS` / `route_stats()` (each place's trainer and item flags), the Battle Subway's trains, the Battle Institute's ranks, the League's rooms and order, `shine_row()` (badge shine to the trainer card's look) and the catch and low-HP music |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
 | `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
+| `rpc/bw_presence.py` | Black and White's presence (section 6): `build_presence()`, the turf-matched image URLs (`foe_image()`, `trainer_image()`), `game_code()` and `playtime_start()` |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos). `ra_summary()` builds those RetroAchievements keys; Black and White's states carry them too |
 | `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, decides who checks which (`_cover()`: the console the ones in the set its checker runs, the PC every frame the ones that need it most of the rest, `capture`, and the PC about once a second the remaining ones, `in_runtime`), `tick()` once a second, `capture_tick()` often, turns triggered achievements into `achievement` events (and keeps this session's in `session_unlocks`), sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way; its reports (`("report", ...)`) say which set it runs. DSiRPC's own unlocks wait in `pending_pushes()` for the console. `RaSettings` holds the `[ra]` choices |
@@ -664,13 +708,13 @@ numbers mean.
 | `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`), and `compile_offline()`, the console's program for offline play (DSiRPC's `dsirpc_offline.c` in the library) |
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict, Black or White's (`is_bw()`) or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, the Black/White parser on `IRBO`/`IRAO` (the game card while it doesn't recognise what it reads, tried again every parse), `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses, with its per-frame checking drained four times a second, also between the requests of a long read (`DSiClient.idle_hook`), and its unlocks pushed to the console; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. Black and White work the same way: their quick read is each battle copy's HP and moves plus the battle flag and pointers (one request in a single battle). |
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `is_bw()` / `bw_version()`: Black (`IRBO`) and White (`IRAO`), US. `name()` for status lines. |
-| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, Pokémon Black (the Unova view with an achievement unlocking, a battle in the rain in Pinwheel Forest, and Gym Leader Burgh at the Castelia Gym), another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
+| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, Pokémon Black (the Unova view with an achievement unlocking, a battle in the rain in Pinwheel Forest, Gym Leader Burgh at the Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four room, a season each), another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run) |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 
@@ -732,12 +776,31 @@ first battler and the foe's first battler decode as real Pokémon (species
 1-493, level 1-100, 0 ≤ HP ≤ max HP). The pointer isn't cleared after a
 battle, so the sanity check is what separates a live battle from leftovers.
 
+### Pokémon Black and White
+
+Black and White have a presence of their own (`rpc/bw_presence.py`), laid
+out like Platinum's, with the game's name ("Pokémon Black" or "Pokémon
+White") sent as the activity's name and the save's playtime as the timer.
+While the parser doesn't recognise what it reads, they show like any other
+game (below).
+
+| Field | Overworld | Battle |
+|---|---|---|
+| Line 1 | `Exploring <place>`; `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
+| Line 2 | `Badges: 3 \| Pokédex: 31 \| Autumn \| Achievements: 4/9`; in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
+| Large image | Your trainer walking the way you face, on the turf the battle view uses here: `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
+| Large hover | `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
+| Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
+
+`<turf>` is `bw_data.terrain()`'s platform for the place and season:
+grass, sand, snow, water, cave or indoor. The GIFs are made by
+`Assets/Unova-Battle/process_unova.py` (see section 10).
+
 ### Any other game
 
-Any game other than Platinum shows what DSiRPC can know without a parser for
-it (`core/other_game.py` reads it, `rpc/generic_presence.py` lays it out).
-Pokémon Black and White show this way too for now (their state carries the
-same keys):
+Any game other than Platinum, Black and White shows what DSiRPC can know
+without a parser for it (`core/other_game.py` reads it,
+`rpc/generic_presence.py` lays it out):
 
 | Field | Content |
 |---|---|
@@ -1610,6 +1673,15 @@ independent sources agree.
 | `0x022697BE` | Opponent's trainer ID, 0 in a wild battle | u16 | one source |
 | `0x022A62F8` | Battle style: 0 single, 1 double, 2 triple, 3 rotation | u8 | one source |
 | `0x02269838` | Your side's battle copies: 7 pointers, the ones out first; the foe's 7 follow at `0x02269854` | u32 x14 | one source |
+| `0x0223D6DD` | Repel steps left | u8 | Black's RA notes |
+| `0x0223BF38`-`0x0223C027` | Trainers beaten and items picked up (hidden ones too): a bit each, per place in `bw_data.ROUTE_FLAGS` (generated from Black's notes, which name about 140 places' flags) | bits | Black's RA notes |
+| `0x0223C055` | The Elite Four beaten this challenge: bits 1-4 Shauntal, Grimsley, Marshal, Caitlin | u8 | White's RA notes (`0x0223C075`), 0x20 lower |
+| `0x02281904` | Badge shine, one per badge (`0x23F` fully polished; the trainer card shows it dull, clean or polished, `bw_data.shine_row()`) | u32 x8 | White's RA notes (`0x02281924`), 0x20 lower; ignored if any reads over `0x23F` |
+| `0x0223D8AC` | Battle Points | u16 | White's RA notes (`0x0223D8CC`), 0x20 lower |
+| `0x0223D8B4` | Battle Subway streaks, current, a u16 per train (`bw_data.SUBWAY_TRAINS`); the records follow at `0x0223D8C6` | u16 x8, u16 x8 | Black's notes (the record), White's (the streak) |
+| `0x022602B1` | The train you're on: 0 Single, 1 Double, 2 Multi, 5 Super Single, 6 Super Double, 7 Super Multi | u8 | Black's RA notes |
+| `0x0223F5AE` | Battle Institute: the last test's points (the rank: 1000 a step, Beginner to Master) | u16 | Black's RA notes |
+| `0x022598F2` | Battle Institute: the points during a test | u16 | White's RA notes (`0x02259912`), 0x20 lower |
 
 The party Pokémon are Gen IV's format grown to 220 bytes: the same block
 shuffle (`((PID >> 13) & 31) % 24`) and stream cipher (the 128 bytes after
@@ -1652,11 +1724,12 @@ used.
 The RetroAchievements code notes for Black (game 3887) and White (game
 16211) are in `docs/memory-map/`. Every address above that they cover
 matches them (White's 0x20 higher). They also have leads not used yet:
-every trainer's defeated flag, the Elite Four defeated (White `0x0223C075`
-bits 1-4), the badges' shine (White `0x02281924`, a u32 per badge,
-`0x23F` polished), story and item flags, the repel steps, the Battle
-Subway and Battle Institute records, the musical's props, and the day of
-the week (White `0x022394EC`).
+story flags, the musical's props, and the day of the week (White
+`0x022394EC`). The flags and the Subway, Institute and Elite Four values
+are only read in the places that use them (the trainer and item
+flags where `ROUTE_FLAGS` has the place, the Subway's at the Gear Station
+and on the trains, the Institute's there, the Elite Four's in the League's
+rooms).
 
 Sources: PKHeX (`PK5.cs`, `SAV5.cs`, `SaveBlockAccessor5BW.cs`, ...), the
 DevonStudios Gen V RNG scripts, NDS-Ironmon-Tracker, pokebot-nds,
@@ -1683,6 +1756,8 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
 | `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
 | `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file) |
+| `Unova-Battle`, `Unova-Battle-Shiny` | Pokémon Black and White's foe in battle (large): `<turf>/<id>.gif` for Unova's Pokémon (494-649) on each battle platform (grass, sand, snow, water, cave, indoor) | `Unova-Battle/process_unova.py`, below |
+| `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` | same |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg` | Added by hand; any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
@@ -1709,6 +1784,22 @@ y=126 like the Pokémon dioramas. They aren't mirrored, so left stays left.
 150 ms per frame, looping. Rerun it after changing the background or the
 sheets. GIFs have no partial transparency, so any half-transparent pixels in
 the background become solid.
+
+### Unova turfs
+
+`Assets/Unova-Battle/process_unova.py` makes Black and White's Discord
+images with the overlay's own code: each turf is drawn by
+`overlay/unova_backdrop.py` in its day look (so Discord matches the battle
+view), and the Pokémon (from `Pokemon-Overworld` and
+`Shiny-Pokemon-Overworld`, halved to their real pixels and mirrored to face
+left) and the trainers (from the walking sheets) stand on it with their feet
+at y=126 of a 160x160 canvas, like the dioramas. The GIFs share one palette
+for all their frames, and after the first frame only the pixels that change
+are stored (the rest are transparent, `disposal=1`), so the turf is stored
+once: about 30-120 KB each. With no argument it makes Unova's Pokémon
+(494-649), about 75 MB a colour; `1-649` would make every Pokémon (about
+600 MB more), so older Pokémon show Platinum's dioramas instead. It needs
+Pillow and pygame-ce, and uses every CPU core.
 
 ### URL format
 
@@ -1853,12 +1944,16 @@ section 8).
 - **Pokémon Black and White are new** (US only, DS mode): the parser and the
   Unova view are tested against made-up RAM and the demo, not yet on a
   console. If the memory doesn't look the way the parser expects, they get
-  the game card as before (logged once). Black's in-game clock address is a
-  guess (White's minus 0x20, then White's); when neither reads as a date
-  and time, the PC's clock is used. Not shown yet: ordinary trainers' names
-  and sprites, N and Ghetsis, a battler's status, types and stat changes in
-  battle, and the last move (section 9). Discord still shows them like any
-  other game. Black 2 and White 2 are laid out differently (a base pointer)
+  the game card as before (logged once). Some of Black's addresses are
+  White's minus 0x20 without a note of Black's own to confirm them: the
+  in-game clock (White's place is tried too; when neither reads as a date
+  and time, the PC's clock is used), the badge shine (ignored when it reads
+  out of range), the Elite Four beaten, the Battle Points, the Subway's
+  current streaks and the Battle Institute's live points. Not shown yet:
+  ordinary trainers' names and sprites, N and Ghetsis, a battler's status,
+  types and stat changes in battle, and the last move (section 9). Discord's
+  turf images only cover Unova's own Pokémon (older ones show Platinum's
+  dioramas). Black 2 and White 2 are laid out differently (a base pointer)
   and aren't read.
 - **Windows first.** The tray, Start with Windows and the `.bat` files are
   Windows-only; `dsirpc.py` in a console works elsewhere (with a Linux or

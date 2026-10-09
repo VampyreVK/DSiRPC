@@ -1,7 +1,9 @@
 """
 app.py - the overlay window: draws the 256x192 canvas every frame from a
 state hub (core/hub.py) and scales it up by a whole number, so the pixels
-stay crisp for window capture in OBS or a Discord screen share.
+stay crisp for window capture in OBS or a Discord screen share. Sprites shown
+smaller than their own pixels (the Unova party icons) are drawn after the
+scaling, at the window's resolution (Overlay.present).
 
 dsirpc.py opens it with --overlay (or from the tray menu), next to the
 Discord Rich Presence; it only shows what the hub already reads, so it never
@@ -67,6 +69,7 @@ class OverlayWindow:
             pygame.display.set_caption("DSiRPC")
             canvas = pygame.Surface((W, H)).convert()
             overlay = Overlay(SpriteBank(os.path.join(HERE, "Assets")))
+            overlay.hires_ok = True  # present() draws its sprites at the window's resolution
             clock = pygame.time.Clock()
             dt = 0
             while not self.stop_event.is_set():
@@ -92,7 +95,7 @@ class OverlayWindow:
                     evs.append(self._events.get_nowait())
                 overlay.handle_events(evs, t_ms)
                 overlay.draw(canvas, self.hub.snapshot(), t_ms, dt)
-                pygame.transform.scale(canvas, window.get_size(), window)
+                overlay.present(window, canvas)
                 pygame.display.flip()
                 dt = clock.tick(self.fps)
         except Exception:

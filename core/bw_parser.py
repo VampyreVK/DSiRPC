@@ -77,6 +77,16 @@ class BWParser(PlatinumParser):
     # read 0x20 lower first (as its other addresses are), then at White's,
     # whichever reads as a real date and time.
     RTC = (0x02146A1C, 0x02146A3C)
+    REPEL = 0x0223D6DD             # u8: steps left on a Repel
+    ROUTE_FLAGS = 0x02000000 + bw.ROUTE_FLAGS_START   # trainer and item flags (bw_data.ROUTE_FLAGS)
+    BADGE_SHINE = 0x02281904       # 8 x u32, 0x23F polished (White's notes, 0x20 higher)
+    LEAGUE_BEATEN = 0x0223C055     # u8: bits 1-4, the Elite Four beaten this challenge
+    SUBWAY_BP = 0x0223D8AC         # u16 Battle Points
+    SUBWAY_STREAKS = 0x0223D8B4    # u16 per train: the current streak (bw_data.SUBWAY_TRAINS)
+    SUBWAY_RECORDS = 0x0223D8C6    # u16 per train: the record streak
+    SUBWAY_MODE = 0x022602B1       # u8: the train you're on (bw_data.SUBWAY_MODES)
+    INSTITUTE_POINTS = 0x0223F5AE  # u16: the last test's points
+    INSTITUTE_LIVE = 0x022598F2    # u16: the points during a test
     MAX_ZONE = 0x1AA
     # Battle.
     IN_BATTLE = 0x0226ACE6         # u8, 0x41 in a battle
@@ -224,6 +234,8 @@ class BWParser(PlatinumParser):
             (A(self.SEASON), 2),
             (A(self.MUSIC), 2),
             (self.RTC[0] + self.shift, 0x20 + 24),
+            (A(self.REPEL), 1),
+            (A(self.BADGE_SHINE), 32),
             (A(self.IN_BATTLE), 1),
             (A(self.BATTLE_TRAINER), 2),
             (A(self.BATTLE_STYLE), 1),
@@ -276,8 +288,14 @@ class BWParser(PlatinumParser):
         d['location']['weather'] = weather
         d['location']['weather_kind'] = bw.WEATHER.get(weather)
 
+        d['repel'] = self.read_u8(A(self.REPEL))
+        shine = struct.unpack('<8I', self.read_bytes(A(self.BADGE_SHINE), 32) or bytes(32))
+        d['badge_shine'] = [bw.shine_row(v) for v in shine] if all(v <= bw.SHINE_MAX for v in shine) else None
+        self._places(d, place)
+
         flags = self.read_u32(A(self.DEX))
-        caught = self._count_dex(self.read_bytes(A(self.DEX) + 4, self.DEX_BYTES))
+        self.caught_bits = self.read_bytes(A(self.DEX) + 4, self.DEX_BYTES)
+        caught = self._count_dex(self.caught_bits)
         seen_bits = bytearray(self.DEX_BYTES)
         for k in range(4):  # seen as male, female, shiny male, shiny female
             for i, v in enumerate(self.read_bytes(A(self.DEX) + 4 + (1 + k) * self.DEX_BYTES, self.DEX_BYTES)):
@@ -292,6 +310,46 @@ class BWParser(PlatinumParser):
                      'clock': clock or time.strftime('%Y-%m-%d %H:%M'), 'clock_source': 'game' if clock else 'pc'}
         d['battle'] = self._battle(d)
         return d
+
+    def _places(self, d, place):
+        """What some places add: trainers beaten and items found there, the
+        Battle Subway's streaks, the Battle Institute's rank, the Elite Four
+        beaten while challenging them."""
+        A = self.a
+        ranges = []
+        if place in bw.ROUTE_FLAGS:
+            ranges.append((A(self.ROUTE_FLAGS), bw.ROUTE_FLAGS_END - bw.ROUTE_FLAGS_START))
+        if place in bw.SUBWAY_PLACES:
+            ranges += [(A(self.SUBWAY_BP), 2), (A(self.SUBWAY_STREAKS), 16), (A(self.SUBWAY_RECORDS), 16),
+                       (A(self.SUBWAY_MODE), 1)]
+        if place in bw.INSTITUTE_PLACES:
+            ranges += [(A(self.INSTITUTE_POINTS), 2), (A(self.INSTITUTE_LIVE), 2)]
+        if d['zone'] in bw.LEAGUE_ROOMS:
+            ranges.append((A(self.LEAGUE_BEATEN), 1))
+        self.prefetch(ranges)
+        d['route'] = bw.route_stats(place, self.read_bytes(A(self.ROUTE_FLAGS), bw.ROUTE_FLAGS_END - bw.ROUTE_FLAGS_START)) \
+            if place in bw.ROUTE_FLAGS else {}
+        d['subway'] = d['institute'] = d['league'] = None
+        if place in bw.SUBWAY_PLACES:
+            current = struct.unpack('<8H', self.read_bytes(A(self.SUBWAY_STREAKS), 16) or bytes(16))
+            record = struct.unpack('<8H', self.read_bytes(A(self.SUBWAY_RECORDS), 16) or bytes(16))
+            train = bw.SUBWAY_MODES.get(self.read_u8(A(self.SUBWAY_MODE)))
+            d['subway'] = {
+                'bp': self.read_u16(A(self.SUBWAY_BP)),
+                'train': bw.SUBWAY_TRAINS[train] if train is not None else None,
+                'streak': current[train] if train is not None else max(current),
+                'record': record[train] if train is not None else max(record),
+                'trains': [(name, current[i], record[i]) for i, name in enumerate(bw.SUBWAY_TRAINS)
+                           if name and (current[i] or record[i])],
+            }
+        if place in bw.INSTITUTE_PLACES:
+            last, live = self.read_u16(A(self.INSTITUTE_POINTS)), self.read_u16(A(self.INSTITUTE_LIVE))
+            points = live if 0 < live < 10000 else last
+            d['institute'] = {'points': points, 'last': last, 'rank': bw.institute_rank(points)}
+        if d['zone'] in bw.LEAGUE_ROOMS:
+            bits = self.read_u8(A(self.LEAGUE_BEATEN))
+            d['league'] = {'beaten': [n for i, n in enumerate(bw.ELITE_ORDER) if bits >> (i + 1) & 1],
+                           'here': bw.ELITE_ROOMS.get(d['zone'], bw.CHAMPION)}
 
     def read_clock(self):
         """The in-game clock as 'YYYY-MM-DD HH:MM', or None if neither
@@ -342,9 +400,15 @@ class BWParser(PlatinumParser):
                 battle['mons'].append(mon)
         sides = {m['side'] for m in battle['mons']}
         battle['active'] = 'yours' in sides and 'foe' in sides
+        caught = getattr(self, 'caught_bits', b'')
+        for m in battle['mons']:
+            sid = m['species_id'] - 1
+            m['owned'] = len(caught) > sid // 8 and bool(caught[sid // 8] >> (sid % 8) & 1)
         player = d['trainer_id'] | d['secret_id'] << 16
         battle['wild'] = battle['trainer_id'] == 0 or any(
             m['ot_id'] == player for m in battle['mons'] if m['side'].startswith('foe'))
+        for m in battle['mons']:
+            m['owned'] = m['owned'] and battle['wild'] and m['side'].startswith('foe')  # the HUD's caught ball
         if battle['active']:
             battle['pointer'] = hex(self.read_u32(A(self.BATTLERS)))
         self.identify(battle, d['zone'], d['misc']['music_id'], d['party'], self.version)

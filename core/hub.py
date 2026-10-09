@@ -39,7 +39,7 @@ import struct
 import threading
 import time
 
-from . import games
+from . import bw_data, games
 from .bw_parser import BWParser
 from .other_game import OtherGame, ra_summary
 from .parser import PlatinumParser, TrainerMemory
@@ -473,6 +473,12 @@ def diff_events(old, new):
         return events
 
     ob, nb = old['battle'], new['battle']
+    # Black and White: the catch music means the wild Pokemon was caught.
+    music = (new.get('misc') or {}).get('music_id')
+    if is_bw(new) and nb['active'] and nb.get('wild') and music == bw_data.CATCH_MUSIC \
+            and (old.get('misc') or {}).get('music_id') != bw_data.CATCH_MUSIC:
+        foes = [m for m in nb['mons'] if m['side'].startswith('foe')]
+        events.append({'type': 'caught', 'mon': foes[0] if foes else None})
     if nb['active'] and not ob['active']:
         foes = [m for m in nb['mons'] if m['side'].startswith('foe')]
         events.append({'type': 'battle_start', 'music': new['misc']['music_id'],

@@ -603,6 +603,25 @@ should print `21 06 C0 DE DE C0 06 21`, which proves the reads come from real
 game memory. `-v` also prints hellos and timeouts. Large reads are split
 automatically.
 
+Watching memory for changes (to find what an address does, by doing it in
+the game):
+
+```
+.venv\Scripts\python.exe core\dsirpc_client.py --watch 0x0224F924:2 0x022521EC:0x800 --settle 5 --only 0-3,0x40,0x80,0xC0
+```
+
+It reads the ranges over and over (every 0.2 s, or `--interval`) and prints
+each value that changes, with the old and new value and the seconds since it
+started; `--width 2` or `4` compares and prints 16- or 32-bit values instead
+of bytes. `--settle 5` mutes whatever changes in the first 5 s, so stand
+still meanwhile and timers and animation stay quiet; `--only` prints only
+changes between the values listed (ranges like `0-3` work). Typing a note
+and Enter prints it in the log as a marker ("turned left"), and Ctrl+C (or
+`--duration`) stops and lists every value that changed, how often and which
+values it went through. Big ranges take a while per read (192 bytes a
+request), so keep them to a few KB, or hold still for a few seconds after
+each thing you do.
+
 Link check (close the other PC tools first, they share the port):
 
 ```

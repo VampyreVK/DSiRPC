@@ -43,6 +43,7 @@ Usage, from the repo root:
   python core/dsirpc_client.py --read 0x02000BBC:8 --repeat 10 --interval 1
   python core/dsirpc_client.py --dsi-ip 192.168.2.195 --read 0x02000000:64
   python core/dsirpc_client.py --stats 60                  # link check, see link_stats()
+  python core/dsirpc_client.py --watch 0x0224F924:2 --settle 5   # print what changes, see watch()
 """
 
 import argparse
@@ -52,6 +53,7 @@ import re
 import socket
 import struct
 import sys
+import threading
 import time
 
 MAX_RANGES = 16
@@ -486,6 +488,96 @@ def link_stats(c, seconds, rate=4.0):
         print("-> Hardly anything lost.")
 
 
+WATCH_LINES = 40   # changes printed per read at most
+
+
+def parse_values(text):
+    """'0-3,0x40,0x80' -> {0, 1, 2, 3, 64, 128}."""
+    values = set()
+    for part in text.split(","):
+        lo, _, hi = part.strip().partition("-")
+        values.update(range(int(lo, 0), int(hi or lo, 0) + 1))
+    return values
+
+
+def watch(c, ranges, interval=0.2, width=1, settle=0.0, only=None, duration=None):
+    """Reads `ranges` over and over and prints every value that changes, a
+    `width`-byte little-endian value at a time, with the seconds since the
+    start. Values that change during the first `settle` seconds are muted
+    from then on (stand still meanwhile: what changes anyway is timers and
+    animation). `only`: a set of values; a change is printed only when the
+    old and the new value are both in it. Typing a note and Enter prints it
+    as a marker; Ctrl+C (or `duration` seconds) stops and prints a summary."""
+    fmt = {1: "<B", 2: "<H", 4: "<I"}[width]
+    digits = 2 * width
+    t0 = time.time()
+    last, counts, values, muted = {}, {}, {}, set()
+    lock = threading.Lock()
+
+    def notes():
+        for line in sys.stdin:
+            with lock:
+                print(f"[{time.time() - t0:7.2f}s] ---- {line.strip() or 'mark'} ----", flush=True)
+    threading.Thread(target=notes, daemon=True).start()
+
+    total = sum(n for _, n in ranges)
+    print(f"Watching {total} bytes in {len(ranges)} range(s), {width} byte(s) at a time"
+          + (f", only the values {sorted(only)[:12]}{'...' if len(only) > 12 else ''}" if only else "")
+          + ". Type a note and Enter to mark the log, Ctrl+C to stop.")
+    if settle > 0:
+        print(f"Stand still for {settle:g} s: whatever changes meanwhile is muted.")
+    settled, misses = settle <= 0, 0
+    try:
+        while duration is None or time.time() - t0 < duration:
+            try:
+                results = c.read_ranges(ranges)
+            except (TimeoutError, RuntimeError) as e:
+                misses += 1
+                if misses in (1, 10) or misses % 50 == 0:
+                    print(f"(no reply: {e}; {misses} so far)", flush=True)
+                time.sleep(interval)
+                continue
+            now = time.time() - t0
+            lines = []
+            if not settled and now >= settle:
+                settled = True
+                lines.append(f"[{now:7.2f}s] settled: {len(muted)} value(s) changed while you stood still and "
+                             f"are muted. Go!")
+            for (a, _), data in zip(ranges, results):
+                for off in range(0, len(data) - width + 1, width):
+                    addr = a + off
+                    v = struct.unpack_from(fmt, data, off)[0]
+                    old = last.get(addr)
+                    last[addr] = v
+                    if old is None or old == v or addr in muted:
+                        continue
+                    if not settled:
+                        muted.add(addr)
+                        continue
+                    if only is not None and (old not in only or v not in only):
+                        continue
+                    counts[addr] = counts.get(addr, 0) + 1
+                    seen = values.setdefault(addr, [old])
+                    if v not in seen and len(seen) < 8:
+                        seen.append(v)
+                    lines.append(f"[{now:7.2f}s] 0x{addr:08X}: {old:0{digits}X} -> {v:0{digits}X}   ({old} -> {v})")
+            if lines:
+                extra = len(lines) - WATCH_LINES
+                with lock:
+                    print("\n".join(lines[:WATCH_LINES]) + (f"\n  ... and {extra} more" if extra > 0 else ""),
+                          flush=True)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+    print(f"\n{len(counts)} value(s) changed" + (f" ({len(muted)} muted)" if muted else "")
+          + (":" if counts else "."))
+    for addr in sorted(counts)[:60]:
+        seen = " ".join(f"{v:0{digits}X}" for v in values[addr])
+        print(f"  0x{addr:08X}: {counts[addr]:4d} change(s), values {seen}")
+    if len(counts) > 60:
+        print(f"  ... and {len(counts) - 60} more")
+
+
 def hexdump(addr, data):
     for off in range(0, len(data), 16):
         chunk = data[off:off + 16]
@@ -508,11 +600,20 @@ def main():
                     help="ranges to read (default: the SDK marker in Platinum's "
                          "main code, which should read 21 06 C0 DE DE C0 06 21)")
     ap.add_argument("--repeat", type=int, default=1)
-    ap.add_argument("--interval", type=float, default=1.0)
+    ap.add_argument("--interval", type=float, help="seconds between reads (default 1, or 0.2 with --watch)")
     ap.add_argument("--timeout", type=float, default=1.0)
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--stats", type=float, metavar="SECONDS",
                     help="link check: send small reads for this long and report losses and delays")
+    ap.add_argument("--watch", nargs="+", type=parse_range, metavar="ADDR:LEN",
+                    help="read these ranges over and over and print every value that changes")
+    ap.add_argument("--width", type=int, choices=(1, 2, 4), default=1,
+                    help="--watch: compare and print 1, 2 or 4 bytes at a time (little endian)")
+    ap.add_argument("--settle", type=float, default=0.0, metavar="SECONDS",
+                    help="--watch: mute whatever changes in the first SECONDS (stand still meanwhile)")
+    ap.add_argument("--only", type=parse_values, metavar="VALUES",
+                    help="--watch: only print changes between these values, e.g. 0-3 or 0,0x40,0x80,0xC0")
+    ap.add_argument("--duration", type=float, metavar="SECONDS", help="--watch: stop after this long")
     args = ap.parse_args()
 
     c = DSiClient(port=args.port, dsi_ip=args.dsi_ip, timeout=args.timeout, verbose=args.verbose)
@@ -522,6 +623,9 @@ def main():
 
     if args.stats:
         link_stats(c, args.stats)
+        return
+    if args.watch:
+        watch(c, args.watch, args.interval or 0.2, args.width, args.settle, args.only, args.duration)
         return
 
     ok = fail = 0
@@ -538,7 +642,7 @@ def main():
             print(f"read #{i + 1}: {e}")
             fail += 1
         if i < args.repeat - 1:
-            time.sleep(args.interval)
+            time.sleep(args.interval or 1.0)
 
     print(f"\n{ok} ok, {fail} failed")
     sys.exit(0 if fail == 0 else 1)

@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "probe_ach_vm.h"
 
-#define PROGRAM ((const uint8_t *)0x0CFB0040) // DSIRPC_ACH_LOCATION + 64
+#define PROGRAM ((const uint8_t *)0x0CFA0040) // DSIRPC_ACH_LOCATION + 64
 #define RAM     ((const uint8_t *)0x02000000) // RetroAchievements address 0
 #define RAM_SIZE 0x400000
 

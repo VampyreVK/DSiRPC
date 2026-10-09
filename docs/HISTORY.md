@@ -285,6 +285,18 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Pokémon Black and White freezing, fixed (likely).** The
+  in-game achievement checker's memory (`DSIRPC_ACH_LOCATION`, 256 KB) was at
+  `0x0CFB0000`-`0x0CFF0000`, but a DSi-enhanced game (unit code > 0) uses the
+  top 128 KB of the 16 MB, `0x0CFE0000` up (`0x02FE0000`, the same RAM;
+  nds-bootstrap keeps its ROM cache out of it for those games too). So the
+  checker's last 64 KB, the unlock file (read from the SD card at the start)
+  and the per-frame capture's ring (written every VBlank), overwrote Black
+  and White's memory: random freezes, and likely the Pokémon missing from
+  the intro. Platinum, a plain DS game, keeps that memory elsewhere, so it
+  was never hit. The area now ends at `0x0CFE0000`. Whether the minute-long
+  battle loads were the same thing is still to be seen on Viv's DSi.
+
 - 2026-10-09: **A macOS app.** `DSiRPC-<version>-macos.zip` (the `macos`
   job, `packaging/macos/build_app.py`): DSiRPC.app, made with PyInstaller,
   for Apple silicon, with Viv's icon set (`Assets/icons/adaptive.icns`). It's

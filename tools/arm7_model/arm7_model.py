@@ -80,7 +80,7 @@ CFLAGS = "-g -Wall -Os -mcpu=arm7tdmi -mtune=arm7tdmi -fomit-frame-pointer -ffas
 # Where things are on the console
 WRAM, WRAM_SIZE = 0x037E0000, 0x20000      # the cardengine's code and data, and our stack
 MAIN, MAIN_SIZE = 0x02000000, 0x400000     # the game's memory (RetroAchievements address 0)
-ACH, ACH_SIZE = 0x0CFB0000, 0x40000        # DSIRPC_ACH_LOCATION: the set, then its state
+ACH, ACH_SIZE = 0x0CFA0000, 0x40000        # DSIRPC_ACH_LOCATION: the set, then its state
 CODE = 0x037E0400                          # CARDENGINEI_ARM7_LOCATION
 STOP = 0x037E0100                          # a return address that ends a call
 STACK = 0x037FF000

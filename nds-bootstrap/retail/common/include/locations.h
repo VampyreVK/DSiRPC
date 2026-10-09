@@ -125,8 +125,12 @@
 // probe_ach.c), with the per-frame capture's ring in its last 2 KB
 // (probe_watch.c; main RAM rather than the ARM7 cardengine's own, which is
 // full). The ROM cache and ROM-in-RAM loading skip it (romLocationAdjust()
-// in bootloaderi's main.arm7.c).
-#define DSIRPC_ACH_LOCATION        0x0CFB0000
+// in bootloaderi's main.arm7.c). It ends at 0x0CFE0000: a DSi-enhanced game
+// (unit code > 0, like Pokemon Black and White) uses the 128 KB above that
+// (0x02FE0000, the same RAM), which romLocationAdjust() keeps the ROM cache
+// out of too; it used to start at 0x0CFB0000, so its last 64 KB (the unlock
+// file and the ring) overwrote those games' memory.
+#define DSIRPC_ACH_LOCATION        0x0CFA0000
 #define DSIRPC_ACH_SIZE            0x40000
 #define DSIRPC_WATCH_RING_SIZE     0x800
 #define DSIRPC_WATCH_RING_LOCATION (DSIRPC_ACH_LOCATION + DSIRPC_ACH_SIZE - DSIRPC_WATCH_RING_SIZE)

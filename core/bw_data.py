@@ -12,13 +12,96 @@ from . import platinum_data as pdata
 BADGES = ['Trio', 'Basic', 'Insect', 'Bolt', 'Quake', 'Jet', 'Freeze', 'Legend']
 GYM_LEADERS = ['Cilan', 'Lenora', 'Burgh', 'Elesa', 'Clay', 'Skyla', 'Brycen', 'Drayden']
 NATURES = pdata.NATURES
-# Items keep Gen IV's numbers; Platinum's names cover all but Gen V's new ones.
-ITEMS = pdata.ITEMS
+# Held items by the games' own numbers (None: unused): Gen IV's numbering,
+# with Gen V's own items from 468 on and a few of Gen IV's slots reused (the
+# Drives at 116-119, Sweet Heart at 134, the new Mail at 137-148). From
+# IronMon Tracker's Gen 5 table (constants/ItemData.lua), accents dropped
+# for the pixel font.
+ITEMS = [
+    None, 'Master Ball', 'Ultra Ball', 'Great Ball', 'Poke Ball', 'Safari Ball', 'Net Ball', 'Dive Ball',
+    'Nest Ball', 'Repeat Ball', 'Timer Ball', 'Luxury Ball', 'Premier Ball', 'Dusk Ball', 'Heal Ball',
+    'Quick Ball', 'Cherish Ball', 'Potion', 'Antidote', 'Burn Heal', 'Ice Heal', 'Awakening', 'Paralyze Heal',
+    'Full Restore', 'Max Potion', 'Hyper Potion', 'Super Potion', 'Full Heal', 'Revive', 'Max Revive',
+    'Fresh Water', 'Soda Pop', 'Lemonade', 'Moomoo Milk', 'Energy Powder', 'Energy Root', 'Heal Powder',
+    'Revival Herb', 'Ether', 'Max Ether', 'Elixir', 'Max Elixir', 'Lava Cookie', 'Berry Juice', 'Sacred Ash',
+    'Hp Up', 'Protein', 'Iron', 'Carbos', 'Calcium', 'Rare Candy', 'PP Up', 'Zinc', 'PP Max', 'Old Gateau',
+    'Guard Spec', 'Dire Hit', 'X Attack', 'X Defense', 'X Speed', 'X Accuracy', 'X Sp-atk', 'X Sp-def',
+    'Poke Doll', 'Fluffy Tail', 'Blue Flute', 'Yellow Flute', 'Red Flute', 'Black Flute', 'White Flute',
+    'Shoal Salt', 'Shoal Shell', 'Red Shard', 'Blue Shard', 'Yellow Shard', 'Green Shard', 'Super Repel',
+    'Max Repel', 'Escape Rope', 'Repel', 'Sun Stone', 'Moon Stone', 'Fire Stone', 'Thunder Stone', 'Water Stone',
+    'Leaf Stone', 'Tiny Mushroom', 'Big Mushroom', 'Pearl', 'Big Pearl', 'Stardust', 'Star Piece', 'Nugget',
+    'Heart Scale', 'Honey', 'Growth Mulch', 'Damp Mulch', 'Stable Mulch', 'Gooey Mulch', 'Root Fossil',
+    'Claw Fossil', 'Helix Fossil', 'Dome Fossil', 'Old Amber', 'Armor Fossil', 'Skull Fossil', 'Rare Bone',
+    'Shiny Stone', 'Dusk Stone', 'Dawn Stone', 'Oval Stone', 'Odd Keystone', 'Griseous Orb', None, None, None,
+    'Douse Drive', 'Shock Drive', 'Burn Drive', 'Chill Drive', None, None, None, None, None, None, None, None,
+    None, None, None, None, None, None, 'Sweet Heart', 'Adamant Orb', 'Lustrous Orb', 'Greet Mail', 'Favored Mail',
+    'Rsvp Mail', 'Thanks Mail', 'Inquiry Mail', 'Like Mail', 'Reply Mail', 'Bridge Mail-s', 'Bridge Mail-d',
+    'Bridge Mail-t', 'Bridge Mail-v', 'Bridge Mail-m', 'Cheri Berry', 'Chesto Berry', 'Pecha Berry', 'Rawst Berry',
+    'Aspear Berry', 'Leppa Berry', 'Oran Berry', 'Persim Berry', 'Lum Berry', 'Sitrus Berry', 'Figy Berry',
+    'Wiki Berry', 'Mago Berry', 'Aguav Berry', 'Iapapa Berry', 'Razz Berry', 'Bluk Berry', 'Nanab Berry',
+    'Wepear Berry', 'Pinap Berry', 'Pomeg Berry', 'Kelpsy Berry', 'Qualot Berry', 'Hondew Berry', 'Grepa Berry',
+    'Tamato Berry', 'Cornn Berry', 'Magost Berry', 'Rabuta Berry', 'Nomel Berry', 'Spelon Berry', 'Pamtre Berry',
+    'Watmel Berry', 'Durin Berry', 'Belue Berry', 'Occa Berry', 'Passho Berry', 'Wacan Berry', 'Rindo Berry',
+    'Yache Berry', 'Chople Berry', 'Kebia Berry', 'Shuca Berry', 'Coba Berry', 'Payapa Berry', 'Tanga Berry',
+    'Charti Berry', 'Kasib Berry', 'Haban Berry', 'Colbur Berry', 'Babiri Berry', 'Chilan Berry', 'Liechi Berry',
+    'Ganlon Berry', 'Salac Berry', 'Petaya Berry', 'Apicot Berry', 'Lansat Berry', 'Starf Berry', 'Enigma Berry',
+    'Micle Berry', 'Custap Berry', 'Jaboca Berry', 'Rowap Berry', 'BrightPowder', 'White Herb', 'Macho Brace',
+    'Exp Share', 'Quick Claw', 'Soothe Bell', 'Mental Herb', 'Choice Band', "King's Rock", 'Silver Powder',
+    'Amulet Coin', 'Cleanse Tag', 'Soul Dew', 'Deep Sea-tooth', 'Deep Sea-scale', 'Smoke Ball', 'Everstone',
+    'Focus Band', 'Lucky Egg', 'Scope Lens', 'Metal Coat', 'Leftovers', 'Dragon Scale', 'Light Ball', 'Soft Sand',
+    'Hard Stone', 'Miracle Seed', 'BlackGlasses', 'Black Belt', 'Magnet', 'Mystic Water', 'Sharp Beak',
+    'Poison Barb', 'Never Melt-ice', 'Spell Tag', 'Twisted Spoon', 'Charcoal', 'Dragon Fang', 'Silk Scarf',
+    'Up Grade', 'Shell Bell', 'Sea Incense', 'Lax Incense', 'Lucky Punch', 'Metal Powder', 'Thick Club', 'Stick',
+    'Red Scarf', 'Blue Scarf', 'Pink Scarf', 'Green Scarf', 'Yellow Scarf', 'Wide Lens', 'Muscle Band',
+    'Wise Glasses', 'Expert Belt', 'Light Clay', 'Life Orb', 'Power Herb', 'Toxic Orb', 'Flame Orb',
+    'Quick Powder', 'Focus Sash', 'Zoom Lens', 'Metronome', 'Iron Ball', 'Lagging Tail', 'Destiny Knot',
+    'Black Sludge', 'Icy Rock', 'Smooth Rock', 'Heat Rock', 'Damp Rock', 'Grip Claw', 'Choice Scarf',
+    'Sticky Barb', 'Power Bracer', 'Power Belt', 'Power Lens', 'Power Band', 'Power Anklet', 'Power Weight',
+    'Shed Shell', 'Big Root', 'Choice Specs', 'Flame Plate', 'Splash Plate', 'Zap Plate', 'Meadow Plate',
+    'Icicle Plate', 'Fist Plate', 'Toxic Plate', 'Earth Plate', 'Sky Plate', 'Mind Plate', 'Insect Plate',
+    'Stone Plate', 'Spooky Plate', 'Draco Plate', 'Dread Plate', 'Iron Plate', 'Odd Incense', 'Rock Incense',
+    'Full Incense', 'Wave Incense', 'Rose Incense', 'Luck Incense', 'Pure Incense', 'Protector', 'Electirizer',
+    'Magmarizer', 'Dubious Disc', 'Reaper Cloth', 'Razor Claw', 'Razor Fang', 'TM01', 'TM02', 'TM03', 'TM04',
+    'TM05', 'TM06', 'TM07', 'TM08', 'TM09', 'TM10', 'TM11', 'TM12', 'TM13', 'TM14', 'TM15', 'TM16', 'TM17', 'TM18',
+    'TM19', 'TM20', 'TM21', 'TM22', 'TM23', 'TM24', 'TM25', 'TM26', 'TM27', 'TM28', 'TM29', 'TM30', 'TM31', 'TM32',
+    'TM33', 'TM34', 'TM35', 'TM36', 'TM37', 'TM38', 'TM39', 'TM40', 'TM41', 'TM42', 'TM43', 'TM44', 'TM45', 'TM46',
+    'TM47', 'TM48', 'TM49', 'TM50', 'TM51', 'TM52', 'TM53', 'TM54', 'TM55', 'TM56', 'TM57', 'TM58', 'TM59', 'TM60',
+    'TM61', 'TM62', 'TM63', 'TM64', 'TM65', 'TM66', 'TM67', 'TM68', 'TM69', 'TM70', 'TM71', 'TM72', 'TM73', 'TM74',
+    'TM75', 'TM76', 'TM77', 'TM78', 'TM79', 'TM80', 'TM81', 'TM82', 'TM83', 'TM84', 'TM85', 'TM86', 'TM87', 'TM88',
+    'TM89', 'TM90', 'TM91', 'TM92', 'HM01', 'HM02', 'HM03', 'HM04', 'HM05', 'HM06', None, None, 'Explorer Kit',
+    'Loot Sack', 'Rule Book', 'Poke Radar', 'Point Card', 'Journal', 'Seal Case', 'Fashion Case', 'Seal Bag',
+    'Pal Pad', 'Works Key', 'Old Charm', 'Galactic Key', 'Red Chain', 'Town Map', 'Vs Seeker', 'Coin Case',
+    'Old Rod', 'Good Rod', 'Super Rod', 'Sprayduck', 'Poffin Case', 'Bicycle', 'Suite Key', 'Oaks Letter',
+    'Lunar Wing', 'Member Card', 'Azure Flute', 'Ss Ticket', 'Contest Pass', 'Magma Stone', 'Parcel', 'Coupon 1',
+    'Coupon 2', 'Coupon 3', 'Storage Key', 'Secret Potion', 'Vs Recorder', 'Gracidea', 'Secret Key',
+    'Apricorn Box', 'Unown Report', 'Berry Pots', 'Dowsing Machine', 'Blue Card', 'Slowpoke Tail', 'Clear Bell',
+    'Card Key', 'Basement Key', 'Squirt Bottle', 'Red Scale', 'Lost Item', 'Pass', 'Machine Part', 'Silver Wing',
+    'Rainbow Wing', 'Mystery Egg', 'Red Apricorn', 'Blue Apricorn', 'Yellow Apricorn', 'Green Apricorn',
+    'Pink Apricorn', 'White Apricorn', 'Black Apricorn', 'Fast Ball', 'Level Ball', 'Lure Ball', 'Heavy Ball',
+    'Love Ball', 'Friend Ball', 'Moon Ball', 'Sport Ball', 'Park Ball', 'Photo Album', 'Gb Sounds', 'Tidal Bell',
+    'RageCandyBar', 'Data Card-01', 'Data Card-02', 'Data Card-03', 'Data Card-04', 'Data Card-05', 'Data Card-06',
+    'Data Card-07', 'Data Card-08', 'Data Card-09', 'Data Card-10', 'Data Card-11', 'Data Card-12', 'Data Card-13',
+    'Data Card-14', 'Data Card-15', 'Data Card-16', 'Data Card-17', 'Data Card-18', 'Data Card-19', 'Data Card-20',
+    'Data Card-21', 'Data Card-22', 'Data Card-23', 'Data Card-24', 'Data Card-25', 'Data Card-26', 'Data Card-27',
+    'Jade Orb', 'Lock Capsule', 'Red Orb', 'Blue Orb', 'Enigma Stone', 'Prism Scale', 'Eviolite', 'Float Stone',
+    'Rocky Helmet', 'Air Balloon', 'Red Card', 'Ring Target', 'Binding Band', 'Absorb Bulb', 'Cell Battery',
+    'Eject Button', 'Fire Gem', 'Water Gem', 'Electric Gem', 'Grass Gem', 'Ice Gem', 'Fighting Gem', 'Poison Gem',
+    'Ground Gem', 'Flying Gem', 'Psychic Gem', 'Bug Gem', 'Rock Gem', 'Ghost Gem', 'Dragon Gem', 'Dark Gem',
+    'Steel Gem', 'Normal Gem', 'Health Wing', 'Muscle Wing', 'Resist Wing', 'Genius Wing', 'Clever Wing',
+    'Swift Wing', 'Pretty Wing', 'Cover Fossil', 'Plume Fossil', 'Liberty Pass', 'Pass Orb', 'Dream Ball',
+    'Poke Toy', 'Prop Case', 'Dragon Skull', 'Balm Mushroom', 'Big Nugget', 'Pearl String', 'Comet Shard',
+    'Relic Copper', 'Relic Silver', 'Relic Gold', 'Relic Vase', 'Relic Band', 'Relic Statue', 'Relic Crown',
+    'Casteliacone', 'Dire Hit-2', 'X Speed-2', 'X Sp-atk-2', 'X Sp-def-2', 'X Defense-2', 'X Attack-2',
+    'X Accuracy-2', 'X Speed-3', 'X Sp-atk-3', 'X Sp-def-3', 'X Defense-3', 'X Attack-3', 'X Accuracy-3',
+    'X Speed-6', 'X Sp-atk-6', 'X Sp-def-6', 'X Defense-6', 'X Attack-6', 'X Accuracy-6', 'Ability Urge',
+    'Item Drop', 'Item Urge', 'Reset Urge', 'Dire Hit-3', 'Light Stone', 'Dark Stone', 'TM93', 'TM94', 'TM95',
+    'Xtransceiver', 'God Stone', 'Gram 1', 'Gram 2', 'Gram 3',
+]
 
 
 def item_name(item):
-    """A held item's name, '#<id>' for one Platinum doesn't have, None for none."""
-    return None if not item else ITEMS[item] if item < len(ITEMS) else f'#{item}'
+    """A held item's name, '#<id>' for an unknown number, None for none."""
+    return None if not item else ITEMS[item] if item < len(ITEMS) and ITEMS[item] else f'#{item}'
 STATUS_BITS = pdata.STATUS_BITS
 TYPE_CHART = pdata.TYPE_CHART
 DIRECTIONS = ['up', 'down', 'left', 'right']

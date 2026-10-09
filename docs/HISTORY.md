@@ -290,7 +290,9 @@ in this table before assuming it's missing from RA entirely.
   Now it opens a party screen of its own (moves with PP, nature, held item;
   live HP and PP in battle) and goes back to the battle or the main view,
   and a battle starting or ending resets it. Black and White's held items
-  are named (Platinum's names: Gen V keeps their numbers).
+  are named, Gen V's own included (`bw_data.ITEMS`, from IronMon Tracker's
+  Gen 5 table: Gen IV's numbering with a few slots reused and the new items
+  from 468 on).
 
 - 2026-10-09: **Discord's Unova pictures, adjusted.** Hilbert and Hilda are
   drawn 3x (Viv's pick of the sizes tried), filling Discord's round picture, and

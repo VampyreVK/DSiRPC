@@ -68,7 +68,14 @@ class BWParser(PlatinumParser):
     # Field.
     ZONE = 0x0224F90C              # u16
     POSITION = 0x0224F910          # fx32 x, y (height), z; the tile is the upper u16
-    FACING = 0x0224F924            # u8: 0 up, 4 left, 8 down, 12 right
+    # The field's map objects, 0x100 bytes each: the player's has the ID
+    # 0xFF (u16 at +0) and its facing at +0x10 (u8: 0 up, 1 down, 2 left,
+    # 3 right). Usually the first; it moves on a map change, so it's looked
+    # for again when the last one found has another ID (IronMon Tracker).
+    # There's none before you're in the field (the title screen, the
+    # Continue menu, the intro).
+    MAP_OBJECTS = 0x022521EC
+    MAP_OBJECT_SIZE, MAP_OBJECT_COUNT, PLAYER_OBJECT = 0x100, 64, 0xFF
     SEASON = 0x0224F9BC            # u8: 0 spring ... 3 winter
     WEATHER = 0x0224F9BD           # u8: the field's weather (bw_data.WEATHER)
     MUSIC = 0x02258230             # u16: the music playing (bw_data.LEADER_MUSIC)
@@ -106,16 +113,38 @@ class BWParser(PlatinumParser):
     B_MOVES = 0x10A
     B_MOVE_SIZE = 14
     STYLES = ['single', 'double', 'triple', 'rotation']
-    FACINGS = {0: 'up', 4: 'left', 8: 'down', 12: 'right'}
+    FACINGS = ['up', 'down', 'left', 'right']
+    _player_slot = {}              # version -> the player's map object last found
+
 
     def __init__(self, ram, charmap=None, version='Black'):
         super().__init__(ram, charmap)
         self.version = version
         self.shift = WHITE_SHIFT if version == 'White' else 0
+        self.on_menu = False       # parse() returned None because you're not in the field yet
 
     def a(self, address):
         """An address of Black's, for the version being read."""
         return address + self.shift
+
+    def _player_object(self):
+        """The address of the player's map object, or None (not in the field)."""
+        base, size = self.a(self.MAP_OBJECTS), self.MAP_OBJECT_SIZE
+        slot = BWParser._player_slot.get(self.version, 0)
+        self.prefetch([(base + slot * size, 0x11)])
+        if self.read_u16(base + slot * size) == self.PLAYER_OBJECT:
+            return base + slot * size
+        self.prefetch([(base + i * size, 2) for i in range(self.MAP_OBJECT_COUNT)])
+        for i in range(self.MAP_OBJECT_COUNT):
+            if self.read_u16(base + i * size) == self.PLAYER_OBJECT:
+                BWParser._player_slot[self.version] = i
+                self.prefetch([(base + i * size + 0x10, 1)])
+                return base + i * size
+        return None
+
+    def _facing(self, player):
+        facing = self.read_u8(player + 0x10) if player is not None else None
+        return self.FACINGS[facing] if facing is not None and facing < 4 else 'down'
 
     # -- Pokemon ---------------------------------------------------------------
 
@@ -249,6 +278,14 @@ class BWParser(PlatinumParser):
         count = self.read_u8(A(self.PARTY_COUNT))
         if count > 6 or zone > self.MAX_ZONE or not name:
             return None
+        # On the Continue menu the save is loaded but the field isn't: the
+        # zone reads 0 (Black City's) and the season 0. Black City has the
+        # player's map object; the menu (and the intro) don't.
+        in_battle = self.read_u8(A(self.IN_BATTLE)) == 0x41
+        player = None if in_battle else self._player_object()
+        if zone == 0 and player is None and not in_battle:
+            self.on_menu = True
+            return None
 
         d['trainer_name'] = name
         d['trainer_id'] = self.read_u16(A(self.TRAINER_ID))
@@ -280,7 +317,7 @@ class BWParser(PlatinumParser):
         d['zone'] = zone
         d['location'] = {
             'map_id': zone, 'name': place, 'area': place, 'x': x, 'z': z, 'height': y,
-            'facing': self.FACINGS.get(self.read_u8(A(self.FACING)), 'down'),
+            'facing': self._facing(player),
         }
         season = self.read_u8(A(self.SEASON))
         d['season'] = bw.SEASONS[season] if season < 4 else None

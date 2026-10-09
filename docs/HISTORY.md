@@ -285,6 +285,15 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White on a console, first fixes.** Viv's first run
+  on real cartridges: the facing byte always read "up", so the facing now
+  comes from the player's map object (IronMon Tracker's table at
+  `0x022521EC`); the Continue menu and the intro showed as Black City or
+  White Forest in spring (the save is loaded but the field isn't), so with
+  no player map object and the zone at 0 it's the game card until you're
+  in. Winter's light is a frosty border instead of a wash over everything,
+  and its nights are lighter.
+
 - 2026-10-09: **Black and White, round four: seasons, places, Discord.**
   The Unova view dresses for the season (`overlay/seasons.py`: petals, sun
   rays and fireflies, leaves in gusts, snow piling on the panels with

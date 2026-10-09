@@ -259,6 +259,8 @@ addresses (White US: add `0x20`); none checked on a console yet.
 - **Zone IDs elsewhere:** `0x022592B2` (child) and `0x022592B4` (parent).
 - **Facing, another way:** u8 `0x022521FC` (0 up, 1 down, 2 left, 3 right),
   valid when `0x022521EC` is `0xFF`, else scan `0x022521EC + n * 0x100`.
+  Now used (the map objects in DOCUMENTATION section 9), since `0x0224F924`
+  always read 0 on a console.
 - **Saved position:** map `0x0223512C`, x `0x02235132`, z `0x02235136`, y
   `0x0223513A` (probably only updated on a save or a warp).
 - **The boot clock:** date `0x023FFDE8`, time `0x023FFDEC` (the moment the

@@ -137,7 +137,7 @@ class DsiSource:
         self.fast_misses = 0
         self.other = None       # OtherGame while the DSi runs something other than Platinum
         self.bw_started = None  # when Black/White started being read (for Discord's timer)
-        self.bw_failed = False  # the last Black/White parse didn't look like the game
+        self.bw_failed = False  # True: the last Black/White parse didn't look like the game; 'menu': not in the field yet
 
     @property
     def status(self):
@@ -326,7 +326,8 @@ class DsiSource:
         self.last_parse = now
         try:
             self.ram.clear()
-            data = BWParser(self.ram, version=games.bw_version(game)).parse()
+            parser = BWParser(self.ram, version=games.bw_version(game))
+            data = parser.parse()
         except (TimeoutError, RuntimeError) as e:
             if not self.failed:
                 logging.warning(f"Read failed: {e}")
@@ -334,10 +335,17 @@ class DsiSource:
             self.last = None
             return None
         if data is None:
-            if not self.bw_failed:
-                logging.warning(f"{games.name(game)}: its memory doesn't look the way DSiRPC expects"
-                                " (another region?), so it gets the game card")
-            self.bw_failed = True
+            # Not in the field yet (the Continue menu, the intro): the game
+            # card, with the RetroAchievements rich presence, until you are.
+            if parser.on_menu:
+                if self.bw_failed != 'menu':
+                    logging.info(f"{games.name(game)}: not in the game yet, so it gets the game card")
+                self.bw_failed = 'menu'
+            else:
+                if self.bw_failed is not True:
+                    logging.warning(f"{games.name(game)}: its memory doesn't look the way DSiRPC expects"
+                                    " (another region?), so it gets the game card")
+                self.bw_failed = True
             return self._read_other(game)
         if self.bw_failed or not last:
             logging.info(f"Reading {games.name(game)} with its own parser")

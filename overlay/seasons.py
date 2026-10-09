@@ -61,7 +61,7 @@ LIGHT = {
     'spring': [((255, 150, 200), 40, 'top')],
     'summer': [((255, 230, 150), 44, 'corner')],
     'autumn': [((255, 140, 40), 46, 'bottom'), ((255, 190, 90), 18, 'top')],
-    'winter': [((150, 200, 255), 44, 'top'), ((210, 230, 255), 16, 'all')],
+    'winter': [((150, 200, 255), 16, 'top'), ((214, 234, 255), 54, 'edges')],   # frost on the window, a clear middle
 }
 TIME_LIGHT = {
     'morning': [((255, 220, 170), 30, 'top')],
@@ -395,6 +395,8 @@ class SeasonFX:
             if when == 'night':  # no sun at night
                 lights = [lt for lt in lights if lt[2] != 'corner']
             for color, alpha, where in lights + TIME_LIGHT.get(when, []):
+                if season == 'winter' and when == 'night':
+                    alpha = alpha * 3 // 5  # the snow keeps winter nights bright (and the aurora's enough)
                 self._gradient(surf, color, alpha, where)
             self._light_cache[key] = surf
         return surf
@@ -409,6 +411,14 @@ class SeasonFX:
                 a = int(alpha * (1 - i / 90) ** 1.6)
                 y = i if where == 'top' else H - 1 - i
                 pygame.draw.line(layer, (*color, a), (0, y), (W, y))
+        elif where == 'edges':  # a frosty border, thickest in the corners
+            depth = 30
+            for i in range(depth):
+                a = int(alpha * (1 - i / depth) ** 2.2)
+                pygame.draw.rect(layer, (*color, a), (i, i, W - 2 * i, H - 2 * i), 1)
+            for cx, cy in ((0, 0), (W, 0), (0, H), (W, H)):
+                for r in range(40, 0, -3):
+                    pygame.draw.circle(layer, (*color, int(alpha * 0.22 * (1 - r / 40) ** 1.5)), (cx, cy), r)
         else:  # corner: a glow from the top right
             for rr in range(150, 0, -6):
                 a = int(alpha * (1 - rr / 150) ** 1.4)

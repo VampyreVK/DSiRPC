@@ -283,7 +283,7 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Known issues and roadmap
 
-- [ ] Fix graphical glitches in Pokémon Platinum (for example, the first time
+- [x] Fix graphical glitches in Pokémon Platinum (for example, the first time
       the pause menu opens).
 - [ ] Location artwork for the big image, and more overworld states (running,
       biking, surfing, browsing the PC). Leads are in [docs/research.md](docs/research.md).
@@ -319,7 +319,7 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 - Pokémon sprites from [PokeAPI](https://pokeapi.co/)
   ([sprites repository](https://github.com/PokeAPI/sprites)).
-- Overworld assets by PurpleZaffre.
+- Overworld assets by [PurpleZaffre](https://eeveeexpo.com/threads/3667/).
 - [nds-bootstrap](https://github.com/DS-Homebrew/nds-bootstrap) by DS-Homebrew
   (GPLv3), which hosts the in-game side.
 - [BlocksDS](https://github.com/blocksds/sdk) and DSWiFi (MIT) for the launcher

@@ -17,7 +17,9 @@ Everything comes from the Black/White parser's state (core/bw_parser.py),
 which is laid out like the Platinum parser's, plus 'season' and the
 RetroAchievements keys the game card uses (core/other_game.py's
 ra_summary). The battle view is the shared one in overlay/scenes.py, with
-these games' own sky and platforms (draw_backdrop, draw_platforms).
+these games' own background and turfs (overlay/unova_backdrop.py; see
+draw_backdrop, draw_platforms), HUD (foe_hud, your_hud, message_band) and
+trainer intro (trainer_intro).
 """
 
 import time
@@ -27,6 +29,7 @@ import pygame
 from core import bw_data
 from . import ui
 from .gamecard import NEW_FOR_S, NEXT_EVERY_MS, ago
+from .unova_backdrop import UnovaBackdrop
 
 W, H = 256, 192
 HEADER_H = 14
@@ -37,9 +40,12 @@ HP_RIGHT = 9               # the HP bar's and numbers' gap to the panel's right 
 ACH_RECT = (1, 110, 254, 51)
 ACH_SPLIT = 168            # the divider between the latest unlock and the one to earn
 FOOTER_Y = 162
-BOX_TOP = 146              # the battle view's message box
-FAR_PLATFORM = (190, 106)  # centre x, bottom y (as the Platinum battle view)
-NEAR_PLATFORM_X = 0        # left edge; its top shows above the message box
+TRAINER_MS = 2200          # a leader stands on the far turf this long at the start
+TRAINER_OUT_MS = 400       # then steps off to the right
+TITLES = {'gym': 'Gym Leader', 'elite': 'Elite Four', 'champion': 'Champion'}
+# In a double battle your two Pokemon stand this much lower (left, right)
+# than a single one, so they keep clear of the HP bars above them.
+DOUBLES_DROP = (0, 3)
 
 BADGES = ['Trio', 'Basic', 'Insect', 'Bolt', 'Quake', 'Jet', 'Freeze', 'Legend']
 
@@ -109,6 +115,7 @@ class UnovaScreen:
         art: an overlay/unova_art.UnovaArt."""
         self.o = owner
         self.art = art
+        self.backdrop = UnovaBackdrop(art)
         self.font = owner.font
         self.mini = owner.mini
         self.walk_until = 0
@@ -289,34 +296,57 @@ class UnovaScreen:
 
     # -- battle ----------------------------------------------------------------
 
-    def draw_backdrop(self, canvas, d, when):
-        """The battle's sky, by place, season and time of day."""
+    def time_of_day(self, d):
+        """'morning', 'day', 'evening' or 'night' by the clock (the game's,
+        when it could be read) and the season's hours."""
+        return bw_data.time_of_day((d.get('misc') or {}).get('clock'), season_of(d))
+
+    def terrain(self, d):
+        """(sky, platform) for the battle's place and season."""
+        return bw_data.terrain(d.get('location') or {}, season_of(d))
+
+    def weather(self, d):
+        """The field's weather as the battle view's weather particles, or
+        None (and never under a roof)."""
+        if self.terrain(d)[0] in ('cave', 'indoor'):
+            return None
+        return (d.get('location') or {}).get('weather_kind')
+
+    def draw_backdrop(self, canvas, d, when, t_ms):
+        """The battle's background (overlay/unova_backdrop.py), by place,
+        season and time of day; its particles rest while weather falls."""
         t = ui.THEME
         if t['chroma']:
             canvas.fill(t['chroma'])
             return
-        sky = self.art.sky(bw_data.terrain(d.get('location') or {}, season_of(d))[0], when)
-        if not sky:
-            canvas.fill(INK)
-            return
-        canvas.blit(sky, (0, 0))
-        for y in range(sky.get_height(), BOX_TOP):  # down to the message box
-            canvas.blit(sky, (0, y), (0, sky.get_height() - 1, sky.get_width(), 1))
+        self.backdrop.draw(canvas, self.terrain(d)[0], when, t_ms, particles=not self.weather(d))
 
     def draw_platforms(self, canvas, d, when, far_dx, near_dx):
-        """The two platforms, slid by the intro's offsets. Returns where each
-        side's Pokemon stand: {'foe': (x, y), 'you': (x, y)} (feet), or {}
-        without the art."""
-        far, near = self.art.platforms(bw_data.terrain(d.get('location') or {}, season_of(d))[1], when)
-        if not far or not near:
-            return {}
-        cx, bottom = FAR_PLATFORM
-        fx, fy = cx - far.get_width() // 2 + far_dx, bottom - far.get_height()
-        canvas.blit(far, (fx, fy))
-        nx, ny = NEAR_PLATFORM_X + near_dx, BOX_TOP - near.get_height()
-        canvas.blit(near, (nx, ny))
-        return {'foe': (cx + far_dx, fy + far.get_height() * 2 // 3),
-                'you': (nx + near.get_width() * 9 // 20, ny + 21)}
+        """The two turfs, slid by the intro's offsets. Returns where each
+        side's Pokemon stand: {'foe': (x, y), 'you': (x, y)} (feet)."""
+        return self.backdrop.draw_turfs(canvas, self.terrain(d)[1], when, far_dx, near_dx)
+
+    def trainer_intro(self, d):
+        """For a battle against a Gym Leader, an Elite Four member or the
+        Champion: {'image': their battle sprite, 'name': 'Gym Leader
+        LENORA'}; otherwise None."""
+        b = d['battle']
+        if b.get('wild') or not b.get('trainer'):
+            return None
+        img = self.art.battle_trainer(b['trainer'])
+        if img is None:
+            return None
+        return {'image': img, 'name': f"{TITLES.get(b.get('kind'), '')} {b['trainer'].upper()}".strip()}
+
+    def draw_trainer(self, canvas, intro, feet, t_ms):
+        """The trainer standing at `feet` until intro['out_at'], then
+        stepping off to the right."""
+        out = intro['out_at']
+        if t_ms >= out + TRAINER_OUT_MS:
+            return
+        img = intro['image']
+        dx = 0 if t_ms < out else int((t_ms - out) / TRAINER_OUT_MS * 140)
+        canvas.blit(img, (feet[0] - img.get_width() // 2 + dx, feet[1] - img.get_height() + 2))
 
     # -- battle HUD ------------------------------------------------------------
     #
@@ -471,7 +501,7 @@ class UnovaScreen:
         anim = self.o.sprites.trainer(d.get('character') or 'Hilbert', facing)
         if anim:
             frame = anim.frame(t_ms) if t_ms < self.walk_until else anim.frames[0]
-            canvas.blit(frame, (16 - frame.get_width() // 2, H - 2 - frame.get_height()))
+            canvas.blit(frame, (16 - frame.get_width() // 2, H + 1 - frame.get_height()))  # clear of the border
 
         name = d.get('trainer_name') or ''
         self.font.draw(canvas, self.font.fit(name, 62), (32, FOOTER_Y + 4), WHITE, SHADOW)

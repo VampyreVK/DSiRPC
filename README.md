@@ -210,9 +210,11 @@ shiny encounters, level-ups, fainting, new badges and achievements.
 Pokémon Black and White (US) get a view of their own, in the games' look:
 the party in the party screen's panels, an achievements panel with your
 latest unlock and the next one to earn, your trainer, money and the Unova
-badges, the season, and battles on the games' own backgrounds. It's new and
-not tried on a console yet (if the memory doesn't look right, they get the
-game card).
+badges, the season, and battles in the games' own style (their HUD, a
+background with Black and White's detail, the field's weather, the game's
+clock for day and night, and Gym Leaders, the Elite Four and the Champion
+named and making their entrance). It's new and not tried on a console yet
+(if the memory doesn't look right, they get the game card).
 
 Every other game gets a game card in the same style: its name and how long
 you've been playing, what you're doing in it (its RetroAchievements rich

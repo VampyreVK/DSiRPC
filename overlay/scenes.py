@@ -44,7 +44,7 @@ from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
-from .unova import UnovaScreen
+from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
 from .unova_art import UnovaArt
 
 W, H = 256, 192
@@ -146,6 +146,7 @@ class Overlay:
         self.intro_until = 0       # the intro message follows the data until then
         self.read_at = None        # when the data being drawn was read (Snapshot.updated)
         self.unova_battle = False  # the battle being drawn is Black or White's (their HUD)
+        self.trainer_intro = None  # Black and White: the leader shown at the start ({} for none)
 
     # -- state -----------------------------------------------------------------
 
@@ -211,6 +212,7 @@ class Overlay:
             if p >= 1 and want_battle != self.showing_battle:
                 self.showing_battle = want_battle
                 self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
+                self.trainer_intro = None
                 self.msg_queue, self.held = [], []
                 self.battle_since = t_ms if want_battle else None
                 if want_battle:
@@ -400,9 +402,9 @@ class Overlay:
         unova = d.get('kind') == 'bw'
         self.unova_battle = unova  # Black and White's HUD for the boxes below
         place = 'field' if unova else terrain(d['location'])
-        when = period(d['misc'].get('clock'))
+        when = self.unova.time_of_day(d) if unova else period(d['misc'].get('clock'))
         if unova:
-            self.unova.draw_backdrop(canvas, d, when)
+            self.unova.draw_backdrop(canvas, d, when, t_ms)
         else:
             self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
 
@@ -430,6 +432,8 @@ class Overlay:
                 spots[side] = (px + DIORAMA_CENTER_X - box[0], py + DIORAMA_BOTTOM - box[1])
             else:
                 spots[side] = (cx - 8 + dx, bottom - 25)
+        if unova:
+            self._unova_trainer(canvas, d, spots, t_ms)
 
         # Foes (up to two; the first one is on the right, as in the game),
         # then your Pokemon from behind.
@@ -449,7 +453,8 @@ class Overlay:
             m = yours[k]
             x, y = spots['you']
             anim = self.sprites.back(m['species_id'], m['shiny'])
-            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y, 84, t_ms, k * 300, direction=1,
+            drop = DOUBLES_DROP[k] if unova and len(yours) > 1 else 0
+            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y + drop, 84, t_ms, k * 300, direction=1,
                                tint=markers.FROZEN_TINT if m.get('status') == 'Frozen' else None)
 
         # Condition markers (sleep, paralysis, confusion, ...) on everyone
@@ -463,7 +468,8 @@ class Overlay:
             markers.draw(canvas, rect, m, t_ms, self.font)
 
         self.effects = [e for e in self.effects if e.draw(canvas, t_ms, self.boxes)]
-        self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
+        self.backdrop.draw_weather(canvas, self.unova.weather(d) if unova else
+                                   weather_kind(d['location'].get('weather'), place), t_ms)
 
         # HP boxes slide in after the Pokemon.
         hud = 1.0
@@ -511,6 +517,26 @@ class Overlay:
         else:
             picked = self.battlers.get('you0', {}).get('picked')
             self._move_panel(canvas, yours[0] if yours else None, picked, foes[0] if foes else None)
+
+    def _unova_trainer(self, canvas, d, spots, t_ms):
+        """Black and White: a Gym Leader, Elite Four member or Champion
+        stands on the far turf as the battle starts, then steps aside as
+        their first Pokemon comes out (decided on the battle's first frame:
+        a leader told only later by their music gets the message, not the
+        entrance)."""
+        if self.trainer_intro is None and self.battle_since is not None:
+            intro = self.unova.trainer_intro(d) or {}
+            if intro:
+                intro['out_at'] = self.battle_since + TRAINER_MS
+                for key, st in self.battlers.items():
+                    if key.startswith('foe') and st.get('entered') is None:
+                        st['entered'] = intro['out_at']
+                foes = [m for m in d['battle']['mons'] if m['side'].startswith('foe')]
+                if foes:
+                    self._say(f"{intro['name']} sent out", f"{_upper(foes[0]['nickname'])}!", intro['out_at'])
+            self.trainer_intro = intro
+        if self.trainer_intro and 'foe' in spots:
+            self.unova.draw_trainer(canvas, self.trainer_intro, spots['foe'], t_ms)
 
     def _track_battlers(self, d, foes, yours, t_ms):
         """Notices moves, damage, fainting and switches, and plays them in
@@ -862,8 +888,14 @@ class Overlay:
         music = d['misc']['music_id']
         wild, trainer = _opponent(d)
         foe = _upper(foes[0]['nickname']) if foes else 'the foe'
+        kind = b.get('kind')  # Black and White say who it is
         if wild:
             l1 = f"A wild {foe} appeared!"
+        elif kind in TITLES:
+            some = {'gym': 'a Gym Leader', 'elite': 'the Elite Four', 'champion': 'the Champion'}[kind]
+            l1 = f"You are challenged by {TITLES[kind]} {trainer}!" if trainer else f"You are challenged by {some}!"
+        elif kind == 'trainer':
+            l1 = "You are challenged by a Trainer!"
         elif music == RIVAL:
             l1 = f"You are challenged by Rival {trainer}!" if trainer else "You are challenged by your rival!"
         elif music == GYM:

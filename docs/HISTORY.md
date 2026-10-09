@@ -285,6 +285,19 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White's battles, round three.** The new
+  background (the "Arena" concept): Diamond and Pearl's skies with Black
+  and White's detail drawn in code (a 3D-stretched floor with streaks, a
+  skyline per place, horizon haze, sun shafts, particles, a vignette), and
+  new tufted turfs placed like Black and White's, in a day look and a night
+  look (`overlay/unova_backdrop.py`). From the RetroAchievements notes:
+  Gym Leaders (their room while their music plays), the Elite Four and the
+  Champion are named and stand on the far turf before sending out their
+  first Pokémon; the in-game clock (with each season's day and night hours)
+  lights the battles; the field's weather falls in them. In doubles your
+  Pokémon stand a little lower, and the main view's trainer sits clear of
+  the footer's border. The demo has a rainy forest battle and Burgh.
+
 - 2026-10-09: **Black and White, round two.** The RetroAchievements code
   notes for both versions came in (`docs/memory-map/`): every address the
   parser reads that they cover matches, White's 0x20 higher, so White

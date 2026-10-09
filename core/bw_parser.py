@@ -6,23 +6,28 @@ The state is laid out like core/parser.py's (Platinum), so the overlay's
 battle view and the hub's events work on it unchanged, plus:
 
     'kind': 'bw', 'version': 'Black' or 'White', 'season': 'spring'...,
-    'zone': the zone ID, battlers' 'pp_max' (the game keeps it), and
-    'battle' 'style' ('single', 'double', 'triple', 'rotation') and
-    'trainer_id' (0 in a wild battle)
+    'zone': the zone ID, battlers' 'pp_max' (the game keeps it), the
+    location's 'weather_kind' (overlay/backdrop.py's weather particles),
+    'misc' 'clock_source' ('game' when the in-game clock read right, else
+    'pc'), and 'battle' 'style' ('single', 'double', 'triple', 'rotation'),
+    'trainer_id' (0 in a wild battle) and 'kind' ('wild', 'trainer', 'gym',
+    'elite', 'champion'), with 'trainer' the Gym Leader's, Elite Four
+    member's or Champion's name when it's one of them
 
 Addresses are Black's (IRBO); White's (IRAO) are all 0x20 higher. They come
 from tools that read these games on emulators (PKHeX's save layout, which
 sits 1:1 in RAM at 0x0221BBAC; the DevonStudios RNG scripts;
 NDS-Ironmon-Tracker; pokebot-nds; the RetroAchievements rich presence; the
-Action Replay codes): see docs/research.md. None was checked on a DSi yet,
-so parse() checks what it reads (the party's checksums, the zone, the
-trainer's name) and returns None when it doesn't look like the game, and
-the hub shows the game card instead.
+Action Replay codes) and the RetroAchievements code notes for both
+versions (docs/memory-map/): see DOCUMENTATION.md, section 9. None was
+checked on a DSi yet, so parse() checks what it reads (the party's
+checksums, the zone, the trainer's name, the clock) and returns None when
+it doesn't look like the game, and the hub shows the game card instead.
 
-Not known yet, so left out: the opponent trainer's name and class (the
-game looks it up in the ROM from the trainer ID), the battlers' types,
-stat stages and status (the battle copy's layout isn't known), and the
-battle music.
+Not known yet, so left out: ordinary trainers' names and classes (the game
+looks them up in the ROM from the trainer ID; Gym Leaders, the Elite Four
+and the Champion are told by their rooms and music), and the battlers'
+types, stat stages and status (the battle copy's layout isn't known).
 """
 
 import struct
@@ -65,6 +70,13 @@ class BWParser(PlatinumParser):
     POSITION = 0x0224F910          # fx32 x, y (height), z; the tile is the upper u16
     FACING = 0x0224F924            # u8: 0 up, 4 left, 8 down, 12 right
     SEASON = 0x0224F9BC            # u8: 0 spring ... 3 winter
+    WEATHER = 0x0224F9BD           # u8: the field's weather (bw_data.WEATHER)
+    MUSIC = 0x02258230             # u16: the music playing (bw_data.LEADER_MUSIC)
+    # The running clock: hour, minute, second, year, month, day, u32 each.
+    # White's is at 0x02146A3C in its RetroAchievements notes; Black's is
+    # read 0x20 lower first (as its other addresses are), then at White's,
+    # whichever reads as a real date and time.
+    RTC = (0x02146A1C, 0x02146A3C)
     MAX_ZONE = 0x1AA
     # Battle.
     IN_BATTLE = 0x0226ACE6         # u8, 0x41 in a battle
@@ -209,7 +221,9 @@ class BWParser(PlatinumParser):
             (A(self.DEX), 4 + 5 * self.DEX_BYTES),
             (A(self.PLAYTIME), 4),
             (A(self.ZONE), 0x1C),
-            (A(self.SEASON), 1),
+            (A(self.SEASON), 2),
+            (A(self.MUSIC), 2),
+            (self.RTC[0] + self.shift, 0x20 + 24),
             (A(self.IN_BATTLE), 1),
             (A(self.BATTLE_TRAINER), 2),
             (A(self.BATTLE_STYLE), 1),
@@ -254,10 +268,13 @@ class BWParser(PlatinumParser):
         d['zone'] = zone
         d['location'] = {
             'map_id': zone, 'name': place, 'area': place, 'x': x, 'z': z, 'height': y,
-            'facing': self.FACINGS.get(self.read_u8(A(self.FACING)), 'down'), 'weather': 0,
+            'facing': self.FACINGS.get(self.read_u8(A(self.FACING)), 'down'),
         }
         season = self.read_u8(A(self.SEASON))
         d['season'] = bw.SEASONS[season] if season < 4 else None
+        weather = self.read_u8(A(self.WEATHER))
+        d['location']['weather'] = weather
+        d['location']['weather_kind'] = bw.WEATHER.get(weather)
 
         flags = self.read_u32(A(self.DEX))
         caught = self._count_dex(self.read_bytes(A(self.DEX) + 4, self.DEX_BYTES))
@@ -269,10 +286,25 @@ class BWParser(PlatinumParser):
         d['pokedex'] = {'obtained': bool(seen or caught), 'national': bool(flags & 1),
                         'seen': max(seen, caught), 'caught': caught}
 
+        music = self.read_u16(A(self.MUSIC))
+        clock = self.read_clock()
+        d['misc'] = {'music_id': music, 'music': None, 'textbox_open': False,
+                     'clock': clock or time.strftime('%Y-%m-%d %H:%M'), 'clock_source': 'game' if clock else 'pc'}
         d['battle'] = self._battle(d)
-        d['misc'] = {'music_id': None, 'music': None, 'textbox_open': False,
-                     'clock': time.strftime('%Y-%m-%d %H:%M')}
         return d
+
+    def read_clock(self):
+        """The in-game clock as 'YYYY-MM-DD HH:MM', or None if neither
+        place reads as a date and time."""
+        for base in self.RTC:
+            raw = self.read_bytes(base + self.shift, 24)
+            if len(raw) < 24:
+                continue
+            hour, minute, second, year, month, day = struct.unpack('<6I', raw)
+            year = year + 2000 if year < 100 else year
+            if hour < 24 and minute < 60 and second < 60 and 2000 <= year < 2100 and 1 <= month <= 12 and 1 <= day <= 31:
+                return f'{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}'
+        return None
 
     def battler_pointers(self):
         """[(slot, side, pointer)] for the battlers out now, from the pointer
@@ -315,7 +347,17 @@ class BWParser(PlatinumParser):
             m['ot_id'] == player for m in battle['mons'] if m['side'].startswith('foe'))
         if battle['active']:
             battle['pointer'] = hex(self.read_u32(A(self.BATTLERS)))
+        self.identify(battle, d['zone'], d['misc']['music_id'], d['party'], self.version)
         return battle
+
+    @staticmethod
+    def identify(battle, zone, music, party, version):
+        """Sets the battle's 'kind' and, for a Gym Leader, an Elite Four
+        member or the Champion, 'trainer'."""
+        if battle['wild']:
+            battle['kind'], battle['trainer'] = 'wild', None
+            return
+        battle['kind'], battle['trainer'] = bw.opponent(zone, music, [m['species_id'] for m in party], version)
 
     # -- quick battle reads (core/hub.py, between full reads) --------------------
 
@@ -323,9 +365,10 @@ class BWParser(PlatinumParser):
     def quick_ranges(cls, last, version):
         """The reads that update the battlers of `last` (a parsed state in a
         battle): HP and moves of each, and the battle flag and pointers to
-        notice the battle changing."""
+        notice the battle changing, and the music (a Gym Leader's battle
+        can be told only once its music starts)."""
         shift = WHITE_SHIFT if version == 'White' else 0
-        ranges = [(cls.IN_BATTLE + shift, 1), (cls.BATTLERS + shift, 8 * cls.SIDE_SLOTS)]
+        ranges = [(cls.IN_BATTLE + shift, 1), (cls.BATTLERS + shift, 8 * cls.SIDE_SLOTS), (cls.MUSIC + shift, 2)]
         for m in last['battle']['mons']:
             ptr = int(m['battler'], 16)
             ranges += [(ptr + cls.B_SPECIES, 6), (ptr + cls.B_MOVES, 4 * cls.B_MOVE_SIZE)]
@@ -338,10 +381,10 @@ class BWParser(PlatinumParser):
         read is needed."""
         if not got or got[0][:1] != b'\x41':
             return None
-        pointers = got[1]
+        pointers, music = got[1], struct.unpack('<H', got[2])[0]
         mons = []
         for i, m in enumerate(last['battle']['mons']):
-            hp_raw, moves_raw = got[2 + 2 * i], got[3 + 2 * i]
+            hp_raw, moves_raw = got[3 + 2 * i], got[4 + 2 * i]
             species, max_hp, hp = struct.unpack('<HHH', hp_raw)
             if species != m['species_id'] or max_hp != m['max_hp'] or hp > max_hp:
                 return None
@@ -360,4 +403,6 @@ class BWParser(PlatinumParser):
             mons.append(dict(m, curr_hp=hp, pp=pps))
         data = dict(last)
         data['battle'] = dict(last['battle'], mons=mons)
+        data['misc'] = dict(last['misc'], music_id=music)
+        cls.identify(data['battle'], last.get('zone'), music, last.get('party') or [], last.get('version'))
         return data

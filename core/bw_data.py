@@ -176,6 +176,64 @@ def zone_name(zone, version='Black'):
     return name
 
 
+# Who you're up against, by where the battle is (zone IDs). A Gym's leader
+# room only counts while the Gym Leader music plays (some Gyms keep their
+# trainers in the same zone); the Elite Four's and the Champion's rooms have
+# nobody else in them. From the RetroAchievements notes for Black.
+GYM_ROOMS = {0x07: 'Striaton', 0x13: 'Lenora', 0x1D: 'Burgh', 0x3F: 'Elesa', 0x61: 'Clay',
+             0x6C: 'Skyla', 0x72: 'Brycen', 0x79: 'Opelucid'}
+ELITE_ROOMS = {0x8C: 'Shauntal', 0x8D: 'Grimsley', 0x8E: 'Marshal', 0x8F: 'Caitlin'}
+CHAMPION_ROOM, CHAMPION = 0x90, 'Alder'
+LEADER_MUSIC = {0x46C, 0x47B}        # Gym Leader battle, and its last-Pokemon version
+# Striaton's leader is the brother whose type beats your first partner.
+STRIATON = [((495, 496, 497), 'Chili'), ((498, 499, 500), 'Cress'), ((501, 502, 503), 'Cilan')]
+
+
+def opponent(zone, music, party_species, version='Black'):
+    """(kind, name) of a trainer battle: kind 'gym', 'elite', 'champion' or
+    'trainer'; name None when it isn't known."""
+    if zone in ELITE_ROOMS:
+        return 'elite', ELITE_ROOMS[zone]
+    if zone == CHAMPION_ROOM:
+        return 'champion', CHAMPION
+    if music in LEADER_MUSIC:
+        leader = GYM_ROOMS.get(zone)
+        if leader == 'Opelucid':
+            leader = 'Iris' if version == 'White' else 'Drayden'
+        elif leader == 'Striaton':
+            leader = next((name for line, name in STRIATON if any(s in line for s in party_species)), None)
+        return 'gym', leader
+    return 'trainer', None
+
+
+# The field's weather (a u8 next to the season) -> the battle view's weather
+# particles (overlay/backdrop.py).
+WEATHER = {0: None, 1: 'snow', 2: 'rain', 3: 'sand', 4: 'heavy_snow', 5: 'hail', 6: 'storm', 7: 'heavy_rain',
+           8: 'snow', 9: 'fog'}
+
+# Times of day by season: the hour morning, day, evening and night start.
+# Black and White's days are longer in summer and shorter in winter.
+_DAY_STARTS = {'spring': (5, 10, 17, 20), 'summer': (4, 9, 19, 21), 'autumn': (6, 10, 17, 20),
+               'winter': (7, 11, 17, 19)}
+
+
+def time_of_day(clock, season=None):
+    """'morning', 'day', 'evening' or 'night' for a clock ('YYYY-MM-DD HH:MM')
+    in a season."""
+    try:
+        hour = int(clock.split(' ')[1].split(':')[0])
+    except (AttributeError, IndexError, ValueError):
+        return 'day'
+    morning, day, evening, night = _DAY_STARTS.get(season, _DAY_STARTS['spring'])
+    if morning <= hour < day:
+        return 'morning'
+    if day <= hour < evening:
+        return 'day'
+    if evening <= hour < night:
+        return 'evening'
+    return 'night'
+
+
 # Where battles happen, by words in the place's name: (sky, platform) for
 # overlay/unova_art.py. Outdoors in winter is snowy where the game puts snow.
 _TERRAIN_WORDS = [

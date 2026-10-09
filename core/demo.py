@@ -3,8 +3,9 @@ demo.py - DemoSource: a made-up game state that plays through a loop of
 scenes, so the overlay can be styled without the DSi or a save file:
 overworld, a wild battle by day, a shiny in the evening rain, the rival at
 night (who switches Pokemon), a snowy route, a legendary in a cave, a level
-up, Pokemon Black (its own main view, with an achievement unlocking, then
-a battle in Pinwheel Forest), another game (the game card every game
+up, Pokemon Black (its own main view, with an achievement unlocking, a
+battle in the rain in Pinwheel Forest, and Burgh at the Castelia Gym),
+another game (the game card every game
 without its own parser gets, with an achievement unlocking), and the DSi
 going offline.
 
@@ -53,7 +54,8 @@ def _battle_mon(mon, side, hp=None, uses=(), last_move=None, worn=(0, 0, 0, 0)):
 
 # Types of the demo's battlers (the real ones come from the BattleMon).
 DEMO_TYPES = {393: ['Water'], 396: ['Normal', 'Flying'], 77: ['Fire'], 387: ['Grass'],
-              459: ['Grass', 'Ice'], 487: ['Ghost', 'Dragon'], 502: ['Water'], 540: ['Bug', 'Grass']}
+              459: ['Grass', 'Ice'], 487: ['Ghost', 'Dragon'], 502: ['Water'], 540: ['Bug', 'Grass'],
+              544: ['Bug', 'Poison']}
 
 PARTY = [
     _mon(393, 18, 44, 52, 'M', moves=('Bubble', 'Peck', 'Growl', 'Bide')),
@@ -98,11 +100,15 @@ BATTLES = {
                  foes=[(0, _mon(459, 32, 88, 88, 'F', moves=('Ice Shard', 'Razor Leaf')))],
                  moves=[(3, 'you', 'Peck', 20), (4.5, 'foe', 'Ice Shard', 9)],
                  effects=[(4.5, 'you', dict(status='Frozen'))]),
-    'unova_battle': dict(place='Pinwheel Forest', clock='17:30', weather=0, music=None, trainer=None,
+    'unova_battle': dict(place='Pinwheel Forest', clock='17:30', weather=2, weather_kind='rain', music=0x400, trainer=None,
                          foes=[(0, _mon(540, 19, 47, 47, 'F', moves=('Bug Bite', 'String Shot', 'Razor Leaf')))],
                          moves=[(2.5, 'you', 'Razor Shell', 16), (4, 'foe', 'Razor Leaf', 9),
                                 (8.5, 'you', 'Water Gun', 7), (10, 'foe', 'String Shot', 0)],
                          effects=[(10, 'you', dict(stages={'SPE': -1}))]),
+    'unova_gym': dict(place='Castelia Gym', clock='12:10', weather=0, music=0x46C, trainer='Burgh', kind='gym',
+                      foes=[(0, _mon(544, 21, 54, 54, 'M', moves=('Poison Tail', 'Screech', 'Pursuit')))],
+                      moves=[(4.5, 'you', 'Razor Shell', 14), (6, 'foe', 'Poison Tail', 8)],
+                      effects=[]),
     'legend': dict(place='Turnback Cave', clock='16:00', weather=0, music=0x0, trainer=None,
                    foes=[(0, _mon(487, 47, 190, 190, 'genderless', moves=('Shadow Force', 'Dragon Claw')))],
                    moves=[(4, 'you', 'Bubble', 30), (5.5, 'foe', 'Shadow Force', 12)],
@@ -157,7 +163,8 @@ BW_UNLOCK_AT = 6.0
 SCENES = [
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
-    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('other', 16), ('offline', 6),
+    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('other', 16),
+    ('offline', 6),
 ]
 
 
@@ -216,7 +223,7 @@ class DemoSource:
             return self._other(into)
         if name == 'unova':
             return self._unova(into)
-        d = self._unova(into) if name == 'unova_battle' else self._base_state(time.time() - self.t0)
+        d = self._unova(into) if name.startswith('unova_') else self._base_state(time.time() - self.t0)
         if self.name:
             d['trainer_name'] = self.name
         lead = d['party'][0]
@@ -234,7 +241,8 @@ class DemoSource:
             return d
 
         cfg = BATTLES[name]
-        d['location'].update(map_id=1, name=cfg['place'], area=cfg['place'], weather=cfg['weather'])
+        d['location'].update(map_id=1, name=cfg['place'], area=cfg['place'], weather=cfg['weather'],
+                             weather_kind=cfg.get('weather_kind'))
         d['misc']['clock'] = f"2026-09-25 {cfg['clock']}"
         d['misc']['music_id'] = cfg['music']
         started, foe = [(s, m) for s, m in cfg['foes'] if s <= into][-1]
@@ -249,7 +257,7 @@ class DemoSource:
             done = [mv for s, mv, _ in used if s + HIT_DELAY + LAST_DELAY <= into]
             return done[-1] if done else None
 
-        trainer = d['rival_name'] if cfg['trainer'] == 'rival' else None
+        trainer = d.get('rival_name') if cfg['trainer'] == 'rival' else cfg['trainer']
         mons = [_battle_mon(lead, 'yours', uses=[mv for _, mv, _ in mine], last_move=last(mine), worn=LEAD_WORN),
                 _battle_mon(foe, 'foe', max(0, foe_hp), uses=[mv for _, mv, _ in theirs], last_move=last(theirs))]
         for s, who, changes in cfg.get('effects', []):
@@ -262,7 +270,9 @@ class DemoSource:
             mon['conditions'] += changes.get('conditions', [])
         d['battle'].update(active=True, wild=cfg['trainer'] is None, trainer=trainer, music_says_battle=True,
                            mons=mons)
-        if trainer:
+        if d.get('kind') == 'bw':
+            d['battle']['kind'] = cfg.get('kind') or ('trainer' if trainer else 'wild')
+        elif trainer:
             d['battle']['trainer_class'] = 0x3F
         return d
 

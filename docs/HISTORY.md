@@ -285,11 +285,21 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **The launcher's icon on a 3DS.** On Viv's 3DS (TWiLight
+  Menu++) three of the icon's four frames had scrambled colours: ndstool
+  gives each frame its own palette, sorted by colour, and the all-lit
+  frame had one colour fewer (no unlit arc), so its palette was shifted,
+  and the menu draws every frame with one palette. The unlit arcs are now
+  the speakers' colour, so every frame has the same colours and the same
+  palette (tools/make_pixel_dsi.py checks it). The icon is also 32 wide
+  now (the Wi-Fi sign's middle column doubled), so it sits in the middle
+  of the rounded square instead of touching only its left edge.
+
 - 2026-10-09: **The pixel DSi everywhere.** A third console picture for
   Discord, "Pixel DSi" (`Assets/Consoles/Pixel.gif`): the waiting screen's
   DSi looking for a connection, animated, with room around it for Discord's
   round picture. The launcher has it as its animated icon too, redrawn
-  31x32 to fill the icon (its six lines as four at that size, and its
+  32x32 to fill the icon (its six lines as four at that size, and its
   colours the DS's own 15-bit ones, so the menu shows exactly the GIF), and
   is now "DSiRPC / RPC & RA Tracking / VampyreVK" in the DSi's menus. Both
   are made by `tools/make_pixel_dsi.py`, checked with BlocksDS's ndstool

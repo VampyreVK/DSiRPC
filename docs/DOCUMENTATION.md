@@ -607,7 +607,7 @@ table), so HP and moves show up quickly.
   looks for the DSi. Once the launcher has synced (`Snapshot.launcher`, see
   `core/hub.py`), the DSi is connected even before a game says hello: the
   Wi-Fi sign and the header's signal meter turn green, it reads "DSi
-  connected!" and "In the launcher, at <ip>", and step 1 is ticked off; when
+  connected!" and "In the launcher at <ip>", and step 1 is ticked off; when
   you pick a game it reads "Starting <game>..." with steps 1 and 2 ticked,
   until the game's first hello.
 - **Banners:** for the hub's events (DSi connected or lost, another game,

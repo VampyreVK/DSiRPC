@@ -1140,7 +1140,7 @@ class Overlay:
             title = self.font.fit(f"Starting {launcher.get('title') or launcher['game']}", tw - 12) + dots
             status, done = [f"Loading it on the DSi at {launcher['ip']}"], 2
         elif launcher:
-            title, status, done = "DSi connected!", [f"In the launcher, at {launcher['ip']}"], 1
+            title, status, done = "DSi connected!", [f"In the launcher at {launcher['ip']}"], 1
         else:
             title, status, done = "Waiting for the DSi" + dots, self.font.wrap(snap.status or '', tw, 2), 0
         steps = ["Start the DSiRPC launcher.", "Press START and pick a game.", "It shows up here as you play."]

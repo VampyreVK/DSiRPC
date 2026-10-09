@@ -286,7 +286,7 @@ in this table before assuming it's missing from RA entirely.
 ## Progress log
 
 - 2026-10-09: **Discord's Unova pictures, adjusted.** Hilbert and Hilda are
-  drawn 4x on a turf a little higher, filling Discord's round picture, and
+  drawn 3x (Viv's pick of the sizes tried), filling Discord's round picture, and
   the Pokémon on the Unova turfs face right like Platinum's dioramas (they
   had been mirrored the overlay's way).
 

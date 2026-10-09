@@ -48,11 +48,9 @@ from PIL import Image, ImageSequence  # noqa: E402
 
 CANVAS = 160
 FEET_Y = 126
-# The trainers are drawn 4x their own pixels, on a turf a little higher than
-# the Pokemon's, so they fill Discord's round picture. The tallest frames (on
-# the bike) stand a little lower so their heads stay in the picture; a few
-# (a ponytail on the bike) just touch the circle's edge.
-TRAINER_SCALE, TRAINER_FEET_Y = 4, 124
+# The trainers are drawn 3x their own pixels, on the same turf as the
+# Pokemon, so they fill Discord's round picture.
+TRAINER_SCALE, TRAINER_FEET_Y = 3, FEET_Y
 TURF_W, TURF_H = 136, 34          # the turf's top ellipse
 TURFS = ['grass', 'sand', 'snow', 'water', 'cave', 'indoor']   # core/bw_data.terrain()'s platforms
 DIRECTIONS = ['Down', 'Left', 'Right', 'Up']

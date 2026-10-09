@@ -16,9 +16,12 @@ A source is anything with read() -> state dict or None, plus an optional
 status text, forget_dsi(), next_delay() (seconds until the next read, to
 override the hub's interval) and take_events() (events of its own, like an
 achievement unlocking). Returning the very same state object as last time
-means "nothing new, still there". A state is either Platinum's parsed dict (see
-core/parser.py; it has no 'kind') or, for any other game, the dict from
-core/other_game.py ({'kind': 'other', ...}); is_other() tells them apart.
+means "nothing new, still there". A state is Platinum's parsed dict (see
+core/parser.py; it has no 'kind'), Black or White's (core/bw_parser.py,
+{'kind': 'bw', ...}, laid out like Platinum's plus the RetroAchievements
+keys of core/other_game.py), or, for any other game, the dict from
+core/other_game.py ({'kind': 'other', ...}); is_other() and is_bw() tell
+them apart.
 Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
@@ -36,8 +39,9 @@ import struct
 import threading
 import time
 
-from . import games
-from .other_game import OtherGame
+from . import bw_data, games
+from .bw_parser import BWParser
+from .other_game import OtherGame, ra_summary
 from .parser import PlatinumParser, TrainerMemory
 from .ra_game import RaGame, RaSettings
 
@@ -45,6 +49,11 @@ from .ra_game import RaGame, RaSettings
 def is_other(state):
     """True for the state of a game without its own parser (core/other_game.py)."""
     return bool(state) and state.get('kind') == 'other'
+
+
+def is_bw(state):
+    """True for Pokemon Black or White's state (core/bw_parser.py)."""
+    return bool(state) and state.get('kind') == 'bw'
 
 
 class Snapshot:
@@ -73,16 +82,28 @@ class DsiSource:
     BATTLE_FULL_EVERY seconds as a safety net. Set fast_battles = False to
     read battles like everything else (when nothing shows them live).
 
+    Pokemon Black and White (US) get their own parser (core/bw_parser.py),
+    read the same way (battlers only during a battle), with the game card's
+    RetroAchievements keys added. While what it reads doesn't look like the
+    game (another region, or memory laid out differently), they get the game
+    card like any other game, and the parser is tried again every
+    parse_interval.
+
     Any other game is followed with core/other_game.py: its name, and its
     RetroAchievements rich presence if there's a set for it.
 
     Every game, Platinum too, gets its RetroAchievements side
     (core/ra_game.py): its achievements are checked every
     ra_settings.interval seconds (about once a second), between the parses,
-    which happen every parse_interval seconds. `ra_link` is the connection to
-    RetroAchievements (core/ra_link.py), if you're signed in."""
+    which happen every parse_interval seconds, and the ones checked every
+    frame on the PC (core/frame_capture.py) a few times a second, also in
+    between the requests of a long read, so the DSi's record of frames
+    never fills up. DSiRPC's own unlocks are passed on to the console's
+    checker. `ra_link` is the connection to RetroAchievements
+    (core/ra_link.py), if you're signed in."""
 
     FAST_INTERVAL = 0.3
+    FIELD_INTERVAL = 0.3   # Black/White in the field: the player's map object, for the trainer's gait
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
@@ -103,6 +124,8 @@ class DsiSource:
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
         self.client.ach.on_unlocks = self._console_unlocks
+        self.client.ach.on_report = self._console_report
+        self.client.idle_hook = self._capture_tick
         self.ram = DsiRam(self.client)
         self.sparse = SparseRam(self.client)
         self.ra_game = None     # RaGame for the running game
@@ -114,6 +137,8 @@ class DsiSource:
         self.last_full = 0.0    # time.time() of the last full read
         self.fast_misses = 0
         self.other = None       # OtherGame while the DSi runs something other than Platinum
+        self.bw_started = None  # when Black/White started being read (for Discord's timer)
+        self.bw_failed = False  # True: the last Black/White parse didn't look like the game; 'menu': not in the field yet
 
     @property
     def status(self):
@@ -141,6 +166,11 @@ class DsiSource:
     def _in_battle(self):
         return bool(self.last and not is_other(self.last) and self.last['battle']['active'])
 
+    def _in_field(self):
+        """Black/White outside a battle, with the player's map object found."""
+        return bool(is_bw(self.last) and not self.last['battle']['active']
+                    and self.last['location'].get('object'))
+
     def next_delay(self):
         if self.client.dsi_ip is None:
             return None
@@ -148,9 +178,13 @@ class DsiSource:
         delays = []
         if self.fast_battles and self._in_battle():
             delays.append(self.FAST_INTERVAL)
+        elif self.fast_battles and self._in_field():
+            delays.append(self.FIELD_INTERVAL)
         if self.ra_game and (self.ra_game.runtime or not self.ra_game.set):
             delays.append(self.ra_game.next_due - now)
-        if games.is_platinum(self.client.game):
+        if self.ra_game and self.ra_game.capture_due is not None:
+            delays.append(self.ra_game.capture_due - now)
+        if games.is_platinum(self.client.game) or games.is_bw(self.client.game):
             delays.append(self.last_parse + self.parse_interval - now)
         return max(0.05, min(delays)) if delays else None
 
@@ -176,6 +210,34 @@ class DsiSource:
         if self.ra_game:
             self.ra_game.inbox.put(("console", list(ids)))
 
+    def _console_report(self, report):
+        """The console's checker reported (once a second): which set it runs."""
+        if self.ra_game:
+            self.ra_game.inbox.put(("report", dict(report)))
+
+    def _capture_tick(self):
+        """The achievements checked every frame on the PC (also called
+        between the requests of a long read)."""
+        ra = self.ra_game
+        if ra is None or ra.capture_due is None or time.time() < ra.capture_due:
+            return
+        ra.capture_tick()
+        self._events += ra.take_events()
+
+    def _push_unlocks(self):
+        """DSiRPC's own unlocks, to the console's checker and in-game menu."""
+        ra = self.ra_game
+        todo = ra.pending_pushes() if ra else []
+        if not todo:
+            return
+        try:
+            taken = self.client.push_unlocks(todo, retries=1, timeout=0.5)
+        except (TimeoutError, RuntimeError):
+            return
+        ra.pushed_to_console(todo[:taken])
+        if taken:
+            logging.info(f"Console: told it about {taken} unlock(s) DSiRPC made, for its in-game menu")
+
     def _ra_tick(self):
         ra = self.ra_game
         if not ra or time.time() < ra.next_due:
@@ -190,6 +252,7 @@ class DsiSource:
             ra.read_ok = False
             logging.exception("RetroAchievements check failed")
         self._events += ra.take_events()
+        self._push_unlocks()
 
     def read(self):
         if self.client.dsi_ip is None:
@@ -198,7 +261,11 @@ class DsiSource:
                 return None
         game = self.client.game
         self._switch_ra(game)
+        self._capture_tick()
         self._ra_tick()
+        if games.is_bw(game):
+            return self._read_bw(game)
+        self.bw_started = None
         # The Platinum parser only makes sense on Platinum.
         if not games.is_platinum(game):
             return self._read_other(game)
@@ -235,6 +302,96 @@ class DsiSource:
         self.failed = data is None and self.ra_game is not None and bool(self.ra_game.runtime)
         self.last = data
         return data
+
+    def _read_bw(self, game):
+        """Pokemon Black or White: like Platinum (battlers only during a
+        battle), or the game card while the parser doesn't recognise what
+        it reads."""
+        now = time.time()
+        last = self.last if is_bw(self.last) else None
+        if last and self.fast_battles and last['battle']['active'] and now - self.last_full < self.BATTLE_FULL_EVERY:
+            try:
+                ranges = BWParser.quick_ranges(last, games.bw_version(game))
+                data = BWParser.apply_quick(last, self.client.read_ranges(ranges, timeout=self.FAST_TIMEOUT, retries=1))
+                self.fast_misses = 0
+            except (TimeoutError, RuntimeError):
+                self.fast_misses += 1
+                if self.fast_misses < self.FAST_MISSES:
+                    return None  # dropped; the next try is only FAST_INTERVAL away
+                data = None
+            if data is not None:
+                self.failed = False
+                self.last = self._with_ra(data, game)
+                return self.last
+        elif now - self.last_parse < self.parse_interval:
+            if last and self.fast_battles and self._in_field():
+                # Between full reads, follow the player (facing, position,
+                # walking or running), or read everything again if the map
+                # changed or a battle started.
+                try:
+                    got = self.client.read_ranges(BWParser.field_ranges(last, games.bw_version(game)),
+                                                  timeout=self.FAST_TIMEOUT, retries=1)
+                    data = BWParser.apply_field(last, got, time.time())
+                except (TimeoutError, RuntimeError):
+                    return self.last  # dropped; the next try is only FIELD_INTERVAL away
+                if data is not None:
+                    self.last = self._with_ra(data, game)
+                    return self.last
+                self.last_parse = 0.0
+                return self._read_bw(game)
+            if last:
+                fresh = self._with_ra(last, game)
+                if any(fresh[k] != last.get(k) for k in ('progress', 'unlocked', 'latest', 'rich_presence', 'ra_set')):
+                    self.last = fresh  # an unlock, or the set arrived: show it now
+                return self.last
+            return self._read_other(game)  # the game card until the next try
+        self.fast_misses = 0
+        self.last_parse = now
+        try:
+            self.ram.clear()
+            parser = BWParser(self.ram, version=games.bw_version(game))
+            data = parser.parse()
+        except (TimeoutError, RuntimeError) as e:
+            if not self.failed:
+                logging.warning(f"Read failed: {e}")
+            self.failed = True
+            self.last = None
+            return None
+        if data is None:
+            # Not in the field yet (the Continue menu, the intro): the game
+            # card, with the RetroAchievements rich presence, until you are.
+            if parser.on_menu:
+                if self.bw_failed != 'menu':
+                    logging.info(f"{games.name(game)}: not in the game yet, so it gets the game card")
+                self.bw_failed = 'menu'
+            else:
+                if self.bw_failed is not True:
+                    logging.warning(f"{games.name(game)}: its memory doesn't look the way DSiRPC expects"
+                                    " (another region?), so it gets the game card")
+                self.bw_failed = True
+            return self._read_other(game)
+        if self.bw_failed or not last:
+            logging.info(f"Reading {games.name(game)} with its own parser")
+        self.bw_failed = False
+        if self.other:
+            self.other.close()
+            self.other = None
+        self.failed = False
+        if last and data['location'].get('fx') and last.get('zone') == data.get('zone'):
+            BWParser.motion(last['location'], data['location'], now)  # the gait carries on across full reads
+        else:
+            data['location']['at'] = now
+        self.last = self._with_ra(data, game)
+        self.last_full = time.time()
+        return self.last
+
+    def _with_ra(self, data, game):
+        """A Black/White state with the game card's RetroAchievements keys."""
+        if self.bw_started is None:
+            self.bw_started = time.time()
+        if not self.ra_game:
+            return data
+        return dict(data, **ra_summary(game, self.ra_game, self.bw_started))
 
     def _read_full(self):
         self.fast_misses = 0
@@ -303,7 +460,8 @@ class DsiSource:
 
 class FileSource:
     """A RAM dump (e.g. ram_dump.bin). Parsed once, then returned every time.
-    `game`: the dump's game code, if it isn't Platinum (e.g. 'AMCE')."""
+    `game`: the dump's game code, if it isn't Platinum (e.g. 'AMCE', or
+    'IRBO' for Pokemon Black)."""
 
     def __init__(self, charmap, path, game=None, ra_settings=None):
         with open(path, "rb") as f:
@@ -311,6 +469,13 @@ class FileSource:
         self.game = {'code': game.upper(), 'version': 0, 'header_crc': 0} if game else None
         if games.is_platinum(self.game):
             self.state = PlatinumParser(ram, charmap).parse()
+        elif games.is_bw(self.game):
+            ra = RaGame(self.game, ram, None, ra_settings)
+            ra.tick()
+            self.state = BWParser(ram, version=games.bw_version(self.game)).parse()
+            if self.state:
+                self.state.update(ra_summary(self.game, ra, time.time()))
+            ra.close()
         else:
             ra = RaGame(self.game, ram, None, ra_settings)
             ra.tick()
@@ -338,8 +503,17 @@ def diff_events(old, new):
         if is_other(old) != is_other(new) or old.get('game') != new.get('game'):
             events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
         return events
+    if old.get('kind') != new.get('kind') or old.get('version') != new.get('version'):
+        events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
+        return events
 
     ob, nb = old['battle'], new['battle']
+    # Black and White: the catch music means the wild Pokemon was caught.
+    music = (new.get('misc') or {}).get('music_id')
+    if is_bw(new) and nb['active'] and nb.get('wild') and music == bw_data.CATCH_MUSIC \
+            and (old.get('misc') or {}).get('music_id') != bw_data.CATCH_MUSIC:
+        foes = [m for m in nb['mons'] if m['side'].startswith('foe')]
+        events.append({'type': 'caught', 'mon': foes[0] if foes else None})
     if nb['active'] and not ob['active']:
         foes = [m for m in nb['mons'] if m['side'].startswith('foe')]
         events.append({'type': 'battle_start', 'music': new['misc']['music_id'],

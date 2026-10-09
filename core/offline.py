@@ -36,18 +36,22 @@ Achievements already in the file
 aren't checked again. Unlocks DSiRPC made itself (playing online) come back
 this way too; engine.py leaves out the ones it knows about.
 
-CODE.DRS (an offline set, version 3), little-endian:
+CODE.DRS (an offline set, version 4), little-endian:
 
-    header (64 bytes): "DRSE", u16 version (3), u16 header size (64),
+    header (64 bytes): "DRSE", u16 version (4), u16 header size (64),
         4 game code, u32 RA game ID, u32 stamp (CRC-32 of everything after
-        the header), u16 achievement count (in the program), u16 flags (0),
-        u32 program size, u32 state size (the RAM the console needs to run
-        the program), u32 list size, 28 bytes 0 (the console keeps its
-        notes for nds-bootstrap's in-game menu in its RAM copy of bytes
-        40-63)
-    the program: the achievements, already parsed by rcheevos on the PC
-        (rcheevos.compile_offline(); the format is described in
-        nds-bootstrap's rpcprobe/probe_ach_vm.c, the console's interpreter)
+        the header), u16 achievement count (in both programs), u16 flags
+        (0), u32 pass lane program size, u32 its state size (the RAM the
+        console needs to run it), u32 list size, u32 frame lane program
+        size, 24 bytes 0 (the console keeps its notes for nds-bootstrap's
+        in-game menu in its RAM copy of bytes 40-63)
+    the pass lane's program, then the frame lane's: the achievements,
+        already parsed by rcheevos on the PC (rcheevos.compile_offline();
+        the format is described in nds-bootstrap's rpcprobe/probe_ach_vm.c,
+        the console's interpreter). The frame lane's achievements are
+        checked every frame (sampled at the start of every VBlank, checked
+        in order); the pass lane's in passes over them, one after another,
+        each reading the game's memory once. split_lanes() picks them.
     the list, for nds-bootstrap's in-game menu (build_list()):
         "DRMN", u16 version (1), u16 entries, u32 text size, u32 0
         an entry per achievement of the game (official, core and bonus
@@ -67,14 +71,21 @@ CODE.DRS (an offline set, version 3), little-endian:
             ASCII (accents dropped, other characters '?')
 
 Only the achievements left to unlock (as far as DSiRPC knows) that the
-console can check are in the program: official, from the core or a bonus
+console can check are in the programs: official, from the core or a bonus
 set, reading only main RAM, that rcheevos parses and that don't need
-floating point. The whole set and its state have to fit in ACH_MEMORY, the
-RAM nds-bootstrap sets aside for them less the 4 KB the console reads
-RPCUNLK.BIN into; the biggest achievements are left out until it does.
-The launcher never looks past the header; the stamp tells it whether its
-copy is current. (Version 1 had the MemAddr text instead of a program;
-version 2 had no list.)
+floating point. The whole set and its state (the pass lane's, the frame
+lane's twice and its ring of FRAME_SLOTS samples) have to fit in
+ACH_MEMORY, the RAM nds-bootstrap sets aside for them less the 4 KB the
+console reads RPCUNLK.BIN into and the per-frame capture's 2 KB ring; the
+biggest pass lane achievements are left out until it does. The launcher
+never looks past the header; the stamp tells it whether its copy is
+current. (Version 1 had the MemAddr text instead of a program; version 2
+had no list; version 3 had no frame lane.)
+
+Which achievements DSiRPC put in which lane of the sets it built is kept in
+ra/cache/console_sets.json by stamp (remember_set(), known_set()): the
+console's "DSiRPC ach" report says which set it runs (st=), so DSiRPC knows
+what the console checks every frame.
 
 The sync exchange (one per game started while DSiRPC can be found):
 
@@ -92,6 +103,8 @@ The sync exchange (one per game started while DSiRPC can be found):
 """
 
 import datetime
+import json
+import os
 import re
 import struct
 import time
@@ -108,10 +121,13 @@ UNLOCK_SLOTS = 256
 UNLOCK_FILE_SIZE = UNLOCK_SLOT * UNLOCK_SLOTS
 
 SET_MAGIC = b"DRSE"
-SET_VERSION = 3
-SET_HEADER = struct.Struct("<4sHH4sIIHHIII28s")
-ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE (locations.h) less
-                                          # RPCUNLK.BIN's space (probe_ach.c's ACH_SET_SPACE)
+SET_VERSION = 4
+SET_HEADER = struct.Struct("<4sHH4sIIHHIIII24s")
+WATCH_RING_SIZE = 0x800                   # nds-bootstrap's DSIRPC_WATCH_RING_SIZE (locations.h)
+ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE - WATCH_RING_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE less
+                                          # RPCUNLK.BIN's space and the capture's ring (probe_ach.c's
+                                          # ACH_SET_SPACE)
+FRAME_SLOTS = 8                           # probe_ach.c's ACH_FRAME_SLOTS
 PROGRAM_VERSION = 2                       # probe_ach_vm.c's program format
 PROGRAM_HEADER = struct.Struct("<IHHHHI")
 LIST_MAGIC = b"DRMN"
@@ -242,10 +258,26 @@ def program_info(program):
     return n_plain + n_mod, n_ach, n_conds, achievements
 
 
+def program_counts(program):
+    """(plain memory values, modified ones, achievements, conditions)"""
+    _, n_plain, n_mod, n_ach, _, n_conds = PROGRAM_HEADER.unpack_from(program)
+    return n_plain, n_mod, n_ach, n_conds
+
+
+def plain_memrefs(program):
+    """The plain memory values a program reads: {(address, size, type)}"""
+    n_plain = PROGRAM_HEADER.unpack_from(program)[1]
+    out = set()
+    for i in range(n_plain):
+        address, size, vtype = struct.unpack_from("<IBB", program, PROGRAM_HEADER.size + i * 8)
+        out.add((address, size, vtype))
+    return out
+
+
 def state_size(program):
     """The RAM the console needs to run a program (probe_ach_vm.c's checkProgram())."""
     n_mem, n_ach, n_conds, _ = program_info(program)
-    return n_mem * 8 + n_conds * 4 + _align4(n_mem) + _align4(n_ach)
+    return n_mem * 8 + n_conds * 4 + n_ach * 4 + _align4(n_mem) + _align4(n_ach)
 
 
 _PUNCTUATION = str.maketrans({
@@ -323,54 +355,210 @@ def read_list(data):
     return out
 
 
+# -- the two lanes ---------------------------------------------------------------
+#
+# RetroAchievements' rules are checked once a frame on an emulator, and some
+# achievements can only be judged that way: a flag that's set for one frame
+# (Tetris DS's T-spin), a ResetIf that must catch every rotation, a hit
+# count of frames. The console samples the frame lane's memory values at the
+# start of every VBlank and checks them frame by frame; the rest go in the
+# pass lane, checked in passes that each read the memory once. The frame
+# lane costs ARM7 time every frame, so it's picked by need first and then by
+# cost, within FRAME_SAMPLE_CYCLES (the sampling, in the VBlank interrupt)
+# and FRAME_CHECK_CYCLES (the checking, in the game's idle time). The costs
+# are fitted to nds-bootstrap's checker on tools/arm7_model's ARM7 model
+# (an achievement whose values didn't change is skipped, which the check
+# cost assumes for most of them on most frames).
+
+FRAME_SAMPLE_CYCLES = 40000               # about 19 scanlines (a frame has 263, 2,130 cycles each)
+FRAME_CHECK_CYCLES = 110000               # about 52 scanlines
+_FLAG = re.compile(r"(?:^|[_S])([RPZCD]):")
+_HITS = re.compile(r"\.\d+\.")
+_DELTA = re.compile(r"(?<![0-9A-Za-z])[dp](?:0x|f[A-Za-z])")
+
+
+def timing(memaddr):
+    """How much an achievement needs checking every frame: 3 if it counts
+    frames or must not miss one (a hit target, ResetIf, PauseIf,
+    ResetNextIf, AddHits, SubHits), 2 if it compares values with earlier
+    ones (delta, prior), 1 otherwise."""
+    if _FLAG.search(memaddr) or _HITS.search(memaddr):
+        return 3
+    return 2 if _DELTA.search(memaddr) else 1
+
+
+def frame_costs(n_plain, n_mod, n_ach, n_conds):
+    """(sampling, checking) ARM7 cycles a frame for a frame lane this big."""
+    return (221 * n_plain + 566 * n_mod + 150,
+            112 * (n_plain + n_mod) + 500 * n_ach + 90 * n_conds)
+
+
+def _fits_frame(n_plain, n_mod, n_ach, n_conds):
+    sample, check = frame_costs(n_plain, n_mod, n_ach, n_conds)
+    return sample <= FRAME_SAMPLE_CYCLES and check <= FRAME_CHECK_CYCLES
+
+
+def split_lanes(todo):
+    """[(id, memaddr)] (all parsing and supported) -> (frame lane, pass
+    lane), the same shape. The frame lane takes the ones that need it
+    (timing() 2 or 3) first, the cheapest first so as many as possible fit,
+    then the rest the same way, while it fits; each one is costed on its own
+    (memory values it shares with ones already in count once if they're
+    plain), then the lane as a whole is checked."""
+    from .rcheevos import compile_offline
+    alone = {}
+    for aid, memaddr in todo:
+        program, left = compile_offline([(aid, memaddr)])
+        if left:
+            continue
+        n_plain, n_mod, n_ach, n_conds = program_counts(program)
+        alone[aid] = (plain_memrefs(program), n_mod, n_conds)
+    order = sorted((t for t in todo if t[0] in alone),
+                   key=lambda t: (timing(t[1]) < 2, alone[t[0]][2] + 2 * alone[t[0]][1], t[0]))
+    frame, plain, n_mod, n_conds = [], set(), 0, 0
+    for t in order:
+        p, m, c = alone[t[0]]
+        if _fits_frame(len(plain | p), n_mod + m, len(frame) + 1, n_conds + c):
+            frame.append(t)
+            plain |= p
+            n_mod += m
+            n_conds += c
+    while frame:  # (the estimate counts shared modified values more than once, so this is a check)
+        program, _ = compile_offline(frame)
+        if _fits_frame(*program_counts(program)):
+            break
+        frame.pop()
+    chosen = {t[0] for t in frame}
+    return frame, [t for t in todo if t[0] not in chosen]
+
+
+def set_memory(pass_program, frame_program, list_size):
+    """The console RAM a set needs: the file (header, programs, list), the
+    pass lane's state, the frame lane's twice and its ring of samples."""
+    need = _align4(SET_HEADER.size + len(pass_program) + len(frame_program) + list_size) + state_size(pass_program)
+    if frame_program:
+        n_plain, n_mod, _, _ = program_counts(frame_program)
+        need += 2 * state_size(frame_program) + FRAME_SLOTS * 4 * (n_plain + n_mod)
+    return need
+
+
 def build_set(raset, code, skip_ids=(), earned=None):
     """The offline set for a game (bytes), from its RaSet. skip_ids: the
-    achievements already unlocked (left out of the program); earned: {id:
+    achievements already unlocked (left out of the programs); earned: {id:
     Unix time it was earned, or 0} for the in-game menu's list. Needs
     rcheevos with DSiRPC's compiler (rcheevos.RcheevosMissing otherwise)."""
     from .ra_game import _unreachable
     from .rcheevos import compile_offline
     todo = [(a["id"], a["memaddr"]) for a in raset.playable_achievements
             if a["id"] not in skip_ids and a["memaddr"] and not _unreachable(a["memaddr"])]
+    _, left_out = compile_offline(todo)
+    todo = [t for t in todo if t[0] not in left_out]
+    frame, rest = split_lanes(todo)
+    frame_program = b""
+    if frame:
+        frame_program, _ = compile_offline(frame)
     # The list's size doesn't depend on which achievements are checked
     list_size = len(build_list(raset, earned))
     while True:
-        program, _ = compile_offline(todo)
-        n_mem, n_ach, n_conds, achievements = program_info(program)
-        state = state_size(program)
-        if not achievements or _align4(SET_HEADER.size + len(program) + list_size) + state <= ACH_MEMORY:
+        program, _ = compile_offline(rest)
+        _, _, _, achievements = program_info(program)
+        if not achievements or set_memory(program, frame_program, list_size) <= ACH_MEMORY:
             break
         # too big for the console: leave out the biggest achievement
         biggest = max(achievements, key=lambda a: a[1] + a[2] * 4)[0]
-        todo = [t for t in todo if t[0] != biggest]
-    if len(program) % 4:
+        rest = [t for t in rest if t[0] != biggest]
+    if len(program) % 4 or len(frame_program) % 4:
         raise FormatError("program size isn't a multiple of 4")
-    body = program + build_list(raset, earned, [a[0] for a in achievements])
+    n_ach = program_info(program)[1] + (program_info(frame_program)[1] if frame_program else 0)
+    checked = [a[0] for a in achievements] + [t[0] for t in frame]
+    body = program + frame_program + build_list(raset, earned, checked)
     header = SET_HEADER.pack(SET_MAGIC, SET_VERSION, SET_HEADER.size, code.encode(), raset.id,
-                             zlib.crc32(body) & 0xFFFFFFFF, n_ach, 0, len(program), state,
-                             len(body) - len(program), b"")
+                             zlib.crc32(body) & 0xFFFFFFFF, n_ach, 0, len(program), state_size(program),
+                             len(body) - len(program) - len(frame_program), len(frame_program), b"")
     return header + body
 
 
 def read_set(data):
     """{'code', 'game_id', 'stamp', 'achievements': [{'id'}], 'program',
-    'state_size', 'list': read_list()'s}."""
+    'state_size', 'frame_program', 'frame': [ids], 'pass': [ids], 'list':
+    read_list()'s}. Version 3 sets (no frame lane) too."""
     if len(data) < SET_HEADER.size or data[:4] != SET_MAGIC:
         raise FormatError("not an offline set")
     (_, version, hsize, code, game_id, stamp, count, _flags,
-     program_size, state, list_size, _) = SET_HEADER.unpack_from(data)
-    if version != SET_VERSION:
+     program_size, state, list_size, frame_size, _) = SET_HEADER.unpack_from(data)
+    if version not in (3, 4):
         raise FormatError(f"offline set version {version}")
-    body = data[hsize:hsize + program_size + list_size]
-    if len(body) != program_size + list_size or zlib.crc32(body) & 0xFFFFFFFF != stamp:
+    if version == 3:
+        frame_size = 0
+    body = data[hsize:hsize + program_size + frame_size + list_size]
+    if len(body) != program_size + frame_size + list_size or zlib.crc32(body) & 0xFFFFFFFF != stamp:
         raise FormatError("offline set damaged (stamp doesn't match)")
     program = body[:program_size]
+    frame_program = body[program_size:program_size + frame_size]
     _, n_ach, _, achievements = program_info(program)
-    if n_ach != count or state != state_size(program):
-        raise FormatError("offline set header doesn't match its program")
+    frame = [aid for aid, _, _ in program_info(frame_program)[3]] if frame_program else []
+    if n_ach + len(frame) != count or state != state_size(program):
+        raise FormatError("offline set header doesn't match its programs")
+    passes = [aid for aid, _, _ in achievements]
     return {'code': code.decode(), 'game_id': game_id, 'stamp': stamp,
-            'achievements': [{'id': aid} for aid, _, _ in achievements],
-            'program': program, 'state_size': state, 'list': read_list(body[program_size:])}
+            'achievements': [{'id': aid} for aid in passes + frame],
+            'program': program, 'state_size': state, 'frame_program': frame_program,
+            'frame': frame, 'pass': passes, 'list': read_list(body[program_size + frame_size:])}
+
+
+# -- which set the console runs ------------------------------------------------------
+
+KNOWN_SETS_KEEP = 64
+
+
+def _known_path(ra_dir):
+    if ra_dir is None:
+        from . import ra_set
+        ra_dir = ra_set.RA_DIR
+    return os.path.join(ra_dir, "cache", "console_sets.json")
+
+
+def remember_set(data, ra_dir=None):
+    """Notes which achievements a set DSiRPC built checks in which lane, by
+    its stamp (ra/cache/console_sets.json; the last KNOWN_SETS_KEEP)."""
+    try:
+        s = read_set(data)
+    except FormatError:
+        return
+    path = _known_path(ra_dir)
+    try:
+        with open(path, encoding="utf-8") as f:
+            known = json.load(f)
+    except (OSError, ValueError):
+        known = {}
+    if not isinstance(known, dict):
+        known = {}
+    known[f"{s['stamp']:08X}"] = {'code': s['code'], 'game_id': s['game_id'], 'frame': s['frame'],
+                                  'pass': s['pass'], 'time': int(time.time())}
+    if len(known) > KNOWN_SETS_KEEP:
+        for stamp in sorted(known, key=lambda k: known[k].get('time', 0))[:len(known) - KNOWN_SETS_KEEP]:
+            del known[stamp]
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(known, f)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
+def known_set(stamp, ra_dir=None):
+    """{'code', 'game_id', 'frame': set of ids, 'pass': set of ids} of a set
+    DSiRPC built, by its stamp (an int), or None."""
+    try:
+        with open(_known_path(ra_dir), encoding="utf-8") as f:
+            entry = json.load(f).get(f"{stamp:08X}")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(entry, dict):
+        return None
+    return {'code': entry.get('code'), 'game_id': entry.get('game_id', 0),
+            'frame': set(entry.get('frame') or ()), 'pass': set(entry.get('pass') or ())}
 
 
 def set_stamp(data):

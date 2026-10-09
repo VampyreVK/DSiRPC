@@ -5,7 +5,11 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   (trainer, badges, Pokedex)
     battle view   sky and ground, platforms, the foe and your Pokemon, their
                   HP boxes and a message box
-    game card     any game but Platinum (overlay/gamecard.py): its name, its
+    Unova view    Pokemon Black and White's main view (overlay/unova.py):
+                  the party in the games' own panels, the achievements, the
+                  trainer and badges; their battles use the battle view
+                  with the games' own backgrounds
+    game card     any other game (overlay/gamecard.py): its name, its
                   RetroAchievements rich presence and achievement progress,
                   laid out like the party view
     waiting view  shown while the DSi isn't sending data: what to do, and the
@@ -32,6 +36,7 @@ import math
 
 import pygame
 
+from core import bw_data
 from core import platinum_data as pdata
 from . import markers, ui
 from .backdrop import Backdrop, period, terrain, weather_kind
@@ -39,6 +44,8 @@ from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
+from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
+from .unova_art import UnovaArt
 
 W, H = 256, 192
 HEADER_H = 16
@@ -50,6 +57,10 @@ WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x
 
 TOAST_MS = 3500
 WIPE_MS = 700
+
+# Move types, categories and PP: Black and White's table holds every Gen IV
+# move as Platinum's does, plus Gen V's.
+MOVE_INFO = bw_data.MOVE_INFO
 
 
 def _upper(name):
@@ -111,6 +122,7 @@ class Overlay:
         self.font = PixelFont()
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
+        self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
         self.view = 'auto'         # 'auto', 'party' or 'battle' (V key in the window)
@@ -120,6 +132,15 @@ class Overlay:
         self.last_pos = None
         self.shiny_intro_until = 0
         self._scaled = {}
+        # Window-resolution sprites (see blit_hires): app.py sets hires_ok
+        # when it composites them, they're queued in `hires` each frame, and
+        # what's drawn after lift() goes on `layer`, above them.
+        self.hires_ok = False
+        self.hires = []
+        self.layer = None
+        self._over = None
+        self._over_big = None
+        self._sharp = {}
         self.backdrop = Backdrop()
         self.battle_since = None   # when the battle view appeared (intro slide-in)
         self.battlers = {}         # 'foe0' / 'foe1' / 'you0' / 'you1' -> animation state
@@ -133,6 +154,9 @@ class Overlay:
         self.seq = 0               # order moves were seen in
         self.intro_until = 0       # the intro message follows the data until then
         self.read_at = None        # when the data being drawn was read (Snapshot.updated)
+        self.unova_battle = False  # the battle being drawn is Black or White's (their HUD)
+        self.trainer_intro = None  # Black and White: the leader shown at the start ({} for none)
+        self.caught_at = None      # Black and White: when the foe was caught (its ball animation)
 
     # -- state -----------------------------------------------------------------
 
@@ -158,6 +182,10 @@ class Overlay:
                 self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
             elif kind == 'achievement':
                 self.toast(self._fit_line(f"Achievement: {e['title']}", W - 40), sparkly=True)
+            elif kind == 'caught':
+                name = _upper((e.get('mon') or {}).get('nickname') or 'the Pokémon')
+                self.toast(self._fit_line(f"Gotcha! {name} was caught!", W - 40), sparkly=True)
+                self.caught_at = t_ms
 
     def _fit_line(self, text, width):
         """`text`, cut with … so it's at most `width` pixels wide."""
@@ -183,6 +211,7 @@ class Overlay:
     # -- frame -----------------------------------------------------------------
 
     def draw(self, canvas, snap, t_ms, dt_ms):
+        self.hires, self.layer = [], None
         d = snap.state if snap.online else None
         self.read_at = snap.updated
         other = bool(d) and d.get('kind') == 'other'
@@ -198,6 +227,8 @@ class Overlay:
             if p >= 1 and want_battle != self.showing_battle:
                 self.showing_battle = want_battle
                 self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
+                self.trainer_intro = None
+                self.caught_at = None
                 self.msg_queue, self.held = [], []
                 self.battle_since = t_ms if want_battle else None
                 if want_battle:
@@ -214,12 +245,89 @@ class Overlay:
             self.card.draw(canvas, d, t_ms)
         elif self.showing_battle and in_battle:
             self.draw_battle(canvas, d, t_ms, dt_ms)
+        elif d.get('kind') == 'bw':
+            self.unova.draw(canvas, d, t_ms, dt_ms)
         else:
             self.draw_party(canvas, d, t_ms, dt_ms)
 
-        self.draw_toasts(canvas, t_ms)
+        top = self.layer or canvas
+        self.draw_toasts(top, t_ms)
         if wipe is not None:
-            ui.wipe(canvas, wipe)
+            ui.wipe(top, wipe)
+
+    # -- window-resolution sprites ----------------------------------------------
+
+    def blit_hires(self, canvas, surf, rect, clip=None, dim=False):
+        """Draws `surf` shrunk into `rect` (x, y, w, h in canvas pixels),
+        clipped to `clip`, greyed if `dim`. When app.py composites the
+        window itself (hires_ok) the sprite is queued and drawn at the
+        window's resolution instead (see present), so one shown smaller than
+        its own pixels keeps its detail; call lift() before drawing anything
+        that goes on top of it."""
+        clip = pygame.Rect(clip) if clip else canvas.get_clip()
+        if self.hires_ok and self.layer is None:
+            self.hires.append((surf, rect, clip, dim))
+            return
+        old = canvas.get_clip()
+        canvas.set_clip(clip.clip(old))
+        canvas.blit(self._sharp_scale(surf, rect[2:], dim), rect[:2])
+        canvas.set_clip(old)
+
+    def lift(self, canvas):
+        """The surface to draw what goes above the queued window-resolution
+        sprites on: a clear layer of its own when there are any, else
+        `canvas` itself."""
+        if not self.hires:
+            return canvas
+        if self._over is None or self._over.get_size() != canvas.get_size():
+            self._over = pygame.Surface(canvas.get_size(), pygame.SRCALPHA)
+        self._over.fill((0, 0, 0, 0))
+        self.layer = self._over
+        return self._over
+
+    def present(self, window, canvas):
+        """Scales the frame up into `window`: the canvas, then the queued
+        sprites at the window's own resolution, then the layer above them."""
+        size = window.get_size()
+        pygame.transform.scale(canvas, size, window)
+        if not self.hires:
+            return
+        s = size[0] / canvas.get_width()
+        old = window.get_clip()
+        for surf, (x, y, w, h), clip, dim in self.hires:
+            window.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
+            window.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim), (round(x * s), round(y * s)))
+        window.set_clip(old)
+        if self.layer is not None:
+            if self._over_big is None or self._over_big.get_size() != size:
+                self._over_big = pygame.Surface(size, pygame.SRCALPHA)
+            pygame.transform.scale(self.layer, size, self._over_big)
+            window.blit(self._over_big, (0, 0))
+
+    def _sharp_scale(self, surf, size, dim=False):
+        """`surf` at `size`: pixels multiplied up to the next whole multiple,
+        then smoothed down, so they stay crisp with only their edges blended
+        ("sharp bilinear")."""
+        key = (id(surf), size, dim)
+        out = self._sharp.get(key)
+        if out is not None:
+            return out
+        w, h = surf.get_size()
+        if size == (w, h):
+            out = surf
+        elif size[0] % w == 0 and size[1] % h == 0 and size[0] >= w:
+            out = pygame.transform.scale(surf, size)
+        else:
+            k = max(1, math.ceil(max(size[0] / w, size[1] / h)))
+            big = pygame.transform.scale(surf, (w * k, h * k)) if k > 1 else surf
+            out = pygame.transform.smoothscale(big, size)
+        if dim:
+            out = out.copy()
+            out.fill((130, 130, 130, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        if len(self._sharp) > 900:
+            self._sharp.clear()
+        self._sharp[key] = out
+        return out
 
     # -- helpers ---------------------------------------------------------------
 
@@ -382,9 +490,15 @@ class Overlay:
     def draw_battle(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
         b = d['battle']
-        place = terrain(d['location'])
-        when = period(d['misc'].get('clock'))
-        self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
+        unova = d.get('kind') == 'bw'
+        self.unova_battle = unova  # Black and White's HUD for the boxes below
+        self.unova.now = t_ms
+        place = 'field' if unova else terrain(d['location'])
+        when = self.unova.time_of_day(d) if unova else period(d['misc'].get('clock'))
+        if unova:
+            self.unova.draw_backdrop(canvas, d, when, t_ms)
+        else:
+            self.backdrop.draw(canvas, place, when, t_ms, t['chroma'])
 
         foes = [m for m in b['mons'] if m['side'].startswith('foe')][:2]
         yours = [m for m in b['mons'] if m['side'].startswith('yours')][:2]
@@ -397,10 +511,12 @@ class Overlay:
         far_dx = int((intro - 1) * 200)
         near_dx = int((1 - intro) * 200)
 
-        plat = self.sprites.platform(place, when)
+        plat = None if unova else self.sprites.platform(place, when)
         box = self.sprites.platform_box
-        spots = {}
+        spots = self.unova.draw_platforms(canvas, d, when, far_dx, near_dx) if unova else {}
         for side, (cx, bottom), dx in (('foe', self.FAR_PLATFORM, far_dx), ('you', self.NEAR_PLATFORM, near_dx)):
+            if side in spots:
+                continue
             if plat and box:
                 p = plat.frames[0]
                 px, py = cx - p.get_width() // 2 + dx, bottom - p.get_height()
@@ -408,12 +524,24 @@ class Overlay:
                 spots[side] = (px + DIORAMA_CENTER_X - box[0], py + DIORAMA_BOTTOM - box[1])
             else:
                 spots[side] = (cx - 8 + dx, bottom - 25)
+        if unova:
+            self._unova_trainer(canvas, d, spots, t_ms)
 
         # Foes (up to two; the first one is on the right, as in the game),
         # then your Pokemon from behind.
         offsets = [0] if len(foes) < 2 else [26, -26]
         for k, m in enumerate(foes):
             x, y = spots['foe']
+            if unova and self.caught_at is not None and k == 0:
+                # Caught: it flashes into the ball, which wobbles and clicks.
+                age = t_ms - self.caught_at
+                if age < 250:
+                    anim = self.sprites.front(m['species_id'], m['shiny'])
+                    self._draw_battler(canvas, 'foe0', anim, x + offsets[k], y, 96, t_ms, 0, direction=-1,
+                                       tint=(255, 160, 160))
+                self.boxes.pop('foe0', None)
+                self.unova.draw_catch(canvas, (x + offsets[k], y), age)
+                continue
             anim = self.sprites.front(m['species_id'], m['shiny'])
             self._draw_battler(canvas, f'foe{k}', anim, x + offsets[k], y, 96, t_ms, k * 300, direction=-1,
                                tint=markers.FROZEN_TINT if m.get('status') == 'Frozen' else None)
@@ -421,13 +549,15 @@ class Overlay:
                 for j in range(5):
                     ui.sparkle(canvas, x - 20 + offsets[k] + (j * 13) % 40, y - 54 + (j * 17) % 45, t_ms + j * 70)
         # Yours (up to two; the first one on the left), the right one first
-        # so the first stands in front.
+        # so the first stands in front; in Black and White the right one is
+        # nearer the camera, so it's drawn last, in front.
         offsets = [0] if len(yours) < 2 else [-22, 22]
-        for k in reversed(range(len(yours))):
+        for k in (range(len(yours)) if unova else reversed(range(len(yours)))):
             m = yours[k]
             x, y = spots['you']
             anim = self.sprites.back(m['species_id'], m['shiny'])
-            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y, 84, t_ms, k * 300, direction=1,
+            drop = DOUBLES_DROP[k] if unova and len(yours) > 1 else 0
+            self._draw_battler(canvas, f'you{k}', anim, x + offsets[k], y + drop, 84, t_ms, k * 300, direction=1,
                                tint=markers.FROZEN_TINT if m.get('status') == 'Frozen' else None)
 
         # Condition markers (sleep, paralysis, confusion, ...) on everyone
@@ -441,7 +571,12 @@ class Overlay:
             markers.draw(canvas, rect, m, t_ms, self.font)
 
         self.effects = [e for e in self.effects if e.draw(canvas, t_ms, self.boxes)]
-        self.backdrop.draw_weather(canvas, weather_kind(d['location'].get('weather'), place), t_ms)
+        self.backdrop.draw_weather(canvas, self.unova.weather(d) if unova else
+                                   weather_kind(d['location'].get('weather'), place), t_ms)
+        # Quakes, explosions and heavy hits shake the scene (not the HUD).
+        shake = max((e.shake(t_ms) for e in self.effects), key=lambda v: abs(v[0]) + abs(v[1]), default=(0, 0))
+        if shake != (0, 0):
+            canvas.scroll(*shake)
 
         # HP boxes slide in after the Pokemon.
         hud = 1.0
@@ -479,13 +614,36 @@ class Overlay:
         while self.msg_queue and self.msg_queue[0][0] <= t_ms:
             start, l1, l2 = self.msg_queue.pop(0)
             self.msg = (l1, l2, start + self.MSG_MS)
-        if self.msg and t_ms < self.msg[2]:
+        if self.msg and t_ms < self.msg[2] and unova:
+            self.unova.message_band(canvas, (0, 146, W, H - 146))
+            self.unova.message_text(canvas, self.msg[0], self.msg[1])
+        elif self.msg and t_ms < self.msg[2]:
             ui.textbox(canvas, (0, 146, W, H - 146))
             self.font.draw(canvas, self.msg[0], (12, 156), t['text'], t['text_shadow'])
             self.font.draw(canvas, self.msg[1], (12, 170), t['text'], t['text_shadow'])
         else:
             picked = self.battlers.get('you0', {}).get('picked')
             self._move_panel(canvas, yours[0] if yours else None, picked, foes[0] if foes else None)
+
+    def _unova_trainer(self, canvas, d, spots, t_ms):
+        """Black and White: a Gym Leader, Elite Four member or Champion
+        stands on the far turf as the battle starts, then steps aside as
+        their first Pokemon comes out (decided on the battle's first frame:
+        a leader told only later by their music gets the message, not the
+        entrance)."""
+        if self.trainer_intro is None and self.battle_since is not None:
+            intro = self.unova.trainer_intro(d) or {}
+            if intro:
+                intro['out_at'] = self.battle_since + TRAINER_MS
+                for key, st in self.battlers.items():
+                    if key.startswith('foe') and st.get('entered') is None:
+                        st['entered'] = intro['out_at']
+                foes = [m for m in d['battle']['mons'] if m['side'].startswith('foe')]
+                if foes:
+                    self._say(f"{intro['name']} sent out", f"{_upper(foes[0]['nickname'])}!", intro['out_at'])
+            self.trainer_intro = intro
+        if self.trainer_intro and 'foe' in spots:
+            self.unova.draw_trainer(canvas, self.trainer_intro, spots['foe'], t_ms)
 
     def _track_battlers(self, d, foes, yours, t_ms):
         """Notices moves, damage, fainting and switches, and plays them in
@@ -589,7 +747,7 @@ class Overlay:
         if last and last != before:
             if any(mv == last and via_pp for mv, _, via_pp in st['log']):
                 self.last_move_agreed += 1
-            elif used is None and self.last_move_agreed >= 2 and last in pdata.MOVE_INFO \
+            elif used is None and self.last_move_agreed >= 2 and last in MOVE_INFO \
                     and not any(mv == last for mv, _, _ in st['log']):
                 # A move PP didn't show: Struggle, or one called by another
                 # move (Metronome and friends).
@@ -601,7 +759,7 @@ class Overlay:
     def _hold_move(self, key, m, move, wild, slot):
         """Keeps a move until it's ready to play (see _ready)."""
         self.seq += 1
-        category = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
+        category = MOVE_INFO.get(move, ('Normal', 'Physical', 0))[1]
         self.held.append({'key': key, 'target': 'foe0' if key.startswith('you') else 'you0',
                           'move': move, 'slot': slot, 'status': category == 'Status',
                           'hits': [], 'read_at': self.read_at or 0.0, 'seq': self.seq,
@@ -642,8 +800,8 @@ class Overlay:
         gets its turn, MOVE_GAP_MS apart."""
         key, move = h['key'], h['move']
         start = self._say(*h['lines'], t_ms)
-        mtype, category, _ = pdata.MOVE_INFO.get(move, ('Normal', 'Physical', 0))
-        fx = Effect(mtype, category, key, h['target'], start + 250)
+        mtype, category, _ = MOVE_INFO.get(move, ('Normal', 'Physical', 0))
+        fx = Effect(mtype, category, key, h['target'], start + 250, move)
         self.effects = self.effects[-3:] + [fx]
         st = self.battlers.get(key)
         if st is not None:
@@ -732,23 +890,29 @@ class Overlay:
         damaging move gets its type multiplier against `foe` (the first
         foe in a double battle)."""
         t = ui.THEME
-        ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
-                 hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
+        if self.unova_battle:
+            self.unova.message_band(canvas, (0, 146, W, H - 146))
+        else:
+            ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
+                     hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
+        button = self.unova.move_button if self.unova_battle else \
+            (lambda rect, canvas, *a, **k: ui.move_button(canvas, self.font, self.mini, rect, *a, **k))
         moves = (mon or {}).get('moves') or []
         pps = (mon or {}).get('pp') or []
         ups = (mon or {}).get('pp_ups') or []
         for i in range(4):
             rect = (5 + (i % 2) * 124, 150 + (i // 2) * 20, 122, 18)
             if i >= len(moves):
-                ui.move_button(canvas, self.font, self.mini, rect, None)
+                button(rect, canvas, None)
                 continue
-            info = pdata.MOVE_INFO.get(moves[i])
+            info = MOVE_INFO.get(moves[i])
             mtype, base = (info[0], info[2]) if info else (None, None)
             pp = pps[i] if i < len(pps) else None
             pp_max = base + (base // 5) * (ups[i] if i < len(ups) else 0) if base else None
+            if i < len((mon or {}).get('pp_max') or ()):
+                pp_max = mon['pp_max'][i]  # Black and White keep it
             effect = _effectiveness(mtype, foe) if info and info[1] != 'Status' else None
-            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max,
-                           selected=i == picked, effect=effect)
+            button(rect, canvas, moves[i], mtype, pp, pp_max, selected=i == picked, effect=effect)
 
     def _hp_now(self, key, m, t_ms):
         """The HP to show: the old value until a queued hit lands."""
@@ -772,6 +936,9 @@ class Overlay:
 
     def _foe_box(self, canvas, m, x, y, dt_ms, k, hp_now):
         """Draws the foe's box with its top at y. Returns its height."""
+        if self.unova_battle:
+            hp = self._hp(('foe', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.foe_hud(canvas, m, x, y, hp, self._chips)
         h = 27 + 10 * self._box_rows(m, 104)
         ui.panel(canvas, (x, y, 112, h))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
@@ -786,6 +953,9 @@ class Overlay:
     def _your_box(self, canvas, m, x, bottom, dt_ms, hp_now):
         """Draws your box with its bottom edge at `bottom`. Returns its height."""
         t = ui.THEME
+        if self.unova_battle:
+            hp = self._hp(('yours', m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.your_hud(canvas, m, x, bottom, hp, self._chips)
         h = 37 + 10 * self._box_rows(m, 106)
         y = bottom - h
         ui.panel(canvas, (x, y, 116, h))
@@ -803,6 +973,9 @@ class Overlay:
     def _your_small_box(self, canvas, m, x, bottom, dt_ms, k, hp_now):
         """Your side's box in a double battle: like the foe's box, with its
         bottom edge at `bottom`. Returns its height."""
+        if self.unova_battle:
+            hp = self._hp(('yours', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.your_hud(canvas, m, x, bottom, hp, self._chips, numbers=False)
         h = 27 + 10 * self._box_rows(m, 106)
         y = bottom - h
         ui.panel(canvas, (x, y, 116, h))
@@ -822,8 +995,14 @@ class Overlay:
         music = d['misc']['music_id']
         wild, trainer = _opponent(d)
         foe = _upper(foes[0]['nickname']) if foes else 'the foe'
+        kind = b.get('kind')  # Black and White say who it is
         if wild:
             l1 = f"A wild {foe} appeared!"
+        elif kind in TITLES:
+            some = {'gym': 'a Gym Leader', 'elite': 'the Elite Four', 'champion': 'the Champion'}[kind]
+            l1 = f"You are challenged by {TITLES[kind]} {trainer}!" if trainer else f"You are challenged by {some}!"
+        elif kind == 'trainer':
+            l1 = "You are challenged by a Trainer!"
         elif music == RIVAL:
             l1 = f"You are challenged by Rival {trainer}!" if trainer else "You are challenged by your rival!"
         elif music == GYM:
@@ -890,6 +1069,8 @@ class Overlay:
                 f = anim.frames[0]
                 canvas.blit(f, (22 - f.get_width() // 2, H - 3 - f.get_height()))
             title = "Pokémon Platinum" if last else "DSiRPC"
+            if last and last.get('kind') == 'bw':
+                title = last.get('title') or f"Pokémon {last.get('version', 'Black')}"
         label = "LAST PLAYED" if last else "DISCORD + RETROACHIEVEMENTS"
         self.font.draw(canvas, self.font.fit(title, W - 52), (44, FOOTER_Y + 5), t['text_light'],
                        t['text_light_shadow'])

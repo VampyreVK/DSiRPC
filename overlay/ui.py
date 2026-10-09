@@ -436,13 +436,15 @@ def trophy(surf, x, y, earned=True):
     pixels(surf, x, y, _TROPHY, pal)
 
 
-# A DSi, open, 34x44: the lid with its screen (rows 0-20), the hinge, then
-# the base with the touch screen and the buttons.
+# A DSi, open, 34x40: the lid with its screen (rows 0-20), the hinge, then
+# the base with the touch screen, the D-pad and A/B/X/Y level with the
+# middle of it, Start and Select below the buttons and the power button
+# below the D-pad.
 _DSI = [
     "..oooooooooooooooooooooooooooooo..",
     ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
     "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbo",
     "obbbbbkssssssssssssssssssssskbbbbo",
     "obbbbbkssssssssssssssssssssskbbbbo",
     "obbbbbkssssssssssssssssssssskbbbbo",
@@ -455,7 +457,7 @@ _DSI = [
     "obbbbbkssssssssssssssssssssskbbbbo",
     "obbbbbkssssssssssssssssssssskbbbbo",
     "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbo",
     "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
     ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
     "..oooooooooooooooooooooooooooooo..",
@@ -463,18 +465,18 @@ _DSI = [
     "..oooooooooooooooooooooooooooooo..",
     ".oddddddddddddddddddddddddddddddo.",
     "oddddddddddddddddddddddddddddddddo",
-    "oddddddKKKKKKKKKKKKKKKKKKKKKddpddo",
-    "oddpdddKtttttttttttttttttttKdpdpdo",
-    "odpppddKtttttttttttttttttttKddpddo",
+    "oddddddKKKKKKKKKKKKKKKKKKKKKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddpdddKtttttttttttttttttttKddpddo",
+    "odpppddKtttttttttttttttttttKdpdpdo",
+    "oddpdddKtttttttttttttttttttKddpddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKddpddo",
     "oddpdddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdpdddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKddpddo",
     "oddddddKKKKKKKKKKKKKKKKKKKKKdddddo",
     "oddddddddddddddddddddddddddddddddo",
     ".oddddddddddddddddddddddddddddddo.",

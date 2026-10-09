@@ -12,6 +12,11 @@
 // nds-bootstrap hooks for IPC sync and the colour LUT). The hook is only put
 // in once a watch list is set (the ARM7 rings the IPC doorbell for it), so a
 // game nobody is capturing runs exactly as without DSiRPC.
+//
+// Offline play's achievement checker uses the same hook: with the block's
+// `clean` set (a set with a frame lane is running), it also writes the whole
+// data cache back to main RAM at the start of every VBlank, so the ARM7
+// samples what the game wrote (dsirpc_watch_block.h).
 
 #include <nds/ndstypes.h>
 
@@ -81,23 +86,31 @@ asm(
 "	streq	r0, [sp, #24]\n"
 "	ldmfd	sp!, {r0-r3, r12, lr}\n"
 "	ldr	pc, [sp], #8\n"                // jump (to ARM or Thumb) and drop the two words
+// Writes every dirty line of the data cache back to main RAM (clean by
+// index: 4 segments of 32 lines, libnds' DC_FlushAll without the
+// invalidate), then drains the write buffer. ARM code: Thumb has no MCR.
+"	.global dsirpcCleanDCache\n"
+"	.type	dsirpcCleanDCache, %function\n"
+"dsirpcCleanDCache:\n"
+"	mov	r1, #0\n"
+"1:	mov	r0, #0\n"
+"2:	orr	r2, r1, r0\n"
+"	mcr	p15, 0, r2, c7, c10, 2\n"     // clean data cache line (segment, index)
+"	add	r0, r0, #32\n"
+"	cmp	r0, #1024\n"                  // DCACHE_SIZE / 4 segments
+"	bne	2b\n"
+"	adds	r1, r1, #0x40000000\n"
+"	bne	1b\n"
+"	mcr	p15, 0, r1, c7, c10, 4\n"     // drain the write buffer
+"	bx	lr\n"
 "	.thumb\n"
 "	.popsection\n"
 );
 extern u8 dsirpcVBlankHooks[];
+void dsirpcCleanDCache(void);
 
-// Called by the hooks at the start of every VBlank interrupt, before the
-// game's own handler. Cheap when there's no watch list: one cache-line
-// invalidate and a compare.
-void dsirpcWatchSnapshot(void) {
-	DsirpcWatchBlock *b = &dsirpcWatchBlock;
-	u16 vcount = REG_VCOUNT_RO;
-
-	// The ARM7 writes the first two lines straight to RAM; drop any copy the
-	// cache still holds. Never dirty here, since this side never writes them.
-	DC_InvalidateRange(b, 0x40);
-	u32 n = b->count;
-	if (!n) return;
+// The watched values into the next slot (n of them)
+static void takeSnapshot(DsirpcWatchBlock *b, u32 n, u16 vcount) {
 	u32 gen = b->gen;
 	if (n > DSIRPC_WATCH_MAX) n = DSIRPC_WATCH_MAX;
 
@@ -139,13 +152,35 @@ void dsirpcWatchSnapshot(void) {
 	DC_FlushRange(&b->latest, 4);
 }
 
+// Called by the hooks at the start of every VBlank interrupt, before the
+// game's own handler. Cheap when there's nothing to do: one cache-line
+// invalidate and a compare.
+void dsirpcWatchSnapshot(void) {
+	DsirpcWatchBlock *b = &dsirpcWatchBlock;
+	u16 vcount = REG_VCOUNT_RO;
+
+	// The ARM7 writes the first two lines straight to RAM; drop any copy the
+	// cache still holds. Never dirty here, since this side never writes them.
+	DC_InvalidateRange(b, 0x40);
+	u32 n = b->count;
+	if (n) takeSnapshot(b, n, vcount);
+	if (b->clean) {
+		// Everything the game wrote out to main RAM, then the count (its
+		// own line written back last, so the ARM7 never sees the new count
+		// before the rest)
+		dsirpcCleanDCache();
+		b->cleaned++;
+		DC_FlushRange(&b->cleaned, 4);
+	}
+}
+
 // Called from myIrqHandlerIPC on every IPC sync interrupt (the ARM7 rings
 // when it needs the hook). Puts a hook in front of the game's VBlank handler
 // if there's a watch list and none of ours is there.
 void dsirpcWatchService(void) {
 	DsirpcWatchBlock *b = &dsirpcWatchBlock;
 	DC_InvalidateRange(b, 32);
-	if (!b->count) return;
+	if (!b->count && !b->clean) return;
 
 	vu32 *vblank = (vu32 *)ce9->irqTable; // entry 0: VBlank
 	if (!vblank) return;

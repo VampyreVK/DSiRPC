@@ -28,11 +28,14 @@ running (gc=, v=, hc=); see DSiClient.game.
 
 Builds with offline play's achievement checker (rpcprobe/probe_ach.c) also
 send "DSiRPC ach ..." a moment after each hello while the game has a set:
-how many achievements the console is checking, what it has unlocked, and how
-fast it goes. DSiClient logs them (see AchReport), so the console's unlocks
-can be compared with DSiRPC's own. On a DSi, "DSiRPC lid ..." says the lid
-closed, so the console turned its Wi-Fi off for the rest of the game; that's
-logged too.
+how many achievements the console is checking (and how many of them every
+frame), what it has unlocked, how fast it goes, and which set it runs.
+DSiClient logs them (see AchReport), so the console's unlocks can be
+compared with DSiRPC's own. push_unlocks() tells the console about
+achievements DSiRPC unlocked itself ('U'), so nds-bootstrap's in-game menu
+shows them and the console stops checking them. On a DSi, "DSiRPC lid ..."
+says the lid closed, so the console turned its Wi-Fi off for the rest of the
+game; that's logged too.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -40,6 +43,7 @@ Usage, from the repo root:
   python core/dsirpc_client.py --read 0x02000BBC:8 --repeat 10 --interval 1
   python core/dsirpc_client.py --dsi-ip 192.168.2.195 --read 0x02000000:64
   python core/dsirpc_client.py --stats 60                  # link check, see link_stats()
+  python core/dsirpc_client.py --watch 0x0224F924:2 --settle 5   # print what changes, see watch()
 """
 
 import argparse
@@ -49,14 +53,26 @@ import re
 import socket
 import struct
 import sys
+import threading
 import time
 
 MAX_RANGES = 16
 MAX_DATA = 192
 MAX_WATCHES = 8
+MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
 REC_ARM7 = 0x8000         # in a record's scanline field: the ARM7 read it
 STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM", 3: "no watch list set"}
+
+
+class Refused(RuntimeError):
+    """The DSi answered with a status other than 0 (STATUS_TEXT; for 'U',
+    3 means it only took `count`)."""
+
+    def __init__(self, status, count):
+        super().__init__(f"DSi refused request: {STATUS_TEXT.get(status, status)}")
+        self.status = status
+        self.count = count
 
 
 def game_from_hello(text):
@@ -83,19 +99,26 @@ ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this nds-bootstrap can read (update nd
 class AchReport:
     """Follows the console's "DSiRPC ach" reports and logs what's new: the
     checker starting (or why it can't), each unlock, the unlocks saved to
-    the SD card (or not), and once a minute how fast it goes (passes over
-    every achievement a second, and the longest the checker took in one
-    VBlank, in scanlines; a frame has 263). on_unlocks(ids), if set, gets
-    each batch of new unlocks (core/hub.py hands them to core/ra_game.py,
-    which counts them right away)."""
+    the SD card (or not), and once a minute how it goes (passes over the
+    pass lane a second, the longest the checker took in one VBlank, in
+    scanlines, a frame having 263; and for the frame lane, the frames it
+    checked, the ones it couldn't sample because its checking fell behind,
+    and the samples taken without the ARM9's cache write-back).
+    on_unlocks(ids), if set, gets each batch of new unlocks (core/hub.py
+    hands them to core/ra_game.py, which counts them right away), and
+    on_report(latest) every report (which set the console runs)."""
 
     def __init__(self):
         self.latest = None
+        self.latest_at = 0.0
         self.on_unlocks = None
+        self.on_report = None
         self._loaded = None
         self._unlocked = self._saved = self._lost = 0
         self._reports = 0
         self._passes = self._lines = 0
+        self._frames = self._dropped = self._unclean = 0
+        self._run = 0             # counts the checker's starts (a new game, or the same one again)
 
     def take(self, text):
         f = _hello_fields(text)
@@ -104,20 +127,31 @@ class AchReport:
             unlocked = int(f.get("t", "0"))
             passes, lines = int(f.get("p", "0")), int(f.get("l", "0"))
             saved, lost, waiting = int(f.get("s", "0")), int(f.get("x", "0")), int(f.get("w", "0"))
+            frame_lane, frames = int(f.get("f", "0")), int(f.get("fr", "0"))
+            dropped, unclean, idle = int(f.get("fd", "0")), int(f.get("fc", "0")), int(f.get("h", "0"))
+            stamp = int(f["st"], 16) if f.get("st") else None
             ids = [int(i) for i in f["ids"].split(",")] if f.get("ids") else []
         except ValueError:
             return
         self.latest = {'loaded': loaded, 'unlocked': unlocked, 'passes': passes, 'lines': lines,
-                       'saved': saved, 'lost': lost, 'waiting': waiting, 'ids': ids}
+                       'saved': saved, 'lost': lost, 'waiting': waiting, 'ids': ids, 'frame_lane': frame_lane,
+                       'frames': frames, 'dropped': dropped, 'unclean': unclean, 'idle': idle, 'stamp': stamp}
+        self.latest_at = time.time()
         if loaded != self._loaded or unlocked < self._unlocked:  # another game, or the same one again
+            self._run += 1
             self._loaded = loaded
             self._unlocked = self._saved = self._lost = 0
             self._reports = self._passes = self._lines = 0
+            self._frames = self._dropped = self._unclean = 0
             if loaded > 0:
                 logging.info(f"Console: checking {loaded} achievement(s) in game (offline play's checker)"
+                             + (f", {frame_lane} of them every frame" if frame_lane else "")
                              + (f"; {waiting} unlocked earlier wait on its SD card for DSiRPC" if waiting else ""))
             elif loaded < 0:
                 logging.warning(f"Console: no achievement checker: {ACH_ERRORS.get(loaded, loaded)}")
+        self.latest['run'] = self._run
+        if self.on_report:
+            self.on_report(self.latest)
         new = unlocked - self._unlocked
         if new > 0:
             for aid in ids[-new:]:
@@ -135,10 +169,19 @@ class AchReport:
         self._reports += 1
         self._passes += passes
         self._lines = max(self._lines, lines)
+        self._frames += frames
+        self._dropped += dropped
+        self._unclean += unclean
         if loaded > 0 and self._reports % 60 == 0:
-            logging.info(f"Console: its checker did {self._passes / 60:.1f} passes a second over the last "
-                         f"minute; its longest turn took {self._lines} scanlines")
+            where = "in the game's idle time" if idle else "in the VBlank (this game's idle time can't be used)"
+            text = (f"Console: its checker ran {where}: {self._passes / 60:.1f} passes a second over the last "
+                    f"minute; its longest VBlank turn took {self._lines} scanlines")
+            if frame_lane:
+                text += (f"; every frame: {self._frames / 60:.1f} frames a second checked, {self._dropped} "
+                         f"not sampled (it fell behind), {self._unclean} sampled without the ARM9's write-back")
+            logging.info(text)
             self._passes = self._lines = 0
+            self._frames = self._dropped = self._unclean = 0
 
 
 class DSiClient:
@@ -152,6 +195,8 @@ class DSiClient:
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
         self.ach = AchReport()
+        self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
+        self._in_hook = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
 
@@ -212,7 +257,7 @@ class DSiClient:
                     if seq != self.seq:
                         continue  # late reply to an older request
                     if status != 0:
-                        raise RuntimeError(f"DSi refused request: {STATUS_TEXT.get(status, status)}")
+                        raise Refused(status, count)
                     return count, data[5:]
                 self._handle_other(data, addr)
             if self.verbose:
@@ -268,6 +313,36 @@ class DSiClient:
             records.append((tick, vcount & 0x1FF, rec[4:], bool(vcount & REC_ARM7)))
         return first, lost, records
 
+    def push_unlocks(self, unlocks, retries=2, timeout=None):
+        """Achievements DSiRPC unlocked itself, for the console's checker
+        and nds-bootstrap's in-game menu ('U'): [(achievement id, when)],
+        when in seconds since 2000 by the console's clock. Returns how many
+        the console took (fewer when it has no set running, or no room just
+        then: send the rest again later). Raises TimeoutError."""
+        taken = 0
+        for i in range(0, len(unlocks), MAX_PUSH):
+            batch = unlocks[i:i + MAX_PUSH]
+            body = struct.pack(">B", len(batch)) + b"".join(struct.pack(">II", a, w) for a, w in batch)
+            try:
+                count, _ = self._exchange(b"U", body, retries, timeout)
+            except Refused as e:  # status 3: only some taken
+                return taken + (e.count if e.status == 3 else 0)
+            taken += count
+            if count < len(batch):
+                break
+        return taken
+
+    def _between(self):
+        """Runs idle_hook between the requests of a long read (not inside it)."""
+        if self.idle_hook and not self._in_hook:
+            self._in_hook = True
+            try:
+                self.idle_hook()
+            except Exception:
+                logging.exception("idle hook failed")
+            finally:
+                self._in_hook = False
+
     def read_ranges(self, ranges, timeout=None, retries=3):
         """[(addr, length), ...] -> [bytes, ...]. Splits into as many requests
         as needed. Each request waits `timeout` seconds for its reply (the
@@ -293,6 +368,7 @@ class DSiClient:
         for p in pieces:
             if len(batch) == MAX_RANGES or batch_bytes + p[2] > MAX_DATA:
                 flush()
+                self._between()
             batch.append(p)
             batch_bytes += p[2]
         flush()
@@ -412,6 +488,96 @@ def link_stats(c, seconds, rate=4.0):
         print("-> Hardly anything lost.")
 
 
+WATCH_LINES = 40   # changes printed per read at most
+
+
+def parse_values(text):
+    """'0-3,0x40,0x80' -> {0, 1, 2, 3, 64, 128}."""
+    values = set()
+    for part in text.split(","):
+        lo, _, hi = part.strip().partition("-")
+        values.update(range(int(lo, 0), int(hi or lo, 0) + 1))
+    return values
+
+
+def watch(c, ranges, interval=0.2, width=1, settle=0.0, only=None, duration=None):
+    """Reads `ranges` over and over and prints every value that changes, a
+    `width`-byte little-endian value at a time, with the seconds since the
+    start. Values that change during the first `settle` seconds are muted
+    from then on (stand still meanwhile: what changes anyway is timers and
+    animation). `only`: a set of values; a change is printed only when the
+    old and the new value are both in it. Typing a note and Enter prints it
+    as a marker; Ctrl+C (or `duration` seconds) stops and prints a summary."""
+    fmt = {1: "<B", 2: "<H", 4: "<I"}[width]
+    digits = 2 * width
+    t0 = time.time()
+    last, counts, values, muted = {}, {}, {}, set()
+    lock = threading.Lock()
+
+    def notes():
+        for line in sys.stdin:
+            with lock:
+                print(f"[{time.time() - t0:7.2f}s] ---- {line.strip() or 'mark'} ----", flush=True)
+    threading.Thread(target=notes, daemon=True).start()
+
+    total = sum(n for _, n in ranges)
+    print(f"Watching {total} bytes in {len(ranges)} range(s), {width} byte(s) at a time"
+          + (f", only the values {sorted(only)[:12]}{'...' if len(only) > 12 else ''}" if only else "")
+          + ". Type a note and Enter to mark the log, Ctrl+C to stop.")
+    if settle > 0:
+        print(f"Stand still for {settle:g} s: whatever changes meanwhile is muted.")
+    settled, misses = settle <= 0, 0
+    try:
+        while duration is None or time.time() - t0 < duration:
+            try:
+                results = c.read_ranges(ranges)
+            except (TimeoutError, RuntimeError) as e:
+                misses += 1
+                if misses in (1, 10) or misses % 50 == 0:
+                    print(f"(no reply: {e}; {misses} so far)", flush=True)
+                time.sleep(interval)
+                continue
+            now = time.time() - t0
+            lines = []
+            if not settled and now >= settle:
+                settled = True
+                lines.append(f"[{now:7.2f}s] settled: {len(muted)} value(s) changed while you stood still and "
+                             f"are muted. Go!")
+            for (a, _), data in zip(ranges, results):
+                for off in range(0, len(data) - width + 1, width):
+                    addr = a + off
+                    v = struct.unpack_from(fmt, data, off)[0]
+                    old = last.get(addr)
+                    last[addr] = v
+                    if old is None or old == v or addr in muted:
+                        continue
+                    if not settled:
+                        muted.add(addr)
+                        continue
+                    if only is not None and (old not in only or v not in only):
+                        continue
+                    counts[addr] = counts.get(addr, 0) + 1
+                    seen = values.setdefault(addr, [old])
+                    if v not in seen and len(seen) < 8:
+                        seen.append(v)
+                    lines.append(f"[{now:7.2f}s] 0x{addr:08X}: {old:0{digits}X} -> {v:0{digits}X}   ({old} -> {v})")
+            if lines:
+                extra = len(lines) - WATCH_LINES
+                with lock:
+                    print("\n".join(lines[:WATCH_LINES]) + (f"\n  ... and {extra} more" if extra > 0 else ""),
+                          flush=True)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+    print(f"\n{len(counts)} value(s) changed" + (f" ({len(muted)} muted)" if muted else "")
+          + (":" if counts else "."))
+    for addr in sorted(counts)[:60]:
+        seen = " ".join(f"{v:0{digits}X}" for v in values[addr])
+        print(f"  0x{addr:08X}: {counts[addr]:4d} change(s), values {seen}")
+    if len(counts) > 60:
+        print(f"  ... and {len(counts) - 60} more")
+
+
 def hexdump(addr, data):
     for off in range(0, len(data), 16):
         chunk = data[off:off + 16]
@@ -434,11 +600,20 @@ def main():
                     help="ranges to read (default: the SDK marker in Platinum's "
                          "main code, which should read 21 06 C0 DE DE C0 06 21)")
     ap.add_argument("--repeat", type=int, default=1)
-    ap.add_argument("--interval", type=float, default=1.0)
+    ap.add_argument("--interval", type=float, help="seconds between reads (default 1, or 0.2 with --watch)")
     ap.add_argument("--timeout", type=float, default=1.0)
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--stats", type=float, metavar="SECONDS",
                     help="link check: send small reads for this long and report losses and delays")
+    ap.add_argument("--watch", nargs="+", type=parse_range, metavar="ADDR:LEN",
+                    help="read these ranges over and over and print every value that changes")
+    ap.add_argument("--width", type=int, choices=(1, 2, 4), default=1,
+                    help="--watch: compare and print 1, 2 or 4 bytes at a time (little endian)")
+    ap.add_argument("--settle", type=float, default=0.0, metavar="SECONDS",
+                    help="--watch: mute whatever changes in the first SECONDS (stand still meanwhile)")
+    ap.add_argument("--only", type=parse_values, metavar="VALUES",
+                    help="--watch: only print changes between these values, e.g. 0-3 or 0,0x40,0x80,0xC0")
+    ap.add_argument("--duration", type=float, metavar="SECONDS", help="--watch: stop after this long")
     args = ap.parse_args()
 
     c = DSiClient(port=args.port, dsi_ip=args.dsi_ip, timeout=args.timeout, verbose=args.verbose)
@@ -448,6 +623,9 @@ def main():
 
     if args.stats:
         link_stats(c, args.stats)
+        return
+    if args.watch:
+        watch(c, args.watch, args.interval or 0.2, args.width, args.settle, args.only, args.duration)
         return
 
     ok = fail = 0
@@ -464,7 +642,7 @@ def main():
             print(f"read #{i + 1}: {e}")
             fail += 1
         if i < args.repeat - 1:
-            time.sleep(args.interval)
+            time.sleep(args.interval or 1.0)
 
     print(f"\n{ok} ok, {fail} failed")
     sys.exit(0 if fail == 0 else 1)

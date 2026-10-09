@@ -235,3 +235,41 @@ Discord side: the image fields accept HTTPS URLs. The project serves its GIFs fr
 - Discord reportedly rejects image URLs hosted on Discord's own media CDN (Gemini, untested).
 - NPC positions (for an overlay map): the decomp's FieldSystem holds a MapObjectManager, and each MapObject stores its local ID, graphics ID, facing, tile coordinates and a fixed-point 3D position. The offsets from `[0x021C07DC]` haven't been worked out.
 - Prior art named by the Claude guide (GitHub isn't reachable from here to check): dude22072/PokeStats (Lua, said to have Platinum party offsets), EverOddish/PokeStreamer-Tools (`auto_layout_gen4_gen5.lua`, a Gen IV/V pointer table), JimB16/PokePlat (older Platinum disassembly), kwsch/PKHeX (SAV4/PK4 code).
+
+## 12. Pokémon Black and White: leads not used yet
+
+What `core/bw_parser.py` reads is in DOCUMENTATION.md, section 9. Black US
+addresses (White US: add `0x20`); none checked on a console yet.
+
+- **Opponent trainer.** Only its trainer ID is known (`0x022697BE`, u16, 0
+  when wild). The class and name live in the ROM's trainer data (thought to
+  be NARC `a/0/9/2`), not in RAM as far as anyone has written down; the
+  RetroAchievements notes for game 3887 may know a RAM copy, or the trainer
+  IDs of the leaders, Elite Four, N and Ghetsis. `overlay/unova_art.py`
+  already maps trainer classes to the battle sprites on the trainer sheet.
+- **Other battle data.** The battle copies are also at fixed addresses,
+  `0x0226D6A4 + i * 0x224`, valid while the text `btl_pokeparam.c` sits at
+  `0x0226D68C`. Stat stages are at `+0xFC` (order unknown) and status at
+  `+0x20` (a u32 whose encoding isn't known). The foe's party is at
+  `0x0226ACF4` (count at `0x0226ACF0`), a second foe party at `0x0226C274`,
+  an ally's at `0x0226B7B4`, a wild Pokémon at `0x02259DD8`. The enemy AI's
+  chosen move: `[[[0x02269780] + 0xF0] + 0x20] + 0x46` (u8 index).
+- **Another battle flag:** u16 `0x021D0798` is `0x2100`/`0x2101` in battle
+  and `0x2800` outside (NDS-Ironmon-Tracker).
+- **Zone IDs elsewhere:** `0x022592B2` (child) and `0x022592B4` (parent).
+- **Facing, another way:** u8 `0x022521FC` (0 up, 1 down, 2 left, 3 right),
+  valid when `0x022521EC` is `0xFF`, else scan `0x022521EC + n * 0x100`.
+  Now used (the map objects in DOCUMENTATION section 9), since `0x0224F924`
+  always read 0 on a console.
+- **Saved position:** map `0x0223512C`, x `0x02235132`, z `0x02235136`, y
+  `0x0223513A` (probably only updated on a save or a warp).
+- **The boot clock:** date `0x023FFDE8`, time `0x023FFDEC` (the moment the
+  game started, not a running clock), so the overlay's time of day comes
+  from the PC's clock.
+- **RNG states:** PID RNG (u64) `0x02216224`, battle RNG (u64) `0x021F6368`,
+  Mersenne Twister `0x02215354`.
+- **The game code** is also at `0x023FFE0C` (u32 `0x4F425249` = `IRBO`).
+- **Black 2 and White 2** use a base pointer (`[0x02000024]`, party at
+  `+0x19728` per NDS-Ironmon-Tracker) instead of fixed addresses.
+- **DSi mode** wasn't tested by any source; things allocated on the heap
+  (the battle copies) could move there. rpcprobe only runs in DS mode anyway.

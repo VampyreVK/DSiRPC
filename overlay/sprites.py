@@ -45,6 +45,14 @@ DIORAMA_BOTTOM = 126
 
 ASSETS_URL = "https://vampyrevk.github.io/DSiRPC/Assets"
 
+# Overworld walking sheets in Assets/Trainer-Overworld: 4x4 cells (rows
+# down, left, right, up; columns the walk cycle), drawn at 2x.
+TRAINER_SHEETS = {'Lucas': 'NPC_198_Lucas.png', 'Dawn': 'NPC_201_Dawn.png',
+                  'Hilbert': 'BW_196_Hilbert.png', 'Hilda': 'BW_197_Hilda.png'}
+# Black and White's other sheets, same layout: '<sheet>_run.png' and so on.
+TRAINER_STYLES = {'run': '_run', 'bike': '_bike', 'bike_stop': '_bike_stop'}
+STYLE_FRAME_MS = {'walk': 150, 'run': 90, 'bike': 80, 'bike_stop': 150}
+
 
 def _download(rel, dest, timeout=15.0):
     """Fetches Assets/<rel> from GitHub Pages into dest. False if it can't."""
@@ -185,9 +193,11 @@ class SpriteBank:
     def back(self, species_id, shiny=False):
         return self.get(('back', species_id, shiny))
 
-    def trainer(self, character, direction):
-        """character 'Lucas' or 'Dawn', direction 'down'/'left'/'right'/'up'."""
-        return self.get(('trainer', character, direction))
+    def trainer(self, character, direction, style='walk'):
+        """character 'Lucas', 'Dawn', 'Hilbert' or 'Hilda', direction
+        'down'/'left'/'right'/'up'; style 'walk', or for Hilbert and Hilda
+        'run', 'bike' or 'bike_stop' (on the bike, a foot down)."""
+        return self.get(('trainer', character, direction, style))
 
     def platform(self, place='field', when='day'):
         """The grass platform, recoloured for the terrain ('field', 'snow',
@@ -266,14 +276,16 @@ class SpriteBank:
             frames = [ImageOps.mirror(f) for f in _strip_diorama(frames, bg)]
             return _crop_union(frames), durs
         if kind == 'trainer':
-            _, character, direction = key
-            sheet = Image.open(self._path('Trainer-Overworld',
-                                          'NPC_198_Lucas.png' if character == 'Lucas' else 'NPC_201_Dawn.png')).convert('RGBA')
+            _, character, direction, style = key
+            name = TRAINER_SHEETS.get(character, 'NPC_201_Dawn.png')
+            if style in TRAINER_STYLES and name.startswith('BW_'):
+                name = name.replace('.png', TRAINER_STYLES[style] + '.png')
+            sheet = Image.open(self._path('Trainer-Overworld', name)).convert('RGBA')
             row = ['down', 'left', 'right', 'up'].index(direction)
             cell = sheet.width // 4
             frames = [sheet.crop((c * cell, row * cell, (c + 1) * cell, (row + 1) * cell)) for c in range(4)]
             # The sheets are drawn at 2x (every pixel doubled); halve to native.
-            return _crop_union(_halve(frames)), [150] * 4
+            return _crop_union(_halve(frames)), [STYLE_FRAME_MS.get(style, 150)] * 4
         if kind == 'platform':
             _, place, when = key
             img = Image.open(self._path('Pokemon-Battle-NormalLarge', 'BattleBackgroundNormal.png')).convert('RGBA')

@@ -1718,11 +1718,24 @@ void runCardEngineCheck(void) {
   	// }
 }
 
+#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+// rpcprobe: an ARM9 request the swiHalt hook below serves is waiting (its
+// achievement checker stops for it)
+static int haltRequestWaiting(void) {
+	const u32 cmd = sharedAddr[3];
+	return (cmd >= (vu32)0x025FFB08 && cmd <= (vu32)0x025FFB0A) || cmd == (vu32)0x025FFC01 || cmd == (vu32)0x025FFC02;
+}
+#endif
+
 void runCardEngineCheckHalt(void) {
 	//dbg_printf("runCardEngineCheckHalt\n");
 	#ifdef DEBUG		
 	nocashMessage("runCardEngineCheckHalt");
 	#endif	
+
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+haltCheckAgain:
+	#endif
 
   	// if (lockMutex(&cardEgnineCommandMutex)) {
         //if(!readOngoing)
@@ -1796,7 +1809,9 @@ void runCardEngineCheckHalt(void) {
   	// }
 
 	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
-	Probe_HaltTick(&saveMutex); // rpcprobe: saves offline play's unlocks
+	// rpcprobe: saves offline play's unlocks and checks achievements a
+	// while; back to the top when it stopped for an ARM9 request
+	if (Probe_HaltTick(&saveMutex, haltRequestWaiting)) goto haltCheckAgain;
 	#endif
 }
 

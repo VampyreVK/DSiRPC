@@ -3,17 +3,23 @@ demo.py - DemoSource: a made-up game state that plays through a loop of
 scenes, so the overlay can be styled without the DSi or a save file:
 overworld, a wild battle by day, a shiny in the evening rain, the rival at
 night (who switches Pokemon), a snowy route, a legendary in a cave, a level
-up, another game (the game card every game without its own parser gets,
-with an achievement unlocking), and the DSi going offline.
+up, Pokemon Black (its own main view, with an achievement unlocking, a
+battle in the rain in Pinwheel Forest ending in a catch, Burgh at the
+Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four
+room, each in another season),
+another game (the game card every game
+without its own parser gets, with an achievement unlocking), and the DSi
+going offline.
 
 All of the data here is invented. It follows the same dict layout as
-core/parser.py, so anything that works with the demo works with the real
-game.
+core/parser.py (and core/bw_parser.py for Black), so anything that works
+with the demo works with the real game.
 """
 
 import copy
 import time
 
+from . import bw_data
 from . import platinum_data as pdata
 from . import ra_set
 
@@ -21,7 +27,7 @@ WILD_MUSIC, TRAINER_MUSIC, RIVAL_MUSIC = 0x45C, 0x45F, 0x464
 
 
 def _mon(species_id, level, hp, max_hp, gender, nickname=None, shiny=False, status=None, moves=(), speed=30):
-    species = pdata.SPECIES[species_id]
+    species = bw_data.SPECIES[species_id]  # Platinum's names, and Black and White's after them
     return {
         'species_id': species_id, 'species': species,
         'nickname': nickname or species.upper(), 'level': level,
@@ -34,7 +40,7 @@ def _mon(species_id, level, hp, max_hp, gender, nickname=None, shiny=False, stat
 def _battle_mon(mon, side, hp=None, uses=(), last_move=None, worn=(0, 0, 0, 0)):
     """uses: the moves used so far this battle (each spends 1 PP).
     worn: PP already spent per move before the battle."""
-    base = [pdata.MOVE_INFO.get(m, (None, None, 20))[2] for m in mon['moves']]
+    base = [bw_data.MOVE_INFO.get(m, (None, None, 20))[2] for m in mon['moves']]
     return {
         'species_id': mon['species_id'], 'species': mon['species'],
         'nickname': mon['nickname'], 'level': mon['level'],
@@ -50,7 +56,8 @@ def _battle_mon(mon, side, hp=None, uses=(), last_move=None, worn=(0, 0, 0, 0)):
 
 # Types of the demo's battlers (the real ones come from the BattleMon).
 DEMO_TYPES = {393: ['Water'], 396: ['Normal', 'Flying'], 77: ['Fire'], 387: ['Grass'],
-              459: ['Grass', 'Ice'], 487: ['Ghost', 'Dragon']}
+              459: ['Grass', 'Ice'], 487: ['Ghost', 'Dragon'], 502: ['Water'], 540: ['Bug', 'Grass'],
+              544: ['Bug', 'Poison']}
 
 PARTY = [
     _mon(393, 18, 44, 52, 'M', moves=('Bubble', 'Peck', 'Growl', 'Bide')),
@@ -95,6 +102,16 @@ BATTLES = {
                  foes=[(0, _mon(459, 32, 88, 88, 'F', moves=('Ice Shard', 'Razor Leaf')))],
                  moves=[(3, 'you', 'Peck', 20), (4.5, 'foe', 'Ice Shard', 9)],
                  effects=[(4.5, 'you', dict(status='Frozen'))]),
+    'unova_battle': dict(place='Pinwheel Forest', clock='17:30', weather=2, weather_kind='rain', music=0x400, trainer=None,
+                         owned=True, caught_at=11.0,
+                         foes=[(0, _mon(540, 19, 47, 47, 'F', moves=('Bug Bite', 'String Shot', 'Razor Leaf')))],
+                         moves=[(2.5, 'you', 'Razor Shell', 16), (4, 'foe', 'Razor Leaf', 9),
+                                (8.5, 'you', 'Water Gun', 7), (10, 'foe', 'String Shot', 0)],
+                         effects=[(10, 'you', dict(stages={'SPE': -1}))]),
+    'unova_gym': dict(place='Castelia Gym', clock='12:10', weather=0, music=0x46C, trainer='Burgh', kind='gym',
+                      foes=[(0, _mon(544, 21, 54, 54, 'M', moves=('Poison Tail', 'Screech', 'Pursuit')))],
+                      moves=[(4.5, 'you', 'Razor Shell', 14), (6, 'foe', 'Poison Tail', 8), (8.5, 'foe', 'Poison Tail', 42)],
+                      effects=[]),
     'legend': dict(place='Turnback Cave', clock='16:00', weather=0, music=0x0, trainer=None,
                    foes=[(0, _mon(487, 47, 190, 190, 'genderless', moves=('Shadow Force', 'Dragon Claw')))],
                    moves=[(4, 'you', 'Bubble', 30), (5.5, 'foe', 'Shadow Force', 12)],
@@ -118,12 +135,40 @@ OTHER_SET = ra_set.RaSet({"ID": 1, "Title": "Demo Racer DS", "Achievements": [
     ], 1)]})
 OTHER_UNLOCK_AT = 6.0   # seconds into the scene that "Clean Lap" unlocks
 
+# Pokemon Black, made up as well: a party, and a set (unlocked: the first
+# four; "Bug Out" unlocks during the scene).
+BW_PARTY = [
+    _mon(502, 24, 61, 70, 'M', nickname='Dewott', moves=('Razor Shell', 'Water Gun', 'Fury Cutter', 'Focus Energy')),
+    _mon(521, 22, 50, 66, 'F', nickname='Unfezant', moves=('Air Cutter', 'Quick Attack', 'Leer')),
+    _mon(523, 23, 19, 64, 'M', nickname='Zebstrika', status='Paralyzed', moves=('Spark', 'Flame Charge')),
+    _mon(570, 21, 48, 48, 'F', nickname='Zorua', shiny=True, moves=('Pursuit', 'Fury Swipes')),
+    _mon(554, 20, 0, 58, 'M', nickname='Darumaka', moves=('Tackle', 'Fire Fang')),
+    dict(_mon(637, 1, 10, 10, 'genderless', nickname='Egg'), egg=True),
+]
+BW_PARTY[1]['item'] = '#155'
+BW_SET = ra_set.RaSet({"ID": 3887, "Title": "Pokemon Black Version", "Achievements": [
+    {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
+    for i, (title, desc, pts) in enumerate([
+        ("New Adventure", "Choose your first partner in Nuvema Town", 1),
+        ("Trio Badge", "Beat the Striaton City Gym", 5),
+        ("Basic Badge", "Beat Lenora at the Nacrene City Gym", 5),
+        ("Dream Mist", "Find Munna in the Dreamyard", 3),
+        ("Bug Out", "Beat Burgh in Castelia City and earn the Insect Badge", 10),
+        ("Castelia Cone", "Buy a Casteliacone on a Tuesday", 5),
+        ("Ferris Wheel", "Ride the Nimbasa Ferris wheel", 5),
+        ("Legend Badge", "Earn all eight Unova badges", 25),
+        ("Hall of Fame", "Become the Champion of Unova", 50),
+    ], 1)]})
+BW_UNLOCK_AT = 6.0
+
 # (name, seconds) in playing order. The short overworld stretches between
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
-    ('levelup', 8), ('other', 16), ('offline', 6),
+    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
+    ('other', 16),
+    ('offline', 6),
 ]
 
 
@@ -180,7 +225,11 @@ class DemoSource:
             return None
         if name == 'other':
             return self._other(into)
-        d = self._base_state(time.time() - self.t0)
+        if name == 'unova':
+            return self._unova(into)
+        if name == 'unova_places':
+            return self._unova_places(into)
+        d = self._unova(into) if name.startswith('unova_') else self._base_state(time.time() - self.t0)
         if self.name:
             d['trainer_name'] = self.name
         lead = d['party'][0]
@@ -198,7 +247,8 @@ class DemoSource:
             return d
 
         cfg = BATTLES[name]
-        d['location'].update(map_id=1, name=cfg['place'], area=cfg['place'], weather=cfg['weather'])
+        d['location'].update(map_id=1, name=cfg['place'], area=cfg['place'], weather=cfg['weather'],
+                             weather_kind=cfg.get('weather_kind'))
         d['misc']['clock'] = f"2026-09-25 {cfg['clock']}"
         d['misc']['music_id'] = cfg['music']
         started, foe = [(s, m) for s, m in cfg['foes'] if s <= into][-1]
@@ -213,7 +263,7 @@ class DemoSource:
             done = [mv for s, mv, _ in used if s + HIT_DELAY + LAST_DELAY <= into]
             return done[-1] if done else None
 
-        trainer = d['rival_name'] if cfg['trainer'] == 'rival' else None
+        trainer = d.get('rival_name') if cfg['trainer'] == 'rival' else cfg['trainer']
         mons = [_battle_mon(lead, 'yours', uses=[mv for _, mv, _ in mine], last_move=last(mine), worn=LEAD_WORN),
                 _battle_mon(foe, 'foe', max(0, foe_hp), uses=[mv for _, mv, _ in theirs], last_move=last(theirs))]
         for s, who, changes in cfg.get('effects', []):
@@ -226,22 +276,81 @@ class DemoSource:
             mon['conditions'] += changes.get('conditions', [])
         d['battle'].update(active=True, wild=cfg['trainer'] is None, trainer=trainer, music_says_battle=True,
                            mons=mons)
-        if trainer:
+        if d.get('kind') == 'bw':
+            d['battle']['kind'] = cfg.get('kind') or ('trainer' if trainer else 'wild')
+            mons[1]['owned'] = bool(cfg.get('owned'))
+            if cfg.get('caught_at') is not None and into >= cfg['caught_at']:
+                d['misc']['music_id'] = bw_data.CATCH_MUSIC
+        elif trainer:
             d['battle']['trainer_class'] = 0x3F
+        return d
+
+    def _unova(self, into):
+        """Pokemon Black's state (core/bw_parser.py's layout, with the game
+        card's RetroAchievements keys)."""
+        achs = BW_SET.playable_achievements
+        earned = {a['id'] for a in achs[:4]}
+        latest, recent = (4, time.time() - 3 * 3600), []
+        if into >= BW_UNLOCK_AT:
+            earned.add(5)
+            recent = [(5, time.time() - (into - BW_UNLOCK_AT))]
+            latest = recent[-1]
+        step = int(into // 2) % 4
+        return {
+            'kind': 'bw', 'version': 'Black', 'trainer_name': self.name or 'Hilda', 'trainer_id': 31337,
+            'secret_id': 4242, 'character': 'Hilda', 'money': 12850,
+            'badges': bw_data.BADGES[:3] + (bw_data.BADGES[3:4] if into >= BW_UNLOCK_AT else []),
+            'playtime': {'hours': 21, 'minutes': 7 + int(into // 60), 'seconds': int(into) % 60},
+            'party_count': len(BW_PARTY), 'party': copy.deepcopy(BW_PARTY), 'zone': 0x1C,
+            'location': {'map_id': 0x1C, 'name': 'Castelia City', 'area': 'Castelia City', 'x': 300 + step,
+                         'z': 512, 'height': 0, 'facing': ['down', 'right', 'up', 'left'][step], 'weather': 0,
+                         'gait': ['walk', 'run', 'bike', 'stand'][step]},
+            'season': 'autumn', 'pokedex': {'obtained': True, 'national': False, 'seen': 58, 'caught': 31},
+            'repel': max(0, 87 - int(into)), 'badge_shine': [2, 1, 2, 2, 0, 0, 0, 0],
+            'route': {'trainers': (3, 5), 'items': (4, 4)}, 'subway': None, 'institute': None, 'league': None,
+            'battle': {'pointer': '0x0', 'music_says_battle': False, 'active': False, 'wild': False,
+                       'trainer': None, 'mons': [], 'style': None, 'trainer_id': 0},
+            'misc': {'music_id': None, 'music': None, 'textbox_open': False, 'clock': '2026-10-09 17:30'},
+            'game': {'code': 'IRBO'}, 'title': BW_SET.title, 'header_title': None, 'ra_set': BW_SET,
+            'rich_presence': "Castelia City • Autumn • 4 badges • Pokedex: 31/58",
+            'progress': (len(earned), len(achs)), 'started': time.time() - into - 2400,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
+        }
+
+    def _unova_places(self, into):
+        """Pokemon Black around the places with panels of their own, a
+        season each: the Battle Subway (spring), the Battle Institute
+        (summer), an Elite Four room (winter, at night)."""
+        d = self._unova(30)
+        part = min(2, int(into // 5))
+        place, zone, season = [('Gear Station', 0x42, 'spring'), ('Battle Institute', 0x50, 'summer'),
+                               ("Grimsley's Room", 0x8D, 'winter')][part]
+        d['location'].update(name=place, area=place, map_id=zone)
+        d.update(zone=zone, season=season, route={}, repel=0)
+        if part == 0:
+            d['subway'] = {'bp': 126, 'train': 'Super Single', 'streak': 23 + int(into), 'record': 49,
+                           'trains': [('Single', 21, 21), ('Super Single', 23 + int(into), 49), ('Double', 0, 14)]}
+        elif part == 1:
+            d['institute'] = {'points': 4620, 'last': 4620, 'rank': bw_data.institute_rank(4620)}
+        else:
+            d['league'] = {'beaten': ['Shauntal'], 'here': 'Grimsley'}
+            d['misc']['clock'] = '2026-01-09 22:15'
         return d
 
     def _other(self, into):
         achs = OTHER_SET.playable_achievements
         earned = {a['id'] for a in achs[:3]}
         recent = []
+        latest = (3, time.time() - 2 * 86400 - 3600)  # earned before, as RetroAchievements has it
         if into >= OTHER_UNLOCK_AT:
             earned.add(4)
             recent = [(4, time.time() - (into - OTHER_UNLOCK_AT))]
+            latest = recent[-1]
         lap = min(3, 1 + int(into // 6))
         place = ['5th', '3rd', '1st'][lap - 1]
         return {
             'kind': 'other', 'game': {'code': 'DEMO'}, 'title': OTHER_SET.title, 'header_title': None,
             'ra_set': OTHER_SET, 'rich_presence': f"Lap {lap}/3 on Seaside Loop, in {place} place",
             'progress': (len(earned), len(achs)), 'started': time.time() - into - 1500,
-            'unlocked': frozenset(earned), 'recent': recent, 'ra_note': None, 'signed_in': True,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
         }

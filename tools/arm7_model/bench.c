@@ -43,6 +43,19 @@ int bench_load(uint32_t programSize, uint32_t stateAddress, uint32_t stateSize) 
 	return AchVm_Load(&vm, PROGRAM, programSize, (void *)stateAddress, stateSize, RAM, RAM_SIZE);
 }
 
+// The frame lane's sampling (probe_ach.c's ProbeAch_Sample()): every memory
+// value read at once and copied to `out`
+int bench_sample(uint32_t out) {
+	AchVm_Sample(&vm, (uint32_t *)out);
+	return 0;
+}
+
+// The frame lane's checking of a sample (`in`, from bench_sample())
+int bench_run_sampled(uint32_t in) {
+	AchVm_RunSampled(&vm, (const uint32_t *)in, onTriggered, 0);
+	return 0;
+}
+
 // One whole pass over every memory value and achievement. Returns how many
 // calls it took (more than 1 only with keepEvery).
 int bench_pass(void) {

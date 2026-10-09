@@ -47,11 +47,21 @@
 // compared with what DSiRPC unlocks. 0 = off.
 #define RPCPROBE_ACH 1
 
-// Scanlines (about 64 us each) the checker may use in a VBlank, and how
-// many the rest of the tick may already have used before it skips its turn.
-// A big set takes a few VBlanks for one pass over every achievement. It
-// checks the time every 8 conditions, so it usually goes over by a
-// scanline or two (16 with checks every 32 went up to 26 on hardware).
+// The checker runs while the game's ARM7 idles (nds-bootstrap's swiHalt
+// hook, outside interrupts): at most this many scanlines (about 64 us
+// each; a frame has 263) a visit, and a frame. The rest of the idle time the
+// ARM7 sleeps as usual. It checks the time every 8 conditions, so it usually
+// goes over by a scanline or two.
+#define RPCPROBE_ACH_IDLE_LINES_PER_VISIT 16
+#define RPCPROBE_ACH_IDLE_LINES_PER_FRAME 120
+
+// If the swiHalt hook hasn't run for this many VBlanks (a game whose
+// swiHalt nds-bootstrap couldn't hook), the VBlank does the checking
+// instead: this many scanlines a VBlank, skipped if the rest of the tick
+// already took the second number. A big set takes a few VBlanks for one pass
+// over the pass lane (16 with time checks every 32 conditions went up to 26
+// on hardware).
+#define RPCPROBE_ACH_IDLE_DEAD 30
 #define RPCPROBE_ACH_LINES_PER_VBLANK 20
 #define RPCPROBE_ACH_SKIP_AFTER_LINES 40
 

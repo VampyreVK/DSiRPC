@@ -285,6 +285,168 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Discord's Unova GIFs without trails, and the trainer's
+  gait.** The GIFs only ever added pixels (`disposal=1`), so where a Pokémon
+  moved away its old pixels stayed: they trailed. `process_unova.py` now
+  writes them itself, clearing just the Pokémon's rectangle after a frame
+  when the next one needs pixels gone and keeping the turf, checked frame
+  by frame with Pillow, ffmpeg and ImageMagick, at about the same size.
+  Discord's trainer now stands, walks, runs or rides like the overlay's
+  ("Biking through Route 4"), held through short stops.
+
+- 2026-10-09: **Black and White: the trainer walks when you walk.** With
+  `dsirpc_client.py --watch` (new: prints whatever changes in some ranges)
+  Viv confirmed the facing on a console. Between full reads the hub now
+  reads the player's map object every 0.3 s, so the footer's trainer turns
+  right away and walks, runs or rides the bike as you do (by how fast the
+  object moves, and the bike byte), standing still when you stop.
+
+- 2026-10-09: **Black and White on a console, first fixes.** Viv's first run
+  on real cartridges: the facing byte always read "up", so the facing now
+  comes from the player's map object (IronMon Tracker's table at
+  `0x022521EC`); the Continue menu and the intro showed as Black City or
+  White Forest in spring (the save is loaded but the field isn't), so with
+  no player map object and the zone at 0 it's the game card until you're
+  in. Winter's light is a frosty border instead of a wash over everything,
+  and its nights are lighter.
+
+- 2026-10-09: **Black and White, round four: seasons, places, Discord.**
+  The Unova view dresses for the season (`overlay/seasons.py`: petals, sun
+  rays and fireflies, leaves in gusts, snow piling on the panels with
+  icicles, a drift and a night aurora, a light wash for the time of day,
+  a banner when the season turns). From the RetroAchievements notes: the
+  Repel steps, the trainers beaten and items found in each place (header
+  chips), the badges' shine (dull, clean or polished on the footer), and
+  panels of their own in the Battle Subway (streak, record, the set's
+  seven cars), the Battle Institute (rank and points) and, only while
+  challenging them, the Elite Four. In battle a wild Pokémon you own shows a
+  Poké Ball, a catch gets a "Gotcha!" and a wobbling ball, a low HP bar
+  pulses red, and in doubles your right Pokémon sits lower and in front.
+  The party icons are drawn at the window's resolution (`Overlay.present`).
+  Move animations pick a flavour by name (punches, kicks, bites, beams,
+  orbs, jets, Surf's wave, quakes with a screen shake, meteors, songs,
+  draining, stat arrows, barriers, hearts, powders, weather, ...) finished
+  in the type's own style. Discord gets a presence of its own
+  (`rpc/bw_presence.py`): the foe on the turf the battle view uses and your
+  trainer walking on the place's turf, GIFs made by
+  `Assets/Unova-Battle/process_unova.py` for Unova's Pokémon.
+
+- 2026-10-09: **Black and White's battles, round three.** The new
+  background (the "Arena" concept): Diamond and Pearl's skies with Black
+  and White's detail drawn in code (a 3D-stretched floor with streaks, a
+  skyline per place, horizon haze, sun shafts, particles, a vignette), and
+  new tufted turfs placed like Black and White's, in a day look and a night
+  look (`overlay/unova_backdrop.py`). From the RetroAchievements notes:
+  Gym Leaders (their room while their music plays), the Elite Four and the
+  Champion are named and stand on the far turf before sending out their
+  first Pokémon; the in-game clock (with each season's day and night hours)
+  lights the battles; the field's weather falls in them. In doubles your
+  Pokémon stand a little lower, and the main view's trainer sits clear of
+  the footer's border. The demo has a rainy forest battle and Burgh.
+
+- 2026-10-09: **Black and White, round two.** The RetroAchievements code
+  notes for both versions came in (`docs/memory-map/`): every address the
+  parser reads that they cover matches, White's 0x20 higher, so White
+  needed no new code; its place names now say White Forest where Black's
+  say Black City. The notes also moved the battle PP: each move is stored
+  twice in a battle copy, and the in-battle one (whose PP the notes watch
+  go down) is 6 bytes later than first thought. The overlay: the party
+  panels' text keeps clear of their cut corners (names further right, HP
+  further left), the badges are smaller (2/5 of the trainer card's), and
+  Black and White's battles get the games' own HUD (thin white arrow bars
+  with the names above them, a dark plate for your HP numbers, the
+  two-tone gauge, and a dark message band with maroon edges, the moves on
+  it too). New backgrounds and platforms are being drafted as concepts.
+
+- 2026-10-09: **Pokémon Black and White get their own overlay.** (Also:
+  the overlay font has `|`, and the waiting screen's DSi has its D-pad and
+  buttons beside the touch screen instead of above it.)
+  - **A parser** (`core/bw_parser.py`, `core/bw_data.py`) for Black and
+    White US: party (Gen V's 220-byte Pokémon, the same encryption as
+    Gen IV's), trainer, money, badges, play time, zone, position, facing,
+    season, Pokédex, and battles from the battle copies (HP and PP live,
+    the max PP included). The addresses come from public emulator tools
+    (PKHeX's save layout, which sits 1:1 in RAM; the Gen V RNG scripts;
+    NDS-Ironmon-Tracker; pokebot-nds; Action Replay codes) and the zone
+    names from the RetroAchievements rich presence for game 3887; White's
+    are Black's plus `0x20`. The RetroAchievements notes attached for this
+    turned out to be Platinum's, so none of it is checked on a console yet;
+    the parser checks what it reads and the game card takes over when it
+    doesn't look like the game.
+  - **The Unova view** (`overlay/unova.py`): the party in the games' own
+    chevron panels, three to a row; an achievements panel (latest unlock,
+    next to earn, progress and points) on the main screen, which Platinum's
+    view doesn't have; the season, place and play time; Hilbert or Hilda
+    walking, money, the real Unova badges and the Pokédex. Battles use the
+    battle view on the games' own skies and platforms. All of the art is
+    cut at runtime from the sprite sheets in `Assets/PokemonBlackUI`
+    (`overlay/unova_art.py`), so no image files were added.
+  - **The hub** reads Black and White like Platinum (battlers only during
+    a battle, one request) and adds the game card's RetroAchievements keys
+    to their state. Discord shows them like any other game for now.
+  - **The demo** has a Pokémon Black stretch (the Unova view with an
+    achievement unlocking, then a battle in Pinwheel Forest).
+  - Still to do: the opponent trainer (name, class and sprite, which needs
+    the trainer data or the RetroAchievements notes for game 3887), battle
+    status, types and stat changes, the Discord presence, and a try on a
+    console.
+
+- 2026-10-09: **Achievements checked every frame.** On a 3DS, Tetris DS's
+  T-Spin Single never unlocked and "Look Ma, One Hand" unlocked when it
+  shouldn't have: the first needs the T-spin flag on the exact frame the
+  line count goes up, the second a ResetIf that catches every rotation, and
+  the console checked about every 19 frames, DSiRPC once a second. Now:
+  - **Two lanes on the console.** Sets are version 4: DSiRPC puts the
+    achievements that need every frame (`offline.timing()`: hit targets,
+    ResetIf, PauseIf, delta and prior values) in a frame lane, as many as
+    its ARM7 cost model allows (`split_lanes()`, `frame_costs()`, fitted on
+    `tools/arm7_model`), and the rest in the pass lane. The console samples
+    the frame lane's memory values at the start of every VBlank into a ring
+    and checks the samples in order (`AchVm_Sample()`, `AchVm_RunSampled()`),
+    so every frame is checked as it was.
+  - **The ARM9 writes its cache back.** A value the game wrote can sit in
+    the ARM9's data cache past the end of the frame (a one-frame flag may
+    never reach main RAM), so with a frame lane the ARM9's VBlank hook (the
+    per-frame capture's) cleans the whole data cache at the start of every
+    VBlank and counts it; the ARM7 samples right after.
+  - **Idle time.** The checking moved out of the VBlank into
+    nds-bootstrap's swiHalt hook, where the game's ARM7 idles (up to 16
+    scanlines a visit and 120 a frame, stopping for ARM9 ROM reads); the
+    VBlank still does it for a game whose swiHalt couldn't be hooked.
+  - **Skipping what can't have changed.** An achievement whose memory
+    values didn't change this frame or the last, and whose last check left
+    its state and hits (hashed: exact for hit targets and AddHits/SubHits,
+    none-or-some for the rest) as they were, is skipped: same results as
+    rcheevos, a fraction of the cost. A steady frame of a 200-achievement
+    test set costs 102,000 cycles instead of 450,000; the pass lane does
+    tens of passes a second instead of one or two. (A first version
+    tracked hit changes as they happened; an achievement true from the
+    start bumps and resets its hits every frame, so it never settled.)
+  - **DSiRPC every frame too.** `core/frame_capture.py` checks every frame
+    the achievements that need it and that the console doesn't check every
+    frame, as many as fit in the per-frame capture's 8 watched values, from
+    the DSi's record of every frame (drained four times a second, also
+    between the requests of a long read). When the console's report says it
+    runs a set DSiRPC built (`st=`, `ra/cache/console_sets.json`), DSiRPC
+    leaves those achievements to it instead of checking them once a second.
+  - **DSiRPC's unlocks on the console.** `'U'` tells the console's checker
+    about DSiRPC's own unlocks: it stops checking them and the in-game menu
+    shows them as earned and new.
+  - **Room.** The capture's 2 KB ring moved from the ARM7 cardengine to
+    the end of DSiRPC's 256 KB in main RAM (sets now get 250 KB), which
+    paid for all of it: the ARM7 is at 61,460 of 62,464 bytes, the ARM9
+    cardengine has 792 bytes left.
+  - **The overlay's game card** shows the latest unlock (any time, "NEW"
+    for 5 minutes) in the left two thirds of its achievements panel and one
+    to earn in the right third.
+  Tested on a PC: the checker against rcheevos frame by frame on a
+  simulated puzzle game (with and without skipping, sampled now and
+  checked later, stopping at random points; 54 runs of 4,000-8,000
+  frames, half with random achievements), `probe_ach.c` with real version
+  4 sets (idle time, VBlank, a starved idle side), and DSiRPC's side
+  against a fake DSi at 60 frames a second. Builds with the CI's Docker
+  image. Needs a hardware test: the report's `f=`, `fr=` (about 60), `fd=`
+  (0), `fc=` (0) and `h=` (1).
 - 2026-10-08: **The overlay's game card, and a docs pass.** Any game but
   Platinum used to get a lone panel in the overlay; now it gets a game card
   laid out like the party view (`overlay/gamecard.py`): the title and

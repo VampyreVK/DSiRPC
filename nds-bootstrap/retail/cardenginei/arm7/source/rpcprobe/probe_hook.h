@@ -14,8 +14,11 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex);
 
 // cardengine.c's runCardEngineCheckHalt() calls this every time the game's
 // ARM7 idles (swiHalt), outside interrupts: it saves the achievement
-// checker's unlocks to the SD card when sdMutex (saveMutex) is free.
-void Probe_HaltTick(int *sdMutex);
+// checker's unlocks to the SD card when sdMutex (saveMutex) is free, then
+// checks achievements for a while (probe_ach.c). romWaiting() says an ARM9
+// ROM read waits to be served; the checking stops for it. Returns 1 if it
+// did: serve the read, then call again.
+int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void));
 
 // The lid closed on a DSi: turns rpcprobe's Wi-Fi off for the rest of the
 // game (see probe_hook.c's lid rule). Probe_VBlankTick() calls it itself;

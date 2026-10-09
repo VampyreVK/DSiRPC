@@ -319,6 +319,7 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 - Pokémon sprites from [PokeAPI](https://pokeapi.co/)
   ([sprites repository](https://github.com/PokeAPI/sprites)).
+- More sprites used from [spriters-resource.com](https://www.spriters-resource.com/ds_dsi/pokemonblackwhite/)
 - Overworld assets by [PurpleZaffre](https://eeveeexpo.com/threads/3667/).
 - [nds-bootstrap](https://github.com/DS-Homebrew/nds-bootstrap) by DS-Homebrew
   (GPLv3), which hosts the in-game side.

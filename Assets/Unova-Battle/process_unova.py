@@ -21,7 +21,7 @@ the older ones would add about 600 MB, so the presence shows Platinum's
 dioramas for them (rpc/bw_presence.py). The
 Pokemon come from Assets/Pokemon-Overworld and Shiny-Pokemon-Overworld (the
 animated front sprites, drawn at 2x and facing right): halved to their real
-pixels and mirrored to face left like a foe, then stood on the turf with
+pixels and, facing right like Platinum's dioramas, stood on the turf with
 their feet at y=126 of a 160x160 canvas, like Platinum's dioramas. The
 trainers come from Assets/Trainer-Overworld's sheets (walking, running, on
 the bike), drawn bigger (TRAINER_SCALE) to fill Discord's round picture.
@@ -44,14 +44,15 @@ sys.path.insert(0, os.path.dirname(ASSETS))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import numpy as np  # noqa: E402
-from PIL import Image, ImageOps, ImageSequence  # noqa: E402
+from PIL import Image, ImageSequence  # noqa: E402
 
 CANVAS = 160
 FEET_Y = 126
-# The trainers are drawn 3.5x their own pixels and stand a little higher, so
-# with the turf they fill Discord's round picture (nothing outside a circle
-# 2 px inside the canvas, for any gait, direction or frame).
-TRAINER_SCALE, TRAINER_FEET_Y = 3.5, 120
+# The trainers are drawn 4x their own pixels, on a turf a little higher than
+# the Pokemon's, so they fill Discord's round picture. The tallest frames (on
+# the bike) stand a little lower so their heads stay in the picture; a few
+# (a ponytail on the bike) just touch the circle's edge.
+TRAINER_SCALE, TRAINER_FEET_Y = 4, 124
 TURF_W, TURF_H = 136, 34          # the turf's top ellipse
 TURFS = ['grass', 'sand', 'snow', 'water', 'cave', 'indoor']   # core/bw_data.terrain()'s platforms
 DIRECTIONS = ['Down', 'Left', 'Right', 'Up']
@@ -93,14 +94,15 @@ def crop_union(frames):
 
 
 def compose(sprites, ground, feet=FEET_Y):
-    """Each sprite frame on the turf, feet at `feet`, centred."""
+    """Each sprite frame on the turf, feet at `feet` (lower for a sprite too
+    tall to fit above it), centred."""
     out = []
     tx = (CANVAS - ground.width) // 2
     ty = feet - 5 - ground.height // 2   # the feet a little below the turf's middle
     for s in sprites:
         frame = Image.new('RGBA', (CANVAS, CANVAS), (0, 0, 0, 0))
         frame.alpha_composite(ground, (tx, ty))
-        frame.alpha_composite(s, ((CANVAS - s.width) // 2, feet - s.height))
+        frame.alpha_composite(s, ((CANVAS - s.width) // 2, max(feet, s.height + 1) - s.height))
         out.append(frame)
     return out
 
@@ -227,7 +229,7 @@ def make_mon(args):
     if not os.path.exists(src):
         return 0
     frames, durations = read_gif(src)
-    sprites = [ImageOps.mirror(f) for f in crop_union(halve(frames))]
+    sprites = crop_union(halve(frames))   # facing right, like Platinum's dioramas
     folder = 'Unova-Battle-Shiny' if shiny else 'Unova-Battle'
     for kind in TURFS:
         save_gif(compose(sprites, turf(kind)), durations, os.path.join(ASSETS, folder, kind, f'{sid}.gif'))

@@ -1815,12 +1815,13 @@ the background become solid.
 images with the overlay's own code: each turf is drawn by
 `overlay/unova_backdrop.py` in its day look (so Discord matches the battle
 view), and the Pokémon (from `Pokemon-Overworld` and
-`Shiny-Pokemon-Overworld`, halved to their real pixels and mirrored to face
-left) stand on it with their feet at y=126 of a 160x160 canvas, like the
-dioramas. The trainers (from the walking, running and bike sheets) are drawn
-3.5 times their own pixels with their feet at y=120, so with the turf they
-fill Discord's round picture (`TRAINER_SCALE`, `TRAINER_FEET_Y`; nothing
-pokes out of the circle in any gait, direction or frame);
+`Shiny-Pokemon-Overworld`, halved to their real pixels, facing right like
+Platinum's dioramas) stand on it with their feet at y=126 of a 160x160
+canvas, like the dioramas. The trainers (from the walking, running and bike
+sheets) are drawn 4 times their own pixels on a turf for feet at y=124, so
+they fill Discord's round picture (`TRAINER_SCALE`, `TRAINER_FEET_Y`); the
+tallest frames (on the bike, facing down) stand a little lower so their
+heads stay in, and a ponytail on the bike just touches the circle's edge.
 `process_unova.py trainers` makes only theirs. The script writes the GIFs
 itself (`save_gif()`, with its own LZW encoder): one palette for all the
 frames, the first frame whole, and after it only the pixels that change.

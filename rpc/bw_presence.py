@@ -10,9 +10,10 @@ parsed game state (core/bw_parser.py):
   otherwise:    "Playing", where you are (running, biking or surfing
                 through it when you are), "Badges | Seen | Caught", and as
                 the big picture's text (Discord shows it as a third line)
-                the achievements and the place's trainers beaten, items
-                found and Repel steps taking turns every 30 s (without
-                achievements, who's where with those); your trainer the way you
+                the achievements and the place's trainers beaten and items
+                found (or the Repel's steps, while one's active) taking turns
+                every 30 s (without achievements, who's where with those);
+                your trainer the way you
                 face on the place's turf as the big image, standing,
                 walking, running or on the bike as you are, your lead's
                 overworld sprite as the small one, and the party fraction;
@@ -164,17 +165,18 @@ def overworld_presence(d):
         bits = [f"Elite Four beaten: {len(league.get('beaten') or [])}/4"] + bits[1:]
 
     # The big picture's text, which Discord shows as a third line: the
-    # achievements and the place's stats (trainers beaten, items found, the
-    # Repel's steps left) taking turns every ROTATE_S, else who's where with
-    # the stats.
+    # achievements and the place's stats (the Repel's steps left while one's
+    # active, else trainers beaten and items found) taking turns every
+    # ROTATE_S, else who's where with the stats.
     route = d.get('route') or {}
     stats = []
-    if 'trainers' in route:
-        stats.append("trainers beaten: {}/{}".format(*route['trainers']))
-    if 'items' in route:
-        stats.append("items found: {}/{}".format(*route['items']))
     if d.get('repel'):
         stats.append(f"Repel: {d['repel']} steps")
+    else:
+        if 'trainers' in route:
+            stats.append("trainers beaten: {}/{}".format(*route['trainers']))
+        if 'items' in route:
+            stats.append("items found: {}/{}".format(*route['items']))
     progress = d.get('progress')
     if progress and progress[1]:
         big = f"Achievements: {progress[0]}/{progress[1]}"

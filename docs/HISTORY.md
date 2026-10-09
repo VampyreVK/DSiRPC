@@ -294,8 +294,8 @@ in this table before assuming it's missing from RA entirely.
 
 - 2026-10-09: **The third line takes turns, and the season's back in the
   header.** Discord's third line now swaps every 30 s between the
-  achievements and the place's trainers beaten, items found and Repel steps
-  (when there are any). The overlay's header reads `Castelia City • Summer`
+  achievements and the place's trainers beaten and items found (when there
+  are any), or only the Repel's steps left while one's active. The overlay's header reads `Castelia City • Summer`
   again (the season in its colour; the font got a `•`), and the footer has
   the Pokédex's seen above caught.
 

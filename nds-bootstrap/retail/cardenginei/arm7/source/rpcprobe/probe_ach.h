@@ -29,8 +29,9 @@ extern u16 probeAchWaiting;     // this game's unlocks already in RPCUNLK.BIN at
 void ProbeAch_Load(const void *ndsHeader);
 
 // The console's clock when the launcher started the game, in seconds since
-// 2000-01-01 (RPCHAND.TXT's time=; 0 = unknown). Unlocks are dated from it
-// and the VBlanks counted since.
+// 2000-01-01 (RPCHAND.TXT's time=; 0 = unknown). Unlocks are dated by the
+// console's clock, read when they happen; when it can't be read just then,
+// by its last reading (or this) plus the VBlanks counted since.
 void ProbeAch_SetTime(u32 secondsSince2000);
 
 // Every VBlank. tickStart: the scanline the VBlank tick started on; the

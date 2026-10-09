@@ -275,6 +275,26 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **Unlock times from the console's clock.** The menu worked on
+  the DSi, and on the 3DS everything but the LED (TWiLight has no LED
+  setting there; the notification LED through TwlBg was judged too much for
+  a small feature, and the menu's banner works there). Unlocks were dated
+  by the launcher's `time=` plus the VBlanks counted since, a choice made so
+  the game's ARM7 never had to read the real-time clock. But the VBlanks
+  stop while the console sleeps and while the in-game menu is open, so
+  after a nap every unlock looked that much older, and DSiRPC passes that
+  age on to RetroAchievements (the `o` field of `awardachievement`). Now
+  `probe_ach.c` reads the clock when an achievement unlocks, with
+  nds-bootstrap's own `rtcGetTimeAndDate()` (its in-game menu already
+  reads the clock from the VBlank interrupt): once a VBlank at most, with
+  interrupts off, and only while the game's chip select is low, so it
+  never cuts into the game's own clock reads. Readings that can't be right
+  are ignored, and each good one becomes the new starting point for the
+  VBlank count, which is still the fallback. Playtime needed nothing: the
+  playtime DSiRPC shows is the game's own counter. Host-tested (the real
+  read path against mapped registers, 200,000 random dates against
+  `timegm()`, busy and bad readings, the earlier unlock-saving and menu
+  tests); needs a hardware test. ARM7: 61,164 of 62,464 bytes (+216).
 - 2026-10-08: **Achievements in nds-bootstrap's in-game menu.** The lid fix
   worked on hardware (DSiRPC logged `Console: its lid closed ...` and the
   DSi slept and woke fine). Sets are now version 3: after the program comes

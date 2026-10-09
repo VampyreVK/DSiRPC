@@ -29,8 +29,10 @@ count (256), 6 bytes reserved. Slots 1-255 are unlocks:
 Each unlock is one slot, written on its own, so there's never a half-written
 list; the launcher zeroes the slots once DSiRPC has them. In game, unlocks go
 after the last slot in use (sequence number = slot number), dated by the
-launcher's clock (RPCHAND.TXT's time=) plus the VBlanks since, so time asleep
-isn't counted; 0 if there was no clock. Achievements already in the file
+console's clock, read when the achievement unlocks (when it can't be read just
+then: its last reading, or the launcher's time= in RPCHAND.TXT, plus the
+VBlanks since, which stop while it sleeps); 0 if there was no clock.
+Achievements already in the file
 aren't checked again. Unlocks DSiRPC made itself (playing online) come back
 this way too; engine.py leaves out the ones it knows about.
 

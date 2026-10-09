@@ -18,9 +18,12 @@
 // Unlocks: each one waits in a small queue until ProbeAch_SaveOne() writes
 // it to its own RPCUNLK.BIN slot, outside interrupts with nds-bootstrap's SD
 // card lock held (probe_hook.c's SD card rule). The slot's time is the
-// launcher's clock (RPCHAND.TXT's time=) plus the VBlanks since, so time
-// spent asleep (lid closed) isn't counted. Achievements already in
-// RPCUNLK.BIN when the game starts aren't checked again.
+// console's clock, read when the achievement unlocks (clockNow() below).
+// The VBlanks stop while the console sleeps (lid closed) and while the
+// in-game menu is open, so the launcher's clock (RPCHAND.TXT's time=) plus
+// the VBlanks since falls behind by that long; it's only used when the clock
+// can't be read just then. Achievements already in RPCUNLK.BIN when the game
+// starts aren't checked again.
 //
 // In-game menu: a version 3 set has a list of every achievement of the game
 // after the program (dsirpc_ach_menu.h). Once the set's CRC has been
@@ -89,8 +92,56 @@ static aFile unlockFile;
 static u16 unlockNext;                 // the next free slot (0: no RPCUNLK.BIN to save to)
 static u32 pendId[ACH_PENDING], pendWhen[ACH_PENDING];
 static volatile u8 pendHead, pendTail;
-static u32 clockStart, clockSeconds;   // the launcher's time; seconds of VBlanks since
+static u32 clockStart, clockSeconds;   // the console's clock (seconds since 2000) at clockSeconds 0; seconds of VBlanks since
 static u32 clockPart;                  // the part second, in 1/1000 VBlanks
+static u8 clockKnown;                  // clockStart is a time (the launcher's, or a reading)
+static u8 clockTried;                  // the console's clock was read (or couldn't be) this tick
+
+// The console's clock (the RTC): year (0 = 2000), month, day, weekday, hour,
+// minute, second. nds-bootstrap's rtcGetTimeAndDate() (clock.c, which its
+// in-game menu also calls from the VBlank interrupt), with interrupts off,
+// and only if the game isn't in the middle of talking to the clock itself
+// (chip select high). 0: not read.
+#ifndef ACH_RTC_READ // (the PC tests have their own)
+#define ACH_REG_RTC         (*(vu8*)0x04000138)
+#define ACH_REG_IME         (*(vu32*)0x04000208)
+void rtcGetTimeAndDate(u8 *time);
+static int rtcRead(u8 *t) {
+	if (ACH_REG_RTC & 0x04) return 0;
+	u32 ime = ACH_REG_IME;
+	ACH_REG_IME = 0;
+	rtcGetTimeAndDate(t);
+	ACH_REG_IME = ime;
+	return 1;
+}
+#define ACH_RTC_READ(t) rtcRead(t)
+#endif
+
+static const u16 daysBefore[12] = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+
+// When an achievement unlocks: the console's clock, in seconds since
+// 2000-01-01 (local time, like the launcher's time=), read at most once a
+// tick (the tick's other unlocks share it) and kept as the new clockStart,
+// so the VBlanks carry on from it. A reading that can't be right (a field out
+// of range, or more than a minute before the launcher's time plus the
+// VBlanks, which can only fall behind) is ignored. Without a reading: the
+// last one (or the launcher's time) plus the VBlanks since. 0: no clock.
+static u32 clockNow(void) {
+	u8 t[7];
+	if (!clockTried && ACH_RTC_READ(t)) {
+		u32 y = t[0], m = t[1] - 1u, d = t[2] - 1u;
+		if (y < 100 && m < 12 && d < 31 && t[4] < 24 && t[5] < 60 && t[6] < 60) {
+			u32 days = y * 365 + (y + 3) / 4 + daysBefore[m] + d + (m > 1 && !(y & 3));
+			u32 now = ((days * 24 + t[4]) * 60 + t[5]) * 60 + t[6];
+			if (now + 60 >= clockStart + clockSeconds) {
+				clockStart = now - clockSeconds;
+				clockKnown = 1;
+			}
+		}
+	}
+	clockTried = 1;
+	return clockKnown ? clockStart + clockSeconds : 0;
+}
 
 static u16 linesSince(u16 start) {
 	u16 now = ACH_REG_VCOUNT & 0x1FF;
@@ -264,7 +315,7 @@ static void onTriggered(u32 id, void *ud) {
 	recent[recentNext] = id;
 	recentNext = (recentNext + 1) % ACH_RECENT;
 	if (recentCount < ACH_RECENT) recentCount++;
-	u32 when = clockStart ? clockStart + clockSeconds : 0;
+	u32 when = clockNow();
 
 	// In the menu's list, whether or not it can be saved
 	listMark(id, when, ++unlockSeq);
@@ -315,6 +366,7 @@ static void checkStamp(u16 start) {
 
 void ProbeAch_SetTime(u32 secondsSince2000) {
 	clockStart = secondsSince2000;
+	clockKnown = secondsSince2000 != 0;
 }
 
 void ProbeAch_MenuOpened(void) {
@@ -333,6 +385,7 @@ void ProbeAch_MenuClosed(void) {
 
 void ProbeAch_Tick(u16 tickStart) {
 	ProbeAch_MenuClosed(); // the VBlank ticks only run while the menu is closed
+	clockTried = 0;
 	clockPart += 1000;
 	if (clockPart >= ACH_VBLANKS_X1000) {
 		clockPart -= ACH_VBLANKS_X1000;

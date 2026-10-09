@@ -961,10 +961,10 @@ achievement ID u32 (0: empty) | game code[4] | when u32 | seq u16 | check u16
 partly written is skipped. The in-game side (`rpcprobe/probe_ach.c`) writes
 each unlock into the slot after the last one in use (a half-written slot
 counts as used), one 16-byte write per unlock; it never has to make or grow
-the file. Its `seq` is the slot number, and its `when` is the launcher's
-clock (`RPCHAND.TXT`'s `time=`) plus the VBlanks since the game started, so
-time asleep isn't counted (0 if there was no `time=`; DSiRPC then uses the
-time it gets them). The game's unlocks already in the file when it starts
+the file. Its `seq` is the slot number, and its `when` is the console's
+clock, read when the achievement unlocks (when it can't be read just then:
+its last reading, or `RPCHAND.TXT`'s `time=`, plus the VBlanks since; 0 if
+there was neither, and DSiRPC then uses the time it gets them). The game's unlocks already in the file when it starts
 aren't checked again, so a session never saves the same achievement twice.
 The console saves every unlock, online too, so DSiRPC leaves out the ones it
 already knows about (`engine._offline_unlocks()`, `RALink.known_unlocks()`).
@@ -1107,9 +1107,8 @@ the console only runs the result:
   matched after every frame. With Wi-Fi, its report (section 7) shows on
   hardware what it unlocks and how long it takes.
 
-- **Saving.** Each unlock goes into a small queue (7 places) with its time:
-  `RPCHAND.TXT`'s `time=` plus the VBlanks counted since (59.8261 a second).
-  The SD card can't be touched from the VBlank interrupt later on (rules
+- **Saving.** Each unlock goes into a small queue (7 places) with its time
+  (Dates, below). The SD card can't be touched from the VBlank interrupt later on (rules
   below), so the queue is written out from nds-bootstrap's swiHalt hook
   instead: `runCardEngineCheckHalt()` runs whenever the game's ARM7 idles,
   outside interrupts, and serves the ARM9's ROM reads there under
@@ -1121,6 +1120,21 @@ the console only runs the result:
   Without `RPCUNLK.BIN` (the game wasn't started from the launcher), or
   with 255 unlocks already waiting, unlocks are counted (`x` in the report)
   but not saved.
+- **Dates.** An unlock's time is the console's clock (the RTC), read when
+  it unlocks with nds-bootstrap's own `rtcGetTimeAndDate()` (`clock.c`; its
+  in-game menu reads the clock from the VBlank interrupt too): at most once
+  a VBlank, with interrupts off, and only if the game isn't in the middle
+  of talking to the clock itself (chip select high in `0x04000138`). The
+  VBlanks stop while the console sleeps (lid closed) and while the in-game
+  menu is open, so counting them from the launcher's `time=` (59.8261 a
+  second) falls behind by that long, and DSiRPC tells RetroAchievements how
+  long ago an offline unlock happened, so the site would date it too early.
+  A reading that can't be right (a field out of range, a 12-hour clock's
+  afternoon, or more than a minute before the last time plus the VBlanks
+  since, which can only fall behind) is ignored. Each good reading is the
+  new starting point, so when the clock can't be read just then, the last
+  reading (or `time=`) plus the VBlanks since is used. A reading takes
+  about 1 ms of the VBlank interrupt, only when something unlocks.
 - **The in-game menu.** A version 3 set ends with the game's achievement
   list (section 7). Once the set's CRC has been checked (the list mustn't
   change before), `probe_ach.c` marks the game's unlocks waiting in
@@ -1460,8 +1474,8 @@ section 8).
   matched rcheevos exactly on PC tests, and runs on hardware since
   2026-10-08: Platinum's 101 achievements at about 1.4 passes a second).
   Saving its unlocks into `RPCUNLK.BIN` from the swiHalt hook works on
-  hardware since 2026-10-08 (Tetris DS), with few games tried. Unlock times don't count time asleep (the console's
-  clock is only read by the launcher). The checker reads main RAM from the ARM7, so it can see values a
+  hardware since 2026-10-08 (Tetris DS), with few games tried. Unlock times are the console's clock, read at each
+  unlock (section 8; not tried on hardware yet). The checker reads main RAM from the ARM7, so it can see values a
   frame or more late, like DSiRPC's own reads; and with a big set one pass
   takes a few frames, so a hit count of 60 takes longer than a second.
 - **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
@@ -1475,7 +1489,7 @@ section 8).
 - **The in-game menu's achievement screens are English only**, and titles
   and descriptions are plain ASCII (accents dropped), since the menu's font
   is whatever language nds-bootstrap is set to. Times are the console's
-  clock, so time asleep isn't counted (like the unlocks themselves).
+  clock when each achievement unlocked.
 - **Group-key renewals aren't handled in game.** Nothing runs the WPA2 group
   handshake after the launcher exits. So far it hasn't caused problems; the
   `eap` counter is the early warning.

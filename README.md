@@ -90,8 +90,8 @@ While you play, the console checks the game's achievements itself, many
 times a second, Wi-Fi or not.
 
 Each unlock is saved to the SD card (`sd:/RPCUNLK.BIN`) right away, with
-when it happened: the console's clock when the launcher started the game,
-plus the time played since (time with the lid closed isn't counted). The
+when it happened, read from the console's clock (so a nap with the lid
+closed doesn't make an unlock look older than it is). The
 next time the launcher finds DSiRPC it hands them over, and DSiRPC sends the
 ones it didn't already have. This works for games started from the
 launcher, which puts the set and the unlock file on the SD card. With Wi-Fi

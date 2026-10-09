@@ -120,6 +120,12 @@ in `loader/` (it ends up inside the launcher). Copy the launcher to the SD
 card next to our nds-bootstrap build (`nds-bootstrap-dsirpc.nds`), for example
 both in `sd:/DSiRPC/` as in the release download, and start it in DSi mode.
 
+In the DSi's menus (and TWiLight Menu++) it shows as "DSiRPC / RPC & RA
+Tracking / VampyreVK" with an animated icon: the pixel DSi from DSiRPC's
+waiting screen looking for a connection (`icon.gif`, made by
+`tools/make_pixel_dsi.py`; BlocksDS's ndstool turns a GIF with several
+frames into a DSi animated icon, up to 8 frames of 16 colours).
+
 ## Checking the connection
 
 `tools/hello_listener.py` (in the repo root's `tools/` folder) prints the
@@ -143,6 +149,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
+| `icon.gif` | The launcher's animated icon (made by `tools/make_pixel_dsi.py`, don't edit by hand) |
 
 ## License
 

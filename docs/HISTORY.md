@@ -285,6 +285,16 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **The pixel DSi everywhere.** A third console picture for
+  Discord, "Pixel DSi" (`Assets/Consoles/Pixel.gif`): the waiting screen's
+  DSi looking for a connection, animated, with room around it for Discord's
+  round picture. The launcher has it as its animated icon too, redrawn
+  31x32 to fill the icon (its six lines as four at that size, and its
+  colours the DS's own 15-bit ones, so the menu shows exactly the GIF), and
+  is now "DSiRPC / RPC & RA Tracking / VampyreVK" in the DSi's menus. Both
+  are made by `tools/make_pixel_dsi.py`, checked with BlocksDS's ndstool
+  (an animated banner, 4 frames of 400 ms, every frame the same as the GIF).
+
 - 2026-10-09: **The waiting screen knows the DSi's there, and a new DSi.**
   The launcher syncs with DSiRPC as soon as it's connected (and again when
   you pick a game), so the waiting screen now shows "DSi connected!" with a

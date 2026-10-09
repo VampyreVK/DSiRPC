@@ -39,6 +39,7 @@ CONSOLE_NAMES = {
     "3ds": "Nintendo 3DS",
     "3dsxl": "Nintendo 3DS XL",
     "2ds": "Nintendo 2DS",
+    "pixel": "Pixel DSi",
 }
 
 

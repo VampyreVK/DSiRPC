@@ -7,8 +7,12 @@ BLOCKSDS	?= /opt/blocksds/core
 # User config
 
 NAME		:= dsirpc-launcher
-GAME_TITLE	:= DSiRPC Launcher
-GAME_SUBTITLE	:= DSWiFi DSi mode
+GAME_TITLE	:= DSiRPC
+GAME_SUBTITLE	:= RPC & RA Tracking
+GAME_AUTHOR	:= VampyreVK
+# The pixel DSi looking for a connection, animated on the DSi's menus (made
+# by tools/make_pixel_dsi.py).
+GAME_ICON	:= icon.gif
 
 # Libraries
 # ---------

@@ -679,16 +679,24 @@ class UnovaScreen:
         pygame.draw.rect(canvas, INK, (0, FOOTER_Y, W, H - FOOTER_Y))
         pygame.draw.line(canvas, CYAN_LO, (0, FOOTER_Y), (W - 1, FOOTER_Y))
 
-        # Your trainer, walking when you move.
+        # Your trainer, walking, running or riding the bike as you do (the
+        # hub's `gait`; without one, walking a moment when you move).
         loc = d.get('location') or {}
         facing = loc.get('facing') if loc.get('facing') in ('up', 'down', 'left', 'right') else 'down'
-        pos = (loc.get('map_id'), loc.get('x'), loc.get('z'), facing)
-        if self.last_pos is not None and pos != self.last_pos:
-            self.walk_until = t_ms + 700
-        self.last_pos = pos
-        anim = self.o.sprites.trainer(d.get('character') or 'Hilbert', facing)
+        gait = loc.get('gait')
+        if gait is None:
+            pos = (loc.get('map_id'), loc.get('x'), loc.get('z'), facing)
+            if self.last_pos is not None and pos != self.last_pos:
+                self.walk_until = t_ms + 700
+            self.last_pos = pos
+            style, moving = 'walk', t_ms < self.walk_until
+        else:
+            style = gait if gait in ('run', 'bike', 'bike_stop') else 'walk'
+            moving = gait in ('walk', 'run', 'bike')
+        character = d.get('character') or 'Hilbert'
+        anim = self.o.sprites.trainer(character, facing, style) or self.o.sprites.trainer(character, facing)
         if anim:
-            frame = anim.frame(t_ms) if t_ms < self.walk_until else anim.frames[0]
+            frame = anim.frame(t_ms) if moving else anim.frames[0]
             canvas.blit(frame, (16 - frame.get_width() // 2, H + 1 - frame.get_height()))  # clear of the border
 
         name = d.get('trainer_name') or ''

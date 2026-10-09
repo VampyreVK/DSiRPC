@@ -103,6 +103,7 @@ class DsiSource:
     (core/ra_link.py), if you're signed in."""
 
     FAST_INTERVAL = 0.3
+    FIELD_INTERVAL = 0.3   # Black/White in the field: the player's map object, for the trainer's gait
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
@@ -165,6 +166,11 @@ class DsiSource:
     def _in_battle(self):
         return bool(self.last and not is_other(self.last) and self.last['battle']['active'])
 
+    def _in_field(self):
+        """Black/White outside a battle, with the player's map object found."""
+        return bool(is_bw(self.last) and not self.last['battle']['active']
+                    and self.last['location'].get('object'))
+
     def next_delay(self):
         if self.client.dsi_ip is None:
             return None
@@ -172,6 +178,8 @@ class DsiSource:
         delays = []
         if self.fast_battles and self._in_battle():
             delays.append(self.FAST_INTERVAL)
+        elif self.fast_battles and self._in_field():
+            delays.append(self.FIELD_INTERVAL)
         if self.ra_game and (self.ra_game.runtime or not self.ra_game.set):
             delays.append(self.ra_game.next_due - now)
         if self.ra_game and self.ra_game.capture_due is not None:
@@ -316,6 +324,21 @@ class DsiSource:
                 self.last = self._with_ra(data, game)
                 return self.last
         elif now - self.last_parse < self.parse_interval:
+            if last and self.fast_battles and self._in_field():
+                # Between full reads, follow the player (facing, position,
+                # walking or running), or read everything again if the map
+                # changed or a battle started.
+                try:
+                    got = self.client.read_ranges(BWParser.field_ranges(last, games.bw_version(game)),
+                                                  timeout=self.FAST_TIMEOUT, retries=1)
+                    data = BWParser.apply_field(last, got, time.time())
+                except (TimeoutError, RuntimeError):
+                    return self.last  # dropped; the next try is only FIELD_INTERVAL away
+                if data is not None:
+                    self.last = self._with_ra(data, game)
+                    return self.last
+                self.last_parse = 0.0
+                return self._read_bw(game)
             if last:
                 fresh = self._with_ra(last, game)
                 if any(fresh[k] != last.get(k) for k in ('progress', 'unlocked', 'latest', 'rich_presence', 'ra_set')):
@@ -354,6 +377,10 @@ class DsiSource:
             self.other.close()
             self.other = None
         self.failed = False
+        if last and data['location'].get('fx') and last.get('zone') == data.get('zone'):
+            BWParser.motion(last['location'], data['location'], now)  # the gait carries on across full reads
+        else:
+            data['location']['at'] = now
         self.last = self._with_ra(data, game)
         self.last_full = time.time()
         return self.last

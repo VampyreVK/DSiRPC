@@ -285,6 +285,13 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White: the trainer walks when you walk.** With
+  `dsirpc_client.py --watch` (new: prints whatever changes in some ranges)
+  Viv confirmed the facing on a console. Between full reads the hub now
+  reads the player's map object every 0.3 s, so the footer's trainer turns
+  right away and walks, runs or rides the bike as you do (by how fast the
+  object moves, and the bike byte), standing still when you stop.
+
 - 2026-10-09: **Black and White on a console, first fixes.** Viv's first run
   on real cartridges: the facing byte always read "up", so the facing now
   comes from the player's map object (IronMon Tracker's table at

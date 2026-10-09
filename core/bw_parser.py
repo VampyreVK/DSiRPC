@@ -76,6 +76,15 @@ class BWParser(PlatinumParser):
     # Continue menu, the intro).
     MAP_OBJECTS = 0x022521EC
     MAP_OBJECT_SIZE, MAP_OBJECT_COUNT, PLAYER_OBJECT = 0x100, 64, 0xFF
+    # In a map object: the facing (u8) and the position, fx32 x, y, z
+    # (live, the fraction moving mid-step); the part read of it.
+    O_FACING, O_POSITION, OBJECT_READ = 0x10, 0x3C, 0x48
+    FORM = 0x0224F94C              # u8: 1 on the bike (pokebot-nds), 2 surfing (a guess: Gen IV's order)
+    FORMS = {1: 'bike', 2: 'surf'}
+    # Tiles a second: walking is a tile every 16 frames (3.75/s), running
+    # one every 8 (7.5/s); anything faster on foot is running too, up to
+    # WARP_SPEED (the bike's top gear is 15/s): faster than that is a warp.
+    RUN_SPEED, WARP_SPEED = 5.5, 25.0
     SEASON = 0x0224F9BC            # u8: 0 spring ... 3 winter
     WEATHER = 0x0224F9BD           # u8: the field's weather (bw_data.WEATHER)
     MUSIC = 0x02258230             # u16: the music playing (bw_data.LEADER_MUSIC)
@@ -131,19 +140,19 @@ class BWParser(PlatinumParser):
         """The address of the player's map object, or None (not in the field)."""
         base, size = self.a(self.MAP_OBJECTS), self.MAP_OBJECT_SIZE
         slot = BWParser._player_slot.get(self.version, 0)
-        self.prefetch([(base + slot * size, 0x11)])
+        self.prefetch([(base + slot * size, self.OBJECT_READ)])
         if self.read_u16(base + slot * size) == self.PLAYER_OBJECT:
             return base + slot * size
         self.prefetch([(base + i * size, 2) for i in range(self.MAP_OBJECT_COUNT)])
         for i in range(self.MAP_OBJECT_COUNT):
             if self.read_u16(base + i * size) == self.PLAYER_OBJECT:
                 BWParser._player_slot[self.version] = i
-                self.prefetch([(base + i * size + 0x10, 1)])
+                self.prefetch([(base + i * size, self.OBJECT_READ)])
                 return base + i * size
         return None
 
     def _facing(self, player):
-        facing = self.read_u8(player + 0x10) if player is not None else None
+        facing = self.read_u8(player + self.O_FACING) if player is not None else None
         return self.FACINGS[facing] if facing is not None and facing < 4 else 'down'
 
     # -- Pokemon ---------------------------------------------------------------
@@ -260,6 +269,7 @@ class BWParser(PlatinumParser):
             (A(self.DEX), 4 + 5 * self.DEX_BYTES),
             (A(self.PLAYTIME), 4),
             (A(self.ZONE), 0x1C),
+            (A(self.FORM), 1),
             (A(self.SEASON), 2),
             (A(self.MUSIC), 2),
             (self.RTC[0] + self.shift, 0x20 + 24),
@@ -319,6 +329,15 @@ class BWParser(PlatinumParser):
             'map_id': zone, 'name': place, 'area': place, 'x': x, 'z': z, 'height': y,
             'facing': self._facing(player),
         }
+        # How you're getting about (`gait`): the hub's quick field reads
+        # (field_ranges / apply_field) tell standing, walking and running
+        # apart by how fast the player object moves.
+        form = self.FORMS.get(self.read_u8(A(self.FORM)))
+        d['location']['form'] = form
+        if player is not None:
+            fx, _, fz = struct.unpack('<iii', self.read_bytes(player + self.O_POSITION, 12) or bytes(12))
+            d['location'].update(object=player, fx=(fx / 65536, fz / 65536))
+        d['location']['gait'] = {'bike': 'bike_stop', 'surf': 'surf'}.get(form, 'stand')
         season = self.read_u8(A(self.SEASON))
         d['season'] = bw.SEASONS[season] if season < 4 else None
         weather = self.read_u8(A(self.WEATHER))
@@ -507,3 +526,53 @@ class BWParser(PlatinumParser):
         data['misc'] = dict(last['misc'], music_id=music)
         cls.identify(data['battle'], last.get('zone'), music, last.get('party') or [], last.get('version'))
         return data
+
+    @classmethod
+    def field_ranges(cls, last, version):
+        """The reads that follow the player around between full reads (for a
+        parsed state in the field with the player's map object): the
+        object, the bike byte, the zone and the battle flag."""
+        shift = WHITE_SHIFT if version == 'White' else 0
+        return [(last['location']['object'], cls.OBJECT_READ), (cls.FORM + shift, 1), (cls.ZONE + shift, 2),
+                (cls.IN_BATTLE + shift, 1)]
+
+    @classmethod
+    def apply_field(cls, last, got, now):
+        """`last` with the player's facing, position and gait from `got`
+        (the reads of field_ranges, in order, made at `now`), or None when
+        a full read is needed (another map, a battle, the object gone)."""
+        obj, form, zone, battle = got
+        if (len(obj) < cls.OBJECT_READ or battle[:1] == b'\x41' or struct.unpack('<H', zone)[0] != last.get('zone')
+                or struct.unpack_from('<H', obj, 0)[0] != cls.PLAYER_OBJECT):
+            return None
+        fx, _, fz = struct.unpack_from('<iii', obj, cls.O_POSITION)
+        facing = obj[cls.O_FACING]
+        loc = dict(last['location'], fx=(fx / 65536, fz / 65536), x=fx >> 16, z=fz >> 16,
+                   facing=cls.FACINGS[facing] if facing < 4 else last['location'].get('facing', 'down'),
+                   form=cls.FORMS.get(form[0]))
+        cls.motion(last['location'], loc, now)
+        data = dict(last)
+        data['location'] = loc
+        return data
+
+    @classmethod
+    def motion(cls, before, loc, now):
+        """Sets loc's `gait` ('stand', 'walk', 'run', 'bike', 'bike_stop' or
+        'surf') from how far the player moved since `before` (the last
+        location read, at its 'at'), and its 'at' to `now`."""
+        if loc.get('form') == 'surf':
+            gait = 'surf'
+        else:
+            speed = 0.0
+            if before.get('fx') and loc.get('fx') and before.get('at') and now - before['at'] > 0.05:
+                (x0, z0), (x1, z1) = before['fx'], loc['fx']
+                speed = (abs(x1 - x0) + abs(z1 - z0)) / (now - before['at'])
+                if speed > cls.WARP_SPEED:
+                    speed = 0.0
+            if loc.get('form') == 'bike':
+                gait = 'bike' if speed > 0.2 else 'bike_stop'
+            else:
+                gait = 'stand' if speed <= 0.2 else 'run' if speed > cls.RUN_SPEED else 'walk'
+            loc['speed'] = round(speed, 2)
+        loc['gait'] = gait
+        loc['at'] = now

@@ -297,7 +297,11 @@ in this table before assuming it's missing from RA entirely.
   writes to `~/Library/Application Support/DSiRPC` (`core/paths.py`), bundles
   `certifi` for HTTPS, builds the rcheevos library as a `.dylib`, and runs a
   `selfcheck` in CI. Not signed with a Developer ID (no paid Apple account),
-  so the first launch is right-click > Open. Windows is unchanged.
+  so the first launch is right-click > Open. Windows is unchanged. First
+  test on Viv's Mac: the overlay window flashed black and closed, as it
+  drew its first frame before the first snapshot came through the pipe
+  (_PipeHub started with None); it starts with an empty Snapshot now, like
+  a StateHub, and a state that can't be pickled is skipped, not fatal.
 
 - 2026-10-09: **The launcher's icon on a 3DS.** On Viv's 3DS (TWiLight
   Menu++) three of the icon's four frames had scrambled colours: ndstool

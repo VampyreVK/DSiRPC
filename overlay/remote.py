@@ -22,9 +22,12 @@ class _PipeHub:
     source = None   # no demo scenes to skip (the N key)
 
     def __init__(self, conn):
+        from core.hub import Snapshot
         self.conn = conn
         self.window = None
-        self._snap = None
+        # Like a StateHub's, a snapshot from the start: the window can draw
+        # its first frame before the tray's first one comes through
+        self._snap = Snapshot()
         self._listeners = []
         self._lock = threading.Lock()
 
@@ -98,6 +101,7 @@ class RemoteOverlay:
         self._stop = threading.Event()
         self._send_lock = threading.Lock()
         self._conn = None
+        self._unsent = False
 
     def _send(self, msg):
         with self._send_lock:
@@ -105,8 +109,12 @@ class RemoteOverlay:
                 return
             try:
                 self._conn.send(msg)
-            except (OSError, ValueError, EOFError):
+            except (OSError, ValueError, EOFError):   # the window's process is gone
                 self._conn = None
+            except Exception as e:   # something in it that can't go through the pipe: skip it
+                if not self._unsent:
+                    logging.warning(f"Overlay window: couldn't send it the state ({e!r})")
+                    self._unsent = True
 
     def _forward(self, snap, events):
         self._send(('snap', snap, events))
@@ -145,6 +153,9 @@ class RemoteOverlay:
                 elif msg[0] == 'closed':
                     closed = msg[1]
             proc.join(timeout=5)
+            if not closed and not self._stop.is_set():
+                logging.warning(f"The overlay window's process ended by itself (exit code {proc.exitcode}); "
+                                f"its log: {self.log_file}")
         finally:
             self.hub.remove_listener(self._forward)
             with self._send_lock:

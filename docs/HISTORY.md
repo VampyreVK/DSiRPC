@@ -17,12 +17,11 @@ a custom Discord Rich Presence status. The DSi-side code needs to persist
 alongside an actual running retail game, not run as a standalone/separately
 launched homebrew app (DS/DSi has no multitasking for user code).
 
-This file is the durable project log. Update it as work happens so a new chat
-session can pick up context without re-deriving everything. Each major change
-should get a short entry in the Progress Log at the bottom rather than editing
-history away.
-
 ## Architecture decisions
+
+*The plan as of 2026-09-22. The hook actually used is `myIrqHandlerVBlank`
+in the ARM7 cardengine calling `Probe_VBlankTick()` (DOCUMENTATION.md,
+section 8).*
 
 - **Integration point: nds-bootstrap's retail cardengine VBlank hook.**
   `vendor/nds-bootstrap` has two build trees: `hb/` (homebrew loading, simple,
@@ -52,7 +51,10 @@ history away.
   ProjectPokemon's community breakpoints page, in that priority order. See
   "Memory map" below.
 
-## ARM7 wifi-output gap — design complete, first draft written, UNTESTED
+## ARM7 wifi-output gap (superseded: this driver was removed on 2026-09-23)
+
+*The launcher's DSi-mode handoff replaced it before it ever ran on hardware;
+see the progress log and DOCUMENTATION.md, section 1.*
 
 How to get probe-response data OUT over Wi-Fi from the ARM7 VBlank-hook
 context. Stages 1-2 proved the pipe using dswifi9's BSD-socket API, which
@@ -128,6 +130,9 @@ shared gets touched) and less to build.
 
 ## Stage progress
 
+*As of 2026-09-22. The protocol became `'R'`/`'D'` with up to 16 ranges and
+192 bytes a request (DOCUMENTATION.md, section 7).*
+
 - **Stage 1 — DONE.** `stage1-listen/`: standalone DSi homebrew app connects
   to Wi-Fi, sends one hardcoded UDP packet to a PC listener
   (`stage1-listen/pc/listener.py`). Proved the wifi pipe works end to end.
@@ -148,9 +153,11 @@ shared gets touched) and less to build.
   per Viv's call, lots of small polled requests beat one big payload, to
   avoid frame drops and to allow lazy-loading slow-changing fields (trainer
   name, etc.) separately from fast-changing ones. See the ARM7 wifi-output
-  gap section below for where the implementation stands.
+  gap section above for where the implementation stood.
 
 ## Repo layout
+
+*As of 2026-09-22. The current layout is in DOCUMENTATION.md, section 13.*
 
 - `stage1-listen/` — Stage 1 artifact (standalone, kept for reference).
 - `stage2-echo/` — Stage 2 artifact (standalone, kept for reference).
@@ -177,6 +184,9 @@ shared gets touched) and less to build.
   cross-checked version.
 
 ## Memory map (Pokemon Platinum (USA) (Rev 1))
+
+*Superseded by DOCUMENTATION.md, section 9, which has the verified map; some
+entries below are wrong (see the note at the top).*
 
 All addresses below are hardware ARM9 addresses (`0x02000000`-based Main RAM).
 RetroAchievements' own addressing scheme is offset by `-0x02000000` from
@@ -275,6 +285,26 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-08: **The overlay's game card, and a docs pass.** Any game but
+  Platinum used to get a lone panel in the overlay; now it gets a game card
+  laid out like the party view (`overlay/gamecard.py`): the title and
+  session time in the header, a "Now" panel with the RetroAchievements rich
+  presence, an "Achievements" panel with a gold progress bar and the latest
+  unlock (for 5 minutes) or one still to earn (a different one every 6 s,
+  "MASTERED" at the end), and a footer with a DS game card in a colour
+  picked by the game code, the code and RA game ID, and the achievements and
+  points earned. `core/other_game.py`'s state gained `unlocked`, `recent`
+  (`RaGame.session_unlocks`), `ra_note` and `signed_in` for it. The waiting
+  view got the same frame: a DSi drawn in code with Wi-Fi arcs, the hub's
+  status wrapped (it used to run off the panel), the steps on the console,
+  and the last game played. The demo now plays a made-up "Demo Racer DS"
+  with a set and an unlock. Platinum's party and battle views are unchanged,
+  pixel for pixel. Pokémon Black and White are next in line for views of
+  their own (the Pokémon sprites up to #649 are in `Assets/` already). The
+  docs pass brought in the hardware results (the lid fix, the LED, the
+  in-game menu on the DSi and 3DS, the one-app launch), the CMD53 numbers,
+  the new clock and the overlay, and marked this file's old plan sections
+  as superseded.
 - 2026-10-08: **Unlock times from the console's clock.** The menu worked on
   the DSi, and on the 3DS everything but the LED (TWiLight has no LED
   setting there; the notification LED through TwlBg was judged too much for

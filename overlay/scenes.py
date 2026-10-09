@@ -5,9 +5,11 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   (trainer, badges, Pokedex)
     battle view   sky and ground, platforms, the foe and your Pokemon, their
                   HP boxes and a message box
-    other game    any game but Platinum: its name and its RetroAchievements
-                  rich presence, if there's a set for it
-    waiting view  shown while the DSi isn't sending data
+    game card     any game but Platinum (overlay/gamecard.py): its name, its
+                  RetroAchievements rich presence and achievement progress,
+                  laid out like the party view
+    waiting view  shown while the DSi isn't sending data: what to do, and the
+                  last game played
     toasts        short banners for events (shiny, level up, fainted, ...)
 
 The Overlay object keeps the animation state (HP bars sliding to their new
@@ -35,6 +37,7 @@ from . import markers, ui
 from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
 from .font import PixelFont
+from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
 
 W, H = 256, 192
@@ -107,6 +110,7 @@ class Overlay:
         self.sprites = sprites
         self.font = PixelFont()
         self.mini = PixelFont(mini=True)
+        self.card = GameCard(self.font, self.mini)
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
         self.view = 'auto'         # 'auto', 'party' or 'battle' (V key in the window)
@@ -157,11 +161,7 @@ class Overlay:
 
     def _fit_line(self, text, width):
         """`text`, cut with … so it's at most `width` pixels wide."""
-        if self.font.width(text) <= width:
-            return text
-        while text and self.font.width(text + '…') > width:
-            text = text[:-1]
-        return text.rstrip() + '…'
+        return self.font.fit(text, width)
 
     def toast(self, text, sparkly=False):
         if len(self.toasts) < 6:
@@ -211,7 +211,7 @@ class Overlay:
         if d is None:
             self.draw_waiting(canvas, snap, t_ms)
         elif other:
-            self.draw_other(canvas, d, t_ms)
+            self.card.draw(canvas, d, t_ms)
         elif self.showing_battle and in_battle:
             self.draw_battle(canvas, d, t_ms, dt_ms)
         else:
@@ -275,10 +275,7 @@ class Overlay:
         self._footer(canvas, d, t_ms)
 
     def _bar(self, canvas, y, h):
-        t = ui.THEME
-        pygame.draw.rect(canvas, t['bar'], (0, y, W, h))
-        pygame.draw.line(canvas, t['bar_hi'], (0, y), (W - 1, y))
-        pygame.draw.line(canvas, t['bar_lo'], (0, y + h - 1), (W - 1, y + h - 1))
+        ui.bar(canvas, y, h)
 
     def _empty_slot(self, canvas, x, y):
         t = ui.THEME
@@ -843,89 +840,74 @@ class Overlay:
     # -- waiting view ----------------------------------------------------------
 
     def draw_waiting(self, canvas, snap, t_ms):
+        """While the DSi isn't sending: what to do, and the last game played,
+        in the same frame as the other views."""
         t = ui.THEME
         ui.tiled_background(canvas, t_ms)
-        ui.panel(canvas, (20, 52, 216, 88))
-        dots = '.' * (1 + (t_ms // 400) % 3)
-        self.font.draw(canvas, "Waiting for the DSi" + dots, (70, 64), t['text'], t['text_shadow'])
-        self.font.draw(canvas, snap.status or '', (70, 80), (96, 104, 112), t['text_shadow'])
-        self.font.draw(canvas, "Start the launcher, press", (70, 100), t['text'], t['text_shadow'])
-        self.font.draw(canvas, "START, then launch the game.", (70, 112), t['text'], t['text_shadow'])
 
-        character = (snap.state or {}).get('character') or 'Dawn'
-        anim = self.sprites.trainer(character, 'down')
-        if anim:
-            f = anim.frame(t_ms)
-            canvas.blit(f, (44 - f.get_width() // 2, 130 - f.get_height()))
-
-        # A little signal meter that fills up and resets.
+        # Header: the name, and a signal meter that fills up and resets.
+        self._bar(canvas, 0, HEADER_H)
+        self.font.draw(canvas, "DSiRPC", (5, 4), t['text_light'], t['text_light_shadow'])
         level = (t_ms // 350) % 4
         for i in range(3):
-            c = t['hp_green'] if i < level else (170, 184, 188)
-            pygame.draw.rect(canvas, c, (212 + i * 5, 72 - i * 3, 3, 4 + i * 3))
+            c = t['hp_green'] if i < level else t['bar_hi']
+            pygame.draw.rect(canvas, c, (W - 18 + i * 5, 11 - i * 3, 3, 2 + i * 3))
 
-    # -- other games -----------------------------------------------------------
-
-    def _wrap(self, text, width, max_lines):
-        lines, line = [], ''
-        for word in text.split():
-            trial = f"{line} {word}" if line else word
-            if self.font.width(trial) <= width:
-                line = trial
-                continue
-            if line:
-                lines.append(line)
-            line = word
-            while self.font.width(line) > width:  # a word longer than a line
-                cut = len(line)
-                while cut > 1 and self.font.width(line[:cut]) > width:
-                    cut -= 1
-                lines.append(line[:cut])
-                line = line[cut:]
-        if line:
-            lines.append(line)
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-            last = lines[-1]
-            while last and self.font.width(last + '…') > width:
-                last = last[:-1]
-            lines[-1] = last + '…'
-        return lines
-
-    def draw_other(self, canvas, d, t_ms):
-        """A game without its own view: its name, and its RetroAchievements
-        rich presence (or why there isn't any)."""
-        t = ui.THEME
-        ui.tiled_background(canvas, t_ms)
-        ui.panel(canvas, (12, 30, 232, 132))
-        title = self._wrap(d.get('title') or '', 212, 2)
-        y = 40
-        for line in title:
-            self.font.draw(canvas, line, (22, y), t['text'], t['text_shadow'])
+        # A DSi looking for a connection, and what to do, centred in a panel.
+        px, py, pw, ph = 3, 18, 250, 142
+        ui.panel(canvas, (px, py, pw, ph))
+        tx, tw = px + 58, pw - 64
+        status = self.font.wrap(snap.status or '', tw, 2)
+        steps = ["Start the DSiRPC launcher.", "Press START and pick a game.", "It shows up here as you play."]
+        block = 12 + 12 * len(status) + 10 + 16 * len(steps) - 4
+        y = py + (ph - block) // 2
+        ix, iy = px + 12, py + (ph - ui.DSI_H) // 2
+        ui.dsi(canvas, ix, iy)
+        self._wifi(canvas, ix, iy, t_ms)
+        dots = '.' * (1 + (t_ms // 400) % 3)
+        self.font.draw(canvas, "Waiting for the DSi" + dots, (tx, y), t['text'], t['text_shadow'])
+        y += 12
+        for line in status:
+            self.font.draw(canvas, line, (tx, y), t['text_muted'], t['text_shadow'])
             y += 12
-        pygame.draw.line(canvas, t['panel_lo'], (22, y + 2), (233, y + 2))
-        y += 8
-        ra = d.get('ra_set')
-        text = d.get('rich_presence')
-        if text:
-            for line in self._wrap(text, 212, 5):
-                self.font.draw(canvas, line, (22, y), t['text'], t['text_shadow'])
-                y += 12
-        elif ra:
-            self.font.draw(canvas, "No rich presence for this game.", (22, y), (96, 104, 112), t['text_shadow'])
+        pygame.draw.line(canvas, t['panel_lo'], (tx, y + 3), (px + pw - 7, y + 3))
+        y += 10
+        for n, line in enumerate(steps, 1):
+            ui.chip(canvas, self.mini, tx, y + 1, str(n), t['lead_border'])
+            self.font.draw(canvas, line, (tx + 12, y), t['text'], t['text_shadow'])
+            y += 16
+
+        # Footer: the last game played (its trainer, or its game card).
+        self._bar(canvas, FOOTER_Y, H - FOOTER_Y)
+        last = snap.state
+        if last and last.get('kind') == 'other':
+            code = (last.get('game') or {}).get('code') or '????'
+            ui.game_card(canvas, 14, H - 24, ui.card_color(code))
+            title = last.get('title') or code
         else:
-            self.font.draw(canvas, "No RetroAchievements set file.", (22, y), (96, 104, 112), t['text_shadow'])
-            self.font.draw(canvas, "Add one with dsirpc.py setup.", (22, y + 12), (96, 104, 112), t['text_shadow'])
-        code = (d.get('game') or {}).get('code') or '????'
-        p = d.get('progress')
-        if ra and p:
-            foot = f"{code} - RA game {ra.id} - {p[0]} of {p[1]} unlocked"
-        elif ra:
-            foot = f"{code} - RA game {ra.id} - {len(ra.playable_achievements)} achievements"
-        else:
-            foot = code
-        self.font.draw(canvas, foot, (22, 146), (96, 104, 112), t['text_shadow'])
-        ui.sparkle(canvas, 232, 40, t_ms)
+            anim = self.sprites.trainer((last or {}).get('character') or 'Dawn', 'down')
+            if anim:
+                f = anim.frames[0]
+                canvas.blit(f, (22 - f.get_width() // 2, H - 3 - f.get_height()))
+            title = "Pokémon Platinum" if last else "DSiRPC"
+        label = "LAST PLAYED" if last else "DISCORD + RETROACHIEVEMENTS"
+        self.font.draw(canvas, self.font.fit(title, W - 52), (44, FOOTER_Y + 5), t['text_light'],
+                       t['text_light_shadow'])
+        self.mini.draw(canvas, label, (44, FOOTER_Y + 19), t['hp_label'])
+
+    def _wifi(self, canvas, ix, iy, t_ms):
+        """Wi-Fi arcs on the DSi's top screen, lighting up one by one."""
+        t = ui.THEME
+        sx, sy, sw, sh = ui.DSI_TOP_SCREEN
+        cx, cy = ix + sx + sw // 2, iy + sy + sh - 3
+        lit = (t_ms // 400) % 4
+        off = (64, 76, 88)
+        canvas.set_at((cx, cy), t['hp_green'])
+        for i, r in enumerate((3, 5, 7)):
+            c = t['hp_green'] if i < lit else off
+            for deg in range(45, 136, 5):
+                rad = math.radians(deg)
+                canvas.set_at((cx + int(round(r * math.cos(rad))), cy - int(round(r * math.sin(rad)))), c)
 
     # -- toasts ----------------------------------------------------------------
 

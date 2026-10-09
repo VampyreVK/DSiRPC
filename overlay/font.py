@@ -199,6 +199,44 @@ class PixelFont:
         self._cache[key] = surf
         return surf
 
+    def fit(self, text, width):
+        """`text`, cut with … so it's at most `width` pixels wide."""
+        text = text or ''
+        if self.width(text) <= width:
+            return text
+        while text and self.width(text + '…') > width:
+            text = text[:-1]
+        return text.rstrip() + '…'
+
+    def wrap(self, text, width, max_lines):
+        """`text` split into lines at most `width` pixels wide (a word longer
+        than a line is broken), at most `max_lines` of them; the last one
+        ends with … if there was more."""
+        lines, line = [], ''
+        for word in (text or '').split():
+            trial = f"{line} {word}" if line else word
+            if self.width(trial) <= width:
+                line = trial
+                continue
+            if line:
+                lines.append(line)
+            line = word
+            while self.width(line) > width:  # a word longer than a line
+                cut = len(line)
+                while cut > 1 and self.width(line[:cut]) > width:
+                    cut -= 1
+                lines.append(line[:cut])
+                line = line[cut:]
+        if line:
+            lines.append(line)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            last = lines[-1]
+            while last and self.width(last + '…') > width:
+                last = last[:-1]
+            lines[-1] = last.rstrip() + '…'
+        return lines
+
     def draw(self, target, text, pos, color, shadow=None, align='left'):
         surf = self.render(text, color, shadow)
         x, y = pos

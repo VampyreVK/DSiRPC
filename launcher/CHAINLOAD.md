@@ -1,9 +1,9 @@
 # Starting our nds-bootstrap straight from the launcher (one-app flow)
 
-Status: **built** (`source/chainload.c`, `loader/`), still to be tested on
-hardware. The handoff itself works on hardware (the connection survives into
-the game). If starting nds-bootstrap directly fails, the launcher's **Y**
-still exits connected, back to the menu.
+Status: **works on hardware** (`source/chainload.c`, `loader/`): it's how
+every game is started from the launcher, online and offline, and the
+connection survives into the game. If it ever fails on a console, the
+launcher's **Y** still exits connected, back to the menu.
 
 ## Why it needs a loader
 

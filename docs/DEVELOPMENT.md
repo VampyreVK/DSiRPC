@@ -170,14 +170,16 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
 | `--dsi-ip`, `--interval`, `--client-id` | The DSi's IP (if your network drops broadcasts), seconds between reads (default 5, or 2 with the overlay), a Discord application ID for every game |
-| `--demo` | The overlay with made-up scenes (battles, a shiny, a level-up), for styling without the DSi; **N** skips to the next scene |
+| `--demo` | The overlay with made-up scenes (battles, a shiny, a level-up, another game's card), for styling without the DSi; **N** skips to the next scene |
 | `--name Vivi` | With `--demo`: the trainer name to show |
 | `--scale 4` | Overlay size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`) |
 | `--chroma 00FF00` | Fill the overlay's background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
 
 The log is `logs\dsirpc.log`. Only one DSiRPC can run at a time, and the
 tools below can't run next to it: they all need UDP port 4244. The overlay's
-colours are all in `THEME` at the top of `overlay/ui.py`. Every option is
+colours are all in `THEME` at the top of `overlay/ui.py`; Platinum's party
+and battle views are in `overlay/scenes.py`, and the card every other game
+gets is `overlay/gamecard.py`. Every option is
 described in [DOCUMENTATION.md, section 5](DOCUMENTATION.md#5-pc-tools-reference).
 
 ## 8. Tools

@@ -3,7 +3,8 @@ demo.py - DemoSource: a made-up game state that plays through a loop of
 scenes, so the overlay can be styled without the DSi or a save file:
 overworld, a wild battle by day, a shiny in the evening rain, the rival at
 night (who switches Pokemon), a snowy route, a legendary in a cave, a level
-up, and the DSi going offline.
+up, another game (the game card every game without its own parser gets,
+with an achievement unlocking), and the DSi going offline.
 
 All of the data here is invented. It follows the same dict layout as
 core/parser.py, so anything that works with the demo works with the real
@@ -14,6 +15,7 @@ import copy
 import time
 
 from . import platinum_data as pdata
+from . import ra_set
 
 WILD_MUSIC, TRAINER_MUSIC, RIVAL_MUSIC = 0x45C, 0x45F, 0x464
 
@@ -100,12 +102,28 @@ BATTLES = {
                             (5.5, 'you', dict(status='Paralyzed'))]),
 }
 
+# Another game, made up too (code DEMO): what any game without its own
+# parser looks like (core/other_game.py's state), with a RetroAchievements set.
+OTHER_SET = ra_set.RaSet({"ID": 1, "Title": "Demo Racer DS", "Achievements": [
+    {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
+    for i, (title, desc, pts) in enumerate([
+        ("Green Light", "Finish your first race", 1),
+        ("Podium Finish", "Finish a race in the top three", 5),
+        ("Drift King", "Hold one drift for five seconds", 10),
+        ("Clean Lap", "Finish a lap without touching a wall", 5),
+        ("Cup Winner", "Win any cup in the easy class", 10),
+        ("Comeback", "Win a race after being in last place on the final lap", 25),
+        ("Time Trial Ace", "Beat the staff ghost on any track in Time Trial", 25),
+        ("Full Throttle", "Win every cup in the hard class", 50),
+    ], 1)]})
+OTHER_UNLOCK_AT = 6.0   # seconds into the scene that "Clean Lap" unlocks
+
 # (name, seconds) in playing order. The short overworld stretches between
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
-    ('levelup', 8), ('offline', 6),
+    ('levelup', 8), ('other', 16), ('offline', 6),
 ]
 
 
@@ -160,6 +178,8 @@ class DemoSource:
         name, into, dur = self._scene()
         if name == 'offline':
             return None
+        if name == 'other':
+            return self._other(into)
         d = self._base_state(time.time() - self.t0)
         if self.name:
             d['trainer_name'] = self.name
@@ -209,3 +229,19 @@ class DemoSource:
         if trainer:
             d['battle']['trainer_class'] = 0x3F
         return d
+
+    def _other(self, into):
+        achs = OTHER_SET.playable_achievements
+        earned = {a['id'] for a in achs[:3]}
+        recent = []
+        if into >= OTHER_UNLOCK_AT:
+            earned.add(4)
+            recent = [(4, time.time() - (into - OTHER_UNLOCK_AT))]
+        lap = min(3, 1 + int(into // 6))
+        place = ['5th', '3rd', '1st'][lap - 1]
+        return {
+            'kind': 'other', 'game': {'code': 'DEMO'}, 'title': OTHER_SET.title, 'header_title': None,
+            'ra_set': OTHER_SET, 'rich_presence': f"Lap {lap}/3 on Seaside Loop, in {place} place",
+            'progress': (len(earned), len(achs)), 'started': time.time() - into - 1500,
+            'unlocked': frozenset(earned), 'recent': recent, 'ra_note': None, 'signed_in': True,
+        }

@@ -64,7 +64,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 
 | Field | Meaning |
 |---|---|
-| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 set (the launcher or DSiRPC is older than this build), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 252 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into), `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 or 3 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 252 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into), `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
 | `p` | Passes over every achievement since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
 | `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |
@@ -111,8 +111,9 @@ The main screen of nds-bootstrap's in-game menu (L + Down + SELECT) says
 what the checker is doing: "Achievements: 12 of 102 earned", or why there
 are none ("no set loaded": the game wasn't started from the launcher;
 "checking set": the CRC isn't done yet; "set damaged", "set too big",
-"another game's", "set version?": an nds-bootstrap older than DSiRPC; "sync
-to list": a version 2 set, without the list). Nothing at all means no
+"another game's", "set version?": DSiRPC and this nds-bootstrap are from
+different releases; "set not loaded": its program doesn't add up; "sync to
+list": a version 2 set, without the list). Nothing at all means no
 anchor: this isn't DSiRPC's nds-bootstrap, or the game runs in DSi mode. The
 anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CFB0028`) if you want to look
 at it with the RAM viewer: `"DRMA"`, the game code, the status, the last
@@ -163,9 +164,12 @@ Two things to know:
   hooked) does the VBlank save them, with the same lock and only when no
   non-blocking ROM read is under way (`readOngoing`).
 - **Everything runs inside the VBlank interrupt,** so each tick has to stay
-  short. The receive path reads at most `RPCPROBE_RX_BYTES_PER_VBLANK`
-  bytes per VBlank, and no hello goes out in a tick that already sent a
-  reply. `vb=` in the hellos shows the longest tick.
+  short. The receive path reads at most `RPCPROBE_RX53_FRAMES_PER_VBLANK`
+  frames or `RPCPROBE_RX53_BYTES_PER_VBLANK` bytes per VBlank with CMD53
+  (`RPCPROBE_RX_BYTES_PER_VBLANK` with CMD52), and no hello goes out in a
+  tick that already sent a reply. The checker reads the console's clock
+  only when an achievement unlocks (about 1 ms, only while the game isn't
+  using the clock). `vb=` in the hellos shows the longest tick.
 - **A DSi mustn't sleep while the chip is connected.** It shuts off
   instead (a 3DS doesn't). When the lid closes on a DSi, `Probe_LidClosed()`
   sends a "DSiRPC lid" packet (DSiRPC logs `Console: its lid closed ...`, so
@@ -174,7 +178,7 @@ Two things to know:
   offline), then cuts the chip's SDIO power (BPTWL[30h] bit 4, which also
   turns the Wi-Fi LED off), all before the game gets to its sleep. rpcprobe
   stays off the Wi-Fi for the rest of the game. nds-bootstrap's in-game menu
-  calls it too, before its own sleep.
+  calls it too, before its own sleep. This works on hardware (a DSi XL).
 - **The achievement LED only changes from the VBlank.** The LED of
   TWiLight's ROM read LED setting pulses while achievements unlocked this
   game haven't been seen in the in-game menu (`probe_led.c`). nds-bootstrap's
@@ -182,7 +186,7 @@ Two things to know:
   this build (`cardReadLED()` returns at once), so the two never fight over
   the bus.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  1.5 KB is left: 60,948 of 62,464 bytes). The achievement checker keeps its set and state in main
-  RAM (`DSIRPC_ACH_LOCATION`) for that reason.
+  1.3 KB is left: 61,164 of 62,464 bytes). The achievement checker keeps
+  its set and state in main RAM (`DSIRPC_ACH_LOCATION`) for that reason.
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

@@ -9,8 +9,8 @@ party, your badges, and who you're battling, with animated sprites. **Any
 other DS game** shows its name, box art and a picture of your console, plus
 its [RetroAchievements](https://retroachievements.org/) rich presence
 ("Racing in Figure-8 Circuit") when it has one. Every game's achievements are
-checked while you play, and an optional overlay window shows your party and
-battles for streaming.
+checked while you play, even offline, and an optional overlay window shows
+your party and battles (or any other game's progress) for streaming.
 
 | Overworld (Playing) | Battle (Competing) |
 |---|---|
@@ -35,8 +35,8 @@ battles for streaming.
    Desktop; not Program Files). If Windows says it "protected your PC",
    right-click the zip > Properties > tick **Unblock**, and unzip it again.
 3. Double-click **`Setup.bat`** and answer its questions; Enter takes the
-   suggested answer. The download comes with a Discord application, so you
-   can press Enter there too. Signing in to RetroAchievements is optional.
+   suggested answer. If the download comes with a Discord application, press
+   Enter there too. Signing in to RetroAchievements is optional.
 4. Double-click **`DSiRPC.bat`**. DSiRPC's icon appears in the taskbar's
    notification area, by the clock. When Windows asks about the firewall,
    allow access on **private networks**, or DSiRPC never hears from the
@@ -56,7 +56,8 @@ battles for streaming.
    DSi mode in TWiLight Menu++'s per-game settings. Away from your PC? Press
    **B** while it connects to [play offline](#playing-offline).
 3. Press **START** and pick your game: **A** opens a folder or picks the game,
-   **B** goes up a folder. The launcher starts it, still connected.
+   **B** goes up a folder (the browser opens in the `DSiRPC` folder, so press
+   **B** to get to your games). The launcher starts it, still connected.
    (**SELECT** disconnects and goes back instead.)
 4. Within about 15 seconds, Discord shows what you're playing, and the tray
    icon's dot turns green.
@@ -86,8 +87,8 @@ once when it connects and again when you start a game (**B** skips that):
   and DSiRPC sends them to RetroAchievements (if sending unlocks is on in
   setup), with the time you unlocked them, and tells you in a notification.
 
-While you play, the console checks the game's achievements itself, many
-times a second, Wi-Fi or not.
+While you play, the console checks the game's achievements itself, Wi-Fi or
+not: about once a second or more often, depending on the size of the set.
 
 Each unlock is saved to the SD card (`sd:/RPCUNLK.BIN`) right away, with
 when it happened, read from the console's clock (so a nap with the lid
@@ -108,11 +109,12 @@ purple). Opening nds-bootstrap's in-game menu (**L + Down + SELECT** by
 default) counts as seeing them. It's also a quick way to tell the console's
 checker is working without DSiRPC. With DSiRPC's nds-bootstrap that LED no
 longer flashes for ROM reads; set the setting to None to turn the
-achievement LED off.
+achievement LED off. A 3DS has no LED for this (TWiLight Menu++ has no LED
+setting there); the in-game menu shows the new unlocks instead.
 
-The in-game menu shows them too. When you open it, it says how many new
-achievements there are since you last looked, with their names, and how
-many of the game's you've earned. Its **Achievements** item lists them all:
+The in-game menu shows them too, on a DSi and on a 3DS. When you open it,
+it says how many new achievements there are since you last looked, with
+their names, and how many of the game's you've earned. Its **Achievements** item lists them all:
 the ones you've earned first, newest first with the date and time (in lime
 if this console earned it and DSiRPC hasn't had it yet, with NEW on the new
 ones), then the ones still to get, with the highlighted one's description at
@@ -121,8 +123,8 @@ with the set at each sync, so it includes what you'd already earned on
 RetroAchievements.
 
 This works on hardware since 2026-10-08 (an offline unlock in Tetris DS
-reached RetroAchievements at the next sync), but it's new: see the
-[roadmap](#known-issues-and-roadmap).
+reached RetroAchievements at the next sync, and the in-game menu works on a
+DSi and a 3DS), but it's new: see the [roadmap](#known-issues-and-roadmap).
 
 ### The tray icon
 
@@ -179,8 +181,8 @@ in setup**, off unless you turn it on, and always softcore:
 Unlocks that can't be sent right away (no internet) are kept and sent later.
 
 A game started from the DSiRPC launcher is also checked by the console
-itself, about twice a second (it's what makes [offline play](#playing-offline)
-work). When DSiRPC hears the console unlock an achievement, that counts right
+itself, about once a second or more often (it's what makes
+[offline play](#playing-offline) work). When DSiRPC hears the console unlock an achievement, that counts right
 away too, like its own unlocks (the log says `by the console's checker`).
 
 ## Stream overlay window
@@ -192,8 +194,14 @@ and the weather; Pokémon slide in, flash when hit and sink when they faint;
 every move gets its "X used MOVE!" line and a type-coloured animation; stat
 changes and conditions show on the HP boxes and Pokémon; and the bottom box
 shows your moves with PP and how effective each one is. Banners pop up for
-shiny encounters, level-ups, fainting, new badges and achievements. Other
-games get a card with their name, rich presence and achievement progress.
+shiny encounters, level-ups, fainting, new badges and achievements.
+
+Every other game gets a game card in the same style: its name and how long
+you've been playing, what you're doing in it (its RetroAchievements rich
+presence), a progress bar for its achievements with the latest unlock or one
+still to earn, and how many achievements and points you have. While the
+console isn't connected, the window says what to do and shows the last game
+you played.
 
 It draws at the DS's 256x192 and scales up by a whole number, so the pixels
 stay crisp. Add it to OBS with **Window Capture**, or share the window on
@@ -214,6 +222,7 @@ the first time they're needed, then kept.
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
+| The in-game menu says "no set loaded" or "another game's" | Start the game with **START** in the launcher (not **Y**, and not from TWiLight Menu++): that's what puts its set on the SD card. |
 
 More, including what the console sends and how to read it, is in
 [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
@@ -222,8 +231,10 @@ The log is `logs\dsirpc.log` in DSiRPC's folder.
 ### Debugging options
 
 For testing achievements without your real progress getting in the way,
-`python dsirpc.py` (or `python dsirpc.py tray`) takes these flags. They
-combine.
+DSiRPC takes these flags. Quit it in the tray first, then run it from its
+folder in a command prompt: `python\python.exe dsirpc.py` in a release
+download, `.venv\Scripts\python.exe dsirpc.py` from the source code (add
+`tray` to run it in the tray). The flags combine.
 
 | Flag | What it does |
 |---|---|
@@ -231,9 +242,10 @@ combine.
 | `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked: every achievement is checked, the console gets whole sets, and every unlock is sent (RetroAchievements answers that you already had the ones you had). What's really unlocked stays recorded in `ra\cache\unlocked.json`. |
 | `--clear-ra` | At the console's first sync, throws away the unlocks waiting on it (nothing is sent) and sends it every set again. Later syncs in the same run are normal. |
 
-For example, `python dsirpc.py --blank-ra` while you collect test unlocks,
-then `python dsirpc.py --clear-ra` once to put the console back to your real
-state (add `--blank-ra` to give it whole sets instead).
+For example, `python\python.exe dsirpc.py --blank-ra` while you collect
+test unlocks, then `python\python.exe dsirpc.py --clear-ra` once to put the
+console back to your real state (add `--blank-ra` to give it whole sets
+instead).
 
 ## Updating and removing
 
@@ -261,8 +273,9 @@ our nds-bootstrap  --boots-->  the game
 The launcher also syncs with DSiRPC on port 4245 (UDP to find it, then TCP),
 for [offline play](#playing-offline).
 
-The console side stays simple: it only answers "give me these bytes".
-Everything else (decrypting the party, working out the location, deciding
+The console side stays simple: it only answers "give me these bytes" (and,
+for offline play, runs the achievement program DSiRPC prepares). Everything
+else (decrypting the party, working out the location, deciding
 what Discord shows) happens on the PC, so new features never need a console
 update. The full technical reference is
 [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md); building and running from
@@ -277,14 +290,17 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 - [ ] Handle WPA2 group-key renewal in game, if your router ever disconnects
       the console on a schedule.
 - [ ] Full presence for more games and versions: for now every DS game gets
-      its name, box art and RetroAchievements rich presence, and only
-      Platinum USA Rev 1 gets the full presence and the overlay's party and
-      battle views.
+      its name, box art and RetroAchievements rich presence (and the
+      overlay's game card), and only Platinum USA Rev 1 gets the full
+      presence and the overlay's party and battle views. Pokémon Black and
+      White are next in line.
 - [ ] Achievements checked every frame, for the timing-sensitive ones.
 - [x] Achievements while [playing offline](#playing-offline): the launcher
       keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
-      console checks them in game and saves its unlocks to the SD card
-      (works on hardware since 2026-10-08; more games to try).
+      console checks them in game, saves its unlocks to the SD card, pulses
+      an LED (DSi) and lists them in nds-bootstrap's in-game menu (works on
+      hardware since 2026-10-08; more games to try). Unlock times now come
+      from the console's clock, which is new and not tried on hardware yet.
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [x] RetroAchievements: achievements (softcore unlocks are opt-in), sets
@@ -303,7 +319,7 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 - Pokémon sprites from [PokeAPI](https://pokeapi.co/)
   ([sprites repository](https://github.com/PokeAPI/sprites)).
-- CREDIT to (PurpleZaffre) for the overworld assets.
+- Overworld assets by PurpleZaffre.
 - [nds-bootstrap](https://github.com/DS-Homebrew/nds-bootstrap) by DS-Homebrew
   (GPLv3), which hosts the in-game side.
 - [BlocksDS](https://github.com/blocksds/sdk) and DSWiFi (MIT) for the launcher

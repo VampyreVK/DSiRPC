@@ -33,5 +33,6 @@ own state):
 - `cache/`: RetroAchievements' lists of DS and DSi games (for matching
   titles, kept a week), GameTDB's list of DS game titles by game code
   (`dstdb.txt`, for games whose header can't be read, kept a month), which
-  of your game files is which game (`roms.json`), and unlocks waiting to be
-  sent (`pending_unlocks.json`)
+  of your game files is which game (`roms.json`), unlocks waiting to be
+  sent (`pending_unlocks.json`), and the unlocks you have, with when each
+  was earned (`unlocked.json`)

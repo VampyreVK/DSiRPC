@@ -89,6 +89,7 @@ class RaGame:
         self.match_titles = []       # titles core/ra_link.py looked the game up by
         self.game_hash = None
         self.unlocked = set()        # achievement IDs: from RetroAchievements, plus this session's
+        self.session_unlocks = []    # [(achievement ID, time.time())] unlocked this session, in order
         self.session = False         # RetroAchievements knows we're playing
         self.session_at = 0.0
         self.next_ping = 0.0
@@ -334,6 +335,7 @@ class RaGame:
     def _unlocked(self, a, by_console=False):
         self.runtime.deactivate_achievement(a["id"])
         self.unlocked.add(a["id"])
+        self.session_unlocks.append((a["id"], time.time()))
         sending = bool(self.settings.submit and self.link and self.link.signed_in and self.set)
         if sending:
             self.link.award(self, a["id"], self.game_hash)

@@ -45,7 +45,8 @@ last byte at `0x3FFF` marks the end of the message.
    drained and ignored.
 
 `probe_req.c` handles the payload: ARP for our IP, `'R'` memory requests on
-port 4244, and counting EAPOL (`0x888E`) frames.
+port 4244 (and hands `'W'`/`'F'` to `probe_watch.c`), and counting EAPOL
+(`0x888E`) frames.
 
 ## Cost of CMD52 receiving (and why CMD53)
 
@@ -107,7 +108,11 @@ so each VBlank drains up to `RPCPROBE_RX53_FRAMES_PER_VBLANK` (8) frames or
 `RPCPROBE_RX53_BYTES_PER_VBLANK` (2048) bytes, stopping after anything that
 sends a reply (one send per VBlank).
 
-Checked on hardware on 2026-09-27: `rxm=53 e53=0`, a 60 s link check lost
+Tested against a simulated controller and chip (it checks every register
+above and plays the FIFO block by block), including a controller that
+never delivers data and one that delivers scrambled data: both end in
+`rxm=52` with every request still answered. Checked on hardware on
+2026-09-27: `rxm=53 e53=0`, a 60 s link check lost
 none of 231 requests, median reply 16 ms (90% under 22 ms), with about 32
 other frames a second being drained.
 
@@ -140,11 +145,6 @@ FIFO words), including a controller that never asks for data (ends in
 answer). Checked on hardware on 2026-09-27: `txm=53 t53=0 rep=0`, 227 of
 228 requests answered in a 60 s link check (the lost one never reached the
 DSi), median reply 15 ms.
-
-Tested against a simulated controller and chip (it checks every register
-above and plays the FIFO block by block), including a controller that
-never delivers data and one that delivers scrambled data: both end in
-`rxm=52` with every request still answered. Not yet run on hardware.
 
 ## Not handled
 

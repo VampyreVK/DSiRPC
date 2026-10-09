@@ -125,14 +125,13 @@ The offsets below are within the unshuffled 32-byte blocks (`include/struct_defs
 
 | Where | Fields |
 |---|---|
-| Header `+0x04` | bit 2 = checksum failed (Bad Egg). Bits 0-1 are in DOCUMENTATION. |
 | Block A | `+0x08` EXP u32, `+0x0C` friendship, `+0x0D` ability, `+0x0E` markings, `+0x0F` language, `+0x10`-`+0x15` EVs (HP, Atk, Def, Spe, SpA, SpD), `+0x16`-`+0x1B` contest stats |
 | Block B | `+0x08` current PP x4, `+0x0C` PP Ups x4, `+0x10` IVs (5 bits each in the order HP, Atk, Def, Spe, SpA, SpD; bit 30 egg, bit 31 nicknamed), `+0x18` bit 0 fateful encounter, bits 3-7 **form**, `+0x1C`/`+0x1E` Platinum egg/met location |
 | Block C | `+0x17` origin game |
 | Block D | `+0x00` OT name, `+0x10` egg date, `+0x13` met date (Y, M, D), `+0x16`/`+0x18` Diamond/Pearl egg/met location, `+0x1A` Pokérus, `+0x1B` ball, `+0x1C` met level (bits 0-6) + OT gender (bit 7), `+0x1D` encounter terrain |
 | Party `0x88` | status u32: bits 0-2 sleep turns, 3 poison, 4 burn, 5 freeze, 6 paralysis, 7 toxic, 8-11 toxic counter |
 | Party | `0x8D` ball capsule ID, `0x92`/`0x94`/`0x96`/`0x98`/`0x9A` Atk/Def/Spe/SpA/SpD, `0x9C` held mail (0x38 bytes), `0xD4` ball capsule (0x18 bytes) |
-| BattleMon | `+0x02`-`+0x0A` Atk/Def/Spe/SpA/SpD, `+0x18` 8 stat stages (s8, 6 = neutral: the `06 06 06 ...` signature mentioned in the old notes), `+0x24`/`+0x25` types, `+0x26` bits 0-4 **form** (bit 5 = shiny), `+0x27` ability, `+0x35` friendship, `+0x54` OT name, `+0x68` PID, `+0x74` OT ID, `+0x7F` ball |
+| BattleMon | `+0x02`/`+0x04`/`+0x08`/`+0x0A` Atk/Def/SpA/SpD (Spe at `+0x06`, the stat stages at `+0x18`, the types at `+0x24`/`+0x25` and the OT ID at `+0x74` are read now), `+0x26` bits 0-4 **form** (bit 5 = shiny), `+0x27` ability, `+0x35` friendship, `+0x54` OT name, `+0x68` PID, `+0x7F` ball |
 
 Game form numbers (`include/constants/forms.h`): Deoxys 1-3 = Attack/Defense/Speed; Wormadam and Burmy 1-2 = Sandy/Trash; Rotom 1-5 = Heat/Wash/Frost/Fan/Mow; Giratina 1 = Origin; Shaymin 1 = Sky; Castform 1-3 = Sunny/Rainy/Snowy; Shellos and Gastrodon 1 = East; Cherrim 1 = Sunshine; Unown 0-27 = A-Z, !, ?. See section 8 for the matching sprites.
 

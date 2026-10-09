@@ -24,7 +24,10 @@ THEME = {
     # Text
     'text': (64, 64, 72), 'text_shadow': (208, 208, 216),
     'text_light': (248, 248, 248), 'text_light_shadow': (24, 32, 40),
+    'text_muted': (96, 104, 112),
     'male': (48, 128, 240), 'female': (232, 80, 104),
+    # Achievements (the game card's progress bar, trophy and labels)
+    'ach': (232, 176, 40), 'ach_hi': (252, 224, 120), 'ach_lo': (152, 104, 24),
     # HP bar
     'hp_frame': (40, 52, 60), 'hp_empty': (82, 98, 106), 'hp_label': (248, 208, 72),
     'hp_green': (88, 208, 128), 'hp_green_hi': (160, 248, 184),
@@ -326,3 +329,166 @@ def ease_out(t):
 
 def bob(t_ms, period=1200, amp=1):
     return int(round(math.sin(t_ms / period * 2 * math.pi) * amp))
+
+
+# -- shared by every view ------------------------------------------------------
+
+def bar(surf, y, h):
+    """A header or footer bar across the whole canvas."""
+    t = THEME
+    w = surf.get_width()
+    pygame.draw.rect(surf, t['bar'], (0, y, w, h))
+    pygame.draw.line(surf, t['bar_hi'], (0, y), (w - 1, y))
+    pygame.draw.line(surf, t['bar_lo'], (0, y + h - 1), (w - 1, y + h - 1))
+
+
+def pixels(surf, x, y, rows, palette):
+    """Pixel art from strings: each character is a pixel, looked up in
+    `palette` (character -> colour); '.' and characters not in it are left
+    clear."""
+    for yy, row in enumerate(rows):
+        for xx, ch in enumerate(row):
+            c = palette.get(ch)
+            if c:
+                surf.set_at((x + xx, y + yy), c)
+
+
+def meter(surf, mini, x, y, width, frac, label="ACH"):
+    """Like hp_bar, in gold: a label plus a 3px-tall bar, 7px tall in total."""
+    t = THEME
+    frac = max(0.0, min(1.0, frac))
+    pygame.draw.rect(surf, t['hp_frame'], (x, y, width, 7))
+    mini.draw(surf, label, (x + 2, y + 1), t['hp_label'])
+    bx = x + mini.width(label) + 4
+    bw = x + width - 2 - bx
+    pygame.draw.rect(surf, t['hp_empty'], (bx, y + 2, bw, 3))
+    fill = int(round(bw * frac))
+    if frac > 0 and fill == 0:
+        fill = 1
+    if fill:
+        pygame.draw.rect(surf, t['ach'], (bx, y + 2, fill, 3))
+        pygame.draw.line(surf, t['ach_hi'], (bx, y + 2), (bx + fill - 1, y + 2))
+
+
+# A DS game card, 16x20, standing in for a game that has no sprite of its own.
+# l/L/w: its label (light, dark, the white stripe), in the game's colour.
+_CARD = [
+    ".oooooooooooo...",
+    "ohhhhhhhhhhhho..",
+    "ohbbbbbbbbbbbbo.",
+    "ohbLLLLLLLLLLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLlwwwwwwlLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLllllllllLbbo",
+    "ohbLLLLLLLLLLbbo",
+    "ohbbbbbbbbbbbbbo",
+    "ohbbbbbbbbbbbbbo",
+    "ohbbbbbbbbbbbbbo",
+    "obbbbbbbbbbbbbbo",
+    "obcbcbcbcbcbcbbo",
+    "obcbcbcbcbcbcbbo",
+    "obbbbbbbbbbbbbbo",
+    ".oooooooooooooo.",
+]
+
+# Label colours for game cards, picked by the game code so a game always
+# gets the same one.
+CARD_COLORS = [(216, 72, 64), (64, 128, 216), (72, 168, 88), (232, 160, 40),
+               (152, 88, 192), (40, 160, 168), (224, 96, 152), (120, 128, 144)]
+
+
+def card_color(code):
+    return CARD_COLORS[sum((code or '????').encode()) % len(CARD_COLORS)]
+
+
+def game_card(surf, x, y, color):
+    """A DS game card (16x20) with a `color` label, top left corner at x, y."""
+    pixels(surf, x, y, _CARD, {
+        'o': (40, 44, 52), 'h': (176, 180, 188), 'b': (136, 140, 150), 'c': (208, 176, 72),
+        'l': color, 'L': darken(color, 50), 'w': lighten(color, 110),
+    })
+
+
+_TROPHY = [
+    "ooooooooo",
+    "ohggggggo",
+    "ohggggggo",
+    ".ohggggo.",
+    "..oggdo..",
+    "...ogo...",
+    "...ogo...",
+    "..oddoo..",
+    ".ooooooo.",
+]
+
+
+def trophy(surf, x, y, earned=True):
+    """A 9x9 trophy; grey when nothing's earned yet."""
+    t = THEME
+    if earned:
+        pal = {'o': t['ach_lo'], 'h': t['ach_hi'], 'g': t['ach'], 'd': darken(t['ach'], 40)}
+    else:
+        pal = {'o': (88, 104, 112), 'h': (196, 204, 208), 'g': (160, 172, 178), 'd': (128, 140, 146)}
+    pixels(surf, x, y, _TROPHY, pal)
+
+
+# A DSi, open, 34x44: the lid with its screen (rows 0-20), the hinge, then
+# the base with the touch screen and the buttons.
+_DSI = [
+    "..oooooooooooooooooooooooooooooo..",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "..oooooooooooooooooooooooooooooo..",
+    "...oHHHHHHHHHHHHHHHHHHHHHHHHHHo...",
+    "..oooooooooooooooooooooooooooooo..",
+    ".oddddddddddddddddddddddddddddddo.",
+    "oddddddddddddddddddddddddddddddddo",
+    "oddddddKKKKKKKKKKKKKKKKKKKKKddpddo",
+    "oddpdddKtttttttttttttttttttKdpdpdo",
+    "odpppddKtttttttttttttttttttKddpddo",
+    "oddpdddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdpdddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKtttttttttttttttttttKdddddo",
+    "oddddddKKKKKKKKKKKKKKKKKKKKKdddddo",
+    "oddddddddddddddddddddddddddddddddo",
+    ".oddddddddddddddddddddddddddddddo.",
+    "..oooooooooooooooooooooooooooooo..",
+]
+DSI_W, DSI_H = 34, 40
+DSI_TOP_SCREEN = (7, 4, 21, 12)     # x, y, w, h inside the icon
+
+
+def dsi(surf, x, y, color=(72, 76, 88)):
+    """A small open DSi, top left corner at x, y. The top screen is left dark
+    for whatever the caller draws on it (DSI_TOP_SCREEN)."""
+    pixels(surf, x, y, _DSI, {
+        'o': (24, 28, 36), 'b': color, 'd': darken(color, 12), 'H': darken(color, 30),
+        'k': (20, 22, 28), 's': (36, 44, 56), 'K': (20, 22, 28), 't': (196, 212, 216),
+        'p': (150, 156, 168),
+    })

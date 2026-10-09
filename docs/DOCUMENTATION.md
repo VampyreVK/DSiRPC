@@ -11,15 +11,18 @@ console files and making releases, see [DEVELOPMENT.md](DEVELOPMENT.md).
 A custom build of nds-bootstrap runs a small memory server on the DSi's ARM7,
 alongside the retail game. The launcher first connects the DSi to the WPA2
 network saved in connection slots 4-6 and leaves the Wi-Fi chip connected.
-nds-bootstrap then boots Platinum and keeps using that connection to answer
+nds-bootstrap then boots the game and keeps using that connection to answer
 "read these addresses" requests from the PC over UDP. On the PC, Python reads
 the game state (trainer, party, location, facing, battle), decrypts and
-parses it, and pushes it to Discord as Rich Presence with animated sprites.
-Pokémon Platinum (USA, Rev 1) gets the full presence; any other DS game shows
-its name, box art and RetroAchievements rich presence. Every game's
-RetroAchievements achievements are checked while you play (softcore unlocks
-sent only if you choose so). On Windows, DSiRPC
-runs as a tray icon (`DSiRPC.bat`) after a one-time `Setup.bat`.
+parses it, and pushes it to Discord as Rich Presence with animated sprites,
+and to an optional overlay window for streaming. Pokémon Platinum (USA,
+Rev 1) gets the full presence; any other DS game shows its name, box art and
+RetroAchievements rich presence. Every game's RetroAchievements achievements
+are checked while you play (softcore unlocks sent only if you choose to).
+Offline, the console checks them itself and saves its unlocks to the SD
+card for DSiRPC to send at the next sync, and nds-bootstrap's in-game menu
+lists them. On Windows, DSiRPC runs as a tray icon (`DSiRPC.bat`) after a
+one-time `Setup.bat`.
 
 ---
 
@@ -54,25 +57,27 @@ runs as a tray icon (`DSiRPC.bat`) after a one-time `Setup.bat`.
    it and starts our nds-bootstrap, without disconnecting
         |
         v
- our nds-bootstrap build  --boots-->  Pokémon Platinum
+ our nds-bootstrap build  --boots-->  the game
    ARM7 VBlank hook (cardengine.c -> Probe_VBlankTick)
-     first VBlank: read RPCHAND.TXT
+     first VBlank: read RPCHAND.TXT, RPCSET.BIN and RPCUNLK.BIN
      a few seconds later: probe the already-connected chip
-     then every VBlank: read at most one packet
+     then every VBlank: drain received packets (up to 8 with CMD53)
        ARP request for our IP  -> ARP reply
        'R' memory request      -> 'D' reply with bytes
+     and run a slice of the achievement checker (offline play)
      once a second: "DSiRPC hello" broadcast   ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
-                                                                 core/hub.py (StateHub), in dsirpc.py
+                                                                 core/hub.py (StateHub), in app/engine.py
                                                                     |                    |
                                                                     v                    v
                                                           Discord (pypresence)    overlay window
 ```
 
 The design keeps the DSi side dumb. It only answers "give me N bytes at
-address X", and all interpretation happens on the PC. Adding a new field to
-the presence is a Python change, not a new DSi build.
+address X", and all interpretation happens on the PC; the one exception is
+offline play, where it runs the achievement program DSiRPC prepares for it.
+Adding a new field to the presence is a Python change, not a new DSi build.
 
 ### Why it's built this way
 
@@ -137,7 +142,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `RPCUNLK.BIN` | SD root | Unlocks from offline play waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
+| `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
@@ -160,8 +165,10 @@ time=844387200
 end
 ```
 
-`time` is the console's clock (seconds since 2000-01-01, local time), for
-dating unlocks in offline play. When the launcher plays offline, the file is
+`time` is the console's clock (seconds since 2000-01-01, local time) when
+the game was started. The in-game side dates unlocks by reading the clock
+itself, and only falls back to `time` plus the VBlanks since when it can't
+(section 8). When the launcher plays offline, the file is
 only `mode=offline`, `time=` and `end`: with no `ip` or `mac`, the in-game
 side leaves the network alone. The file needs an 8.3 name because
 nds-bootstrap's ARM7 file lookup only matches short names.
@@ -230,7 +237,10 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
 3. **Or SELECT / Y.** SELECT disconnects cleanly and exits; use it when
    you're not going to play. Y exits connected, back to your menu, the
    two-step way: launching our nds-bootstrap build from there boots the game
-   the ini names (the last one TWiLight or the launcher set up).
+   the ini names (the last one TWiLight or the launcher set up). Y doesn't
+   put a set in `RPCSET.BIN`, so the console's achievement checker and the
+   in-game menu's list only work then if the last game started with START
+   was the same one.
 4. **In game.** On the first VBlank the ARM7 side reads `RPCHAND.TXT`.
    A couple of seconds later it probes the chip and starts serving. It sends a
    gratuitous ARP so the PC learns its MAC, then broadcasts one hello packet
@@ -453,12 +463,25 @@ table), so HP and moves show up quickly.
   your boxes taller, and the upper one can then cover part of the foes'
   platform. Wild vs trainer comes from the parser's `wild` flag (see
   section 9), falling back to the music.
-- **Other games:** a card with the game's title, its RetroAchievements rich
-  presence (or a note that there's no set file), and its code, RA game ID
-  and achievement count (`draw_other()`).
-- **Waiting view:** while the hub is offline.
+- **Game card** (`overlay/gamecard.py`): any game without its own views,
+  laid out like the party view. The header has the game's title and how
+  long it's been played this session; a "Now" panel its RetroAchievements
+  rich presence (or why there isn't any); an "Achievements" panel a
+  progress bar, then the latest unlock (for 5 minutes after it happens) or
+  one still to earn, a different one every 6 s ("MASTERED" when they're
+  all earned); and the footer a DS game card in a colour picked by the game
+  code, the code and RA game ID, and the achievements and points earned.
+  Without progress from RetroAchievements (signed out, or no answer yet) it
+  says so. It reads `core/other_game.py`'s state, including `unlocked`,
+  `recent` (this session's unlocks, from `RaGame.session_unlocks`),
+  `ra_note` and `signed_in`. A game that gets its own parser later gets its
+  own views the way Platinum has the party and battle views.
+- **Waiting view:** while the hub is offline, in the same frame: a DSi
+  looking for a connection, the hub's status, what to do on the console,
+  and the last game played in the footer.
 - **Banners:** for the hub's events (DSi connected or lost, another game,
-  shiny encounter, level-up, fainted, badge, new Pokédex catch).
+  shiny encounter, level-up, fainted, badge, new Pokédex catch, achievement
+  unlocked).
 
 Sprites come from `Assets/` and are converted in memory (`overlay/sprites.py`):
 the 2x GIFs are halved to native pixels and un-mirrored where needed, and
@@ -490,8 +513,8 @@ It sends a small read every 0.25 s for 60 s and prints how many came back
 and how fast, next to the DSi's own counters from the hellos: how many of
 those requests the game side answered (`req`), how many frames it drained
 in total (`rx`, other devices' broadcasts included) and how far apart the
-hellos were. Requests the DSi never answered were dropped inside its wifi
-chip (unicast frames lost over the air are resent by the wifi itself), which
+hellos were. Requests the DSi never answered were dropped inside its Wi-Fi
+chip (unicast frames lost over the air are resent by the Wi-Fi itself), which
 happens when the in-game side can't drain the chip as fast as frames arrive.
 With CMD53 sending it also splits the `vb=` values: every 10th hello still
 goes out with CMD52, so the hello after it shows that slow tick (about 76);
@@ -567,8 +590,8 @@ numbers mean.
 | `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
-| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
-| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events, sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way. `RaSettings` holds the `[ra]` choices |
+| `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos) |
+| `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, `tick()` once a second, turns triggered achievements into `achievement` events (and keeps this session's in `session_unlocks`), sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way. `RaSettings` holds the `[ra]` choices |
 | `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `known_unlock_times()` (the same with when each was earned, for the in-game menu's list), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in. With `blank` (`--blank-ra`, `--dry-run`) it acts as if nothing were unlocked |
 | `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
 | `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
@@ -579,13 +602,13 @@ numbers mean.
 | `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`), and `compile_offline()`, the console's program for offline play (DSiRPC's `dsirpc_offline.c` in the library) |
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. |
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `name()` for status lines. |
-| `core/demo.py` | `DemoSource`: made-up states in the parser's format, looping through overworld, battles, a shiny, a level-up and an offline stretch |
+| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `read_set()`, `state_size()`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run) |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (views, banners, animation, move detection), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, HP bars, move buttons), `sprites.py` (asset conversion), `font.py` (pixel fonts) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection), `gamecard.py` (the game card for any other game), `effects.py` (move animations), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 
@@ -833,11 +856,13 @@ taken from the request).
 | 2 | A range falls outside main RAM (`0x02000000`-`0x023FFFFF`). This protects the ARM7, which has no MMU. |
 | 3 | `'F'` with no watch list (none set yet, or stopped with an empty `'W'`) |
 
-Limits: 16 ranges and 192 bytes per request. The DSi reads at most one
-incoming packet per VBlank (60 per second) and serves requests inside the
-VBlank interrupt. The home network's broadcast traffic shares that queue, so
-a single request takes roughly 15-400 ms. The PC client retries up to 3
-times, with a 1 s timeout each.
+Limits: 16 ranges and 192 bytes per request. The DSi serves requests inside
+the VBlank interrupt: it drains up to 8 received frames (2 KB) a VBlank with
+CMD53, or one frame and 128 bytes with CMD52, and sends at most one reply a
+VBlank. The home network's broadcast traffic shares that queue. With CMD53 a
+request takes about 15 ms (median, on hardware); with CMD52 a busy network
+can push it to hundreds of ms. The PC client retries up to 3 times, with a
+1 s timeout each.
 
 The DSi also answers ARP requests for its own IP. It sends a gratuitous ARP
 when it starts serving, so the PC can address it directly.
@@ -964,8 +989,9 @@ counts as used), one 16-byte write per unlock; it never has to make or grow
 the file. Its `seq` is the slot number, and its `when` is the console's
 clock, read when the achievement unlocks (when it can't be read just then:
 its last reading, or `RPCHAND.TXT`'s `time=`, plus the VBlanks since; 0 if
-there was neither, and DSiRPC then uses the time it gets them). The game's unlocks already in the file when it starts
-aren't checked again, so a session never saves the same achievement twice.
+there was neither, and DSiRPC then uses the time it gets them). The game's
+unlocks already in the file when it starts aren't checked again, so a
+session never saves the same achievement twice.
 The console saves every unlock, online too, so DSiRPC leaves out the ones it
 already knows about (`engine._offline_unlocks()`, `RALink.known_unlocks()`).
 
@@ -1056,8 +1082,8 @@ All paths below are under `nds-bootstrap/retail/`.
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP (and hands `'W'`/`'F'` to `probe_watch.c`), counts EAPOL |
 | `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring, and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
-| `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT` (`time=` dates offline unlocks); defines the UDP port (4244) |
-| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, runs it a slice each VBlank, saves each unlock into `RPCUNLK.BIN` and keeps the latest for the report (below), and marks the console's unlocks in the set's list for the in-game menu |
+| `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT` (`time=` is the fallback for dating unlocks); defines the UDP port (4244) |
+| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, runs it a slice each VBlank, dates each unlock by the console's clock, saves it into `RPCUNLK.BIN` and keeps the latest for the report (below), and marks the console's unlocks in the set's list for the in-game menu |
 | `probe_ach_vm.c/.h` | The checker's interpreter: a port of rcheevos 12.5's evaluation, without floating point, for the program DSiRPC builds. Plain C; the same file is tested against rcheevos on a PC |
 | `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_LINES_PER_VBLANK`, `RPCPROBE_ACH_SKIP_AFTER_LINES` and `RPCPROBE_ACH_SAVE_FALLBACK` |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
@@ -1106,20 +1132,19 @@ the console only runs the result:
   random points: every achievement's state and every condition's hit count
   matched after every frame. With Wi-Fi, its report (section 7) shows on
   hardware what it unlocks and how long it takes.
-
 - **Saving.** Each unlock goes into a small queue (7 places) with its time
-  (Dates, below). The SD card can't be touched from the VBlank interrupt later on (rules
-  below), so the queue is written out from nds-bootstrap's swiHalt hook
-  instead: `runCardEngineCheckHalt()` runs whenever the game's ARM7 idles,
-  outside interrupts, and serves the ARM9's ROM reads there under
+  (Dates, below). The SD card can't be touched from the VBlank interrupt later
+  on (rules below), so the queue is written out from nds-bootstrap's swiHalt
+  hook instead: `runCardEngineCheckHalt()` runs whenever the game's ARM7
+  idles, outside interrupts, and serves the ARM9's ROM reads there under
   `saveMutex`. `Probe_HaltTick()` takes the same lock with `tryLockMutex()`
-  (so never while a save or ROM read is under way) and writes one 16-byte
-  slot (section 7). For a game whose swiHalt nds-bootstrap couldn't hook,
-  the VBlank does it after two seconds without a halt, under the same lock
-  and only while no non-blocking ROM read is in flight (`readOngoing`).
-  Without `RPCUNLK.BIN` (the game wasn't started from the launcher), or
-  with 255 unlocks already waiting, unlocks are counted (`x` in the report)
-  but not saved.
+  (so never while a save or ROM read is under way) and writes one 16-byte slot
+  (section 7). For a game whose swiHalt nds-bootstrap couldn't hook, the
+  VBlank does it after two seconds without a halt, under the same lock and
+  only while no non-blocking ROM read is in flight (`readOngoing`). Without
+  `RPCUNLK.BIN` (the game wasn't started from the launcher), or with 255
+  unlocks already waiting, unlocks are counted (`x` in the report) but not
+  saved.
 - **Dates.** An unlock's time is the console's clock (the RTC), read when
   it unlocks with nds-bootstrap's own `rtcGetTimeAndDate()` (`clock.c`; its
   in-game menu reads the clock from the VBlank interrupt too): at most once
@@ -1160,8 +1185,8 @@ the console only runs the result:
   ones earned on the console that DSiRPC hasn't had yet, then the locked
   ones in gray ("not on DS" for those the console can't check). The bottom
   shows the highlighted one's description. Up/Down move, L/R (or
-  Left/Right) turn the page, B goes back. Tested on a PC from DSiRPC's set
-  through `probe_ach.c` to the drawn screens, not yet on hardware.
+  Left/Right) turn the page, B goes back. Works on hardware on the DSi and
+  the 3DS (2026-10-08), achievements earned on RetroAchievements included.
 
 The original hand-rolled DS-mode Wi-Fi + WPA2 driver (from before the
 DSi-mode handoff) has been removed. It was never committed to any repository,
@@ -1177,25 +1202,28 @@ described in [HISTORY.md](HISTORY.md).
   and the party-menu crash. The checker's unlocks are written from the
   swiHalt hook instead, holding nds-bootstrap's `saveMutex` (above).
 - **Stay small.** The cardengine ARM7 binary has a fixed-size region
-  (61 KB in total; 60,948 of 62,464 bytes are used with the per-frame capture
+  (61 KB in total; 61,164 of 62,464 bytes are used with the per-frame capture
   and the achievement checker), so every addition counts. Anything big
   goes in main RAM, like the checker's set and state.
 - **Stay quick.** Everything runs inside the VBlank interrupt. That's why
-  the receive path handles at most one packet per VBlank.
-- **Don't let a DSi sleep while the chip is connected.** A DSi whose game
-  goes to sleep (the lid closed) with the chip still associated switches
-  itself off; one whose launcher went offline sleeps fine, and a 3DS
-  doesn't mind either way. So on a DSi, the first VBlank that sees the lid
-  closed (`REG_KEYXY` bit 7) sends a "DSiRPC lid" packet (DSiRPC logs it),
-  does what DSWiFi does when the launcher goes offline
-  (`TwlWifi_Shutdown()`: `WMI_DISCONNECT_CMD`, then the chip's and the
-  controller's interrupts off), and cuts the chip's SDIO power (BPTWL[30h]
-  bit 4), all in that VBlank, before the game gets to its sleep. (The first
-  version, without the packet and the power cut, didn't stop the shutdown
-  on hardware.) rpcprobe stays off the Wi-Fi for the rest of that game
-  (status byte stage 5); the checker and its saves carry on, as in offline
-  play. nds-bootstrap's in-game menu, which runs instead of the VBlank
-  ticks while it's open, calls `Probe_LidClosed()` before its own sleep.
+  the receive path is capped per VBlank (8 frames or 2 KB with CMD53, one
+  frame and 128 bytes with CMD52) and sends at most one reply a VBlank, the
+  checker has a scanline budget, and the clock is read only when an
+  achievement unlocks (about 1 ms).
+- **Don't let a DSi sleep while the chip is connected.** A DSi whose game goes
+  to sleep (the lid closed) with the chip still associated switches itself
+  off; one whose launcher went offline sleeps fine, and a 3DS doesn't mind
+  either way. So on a DSi, the first VBlank that sees the lid closed
+  (`REG_KEYXY` bit 7) sends a "DSiRPC lid" packet (DSiRPC logs it), does what
+  DSWiFi does when the launcher goes offline (`TwlWifi_Shutdown()`:
+  `WMI_DISCONNECT_CMD`, then the chip's and the controller's interrupts off),
+  and cuts the chip's SDIO power (BPTWL[30h] bit 4), all in that VBlank,
+  before the game gets to its sleep. This works on hardware (a DSi XL); the
+  first version, without the packet and the power cut, didn't stop the
+  shutdown. rpcprobe stays off the Wi-Fi for the rest of that game (status
+  byte stage 5); the checker and its saves carry on, as in offline play.
+  nds-bootstrap's in-game menu, which runs instead of the VBlank ticks while
+  it's open, calls `Probe_LidClosed()` before its own sleep.
 - **The achievement LED only changes from the VBlank.** On a DSi, the LED
   TWiLight's ROM read LED setting picks (`romRead_LED`: 1 Wi-Fi, 2 power,
   3 camera, 0 none) pulses while achievements unlocked this game haven't
@@ -1204,7 +1232,8 @@ described in [HISTORY.md](HISTORY.md).
   with nds-bootstrap's own values). Opening the menu (`Probe_MenuOpened()`)
   counts them as seen. nds-bootstrap's own ROM read flashes, which used the
   I2C bus outside interrupts, are off in this build (`cardReadLED()` returns
-  at once).
+  at once). Works on hardware. A 3DS has no such LED setting (and its own
+  LEDs are the ARM11's), so there the in-game menu's banner is the sign.
 
 ---
 
@@ -1410,18 +1439,20 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
-| Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's wifi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
+| Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's Wi-Fi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
 | "A communication error has occurred" after Continue | Stock nds-bootstrap, or not the USA Rev 1 ROM, so the patch didn't apply |
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
-| The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives, one SDIO command per byte. Big broadcast frames from other devices used to be drained in one go, several milliseconds at a time. They're now drained 128 bytes per VBlank. Check the `vb=` field in the hellos (section 7). Also compare with DSiRPC stopped: if the stutter only happens while it polls, the replies are the cost. The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
+| The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives: with CMD53 (`rxm=53`, the default) one SDIO command per frame, up to 8 frames a VBlank; with CMD52 one per byte, 128 bytes a VBlank. With a set loaded, the achievement checker adds up to 20 scanlines. Check `vb=` in the hellos and `l=` in the checker's report (section 7), and compare with DSiRPC stopped (if the stutter only happens while it polls, the replies are the cost) and with `RPCSET.BIN` renamed (the checker). The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | Started our nds-bootstrap from the menu (launcher's Y): it boots what `sd:/_nds/nds-bootstrap.ini` names, the last game TWiLight or the launcher set up. Use START in the launcher |
 | The launcher shows IP `0.0.0.0` | An older launcher (DHCP hadn't answered yet); the current one waits for an IPv4 address and retries |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, which makes the save, then use the launcher |
 | "Where is our nds-bootstrap?" | Our build isn't next to the launcher as `nds-bootstrap-dsirpc.nds` (or there are several `nds-bootstrap*.nds` there): pick it, or move it there |
 | Picking a game goes back to TWiLight, or the screen stays black | Starting nds-bootstrap directly didn't work on this console (launcher/CHAINLOAD.md); Y in the launcher still exits connected the two-step way |
+| The in-game menu says "no set loaded" or "another game's" | The game wasn't started with START in the launcher (Y, or straight from TWiLight), so `RPCSET.BIN` is missing or another game's; or DSiRPC had no set for it at the last sync |
+| No achievement LED | It's DSi only, and it's the LED TWiLight's ROM read LED setting picks (None turns it off). It pulses only while there are unlocks you haven't seen in the in-game menu |
 | Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
 | Presence stays up for a while after closing the game | Expected: DSiRPC waits for about 30 s without data before clearing it |
 | "DSiRPC is already running" | Another DSiRPC (look in the tray, by the clock) or a tool from `tools/` holds UDP 4244 |
@@ -1450,42 +1481,37 @@ section 8).
   game (Pokémon Black and White, and later) running in DSi mode loads
   `cardenginei_arm7_twlsdk` instead, a 33 KB region without rpcprobe, and its
   own ARM7 code drives the DSi Wi-Fi chip there. Set those games to DS mode
-  in TWiLight Menu++'s per-game settings. The per-frame capture (the ARM9's
-  VBlank-start snapshot) passed on hardware on 2026-10-05: not one late read
-  in menus, the overworld, battles, boot or across a soft reset.
-- **Achievements are checked once a second, not every frame.** A set can
-  read far more values than the per-frame capture's 8, so it's read as a
-  whole every second instead (section 6, "RetroAchievements"). The capture
-  could later cover the timing-sensitive values of a set. Addresses past main
-  RAM (the ARM9's data TCM) can't be read at all. Sending unlocks is opt-in
-  and always softcore; RetroAchievements doesn't officially support original
-  hardware. No leaderboards.
+  in TWiLight Menu++'s per-game settings.
+- **Achievements are checked once a second, not every frame.** A set can read
+  far more values than the per-frame capture's 8, so it's read as a whole
+  every second instead (section 6, "RetroAchievements"). The capture could
+  later cover the timing-sensitive values of a set: it passed on hardware on
+  2026-10-05, with not one late read in menus, the overworld, battles, boot or
+  across a soft reset. Addresses past main RAM (the ARM9's data TCM) can't be
+  read at all. Sending unlocks is opt-in and always softcore;
+  RetroAchievements doesn't officially support original hardware. No
+  leaderboards.
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
-- **One-app launch is new.** START in the launcher now starts our
-  nds-bootstrap directly (hbmenu's bootstub + nds-bootloader, correct
-  `argv[0]`, the ini rewritten for the picked game; see
-  [launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)). It still has to be
-  confirmed on hardware; Y keeps the two-step way. TWiLight's per-game
-  settings other than the save slot aren't applied to a game picked there.
-- **Offline play is in progress.** The launcher plays without Wi-Fi, keeps
-  the sets on the SD card and syncs the unlock file with DSiRPC (on hardware
-  since 2026-10-07), and the in-game checker runs the set (section 8; it
-  matched rcheevos exactly on PC tests, and runs on hardware since
-  2026-10-08: Platinum's 101 achievements at about 1.4 passes a second).
-  Saving its unlocks into `RPCUNLK.BIN` from the swiHalt hook works on
-  hardware since 2026-10-08 (Tetris DS), with few games tried. Unlock times are the console's clock, read at each
-  unlock (section 8; not tried on hardware yet). The checker reads main RAM from the ARM7, so it can see values a
-  frame or more late, like DSiRPC's own reads; and with a big set one pass
-  takes a few frames, so a hit count of 60 takes longer than a second.
+- **TWiLight's per-game settings aren't applied** to a game picked in the
+  launcher, other than the save slot (the ini keeps the last launch's). If
+  starting nds-bootstrap directly ever fails on a console, Y still exits
+  connected the two-step way ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
+- **Offline play is new, with few games tried.** On hardware: the launcher's
+  sync (2026-10-07), the in-game checker (Platinum's 101 achievements at
+  about 1.4 passes a second; it matched rcheevos exactly on PC tests),
+  saving to `RPCUNLK.BIN` (Tetris DS) and the in-game menu's achievements
+  (DSi and 3DS). Unlock times from the console's clock (section 8) are
+  host-tested only, not yet tried on hardware. The checker reads main RAM
+  from the ARM7, so it can see values a frame or more late, like DSiRPC's
+  own reads; and with a big set one pass takes a few frames, so a hit count
+  of 60 takes longer than a second.
 - **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
   sleeps with the chip connected switches itself off, so the console
   disconnects as soon as the lid closes (rules above). Discord and the
   overlay stop until a game is started from the launcher again;
   achievements are still checked and saved, and sent at the next sync. A
-  3DS keeps its Wi-Fi. The first version (disconnect only) didn't stop the
-  shutdown on hardware; the second also cuts the chip's power and tells
-  DSiRPC first. Still to be confirmed.
+  3DS keeps its Wi-Fi.
 - **The in-game menu's achievement screens are English only**, and titles
   and descriptions are plain ASCII (accents dropped), since the menu's font
   is whatever language nds-bootstrap is set to. Times are the console's
@@ -1495,23 +1521,17 @@ section 8).
   `eap` counter is the early warning.
 - **Platinum's own Wi-Fi is disabled** in our build (DS-mode Wi-Fi can't
   reach the network anyway).
-- **nds-bootstrap's in-game menu:** closing it crashed in an early build,
-  before the DSi-mode rework, and it hasn't been retested since.
 - **USA Rev 1 only.** Other revisions and regions need their own patch
   addresses and memory map.
-- **Latency.** With CMD52 byte-at-a-time SDIO, receiving is capped at
-  `RPCPROBE_RX_BYTES_PER_VBLANK` (128) bytes and one frame per VBlank so the
-  game doesn't stutter, about 7.7 KB/s, which a busy home network's
-  broadcast traffic can exceed; the wifi chip then drops frames, requests
-  included, and a full read that used to take about 0.7 s can take 10 s or
-  more (seen in a 2026-09-26 gym battle). The in-game side now reads
-  received frames with CMD53 block transfers instead (one command per
-  frame, up to 8 frames a VBlank; see
-  [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md)),
-  falling back to CMD52 by itself if CMD53 fails. On hardware (2026-09-27)
-  that took a 60 s link check to no lost requests and a 16 ms median reply.
-  Sending uses CMD53 too (on hardware: no replies lost, median 15 ms);
-  `rxm=` and `txm=` in the hellos say what's in use.
+- **Latency.** The in-game side reads and sends frames with CMD53 block
+  transfers (one SDIO command per frame, up to 8 frames a VBlank; see
+  [TWL_RX_NOTES.md](../nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/TWL_RX_NOTES.md)):
+  on hardware, no lost requests or replies in a 60 s link check and a
+  median reply of about 15 ms. If CMD53 fails on a console it falls back to
+  CMD52 by itself, capped at 128 bytes and one frame a VBlank (about
+  7.7 KB/s), which a busy network's broadcast traffic can exceed: the Wi-Fi
+  chip then drops frames, requests included, and a full read can take
+  10 s or more. `rxm=` and `txm=` in the hellos say what's in use.
 - **Live position** reads 0 in some indoor maps. The presence doesn't use it.
 - **Not read yet:** bag contents, PC boxes, event flags, running/biking
   state, NPC positions, and map artwork (the planned area icons). IVs and
@@ -1521,6 +1541,10 @@ section 8).
   window, the tray's status). Still to come: encounter and shiny counters, a
   Nuzlocke mode, and browser-source panels for OBS. Only one process can own
   UDP 4244, so all of it has to hang off the hub.
+- **Pokémon Black and White** are planned: a parser (memory map, Gen V data
+  tables) feeding the party and battle views, which would need the B/W
+  trainer sprites (the Pokémon sprites up to #649 are in `Assets/` already).
+  Until then they get the game card, in DS mode (above).
 - **Windows first.** The tray, Start with Windows and the `.bat` files are
   Windows-only; `dsirpc.py` in a console works elsewhere (with a Linux or
   macOS build of rcheevos for rich presence).
@@ -1540,7 +1564,7 @@ section 8).
 | `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT, with DSiRPC's `dsirpc_offline.c` (offline play's set compiler) built in |
 | `overlay/` | The stream overlay window |
 | `core/`, `rpc/`, `utils/` | Python modules (section 5) |
-| `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
+| `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`), `arm7_model/` (the checker's cycle counter) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `launcher/` | The DSi-mode launcher (`source/`: connecting, the file browser, the ini, starting nds-bootstrap, the sync for offline play) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
@@ -1570,7 +1594,11 @@ The short version of how it got here:
    wireless search.
 4. Stage 5 added memory requests.
 5. The PC side grew from a raw-read client into the parser, the status tool
-   and the Rich Presence, merged with the earlier melonDS-RPC-Suite.
+   and the Rich Presence, merged with the earlier melonDS-RPC-Suite, then
+   the tray app, the overlay window and RetroAchievements.
+6. Offline play: the launcher's sync, the console's own achievement
+   checker and unlock saving, the achievement LED and the in-game menu's
+   achievements.
 
 The dated details are in [HISTORY.md](HISTORY.md).
 
@@ -1581,6 +1609,11 @@ Built on:
 - **pret/pokeplatinum** for struct layouts, the save layout and name tables
 - **RetroAchievements** code notes (game 11732) and **ProjectPokemon**'s
   breakpoints page for addresses
-- **pypresence** for Discord IPC
-- **PokéAPI** for the Pokémon sprites
-- CREDIT to (PurpleZaffre) for the overworld assets.
+- **pypresence** for Discord IPC, **pystray** for the tray, **pygame-ce**
+  for the overlay
+- **rcheevos** (RetroAchievements' library) and the set authors' work
+- **nds-bootloader** and NDS Homebrew Menu's bootstub for the one-app launch
+- **PokéAPI** for the Pokémon sprites, **GameTDB** for box art and titles
+- Overworld assets by **PurpleZaffre**
+
+The README's [Credits](../README.md#credits) has the links.

@@ -5,14 +5,19 @@ Platinum), while it runs on the DSi.
 What DSiRPC knows about it comes from its RetroAchievements side
 (core/ra_game.py): the game code from the DSi's hellos (gc=), the title from
 the set or the game's own header, and, if there's a set, its rich presence
-text and achievement progress.
+text and achievement progress. The overlay's game card
+(overlay/gamecard.py) shows all of it.
 
 OtherGame.read() returns the state the hub hands out for such a game:
 
     {'kind': 'other', 'game': {...from the hello...}, 'title': 'Mario Kart DS',
      'header_title': 'MARIOKART DS', 'ra_set': RaSet or None,
      'rich_presence': 'Racing in Figure-8 Circuit' or None,
-     'progress': (12, 132) or None, 'started': time.time()}
+     'progress': (12, 132) or None, 'started': time.time(),
+     'unlocked': frozenset of achievement IDs (RetroAchievements' and this
+     session's), 'recent': [(achievement ID, time.time()), ...] this
+     session's last few unlocks, oldest first, 'ra_note': why there's no
+     set (or what's being fetched) or None, 'signed_in': True/False}
 """
 
 import time
@@ -65,6 +70,10 @@ class OtherGame:
             'rich_presence': self.ra.rich_presence,
             'progress': self.ra.progress,
             'started': self.started,
+            'unlocked': frozenset(self.ra.unlocked),
+            'recent': self.ra.session_unlocks[-3:],
+            'ra_note': self.ra.note,
+            'signed_in': bool(self.ra.link and self.ra.link.signed_in),
         }
 
     def close(self):

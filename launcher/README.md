@@ -23,7 +23,9 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 4. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
    `time=`, then `end`) for the in-game side. The name has to be 8.3, because
    nds-bootstrap's ARM7 file lookup only matches short names. `time=` is the
-   console's clock in seconds since 2000 (local time), for dating unlocks.
+   console's clock in seconds since 2000 (local time); the in-game side reads
+   the clock itself to date unlocks, and only falls back to `time=` plus the
+   VBlanks since when it can't.
 5. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
 6. **START:** pick a game. A file browser opens in the launcher's own folder
    (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
@@ -40,7 +42,10 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
    **SELECT:** disconnect cleanly, then exit.
    **Y:** exit without disconnecting, back to your menu (the old way: then
-   start our nds-bootstrap build from there).
+   start our nds-bootstrap build from there). Y doesn't put a set in
+   `RPCSET.BIN`, so the console's achievement checker and the in-game
+   menu's list only work then if the last game started with START was the
+   same one.
 
 ### The game, the ini and your save
 
@@ -147,13 +152,14 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
 
 ## Known limits
 
-- **Starting nds-bootstrap directly is new** and needs testing on hardware.
-  If it doesn't work, **Y** still exits connected the old way.
+- If starting nds-bootstrap directly ever fails on a console, **Y** still
+  exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
 - **Saving offline unlocks is new.** The whole loop worked on hardware on
   2026-10-08 (a Tetris DS unlock made offline reached RetroAchievements at
-  the next sync), with only a few games tried so far. 255 unlocks fit
+  the next sync, and nds-bootstrap's in-game menu lists the achievements on
+  a DSi and a 3DS), with only a few games tried so far. 255 unlocks fit
   before the launcher has to hand them to DSiRPC.
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is

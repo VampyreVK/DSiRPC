@@ -2,11 +2,12 @@ DSiRPC {version}
 =====================================================================
 
 DSiRPC shows the game you're playing on a modded Nintendo DSi or 3DS as
-your Discord status. Pokemon Platinum (USA) gets the full treatment: where
-you are, your party, your badges and who you're battling, with sprites.
-Any other DS game shows its name, box art and, if it has a
-RetroAchievements set, what you're doing in it. Achievements are checked
-while you play, and there's an optional overlay window for streaming.
+your Discord status. Pokemon Platinum (USA, Rev 1) gets the full
+treatment: where you are, your party, your badges and who you're
+battling, with sprites. Any other DS game shows its name, box art and, if
+it has a RetroAchievements set, what you're doing in it. Achievements are
+checked while you play, even offline, and there's an optional overlay
+window for streaming.
 
 More help, and the source code: https://github.com/VampyreVK/DSiRPC
 
@@ -18,7 +19,9 @@ WHAT YOU NEED
   a WPA2 network has to be in Connection 4, 5 or 6: System Settings >
   Internet > Connection Settings > Advanced Setup.)
 - A 64-bit Windows 10 or 11 PC with the Discord app.
-- Your games as .nds files on the SD card.
+- Your games as .nds files on the SD card. DSi-enhanced games (Pokemon
+  Black and White, and later) have to be set to DS mode in TWiLight
+  Menu++'s per-game settings.
 
 Nothing needs installing on the PC: this folder has everything.
 
@@ -68,7 +71,8 @@ STEP 3: PLAYING
    that in TWiLight Menu++'s per-game settings for it.
 
 3. Press START and pick your game: A opens a folder or picks the game,
-   B goes up a folder. The game starts, still connected.
+   B goes up a folder (the browser opens in the DSiRPC folder, so press B
+   to get to your games). The game starts, still connected.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 
@@ -80,10 +84,11 @@ Whenever the launcher is connected and DSiRPC is running, the two sync
 (B skips it): DSiRPC puts your achievement sets on the SD card and sends
 achievements unlocked offline to RetroAchievements. While you play, the
 console checks the game's achievements itself and saves what you unlock to
-the SD card (new). On a DSi, the LED you picked as TWiLight Menu++'s "ROM
-read LED" pulses while there are new unlocks; opening nds-bootstrap's
-in-game menu (L + Down + SELECT) stops it. That menu also lists the
-game's achievements (its Achievements item), earned ones first.
+the SD card. On a DSi, the LED you picked as TWiLight Menu++'s "ROM read
+LED" pulses while there are new unlocks; opening nds-bootstrap's in-game
+menu (L + Down + SELECT) stops it. A 3DS has no such LED; the menu says
+what's new instead. That menu also lists the game's achievements (its
+Achievements item), earned ones first.
 
 A game you've never started from TWiLight Menu++ has no save file yet,
 and the launcher says so: start it once from TWiLight Menu++ first.

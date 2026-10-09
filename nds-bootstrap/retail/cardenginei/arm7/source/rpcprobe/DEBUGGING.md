@@ -57,21 +57,27 @@ With a set loaded for offline play (`RPCSET.BIN`, see `probe_ach.c`), the
 VBlank after each hello also sends:
 
 ```
-DSiRPC ach n=N t=N p=N l=N s=N x=N w=N ids=ID,ID,...
+DSiRPC ach n=N t=N p=N l=N s=N x=N w=N f=N fr=N fd=N fc=N h=N st=XXXXXXXX ids=ID,ID,...
 ```
 
 DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 
 | Field | Meaning |
 |---|---|
-| `n` | Achievements the checker runs. Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2 or 3 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 252 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into), `-4` the program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `n` | Achievements the checker runs (both lanes). Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2, 3 or 4 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 250 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into and the capture's 2 KB ring), `-4` a program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
-| `p` | Passes over every achievement since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
-| `l` | The most scanlines it used in one VBlank since the last report (`RPCPROBE_ACH_LINES_PER_VBLANK` is its budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |
+| `p` | Passes over the pass lane since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
+| `l` | The most scanlines it used in one VBlank since the last report. With `h=1`, that's the frame lane's sampling (DSiRPC sizes it to about 19 at most); with `h=0`, the sampling plus its checking (`RPCPROBE_ACH_LINES_PER_VBLANK` is that budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |
 | `s` | Of those, how many were saved to `RPCUNLK.BIN` |
 | `x` | Of those, how many couldn't be: no `RPCUNLK.BIN` (the game wasn't started from the launcher), the file is full (255 unlocks wait for DSiRPC), more than 7 waiting to be saved at once, or a write that failed |
 | `w` | This game's unlocks already waiting in `RPCUNLK.BIN` when it started; those aren't checked again |
-| `ids` | The latest unlocks, at most 8 |
+| `f` | Of the `n`, how many are checked every frame (the set's frame lane) |
+| `fr` | Frame lane samples checked since the last report: about 60 a second when it keeps up |
+| `fd` | Frames the frame lane couldn't sample since the last report, because its checking had fallen 8 frames behind (the game's ARM7 had little idle time, or the frame lane is too big for this game). Should be 0. |
+| `fc` | Samples taken without the ARM9's data cache write-back first (its VBlank hook isn't in: the game replaced its VBlank handler, or the doorbell couldn't ring yet). Should be 0 after the first second; rpcprobe rings again while it isn't. |
+| `h` | 1: the checking runs in the game's idle time (nds-bootstrap's swiHalt hook). 0: in the VBlank (that hook hasn't run for half a second: a game whose swiHalt nds-bootstrap couldn't hook) |
+| `st` | The set's stamp (its CRC-32): DSiRPC knows from it which achievements the console checks, and leaves them to it |
+| `ids` | The latest unlocks, at most 8 (as many as fit) |
 
 `s` should follow `t` within a frame. If `t` goes up and `s` doesn't (and
 `x` doesn't either), nothing is saving them: the swiHalt hook isn't running
@@ -79,8 +85,12 @@ and the VBlank fallback hasn't kicked in (`RPCPROBE_ACH_SAVE_FALLBACK`, two
 seconds).
 
 If the game stutters with a set loaded and not without one (rename
-`RPCSET.BIN` to test), lower `RPCPROBE_ACH_LINES_PER_VBLANK`, or set
-`RPCPROBE_ACH 0` to build without the checker.
+`RPCSET.BIN` to test), look at `l=` first: a large frame lane's sampling
+can be made smaller on the PC side (`FRAME_SAMPLE_CYCLES` in DSiRPC's
+`core/offline.py`). With `h=1`, lower `RPCPROBE_ACH_IDLE_LINES_PER_VISIT`
+or `RPCPROBE_ACH_IDLE_LINES_PER_FRAME`; with `h=0`, lower
+`RPCPROBE_ACH_LINES_PER_VBLANK`. `RPCPROBE_ACH 0` builds without the
+checker.
 
 ## 2. RAM viewer status byte
 
@@ -186,7 +196,8 @@ Two things to know:
   this build (`cardReadLED()` returns at once), so the two never fight over
   the bus.
 - **Space is tight.** `cardenginei_arm7` has a fixed 61 KB region (about
-  1.3 KB is left: 61,164 of 62,464 bytes). The achievement checker keeps
-  its set and state in main RAM (`DSIRPC_ACH_LOCATION`) for that reason.
+  1 KB is left: 61,460 of 62,464 bytes). The achievement checker keeps its
+  set and state in main RAM (`DSIRPC_ACH_LOCATION`) for that reason, and
+  so does the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`).
   `RPCPROBE_REQUESTS 0` in `rpcprobe_build.h` builds a hello-only version,
   which is useful for ruling the receive path out.

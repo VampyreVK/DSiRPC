@@ -79,8 +79,12 @@ class DsiSource:
     Every game, Platinum too, gets its RetroAchievements side
     (core/ra_game.py): its achievements are checked every
     ra_settings.interval seconds (about once a second), between the parses,
-    which happen every parse_interval seconds. `ra_link` is the connection to
-    RetroAchievements (core/ra_link.py), if you're signed in."""
+    which happen every parse_interval seconds, and the ones checked every
+    frame on the PC (core/frame_capture.py) a few times a second, also in
+    between the requests of a long read, so the DSi's record of frames
+    never fills up. DSiRPC's own unlocks are passed on to the console's
+    checker. `ra_link` is the connection to RetroAchievements
+    (core/ra_link.py), if you're signed in."""
 
     FAST_INTERVAL = 0.3
     FAST_TIMEOUT = 0.6
@@ -103,6 +107,8 @@ class DsiSource:
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
         self.client.ach.on_unlocks = self._console_unlocks
+        self.client.ach.on_report = self._console_report
+        self.client.idle_hook = self._capture_tick
         self.ram = DsiRam(self.client)
         self.sparse = SparseRam(self.client)
         self.ra_game = None     # RaGame for the running game
@@ -150,6 +156,8 @@ class DsiSource:
             delays.append(self.FAST_INTERVAL)
         if self.ra_game and (self.ra_game.runtime or not self.ra_game.set):
             delays.append(self.ra_game.next_due - now)
+        if self.ra_game and self.ra_game.capture_due is not None:
+            delays.append(self.ra_game.capture_due - now)
         if games.is_platinum(self.client.game):
             delays.append(self.last_parse + self.parse_interval - now)
         return max(0.05, min(delays)) if delays else None
@@ -176,6 +184,34 @@ class DsiSource:
         if self.ra_game:
             self.ra_game.inbox.put(("console", list(ids)))
 
+    def _console_report(self, report):
+        """The console's checker reported (once a second): which set it runs."""
+        if self.ra_game:
+            self.ra_game.inbox.put(("report", dict(report)))
+
+    def _capture_tick(self):
+        """The achievements checked every frame on the PC (also called
+        between the requests of a long read)."""
+        ra = self.ra_game
+        if ra is None or ra.capture_due is None or time.time() < ra.capture_due:
+            return
+        ra.capture_tick()
+        self._events += ra.take_events()
+
+    def _push_unlocks(self):
+        """DSiRPC's own unlocks, to the console's checker and in-game menu."""
+        ra = self.ra_game
+        todo = ra.pending_pushes() if ra else []
+        if not todo:
+            return
+        try:
+            taken = self.client.push_unlocks(todo, retries=1, timeout=0.5)
+        except (TimeoutError, RuntimeError):
+            return
+        ra.pushed_to_console(todo[:taken])
+        if taken:
+            logging.info(f"Console: told it about {taken} unlock(s) DSiRPC made, for its in-game menu")
+
     def _ra_tick(self):
         ra = self.ra_game
         if not ra or time.time() < ra.next_due:
@@ -190,6 +226,7 @@ class DsiSource:
             ra.read_ok = False
             logging.exception("RetroAchievements check failed")
         self._events += ra.take_events()
+        self._push_unlocks()
 
     def read(self):
         if self.client.dsi_ip is None:
@@ -198,6 +235,7 @@ class DsiSource:
                 return None
         game = self.client.game
         self._switch_ra(game)
+        self._capture_tick()
         self._ra_tick()
         # The Platinum parser only makes sense on Platinum.
         if not games.is_platinum(game):

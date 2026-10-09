@@ -6,9 +6,10 @@ switching games keeps the same look:
     header        the game's name, and how long it's been played this session
     Now           its RetroAchievements rich presence (what you're doing in
                   the game), or why there isn't any
-    Achievements  a progress bar, then the latest unlock (for a few minutes
-                  after it happens) or one still to earn, a different one
-                  every few seconds
+    Achievements  a progress bar, then side by side: the latest unlock
+                  (left two thirds: "NEW" for a few minutes after it happens,
+                  with how long ago) and one still to earn (right third, a
+                  different one every few seconds)
     footer        a game card in the game's own colour, its game code and RA
                   game ID, and how many achievements and points you've earned
 
@@ -30,14 +31,31 @@ FOOTER_Y = 162
 NOW_RECT = (3, 18, 250, 54)
 ACH_RECT = (3, 74, 250, 86)
 
-LATEST_FOR_S = 300       # how long the latest unlock is shown instead of one to earn
+NEW_FOR_S = 300          # how long the latest unlock is marked NEW
 NEXT_EVERY_MS = 6000     # how often the one to earn changes
+SPLIT_X = 164            # the divider between the latest unlock and the one to earn (from the panel's left)
 
 
 def session_time(started):
     """'1:02' (hours:minutes) since `started` (a time.time())."""
     s = max(0, int(time.time() - started)) if started else 0
     return f"{s // 3600}:{s // 60 % 60:02d}"
+
+
+def ago(when, now=None):
+    """'just now', '5 min ago', '3 h ago', 'yesterday', 'Oct 8'."""
+    now = time.time() if now is None else now
+    s = max(0, int(now - when))
+    if s < 60:
+        return "just now"
+    if s < 3600:
+        return f"{s // 60} min ago"
+    if s < 86400:
+        return f"{s // 3600} h ago"
+    if s < 2 * 86400:
+        return "yesterday"
+    t = time.localtime(when)
+    return f"{time.strftime('%b', t)} {t.tm_mday}"
 
 
 def _sentence(text):
@@ -113,47 +131,71 @@ class GameCard:
             return
         unlocked = d.get('unlocked') or ()
         by_id = {a['id']: a for a in achs}
-        latest = None
-        for aid, when in reversed(d.get('recent') or []):
-            if aid in by_id and time.time() - when < LATEST_FOR_S:
-                latest = by_id[aid]
-                break
+        latest = d.get('latest')
+        if not latest and d.get('recent'):
+            latest = d['recent'][-1]
+        if latest and latest[0] not in by_id:
+            latest = None
         locked = [a for a in achs if a['id'] not in unlocked]
 
-        room = 3 if p else 2   # description lines (without progress, a line says why)
-        if latest:
-            self._entry(canvas, "LATEST", t['ach_lo'], latest, t_ms, room, sparkle=True)
-        elif p and not locked:
-            ui.chip(canvas, self.mini, x + 6, y + 34, "MASTERED", t['ach_lo'])
-            self.font.draw(canvas, "Every achievement earned!", (x + 6, y + 46), t['text'], t['text_shadow'])
-            ui.sparkle(canvas, x + w - 12, y + 40, t_ms)
-            ui.sparkle(canvas, x + w - 22, y + 50, t_ms + 400)
+        pygame.draw.line(canvas, t['panel_lo'], (x + SPLIT_X, y + 33), (x + SPLIT_X, y + h - 5))
+        self._latest(canvas, d, by_id[latest[0]] if latest else None, latest[1] if latest else 0, p, t_ms)
+        if p and not locked:
+            self._mastered(canvas, t_ms)
         elif locked:
-            a = locked[(t_ms // NEXT_EVERY_MS) % len(locked)]
-            self._entry(canvas, "TO EARN", (104, 120, 132), a, t_ms, room)
-        if not p:
-            why = ("Asking RetroAchievements for your progress..." if d.get('signed_in')
-                   else "Sign in with Setup.bat for your progress.")
-            self.font.draw(canvas, self.font.fit(why, w - 12), (x + 6, y + h - 13), t['ach_lo'], t['text_shadow'])
+            self._to_earn(canvas, locked[(t_ms // NEXT_EVERY_MS) % len(locked)])
 
-    def _entry(self, canvas, label, color, a, t_ms, room, sparkle=False):
-        """One achievement: a label chip, its title and points, and its
-        description underneath."""
+    def _latest(self, canvas, d, a, when, p, t_ms):
+        """The left two thirds: the latest unlock, or why there's none."""
         t = ui.THEME
         x, y, w, h = ACH_RECT
-        cw = ui.chip(canvas, self.mini, x + 6, y + 34, label, color)
+        lw = SPLIT_X - 10           # its width
+        bottom = y + h - 13
+        if not p:                   # its last line says why there's no progress
+            why = "Asking RetroAchievements..." if d.get('signed_in') else "Sign in: run Setup.bat"
+            self.font.draw(canvas, self.font.fit(why, lw), (x + 6, bottom), t['ach_lo'], t['text_shadow'])
+        if not a:
+            lines = self.font.wrap("Nothing earned yet. Your next unlock shows up here.", lw, 3)
+            for i, line in enumerate(lines):
+                self.font.draw(canvas, line, (x + 6, y + 35 + 12 * i), t['text_muted'], t['text_shadow'])
+            return
+        new = when and time.time() - when < NEW_FOR_S
+        cw = ui.chip(canvas, self.mini, x + 6, y + 34, "NEW" if new else "LATEST", t['ach_lo'])
         pts = f"{a['points']}"
         pw = self.mini.width(pts) + 5
-        ui.chip(canvas, self.mini, x + w - 6 - pw, y + 34, pts, t['ach_lo'])
-        title = self.font.fit(a['title'], w - 12 - cw - 4 - pw - 4)
+        ui.chip(canvas, self.mini, x + 6 + lw - pw, y + 34, pts, t['ach_lo'])
+        title = self.font.fit(a['title'], lw - cw - 4 - pw - 4)
         self.font.draw(canvas, title, (x + 6 + cw + 4, y + 33), t['text'], t['text_shadow'])
-        if sparkle:
-            ui.sparkle(canvas, x + w - 6 - pw - 6, y + 31, t_ms)
-        lines = self.font.wrap(a.get('description') or '', w - 12, room)
-        ly = y + 47
-        for line in lines:
-            self.font.draw(canvas, line, (x + 6, ly), t['text_muted'], t['text_shadow'])
-            ly += 12
+        if new:
+            ui.sparkle(canvas, x + 6 + lw - pw - 6, y + 31, t_ms)
+        room = 2
+        lines = self.font.wrap(a.get('description') or '', lw, room)
+        for i, line in enumerate(lines):
+            self.font.draw(canvas, line, (x + 6, y + 47 + 12 * i), t['text_muted'], t['text_shadow'])
+        if p and when:
+            self.mini.draw(canvas, f"EARNED {ago(when).upper()}", (x + 6, bottom + 3), t['ach_lo'])
+
+    def _to_earn(self, canvas, a):
+        """The right third: one still to earn (title and points; there's no
+        room for its description)."""
+        t = ui.THEME
+        x, y, w, h = ACH_RECT
+        rx, rw = x + SPLIT_X + 5, w - SPLIT_X - 11
+        ui.chip(canvas, self.mini, rx, y + 34, "TO EARN", (104, 120, 132))
+        lines = self.font.wrap(a['title'], rw, 2)
+        for i, line in enumerate(lines):
+            self.font.draw(canvas, line, (rx, y + 46 + 12 * i), t['text'], t['text_shadow'])
+        self.mini.draw(canvas, f"{a['points']} POINTS", (rx, y + h - 10), t['ach_lo'])
+
+    def _mastered(self, canvas, t_ms):
+        t = ui.THEME
+        x, y, w, h = ACH_RECT
+        rx = x + SPLIT_X + 5
+        ui.chip(canvas, self.mini, rx, y + 34, "MASTERED", t['ach_lo'])
+        for i, line in enumerate(self.font.wrap("Every one earned!", w - SPLIT_X - 11, 2)):
+            self.font.draw(canvas, line, (rx, y + 46 + 12 * i), t['text'], t['text_shadow'])
+        ui.sparkle(canvas, x + w - 12, y + 66, t_ms)
+        ui.sparkle(canvas, x + w - 24, y + 74, t_ms + 400)
 
     def _no_set(self, canvas, d):
         t = ui.THEME

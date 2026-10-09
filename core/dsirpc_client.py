@@ -28,11 +28,14 @@ running (gc=, v=, hc=); see DSiClient.game.
 
 Builds with offline play's achievement checker (rpcprobe/probe_ach.c) also
 send "DSiRPC ach ..." a moment after each hello while the game has a set:
-how many achievements the console is checking, what it has unlocked, and how
-fast it goes. DSiClient logs them (see AchReport), so the console's unlocks
-can be compared with DSiRPC's own. On a DSi, "DSiRPC lid ..." says the lid
-closed, so the console turned its Wi-Fi off for the rest of the game; that's
-logged too.
+how many achievements the console is checking (and how many of them every
+frame), what it has unlocked, how fast it goes, and which set it runs.
+DSiClient logs them (see AchReport), so the console's unlocks can be
+compared with DSiRPC's own. push_unlocks() tells the console about
+achievements DSiRPC unlocked itself ('U'), so nds-bootstrap's in-game menu
+shows them and the console stops checking them. On a DSi, "DSiRPC lid ..."
+says the lid closed, so the console turned its Wi-Fi off for the rest of the
+game; that's logged too.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -54,9 +57,20 @@ import time
 MAX_RANGES = 16
 MAX_DATA = 192
 MAX_WATCHES = 8
+MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
 REC_ARM7 = 0x8000         # in a record's scanline field: the ARM7 read it
 STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM", 3: "no watch list set"}
+
+
+class Refused(RuntimeError):
+    """The DSi answered with a status other than 0 (STATUS_TEXT; for 'U',
+    3 means it only took `count`)."""
+
+    def __init__(self, status, count):
+        super().__init__(f"DSi refused request: {STATUS_TEXT.get(status, status)}")
+        self.status = status
+        self.count = count
 
 
 def game_from_hello(text):
@@ -83,19 +97,26 @@ ACH_ERRORS = {-1: "RPCSET.BIN isn't a set this nds-bootstrap can read (update nd
 class AchReport:
     """Follows the console's "DSiRPC ach" reports and logs what's new: the
     checker starting (or why it can't), each unlock, the unlocks saved to
-    the SD card (or not), and once a minute how fast it goes (passes over
-    every achievement a second, and the longest the checker took in one
-    VBlank, in scanlines; a frame has 263). on_unlocks(ids), if set, gets
-    each batch of new unlocks (core/hub.py hands them to core/ra_game.py,
-    which counts them right away)."""
+    the SD card (or not), and once a minute how it goes (passes over the
+    pass lane a second, the longest the checker took in one VBlank, in
+    scanlines, a frame having 263; and for the frame lane, the frames it
+    checked, the ones it couldn't sample because its checking fell behind,
+    and the samples taken without the ARM9's cache write-back).
+    on_unlocks(ids), if set, gets each batch of new unlocks (core/hub.py
+    hands them to core/ra_game.py, which counts them right away), and
+    on_report(latest) every report (which set the console runs)."""
 
     def __init__(self):
         self.latest = None
+        self.latest_at = 0.0
         self.on_unlocks = None
+        self.on_report = None
         self._loaded = None
         self._unlocked = self._saved = self._lost = 0
         self._reports = 0
         self._passes = self._lines = 0
+        self._frames = self._dropped = self._unclean = 0
+        self._run = 0             # counts the checker's starts (a new game, or the same one again)
 
     def take(self, text):
         f = _hello_fields(text)
@@ -104,20 +125,31 @@ class AchReport:
             unlocked = int(f.get("t", "0"))
             passes, lines = int(f.get("p", "0")), int(f.get("l", "0"))
             saved, lost, waiting = int(f.get("s", "0")), int(f.get("x", "0")), int(f.get("w", "0"))
+            frame_lane, frames = int(f.get("f", "0")), int(f.get("fr", "0"))
+            dropped, unclean, idle = int(f.get("fd", "0")), int(f.get("fc", "0")), int(f.get("h", "0"))
+            stamp = int(f["st"], 16) if f.get("st") else None
             ids = [int(i) for i in f["ids"].split(",")] if f.get("ids") else []
         except ValueError:
             return
         self.latest = {'loaded': loaded, 'unlocked': unlocked, 'passes': passes, 'lines': lines,
-                       'saved': saved, 'lost': lost, 'waiting': waiting, 'ids': ids}
+                       'saved': saved, 'lost': lost, 'waiting': waiting, 'ids': ids, 'frame_lane': frame_lane,
+                       'frames': frames, 'dropped': dropped, 'unclean': unclean, 'idle': idle, 'stamp': stamp}
+        self.latest_at = time.time()
         if loaded != self._loaded or unlocked < self._unlocked:  # another game, or the same one again
+            self._run += 1
             self._loaded = loaded
             self._unlocked = self._saved = self._lost = 0
             self._reports = self._passes = self._lines = 0
+            self._frames = self._dropped = self._unclean = 0
             if loaded > 0:
                 logging.info(f"Console: checking {loaded} achievement(s) in game (offline play's checker)"
+                             + (f", {frame_lane} of them every frame" if frame_lane else "")
                              + (f"; {waiting} unlocked earlier wait on its SD card for DSiRPC" if waiting else ""))
             elif loaded < 0:
                 logging.warning(f"Console: no achievement checker: {ACH_ERRORS.get(loaded, loaded)}")
+        self.latest['run'] = self._run
+        if self.on_report:
+            self.on_report(self.latest)
         new = unlocked - self._unlocked
         if new > 0:
             for aid in ids[-new:]:
@@ -135,10 +167,19 @@ class AchReport:
         self._reports += 1
         self._passes += passes
         self._lines = max(self._lines, lines)
+        self._frames += frames
+        self._dropped += dropped
+        self._unclean += unclean
         if loaded > 0 and self._reports % 60 == 0:
-            logging.info(f"Console: its checker did {self._passes / 60:.1f} passes a second over the last "
-                         f"minute; its longest turn took {self._lines} scanlines")
+            where = "in the game's idle time" if idle else "in the VBlank (this game's idle time can't be used)"
+            text = (f"Console: its checker ran {where}: {self._passes / 60:.1f} passes a second over the last "
+                    f"minute; its longest VBlank turn took {self._lines} scanlines")
+            if frame_lane:
+                text += (f"; every frame: {self._frames / 60:.1f} frames a second checked, {self._dropped} "
+                         f"not sampled (it fell behind), {self._unclean} sampled without the ARM9's write-back")
+            logging.info(text)
             self._passes = self._lines = 0
+            self._frames = self._dropped = self._unclean = 0
 
 
 class DSiClient:
@@ -152,6 +193,8 @@ class DSiClient:
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
         self.ach = AchReport()
+        self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
+        self._in_hook = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("0.0.0.0", port))
 
@@ -212,7 +255,7 @@ class DSiClient:
                     if seq != self.seq:
                         continue  # late reply to an older request
                     if status != 0:
-                        raise RuntimeError(f"DSi refused request: {STATUS_TEXT.get(status, status)}")
+                        raise Refused(status, count)
                     return count, data[5:]
                 self._handle_other(data, addr)
             if self.verbose:
@@ -268,6 +311,36 @@ class DSiClient:
             records.append((tick, vcount & 0x1FF, rec[4:], bool(vcount & REC_ARM7)))
         return first, lost, records
 
+    def push_unlocks(self, unlocks, retries=2, timeout=None):
+        """Achievements DSiRPC unlocked itself, for the console's checker
+        and nds-bootstrap's in-game menu ('U'): [(achievement id, when)],
+        when in seconds since 2000 by the console's clock. Returns how many
+        the console took (fewer when it has no set running, or no room just
+        then: send the rest again later). Raises TimeoutError."""
+        taken = 0
+        for i in range(0, len(unlocks), MAX_PUSH):
+            batch = unlocks[i:i + MAX_PUSH]
+            body = struct.pack(">B", len(batch)) + b"".join(struct.pack(">II", a, w) for a, w in batch)
+            try:
+                count, _ = self._exchange(b"U", body, retries, timeout)
+            except Refused as e:  # status 3: only some taken
+                return taken + (e.count if e.status == 3 else 0)
+            taken += count
+            if count < len(batch):
+                break
+        return taken
+
+    def _between(self):
+        """Runs idle_hook between the requests of a long read (not inside it)."""
+        if self.idle_hook and not self._in_hook:
+            self._in_hook = True
+            try:
+                self.idle_hook()
+            except Exception:
+                logging.exception("idle hook failed")
+            finally:
+                self._in_hook = False
+
     def read_ranges(self, ranges, timeout=None, retries=3):
         """[(addr, length), ...] -> [bytes, ...]. Splits into as many requests
         as needed. Each request waits `timeout` seconds for its reply (the
@@ -293,6 +366,7 @@ class DSiClient:
         for p in pieces:
             if len(batch) == MAX_RANGES or batch_bytes + p[2] > MAX_DATA:
                 flush()
+                self._between()
             batch.append(p)
             batch_bytes += p[2]
         flush()

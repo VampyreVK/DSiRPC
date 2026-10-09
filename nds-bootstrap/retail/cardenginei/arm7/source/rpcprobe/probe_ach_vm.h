@@ -64,7 +64,8 @@ typedef struct {
 	uint32_t *memPrior;         //   the value before the last change
 	uint8_t  *memChanged;       //   1 if it changed in the last update
 	uint32_t *hits;             // per condition: current hit count
-	uint8_t  *achState;         // per achievement: ACHVM_* | 0x80 = had hits
+	uint32_t *achSig;           // per achievement: its hits after its last check, hashed
+	uint8_t  *achState;         // per achievement: ACHVM_* | 0x80 = had hits | 0x40 = settled
 
 	// Main RAM as RetroAchievements addresses it (0 = 0x02000000 on the DS);
 	// reads at ramSize or past it are 0, like DSiRPC's own reads.
@@ -72,6 +73,8 @@ typedef struct {
 	uint32_t ramSize;
 
 	// Where AchVm_Run() carries on
+	const uint32_t *feed;       // memory values to use at the start of a pass instead of
+	                            // reading memory (AchVm_RunSampled()), or 0
 	const uint8_t *nextAch;
 	uint32_t nextHit;
 	uint16_t nextIndex;
@@ -89,7 +92,8 @@ typedef struct {
 int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint32_t stateSize,
                const uint8_t *ram, uint32_t ramSize);
 
-// The bytes of state a program needs (0 if it isn't a valid program).
+// The bytes of state a program needs (0 if it isn't a valid program, or has
+// no achievements).
 uint32_t AchVm_StateSize(const void *program, uint32_t size);
 
 // Called for each achievement that triggers.
@@ -101,6 +105,18 @@ typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
 // stops there and carries on from there next time. Returns 1 if this call
 // finished a pass.
 int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered, void *ud);
+
+// The frame lane (probe_ach.c): one VM samples every frame, another checks
+// the samples later, in order, so the reading happens at the same point of
+// every frame however long the checking takes. Two VMs with the same program
+// (each with its own state): AchVm_Sample() reads every memory value at
+// once, the way a pass starts, and copies the values to out (nPlain + nMod
+// of them). AchVm_RunSampled() takes those values as its memory for a whole
+// pass over every achievement (what the second VM sees is exactly what the
+// first one read, prior values and changes included, since those only depend
+// on the values one after another).
+void AchVm_Sample(AchVm *vm, uint32_t *out);
+void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud);
 
 // The id and state of achievement i (for tests and status).
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i);

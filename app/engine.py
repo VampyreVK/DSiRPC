@@ -282,6 +282,7 @@ class Engine:
             except (RcheevosError, offline.FormatError) as e:
                 logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
                 continue
+            offline.remember_set(data)  # which achievements the console checks every frame
             if self._clearing or stamps.get(code) != offline.set_stamp(data):
                 out.append((code, data))
         if self._clearing:

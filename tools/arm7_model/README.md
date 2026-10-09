@@ -38,10 +38,19 @@ versions and finding hot spots, and confirm on hardware with the console's
 "DSiRPC ach" report: its passes a second, and `l=`, its longest turn (see
 `rpcprobe/DEBUGGING.md`).
 
-"At N scanlines a VBlank: about X passes a second" assumes the checker gets
-its whole budget every VBlank (`RPCPROBE_ACH_LINES_PER_VBLANK` from the
-checker's `rpcprobe_build.h`, or `--lines`). A scanline is about 2,130 ARM7
-cycles and there are 59.83 VBlanks a second.
+A set has two lanes (DSiRPC's `core/offline.py`, `split_lanes()`). The
+frame lane is reported as what it costs every frame: the sampling (in the
+VBlank) and the checking of a sample, on a frame where every value changed
+and on one where none did (the checker skips an achievement whose values
+and hits didn't change). The pass lane is reported as a pass, the same two
+ways (the first pass, and one after the checker has seen nothing change).
+"At N scanlines a frame: about X to Y passes a second" assumes the pass lane
+gets that much of the game's idle time every frame
+(`RPCPROBE_ACH_IDLE_LINES_PER_FRAME` from the checker's `rpcprobe_build.h`,
+less the frame lane's checking when nothing changed, or `--lines`). A
+scanline is about 2,130 ARM7 cycles and there are 59.83 VBlanks a second.
+DSiRPC's `offline.frame_costs()` (how big a frame lane may be) was fitted to
+this model; refit it when the checker changes much.
 
 ## Using it
 
@@ -69,9 +78,9 @@ python tools/arm7_model/arm7_model.py --set CPUE.DRS
 | `--profile functions` / `lines` | Where the instructions go in a pass: by function (with how often each is entered), or by source line (with the line) |
 | `--compare FOLDER...` | Also run the checker in these folders and show the difference |
 | `--vm FOLDER` | The checker to measure first (default: this repo's `nds-bootstrap/.../rpcprobe`) |
-| `--keep-every N` | Say "stop" at every Nth time check, as a VBlank budget running out does, to see what carrying on costs |
-| `--passes N` | Passes to average after the warm-up (default 2) |
-| `--lines N` | The scanline budget for "passes a second" |
+| `--keep-every N` | Say "stop" at every Nth time check, as a budget running out does, to see what carrying on costs |
+| `--passes N` | Passes to average once nothing changes (default 2) |
+| `--lines N` | The pass lane's scanlines a frame, for "passes a second" |
 | `--image NAME` | The devkitARM image (default `devkitpro/devkitarm:20241104`, or `$DEVKITARM_IMAGE`) |
 
 A folder for `--compare` or `--vm` needs `probe_ach_vm.c` and

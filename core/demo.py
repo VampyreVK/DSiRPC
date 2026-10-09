@@ -234,14 +234,16 @@ class DemoSource:
         achs = OTHER_SET.playable_achievements
         earned = {a['id'] for a in achs[:3]}
         recent = []
+        latest = (3, time.time() - 2 * 86400 - 3600)  # earned before, as RetroAchievements has it
         if into >= OTHER_UNLOCK_AT:
             earned.add(4)
             recent = [(4, time.time() - (into - OTHER_UNLOCK_AT))]
+            latest = recent[-1]
         lap = min(3, 1 + int(into // 6))
         place = ['5th', '3rd', '1st'][lap - 1]
         return {
             'kind': 'other', 'game': {'code': 'DEMO'}, 'title': OTHER_SET.title, 'header_title': None,
             'ra_set': OTHER_SET, 'rich_presence': f"Lap {lap}/3 on Seaside Loop, in {place} place",
             'progress': (len(earned), len(achs)), 'started': time.time() - into - 1500,
-            'unlocked': frozenset(earned), 'recent': recent, 'ra_note': None, 'signed_in': True,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
         }

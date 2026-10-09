@@ -16,7 +16,9 @@ OtherGame.read() returns the state the hub hands out for such a game:
      'progress': (12, 132) or None, 'started': time.time(),
      'unlocked': frozenset of achievement IDs (RetroAchievements' and this
      session's), 'recent': [(achievement ID, time.time()), ...] this
-     session's last few unlocks, oldest first, 'ra_note': why there's no
+     session's last few unlocks, oldest first, 'latest': (achievement ID,
+     time) of the latest unlock (this session's, else the latest
+     RetroAchievements has a time for) or None, 'ra_note': why there's no
      set (or what's being fetched) or None, 'signed_in': True/False}
 """
 
@@ -72,6 +74,7 @@ class OtherGame:
             'started': self.started,
             'unlocked': frozenset(self.ra.unlocked),
             'recent': self.ra.session_unlocks[-3:],
+            'latest': self.ra.latest_unlock(),
             'ra_note': self.ra.note,
             'signed_in': bool(self.ra.link and self.ra.link.signed_in),
         }

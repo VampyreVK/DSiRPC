@@ -28,9 +28,16 @@ to 26 scanlines, which agrees within about 15%. Use it to compare versions
 and to see what's expensive; check on hardware with the "DSiRPC ach" report
 (its passes a second, and l=, the longest turn).
 
-"At N scanlines a VBlank" turns cycles into passes a second, if every
-VBlank gives the checker its whole budget (RPCPROBE_ACH_LINES_PER_VBLANK in
-the checker's rpcprobe_build.h, or --lines). A scanline is about 2,130 ARM7
+A set has two lanes (core/offline.py's split_lanes()): the pass lane is
+measured as passes, and the frame lane as what it costs every frame: the
+sampling (in the VBlank interrupt) and the checking of a sample, both on the
+first frame (every value changes) and on a frame where nothing changed (the
+checker skips an achievement whose values didn't change).
+
+"At N scanlines a frame" turns pass cycles into passes a second, if every
+frame gives the pass lane that much of the game's idle time
+(RPCPROBE_ACH_IDLE_LINES_PER_FRAME in the checker's rpcprobe_build.h, less
+what the frame lane takes, or --lines). A scanline is about 2,130 ARM7
 cycles and there are 59.83 VBlanks a second.
 
 Usage, from the repo root:
@@ -107,15 +114,24 @@ def load_set(args):
         fail(f"Couldn't build {code}'s set: {e}")
 
 
+def _lane(program):
+    from core import offline
+    if not program:
+        return None
+    n_plain, n_mod, n_ach, n_conds = offline.program_counts(program)
+    return {'program': program, 'state_size': offline.state_size(program), 'plain': n_plain,
+            'mod': n_mod, 'achievements': n_ach, 'conditions': n_conds}
+
+
 def describe_set(data):
+    """{'code', 'pass': lane or None, 'frame': lane or None}; a lane is
+    {'program', 'state_size', 'plain', 'mod', 'achievements', 'conditions'}"""
     from core import offline
     if len(data) < offline.SET_HEADER.size or data[:4] != offline.SET_MAGIC:
         fail("That isn't an offline set file (CODE.DRS)")
     s = offline.read_set(data)
-    program = s["program"]
-    _, n_plain, n_mod, n_ach, _, n_conds = offline.PROGRAM_HEADER.unpack_from(program)
-    return {'code': s['code'], 'program': program, 'state_size': s['state_size'], 'plain': n_plain,
-            'mod': n_mod, 'achievements': n_ach, 'conditions': n_conds}
+    return {'code': s['code'], 'pass': _lane(s['program'] if s['pass'] else b""),
+            'frame': _lane(s['frame_program'])}
 
 
 # -- building the checker --------------------------------------------------------
@@ -249,9 +265,34 @@ class Model:
     def word(self, name):
         return struct.unpack("<I", self.mu.mem_read(self.symbols[name], 4))[0]
 
+    def _cycles(self):
+        k = self.counts
+        return (k.get('instructions', 0) + 2 * k.get('branches', 0)
+                + 2 * (k.get('WRAM reads', 0) + k.get('main reads', 0))
+                + k.get('WRAM writes', 0) + k.get('main writes', 0) + k.get('main waits', 0))
+
+    def frames(self, n=4):
+        """The frame lane: (sampling, checking on the first frame, checking
+        on a frame where nothing changed), in cycles."""
+        out = ACH + ACH_SIZE - 0x8000  # (the samples go somewhere out of the way)
+        costs = []
+        for _ in range(n):
+            self.counts.clear()
+            self.call("bench_sample", out)
+            sample = self._cycles()
+            self.counts.clear()
+            self.call("bench_run_sampled", out)
+            costs.append((sample, self._cycles()))
+        return costs[-1][0], costs[0][1], costs[-1][1]
+
     def passes(self, n):
-        """Runs a warm-up pass (every value changes from 0), then n passes;
-        returns the averages of those n."""
+        """Runs a first pass (every value changes from 0), two more for the
+        checker to see nothing changed, then n passes; returns the averages
+        of those n, with the first pass's cycles as 'first'."""
+        self.counts.clear()
+        self.call("bench_pass")
+        first = self._cycles()
+        self.call("bench_pass")
         self.call("bench_pass")
         self.counts.clear()
         if self.blocks is not None:
@@ -265,6 +306,7 @@ class Model:
                        + c.get('WRAM writes', 0) + c.get('main writes', 0) + c.get('main waits', 0))
         c['time checks'] = (self.word("keepCalls") - checks) / n
         c['calls'] = calls / n
+        c['first'] = first
         return c
 
 
@@ -275,21 +317,31 @@ def budget_lines(vm_dir, override):
         return override
     try:
         with open(os.path.join(vm_dir, "rpcprobe_build.h")) as f:
-            m = re.search(r"#define\s+RPCPROBE_ACH_LINES_PER_VBLANK\s+(\d+)", f.read())
-        return int(m.group(1)) if m else 20
+            m = re.search(r"#define\s+RPCPROBE_ACH_IDLE_LINES_PER_FRAME\s+(\d+)", f.read())
+        return int(m.group(1)) if m else 120
     except OSError:
-        return 20
+        return 120
+
+
+def report_frame(label, code_bytes, costs):
+    sample, first, steady = costs
+    lines = lambda c: c / CYCLES_PER_LINE
+    print(f"\n{label}, the frame lane (checker code: {code_bytes:,} bytes)")
+    print(f"  sampling: {sample:,.0f} cycles a frame ({lines(sample):.1f} scanlines of the VBlank)")
+    print(f"  checking a sample: {first:,.0f} cycles when every value changed ({lines(first):.1f} scanlines), "
+          f"{steady:,.0f} when none did ({lines(steady):.1f})")
 
 
 def report(label, code_bytes, c, lines):
-    per_second = lines * CYCLES_PER_LINE * VBLANKS_PER_SECOND / c['cycles']
-    print(f"\n{label} (checker code: {code_bytes:,} bytes)")
-    print(f"  one pass: {c['cycles']:,.0f} cycles")
+    rate = lambda cycles: lines * CYCLES_PER_LINE * VBLANKS_PER_SECOND / cycles if lines > 0 else 0
+    print(f"\n{label}, the pass lane (checker code: {code_bytes:,} bytes)")
+    print(f"  one pass: {c['first']:,.0f} cycles when every value changed, {c['cycles']:,.0f} when none did "
+          f"(this, below)")
     print(f"    instructions {c.get('instructions', 0):,.0f}, branches {c.get('branches', 0):,.0f}")
     print(f"    WRAM reads/writes {c.get('WRAM reads', 0):,.0f} / {c.get('WRAM writes', 0):,.0f}, "
           f"main RAM reads/writes {c.get('main reads', 0):,.0f} / {c.get('main writes', 0):,.0f}")
     print(f"    time checks {c['time checks']:,.0f}" + (f", in {c['calls']:.1f} turns" if c['calls'] > 1 else ""))
-    print(f"  at {lines} scanlines a VBlank: about {per_second:.2f} passes a second")
+    print(f"  at {lines} scanlines a frame: about {rate(c['first']):.1f} to {rate(c['cycles']):.1f} passes a second")
 
 
 def instructions_by_address(model):
@@ -369,10 +421,16 @@ def main():
         ap.error("give a game code (e.g. CPUE) or --set FILE")
 
     data, source = load_set(args)
-    info = describe_set(data)
-    print(f"Set: {info['code']} from {source}: {info['achievements']} achievements, {info['conditions']:,} "
-          f"conditions, {info['plain']:,} + {info['mod']:,} memory values "
-          f"({len(info['program']) / 1024:.0f} KB + {info['state_size'] / 1024:.0f} KB of state)")
+    lanes = describe_set(data)
+    print(f"Set: {lanes['code']} from {source}")
+    for name in ("frame", "pass"):
+        info = lanes[name]
+        if info:
+            print(f"  {name} lane: {info['achievements']} achievements, {info['conditions']:,} conditions, "
+                  f"{info['plain']:,} + {info['mod']:,} memory values ({len(info['program']) / 1024:.0f} KB "
+                  f"+ {info['state_size'] / 1024:.0f} KB of state)")
+        else:
+            print(f"  {name} lane: empty")
     print(f"Game memory: {args.ram or 'all zeros (--ram for a dump)'}")
 
     first = None
@@ -380,10 +438,18 @@ def main():
         vm_dir = os.path.abspath(vm_dir)
         out_dir = os.path.join(HERE, "build", f"vm{n}")
         code_bytes = build(vm_dir, out_dir, args.image)
+        label = os.path.relpath(vm_dir, REPO) if vm_dir.startswith(REPO) else vm_dir
+        frame_lines = 0
+        if lanes['frame']:
+            costs = Model(out_dir, lanes['frame'], args.ram).frames()
+            report_frame(label, code_bytes, costs)
+            frame_lines = costs[2] / CYCLES_PER_LINE
+        info = lanes['pass']
+        if not info:
+            continue
         model = Model(out_dir, info, args.ram, args.keep_every, profile=bool(args.profile))
         c = model.passes(max(1, args.passes))
-        label = os.path.relpath(vm_dir, REPO) if vm_dir.startswith(REPO) else vm_dir
-        report(label, code_bytes, c, budget_lines(vm_dir, args.lines))
+        report(label, code_bytes, c, max(0, budget_lines(vm_dir, args.lines) - round(frame_lines)))
         if first is None:
             first = c
         else:

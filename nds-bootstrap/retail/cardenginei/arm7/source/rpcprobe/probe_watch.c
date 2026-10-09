@@ -55,7 +55,12 @@ static u8 recSize = 0;    // REC_HEADER + the watches' sizes
 static u16 ringSlots = 0; // WATCH_RING_BYTES / recSize
 static u32 written = 0;   // records written since the last 'W'
 static u16 tick = 0;      // VBlanks sampled since the last 'W'
-static u8 ring[WATCH_RING_BYTES] __attribute__((aligned(4)));
+// The records, in main RAM (the ARM7 cardengine's own is full)
+#ifndef PW_RING // (the PC tests have their own)
+#define PW_RING ((u8 *)DSIRPC_WATCH_RING_LOCATION)
+#endif
+#define ring PW_RING
+_Static_assert(WATCH_RING_BYTES == DSIRPC_WATCH_RING_SIZE, "the ring's size");
 
 static u16 get16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
 static u32 get32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
@@ -84,6 +89,18 @@ static void ringArm9(void) {
 	if (out == 0 || out == PW_DOORBELL) {
 		PW_REG_IPC_SYNC = (sync & 0xF0FF) | (PW_DOORBELL << 8) | PW_IPC_SYNC_IRQ_REQUEST;
 	}
+}
+
+void ProbeWatch_Clean(void) {
+	volatile DsirpcWatchBlock *b = arm9Block;
+	if (!b) return;
+	b->clean = 1;
+	ringArm9();
+}
+
+u32 ProbeWatch_Cleaned(void) {
+	volatile DsirpcWatchBlock *b = arm9Block;
+	return b ? b->cleaned : 0;
 }
 
 // Copies the next ARM9 snapshot's values (n bytes) to `v` and its scanline

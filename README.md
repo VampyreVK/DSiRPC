@@ -88,7 +88,11 @@ once when it connects and again when you start a game (**B** skips that):
   setup), with the time you unlocked them, and tells you in a notification.
 
 While you play, the console checks the game's achievements itself, Wi-Fi or
-not: about once a second or more often, depending on the size of the set.
+not, in the time the game leaves its second processor idle. The ones that
+need every frame (a move that only counts on the exact frame it happens, a
+challenge that a single slip resets) are checked every frame, as on an
+emulator; small sets are checked that way whole, big ones as many as fit,
+and the rest many times a second.
 
 Each unlock is saved to the SD card (`sd:/RPCUNLK.BIN`) right away, with
 when it happened, read from the console's clock (so a nap with the lid
@@ -170,10 +174,14 @@ profile, and Discord's hover text shows your progress ("12 of 132
 unlocked"). **Sending your unlocks to RetroAchievements is a separate choice
 in setup**, off unless you turn it on, and always softcore:
 
-- DSiRPC checks achievements about once a second, not every frame like an
-  emulator. Achievements about things that last (a flag set, a cup won) work
-  the same; ones about split-second moments can unlock late, not at all or,
-  rarely, when they shouldn't.
+- Not every achievement is checked every frame like on an emulator. A game
+  started from the DSiRPC launcher has the ones that need it checked every
+  frame on the console (all of them, for a small set); DSiRPC itself checks
+  every frame as many as fit in the eight values the console can record
+  every frame, and the rest about once a second. Achievements about things
+  that last (a flag set, a cup won) work the same either way; ones about
+  split-second moments, when they aren't checked every frame, can unlock
+  late, not at all or, rarely, when they shouldn't.
 - RetroAchievements doesn't officially support playing on original hardware.
   DSiRPC tells it honestly what it is, so it only ever counts these unlocks
   as softcore.
@@ -181,9 +189,12 @@ in setup**, off unless you turn it on, and always softcore:
 Unlocks that can't be sent right away (no internet) are kept and sent later.
 
 A game started from the DSiRPC launcher is also checked by the console
-itself, about once a second or more often (it's what makes
-[offline play](#playing-offline) work). When DSiRPC hears the console unlock an achievement, that counts right
-away too, like its own unlocks (the log says `by the console's checker`).
+itself (it's what makes [offline play](#playing-offline) work). DSiRPC then
+leaves the achievements the console checks to it, and checks only the rest.
+When DSiRPC hears the console unlock an achievement, that counts right away,
+like its own unlocks (the log says `by the console's checker`), and DSiRPC
+tells the console about the ones it unlocked itself, so nds-bootstrap's
+in-game menu shows those too.
 
 ## Stream overlay window
 
@@ -198,8 +209,9 @@ shiny encounters, level-ups, fainting, new badges and achievements.
 
 Every other game gets a game card in the same style: its name and how long
 you've been playing, what you're doing in it (its RetroAchievements rich
-presence), a progress bar for its achievements with the latest unlock or one
-still to earn, and how many achievements and points you have. While the
+presence), a progress bar for its achievements with your latest unlock and
+one still to earn side by side, and how many achievements and points you
+have. While the
 console isn't connected, the window says what to do and shows the last game
 you played.
 
@@ -294,7 +306,10 @@ the source code is in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
       overlay's game card), and only Platinum USA Rev 1 gets the full
       presence and the overlay's party and battle views. Pokémon Black and
       White are next in line.
-- [ ] Achievements checked every frame, for the timing-sensitive ones.
+- [x] Achievements checked every frame, for the timing-sensitive ones: on the
+      console (a set's frame lane) and by DSiRPC (what fits in the console's
+      per-frame record). New, tested on a PC against rcheevos frame for
+      frame, not yet tried on hardware.
 - [x] Achievements while [playing offline](#playing-offline): the launcher
       keeps the sets on the SD card and syncs unlocks with DSiRPC, and the
       console checks them in game, saves its unlocks to the SD card, pulses

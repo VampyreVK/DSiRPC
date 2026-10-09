@@ -285,6 +285,62 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Achievements checked every frame.** On a 3DS, Tetris DS's
+  T-Spin Single never unlocked and "Look Ma, One Hand" unlocked when it
+  shouldn't have: the first needs the T-spin flag on the exact frame the
+  line count goes up, the second a ResetIf that catches every rotation, and
+  the console checked about every 19 frames, DSiRPC once a second. Now:
+  - **Two lanes on the console.** Sets are version 4: DSiRPC puts the
+    achievements that need every frame (`offline.timing()`: hit targets,
+    ResetIf, PauseIf, delta and prior values) in a frame lane, as many as
+    its ARM7 cost model allows (`split_lanes()`, `frame_costs()`, fitted on
+    `tools/arm7_model`), and the rest in the pass lane. The console samples
+    the frame lane's memory values at the start of every VBlank into a ring
+    and checks the samples in order (`AchVm_Sample()`, `AchVm_RunSampled()`),
+    so every frame is checked as it was.
+  - **The ARM9 writes its cache back.** A value the game wrote can sit in
+    the ARM9's data cache past the end of the frame (a one-frame flag may
+    never reach main RAM), so with a frame lane the ARM9's VBlank hook (the
+    per-frame capture's) cleans the whole data cache at the start of every
+    VBlank and counts it; the ARM7 samples right after.
+  - **Idle time.** The checking moved out of the VBlank into
+    nds-bootstrap's swiHalt hook, where the game's ARM7 idles (up to 16
+    scanlines a visit and 120 a frame, stopping for ARM9 ROM reads); the
+    VBlank still does it for a game whose swiHalt couldn't be hooked.
+  - **Skipping what can't have changed.** An achievement whose memory
+    values didn't change this frame or the last, and whose last check left
+    its state and hits (hashed: exact for hit targets and AddHits/SubHits,
+    none-or-some for the rest) as they were, is skipped: same results as
+    rcheevos, a fraction of the cost. A steady frame of a 200-achievement
+    test set costs 102,000 cycles instead of 450,000; the pass lane does
+    tens of passes a second instead of one or two. (A first version
+    tracked hit changes as they happened; an achievement true from the
+    start bumps and resets its hits every frame, so it never settled.)
+  - **DSiRPC every frame too.** `core/frame_capture.py` checks every frame
+    the achievements that need it and that the console doesn't check every
+    frame, as many as fit in the per-frame capture's 8 watched values, from
+    the DSi's record of every frame (drained four times a second, also
+    between the requests of a long read). When the console's report says it
+    runs a set DSiRPC built (`st=`, `ra/cache/console_sets.json`), DSiRPC
+    leaves those achievements to it instead of checking them once a second.
+  - **DSiRPC's unlocks on the console.** `'U'` tells the console's checker
+    about DSiRPC's own unlocks: it stops checking them and the in-game menu
+    shows them as earned and new.
+  - **Room.** The capture's 2 KB ring moved from the ARM7 cardengine to
+    the end of DSiRPC's 256 KB in main RAM (sets now get 250 KB), which
+    paid for all of it: the ARM7 is at 61,460 of 62,464 bytes, the ARM9
+    cardengine has 792 bytes left.
+  - **The overlay's game card** shows the latest unlock (any time, "NEW"
+    for 5 minutes) in the left two thirds of its achievements panel and one
+    to earn in the right third.
+  Tested on a PC: the checker against rcheevos frame by frame on a
+  simulated puzzle game (with and without skipping, sampled now and
+  checked later, stopping at random points; 54 runs of 4,000-8,000
+  frames, half with random achievements), `probe_ach.c` with real version
+  4 sets (idle time, VBlank, a starved idle side), and DSiRPC's side
+  against a fake DSi at 60 frames a second. Builds with the CI's Docker
+  image. Needs a hardware test: the report's `f=`, `fr=` (about 60), `fd=`
+  (0), `fc=` (0) and `h=` (1).
 - 2026-10-08: **The overlay's game card, and a docs pass.** Any game but
   Platinum used to get a lone panel in the overlay; now it gets a game card
   laid out like the party view (`overlay/gamecard.py`): the title and

@@ -15,9 +15,10 @@
 // ARM9 half), the ARM7 reads main RAM itself and marks the record
 // (WATCH_REC_ARM7).
 //
-// Nothing here writes to the game's memory: the watch list and the ring live
-// in rpcprobe's own memory, and the hand-over block in the ARM9
-// cardengine's. The ARM9's hook is put in front of the game's VBlank
+// Nothing here writes to the game's memory: the watch list lives in
+// rpcprobe's own memory, the ring in the main RAM nds-bootstrap sets aside
+// for DSiRPC (locations.h's DSIRPC_WATCH_RING_LOCATION), and the hand-over
+// block in the ARM9 cardengine's. The ARM9's hook is put in front of the game's VBlank
 // interrupt handler (in the game's interrupt table, like nds-bootstrap's own
 // hooks) and calls that handler unchanged.
 //
@@ -56,7 +57,7 @@
 #include <nds/ndstypes.h>
 
 #define WATCH_MAX        8
-#define WATCH_RING_BYTES 2048
+#define WATCH_RING_BYTES 2048 // locations.h's DSIRPC_WATCH_RING_SIZE
 
 #define WATCH_ARM7_ONLY  0x80   // in the 'W' count
 #define WATCH_REC_ARM7   0x8000 // in a record's vcount
@@ -67,8 +68,16 @@
 // more than 2 means the game replaced its VBlank handler along the way).
 extern u8 probeWatchArm9;
 
-// Looks for the ARM9 half's block. Call once, when the connection is up.
+// Looks for the ARM9 half's block. Call on the first VBlank (offline play
+// needs it too) and when the connection is up.
 void ProbeWatch_Init(void);
+
+// For offline play's achievement checker (probe_ach.c): has the ARM9 write
+// its data cache back to main RAM at the start of every VBlank from now on
+// (rings it to put its VBlank hook in; call again if the write-backs don't
+// come). ProbeWatch_Cleaned() counts them (0 if there's no ARM9 half).
+void ProbeWatch_Clean(void);
+u32 ProbeWatch_Cleaned(void);
 
 // Called once per VBlank (while connected) with the scanline the tick
 // started on.

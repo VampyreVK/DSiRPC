@@ -122,10 +122,14 @@
 #define DSI_HEADER_SDK5    0x02FFE000 // __DSiHeader
 
 // DSiRPC: the in-game achievement checker's set and state (rpcprobe's
-// probe_ach.c). The ROM cache and ROM-in-RAM loading skip it
-// (romLocationAdjust() in bootloaderi's main.arm7.c).
+// probe_ach.c), with the per-frame capture's ring in its last 2 KB
+// (probe_watch.c; main RAM rather than the ARM7 cardengine's own, which is
+// full). The ROM cache and ROM-in-RAM loading skip it (romLocationAdjust()
+// in bootloaderi's main.arm7.c).
 #define DSIRPC_ACH_LOCATION        0x0CFB0000
 #define DSIRPC_ACH_SIZE            0x40000
+#define DSIRPC_WATCH_RING_SIZE     0x800
+#define DSIRPC_WATCH_RING_LOCATION (DSIRPC_ACH_LOCATION + DSIRPC_ACH_SIZE - DSIRPC_WATCH_RING_SIZE)
 
 #define ROM_LOCATION               0x0C3EC000
 #define ROM_LOCATION_ALT           0x0C400000

@@ -1,6 +1,7 @@
 // probe_hook.c - DSiRPC's in-game side. cardengine.c's myIrqHandlerVBlank()
 // calls Probe_VBlankTick() once per VBlank for the whole game session, and
-// its swiHalt hook calls Probe_HaltTick() whenever the game's ARM7 idles.
+// its swiHalt hook calls Probe_HaltTick() whenever the game's ARM7 idles
+// (where the achievement checker does its checking).
 //
 // The DSiRPC launcher has already connected the DSi's wifi chip in DSi mode
 // (WPA2 is handled by the chip). This file loads /RPCHAND.TXT, checks the
@@ -259,21 +260,27 @@ static void handoffSend(void) {
 
 #if RPCPROBE_ACH
 // "DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> s=<saved>
-// x=<not saved> w=<waiting> ids=<ids>", in the VBlank after each hello: n is
-// the number being checked (0 = no set, below 0 = probe_ach.h's
-// PROBE_ACH_E_*), t the unlocks so far, p the passes over every achievement
-// since the last one (about a second ago), l the longest checker tick in
-// scanlines, s and x how many of the unlocks were saved to RPCUNLK.BIN and
-// how many couldn't be, w how many were already waiting there when the game
-// started, ids the latest unlocks (at most 8). At most 158 bytes. DSiRPC
-// logs them, to compare with its own unlocks.
+// x=<not saved> w=<waiting> f=<frame lane> fr=<frames> fd=<dropped>
+// fc=<unclean> h=<idle> st=<stamp> ids=<ids>", in the VBlank after each
+// hello: n is the number being checked (0 = no set, below 0 = probe_ach.h's
+// PROBE_ACH_E_*), t the unlocks so far, p the passes over the pass lane
+// since the last one (about a second ago), l the longest the checker took
+// in one VBlank, in scanlines, s and x how many of the unlocks were saved to
+// RPCUNLK.BIN and how many couldn't be, w how many were already waiting
+// there when the game started, f how many of the n are checked every frame,
+// fr the frames they were checked for since the last one, fd the frames they
+// couldn't be sampled for (the checking fell behind) and fc the samples taken
+// without the ARM9's cache write-back, h 1 if the checking runs in the
+// game's idle time (0: in the VBlank), st the set's stamp, ids the latest
+// unlocks (at most 8, as many as fit). DSiRPC logs them, to compare with its
+// own unlocks, and counts the unlocks right away.
 static void achSend(void) {
 	static char msg[176];
 	int n = 0;
-	u16 passes, lines;
+	ProbeAchStats st;
 	u32 ids[8];
 
-	ProbeAch_TakeStats(&passes, &lines);
+	ProbeAch_TakeStats(&st);
 	n += putStr(&msg[n], "DSiRPC ach n=");
 	if (probeAchLoaded < 0) {
 		msg[n++] = '-';
@@ -284,17 +291,29 @@ static void achSend(void) {
 	n += putStr(&msg[n], " t=");
 	n += putDec(&msg[n], probeAchTriggered);
 	n += putStr(&msg[n], " p=");
-	n += putDec(&msg[n], passes);
+	n += putDec(&msg[n], st.passes);
 	n += putStr(&msg[n], " l=");
-	n += putDec(&msg[n], lines);
+	n += putDec(&msg[n], st.maxLines);
 	n += putStr(&msg[n], " s=");
 	n += putDec(&msg[n], probeAchSaved);
 	n += putStr(&msg[n], " x=");
 	n += putDec(&msg[n], probeAchLost + probeAchSaveFailed);
 	n += putStr(&msg[n], " w=");
 	n += putDec(&msg[n], probeAchWaiting);
+	n += putStr(&msg[n], " f=");
+	n += putDec(&msg[n], probeAchFrameLane);
+	n += putStr(&msg[n], " fr=");
+	n += putDec(&msg[n], st.frames);
+	n += putStr(&msg[n], " fd=");
+	n += putDec(&msg[n], st.dropped);
+	n += putStr(&msg[n], " fc=");
+	n += putDec(&msg[n], st.unclean);
+	n += putStr(&msg[n], " h=");
+	n += putDec(&msg[n], st.idle);
+	n += putStr(&msg[n], " st=");
+	n += putHex(&msg[n], probeAchStamp, 8);
 	int k = ProbeAch_RecentIds(ids, 8);
-	for (int i = 0; i < k; i++) {
+	for (int i = 0; i < k && n < (int)sizeof(msg) - 11; i++) {
 		n += putStr(&msg[n], i ? "," : " ids=");
 		n += putDec32(&msg[n], ids[i]);
 	}
@@ -357,12 +376,15 @@ void Probe_MenuClosed(void) {
 #endif
 }
 
-void Probe_HaltTick(int *sdMutex) {
+int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void)) {
 #if RPCPROBE_ACH
 	hoNoHalt = 0;
 	achSave(sdMutex);
+	return ProbeAch_Idle(romWaiting);
 #else
 	(void)sdMutex;
+	(void)romWaiting;
+	return 0;
 #endif
 }
 
@@ -373,6 +395,8 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
 	if (lidClosed) Probe_LidClosed();
 #if RPCPROBE_ACH
+	// The checker's frame lane samples first, at the same point of every frame
+	ProbeAch_Sample();
 	// The achievement LED (not on the first tick, which reads the SD card)
 	if (hoStage != HO_LOAD) ProbeLed_Tick((int)probeAchTriggered - (int)hoAchSeen, lidClosed);
 #endif
@@ -384,6 +408,9 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 #endif
 	if (hoStage == HO_LOAD && hoTimer == 0) {
 		gameLoad((const u8 *)ndsHeader);
+#if RPCPROBE_REQUESTS
+		ProbeWatch_Init(); // the ARM9 half, for the checker's frame lane too
+#endif
 #if RPCPROBE_ACH
 		ProbeAch_Load(ndsHeader); // first VBlank: the SD card is safe to read
 #endif
@@ -415,13 +442,15 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	probeStatusByte = 0x80 | (u8)(hoStage << 4) | (u8)(hoSent & 0x0F);
 
 #if RPCPROBE_ACH
-	// Last, with whatever time this tick has left
-	ProbeAch_Tick(lineStart);
-
-	// Unlocks are saved from Probe_HaltTick(). If that hasn't run for a
-	// while (nds-bootstrap couldn't hook this game's swiHalt), here instead,
-	// unless a ROM read is under way (sdMutex is NULL then).
+	// Last, with whatever time this tick has left: the checking itself only
+	// if Probe_HaltTick() hasn't run for a while (nds-bootstrap couldn't
+	// hook this game's swiHalt)
 	if (hoNoHalt < 255) hoNoHalt++;
+	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD);
+
+	// Unlocks are saved from Probe_HaltTick() too. If that hasn't run for a
+	// while, here instead, unless a ROM read is under way (sdMutex is NULL
+	// then).
 	if (hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK && sdMutex) achSave(sdMutex);
 #else
 	(void)sdMutex;

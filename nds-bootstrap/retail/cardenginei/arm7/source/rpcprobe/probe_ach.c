@@ -2,18 +2,39 @@
 //
 // Memory: the set and the checker's state live in DSIRPC_ACH_LOCATION (main
 // RAM that the bootloader keeps the ROM cache out of; locations.h). The set
-// file is copied there whole: its 64-byte header, then the program, then
-// (version 3) the in-game menu's list. The state (memory values, hit
-// counts) follows it. The last 4 KB are kept free
-// (DSiRPC builds sets to fit ACH_SET_SPACE) to read RPCUNLK.BIN into when
-// the game starts.
+// file is copied there whole: its 64-byte header, then the pass lane's
+// program, the frame lane's (version 4), then (version 3 and up) the in-game
+// menu's list. The state follows it: the pass lane's (memory values, hit
+// counts), the frame lane's twice (the VM that checks and the one that
+// samples) and the frame lane's ring of samples. Above ACH_SET_SPACE (DSiRPC
+// builds sets to fit it) come 4 KB to read RPCUNLK.BIN into when the game
+// starts, then the per-frame capture's ring (probe_watch.c).
 //
-// Time: everything happens in the VBlank interrupt, so the checker gets a
-// budget of RPCPROBE_ACH_LINES_PER_VBLANK scanlines a tick and carries on
-// next tick where it stopped. One pass over every achievement may take a few
-// frames with a big set; each pass reads the game's memory once, at its
-// start, so rcheevos' "frame" is a pass here. Before the first pass the set's
-// CRC-32 is checked, a slice a tick.
+// The two lanes. RetroAchievements' rules are checked once a frame on an
+// emulator: "changed since the last frame", hit counts of frames, a flag
+// that's only set for one frame. The pass lane reads the game's memory at
+// the start of each pass, and a pass over a big set takes several frames,
+// so what happens in between is missed. The frame lane is the achievements
+// DSiRPC picked as needing every frame (core/offline.py), few enough to
+// sample every frame: ProbeAch_Sample() reads every memory value they use at
+// the start of every VBlank (after the ARM9 has written its data cache back
+// to main RAM, so the ARM7 sees what the game wrote; probe_watch.c), all at
+// once, into a ring of samples. The checking takes them in order, so every
+// frame is checked as it was, however late. If the checking falls so far
+// behind that the ring is full, frames aren't sampled until there's room
+// (a gap, counted in the report).
+//
+// Time: the checking runs while the game's ARM7 idles, from nds-bootstrap's
+// swiHalt hook (ProbeAch_Idle()), outside interrupts, so the game's own
+// interrupts and threads come first. It stops for nds-bootstrap's ARM9 ROM
+// reads (served in the same hook) and after RPCPROBE_ACH_IDLE_LINES_PER_VISIT
+// scanlines a visit and RPCPROBE_ACH_IDLE_LINES_PER_FRAME a frame, leaving
+// the rest of the idle time to the ARM7's sleep. The frame lane's samples
+// come first, then the pass lane, which can stop after any 8 memory values
+// or conditions and carry on next time. A game whose swiHalt nds-bootstrap
+// couldn't hook gets it all in the VBlank instead (ProbeAch_Tick()), in
+// RPCPROBE_ACH_LINES_PER_VBLANK scanlines a tick. Before anything runs, the
+// set's CRC-32 is checked, a slice a tick.
 //
 // Unlocks: each one waits in a small queue until ProbeAch_SaveOne() writes
 // it to its own RPCUNLK.BIN slot, outside interrupts with nds-bootstrap's SD
@@ -25,13 +46,15 @@
 // can't be read just then. Achievements already in RPCUNLK.BIN when the game
 // starts aren't checked again.
 //
-// In-game menu: a version 3 set has a list of every achievement of the game
-// after the program (dsirpc_ach_menu.h). Once the set's CRC has been
+// In-game menu: a version 3 or 4 set has a list of every achievement of the
+// game after the programs (dsirpc_ach_menu.h). Once the set's CRC has been
 // checked, this game's unlocks waiting in RPCUNLK.BIN and each new unlock
 // are marked in it (earned on the console, when, and an unlock number for
-// the menu's "new" marks), and the anchor in the header's bytes 40-63 says
-// where it is. nds-bootstrap's in-game menu reads it (arm9_igm's
-// dsirpc_ach.c). Version 2 sets have no list and are still checked.
+// the menu's "new" marks), and so are the ones DSiRPC unlocked itself and
+// tells the console about (ProbeAch_Push()); the anchor in the header's
+// bytes 40-63 says where it is. nds-bootstrap's in-game menu reads it
+// (arm9_igm's dsirpc_ach.c). Version 2 sets have no list and are still
+// checked.
 
 #include <nds/ndstypes.h>
 #include "rpcprobe_build.h"
@@ -40,6 +63,7 @@
 #include "dsirpc_ach_menu.h"
 #include "probe_ach.h"
 #include "probe_ach_vm.h"
+#include "probe_watch.h"
 
 #ifndef ACH_REG_VCOUNT // (the PC tests have their own)
 #define ACH_REG_VCOUNT      (*(vu16*)0x04000006)
@@ -57,13 +81,19 @@
 #define ACH_UNLOCK_FILE     (ACH_UNLOCK_SLOT * ACH_UNLOCK_SLOTS)
 #define ACH_UNLOCK_MAGIC    0x4C555244 // "DRUL"
 #define ACH_UNLOCK_FORMAT   0x00100001 // version 1, 16-byte slots
-#define ACH_SET_SPACE       (DSIRPC_ACH_SIZE - ACH_UNLOCK_FILE) // DSiRPC's offline.ACH_MEMORY
+#define ACH_SET_SPACE       (DSIRPC_ACH_SIZE - ACH_UNLOCK_FILE - DSIRPC_WATCH_RING_SIZE) // DSiRPC's offline.ACH_MEMORY
 #define ACH_PENDING         8          // unlocks waiting to be saved (a power of 2)
 #define ACH_VBLANKS_X1000   59826      // VBlanks in 1000 s (59.8261 Hz)
+#define ACH_FRAME_SLOTS     8          // the frame lane's ring of samples (a power of 2;
+                                       // DSiRPC's offline.FRAME_SLOTS)
+#define ACH_PUSHED          8          // DSiRPC's unlocks waiting to be marked (a power of 2)
+#define ACH_CLEAN_WAIT      3          // scanlines a sample waits for the ARM9's cache write-back
 
 enum { STAGE_OFF, STAGE_CHECKING, STAGE_RUNNING };
 
 s16 probeAchLoaded = PROBE_ACH_NONE;
+u16 probeAchFrameLane = 0;
+u32 probeAchStamp = 0;
 u16 probeAchTriggered = 0;
 u16 probeAchSaved = 0;
 u16 probeAchLost = 0;
@@ -71,8 +101,17 @@ u16 probeAchSaveFailed = 0;
 u16 probeAchWaiting = 0;
 
 static u8 stage = STAGE_OFF;
-static AchVm vm;
-static u32 bodySize, crcPos, crc, crcWanted;   // body: the program, then the list
+static AchVm vm;                       // the pass lane
+static AchVm frameVm, sampleVm;        // the frame lane: checking, sampling
+static u32 *ring;                      // its samples: ACH_FRAME_SLOTS x frameMem values
+static u16 frameMem;                   // memory values in a sample (0: no frame lane)
+static volatile u8 ringHead, ringTail; // the VBlank adds at ringHead, the checking takes from ringTail
+static volatile u8 busy;               // the idle side is part way through a turn of checking
+static u8 cleanOk;                     // the last sample got the ARM9's write-back
+static u32 cleanSeen;                  // probe_watch.c's write-back count at the last sample
+static u16 idleLines;                  // scanlines the idle side used this frame
+static ProbeAchStats stats;
+static u32 bodySize, crcPos, crc, crcWanted;   // body: the programs, then the list
 
 // The in-game menu's list and the anchor (dsirpc_ach_menu.h)
 #define ACH_ANCHOR ((volatile DsirpcMenuAnchor *)(DSIRPC_ACH_LOCATION + DSIRPC_MENU_ANCHOR_OFFSET))
@@ -82,7 +121,6 @@ static u16 listCount;
 static u16 unlockSeq;                  // the console's unlocks this game
 static u16 menuSeen;                   // unlockSeq when the menu last opened
 static u8 menuOpen;
-static u16 passes, maxLines;
 static u32 recent[ACH_RECENT];
 static u8 recentCount, recentNext;
 
@@ -96,6 +134,11 @@ static u32 clockStart, clockSeconds;   // the console's clock (seconds since 200
 static u32 clockPart;                  // the part second, in 1/1000 VBlanks
 static u8 clockKnown;                  // clockStart is a time (the launcher's, or a reading)
 static u8 clockTried;                  // the console's clock was read (or couldn't be) this tick
+
+// DSiRPC's own unlocks (ProbeAch_Push()): the VBlank adds at pushHead, the
+// checking takes from pushTail
+static u32 pushId[ACH_PUSHED], pushWhen[ACH_PUSHED];
+static volatile u8 pushHead, pushTail;
 
 // The console's clock (the RTC): year (0 = 2000), month, day, weekday, hour,
 // minute, second. nds-bootstrap's rtcGetTimeAndDate() (clock.c, which its
@@ -211,23 +254,28 @@ static void loadUnlocks(u32 game) {
 		const u8 *s = buf + i * ACH_UNLOCK_SLOT;
 		u32 id = slotId(s, game);
 		if (rd32(s) | rd32(s + 4) | rd32(s + 8) | rd32(s + 12)) next = i + 1;
-		if (id && AchVm_SetUnlocked(&vm, id)) probeAchWaiting++;
+		if (id && (AchVm_SetUnlocked(&vm, id) | AchVm_SetUnlocked(&frameVm, id))) probeAchWaiting++;
 	}
 	unlockNext = next;
 }
 
-// The menu's list: an achievement earned on the console. when: 0 = not
+// The menu's list: an achievement earned, on the console (flag
+// DSIRPC_LIST_ON_CONSOLE) or by DSiRPC (DSIRPC_LIST_EARNED). when: 0 = not
 // known (no clock); seq: its unlock number this game, 0 for one that was
 // already waiting in RPCUNLK.BIN.
-static void listMark(u32 id, u32 when, u16 seq) {
+static DsirpcListEntry *listFind(u32 id) {
 	for (u16 i = 0; i < listCount; i++) {
-		DsirpcListEntry *e = &listEntries[i];
-		if (e->id != id) continue;
-		e->flags |= DSIRPC_LIST_ON_CONSOLE;
-		if (when) e->when = when;
-		if (seq) e->seq = seq;
-		return;
+		if (listEntries[i].id == id) return &listEntries[i];
 	}
+	return 0;
+}
+
+static void listMark(u32 id, u32 when, u16 seq, u8 flag) {
+	DsirpcListEntry *e = listFind(id);
+	if (!e) return;
+	e->flags |= flag;
+	if (when) e->when = when;
+	if (seq) e->seq = seq;
 }
 
 // Once the CRC has been checked (the list mustn't change before): the
@@ -248,7 +296,7 @@ static void listStart(void) {
 		for (u16 i = 1; i < ACH_UNLOCK_SLOTS; i++) {
 			const u8 *s = buf + i * ACH_UNLOCK_SLOT;
 			u32 id = slotId(s, game);
-			if (id) listMark(id, rd32(s + 8), 0);
+			if (id) listMark(id, rd32(s + 8), 0, DSIRPC_LIST_ON_CONSOLE);
 		}
 	}
 	ACH_ANCHOR->list = listOffset;
@@ -268,11 +316,12 @@ void ProbeAch_Load(const void *ndsHeader) {
 	fileRead((char *)base, &file, 0, ACH_HEADER_SIZE);
 	anchorStart(ndsHeader, DSIRPC_MENU_CHECKING);
 
-	// "DRSE", version 2 or 3, header size 64, game code, RA game id, stamp,
-	// achievements, flags, program size, state size, (3:) list size
+	// "DRSE", version 2-4, header size 64, game code, RA game id, stamp,
+	// achievements, flags, program size, state size, (3:) list size,
+	// (4:) frame lane program size
 	u16 version = base[4] | (base[5] << 8);
 	if (base[0] != 'D' || base[1] != 'R' || base[2] != 'S' || base[3] != 'E' ||
-	    (version != 2 && version != 3) || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
+	    version < 2 || version > 4 || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
 		loadFailed(PROBE_ACH_E_HEADER);
 		return;
 	}
@@ -286,11 +335,14 @@ void ProbeAch_Load(const void *ndsHeader) {
 	u32 programSize = rd32(base + 24);
 	u32 stateSize = rd32(base + 28);
 	listSize = (version >= 3) ? rd32(base + 32) : 0;
-	listOffset = ACH_HEADER_SIZE + programSize;
-	bodySize = programSize + listSize;
+	u32 frameSize = (version >= 4) ? rd32(base + 36) : 0;
+	const u8 *frameProgram = base + ACH_HEADER_SIZE + programSize;
+	listOffset = ACH_HEADER_SIZE + programSize + frameSize;
+	bodySize = programSize + frameSize + listSize;
 	u32 stateOffset = (ACH_HEADER_SIZE + bodySize + 3) & ~3u;
-	if (programSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE || stateSize > ACH_SET_SPACE ||
-	    stateOffset + stateSize > ACH_SET_SPACE || (listSize && (programSize & 3))) {
+	if (programSize > ACH_SET_SPACE || frameSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE ||
+	    stateSize > ACH_SET_SPACE || stateOffset + stateSize > ACH_SET_SPACE ||
+	    ((listSize || frameSize) && ((programSize | frameSize) & 3))) {
 		loadFailed(PROBE_ACH_E_SIZE);
 		return;
 	}
@@ -301,9 +353,34 @@ void ProbeAch_Load(const void *ndsHeader) {
 		loadFailed(PROBE_ACH_E_PROGRAM);
 		return;
 	}
+	// The frame lane: two states (checking, sampling), then the ring
+	frameMem = 0;
+	frameVm.nAch = 0;
+	if (frameSize) {
+		u32 at = stateOffset + stateSize;
+		u32 need = AchVm_StateSize(frameProgram, frameSize);
+		if (!need) {
+			loadFailed(PROBE_ACH_E_PROGRAM);
+			return;
+		}
+		u32 ringAt = at + 2 * need;
+		if (ringAt > ACH_SET_SPACE || AchVm_Load(&frameVm, frameProgram, frameSize, base + at, need,
+		                                         ACH_RAM, ACH_RAM_SIZE) != ACHVM_OK) {
+			loadFailed(PROBE_ACH_E_SIZE);
+			return;
+		}
+		AchVm_Load(&sampleVm, frameProgram, frameSize, base + at + need, need, ACH_RAM, ACH_RAM_SIZE);
+		u32 mem = frameVm.nPlain + frameVm.nMod;
+		if (ringAt + ACH_FRAME_SLOTS * 4 * mem > ACH_SET_SPACE) {
+			loadFailed(PROBE_ACH_E_SIZE);
+			return;
+		}
+		ring = (u32 *)(base + ringAt);
+		frameMem = (u16)mem;
+	}
 	loadUnlocks(rd32(base + 8));
 
-	crcWanted = rd32(base + 16);
+	crcWanted = probeAchStamp = rd32(base + 16);
 	crc = 0xFFFFFFFF;
 	crcPos = 0;
 	stage = STAGE_CHECKING;
@@ -318,7 +395,7 @@ static void onTriggered(u32 id, void *ud) {
 	u32 when = clockNow();
 
 	// In the menu's list, whether or not it can be saved
-	listMark(id, when, ++unlockSeq);
+	listMark(id, when, ++unlockSeq, DSIRPC_LIST_ON_CONSOLE);
 	ACH_ANCHOR->unlocks = unlockSeq;
 
 	// Queued for ProbeAch_SaveOne(), with when it happened
@@ -332,11 +409,12 @@ static void onTriggered(u32 id, void *ud) {
 	pendHead = next;
 }
 
+// The VBlank budget: what's left of RPCPROBE_ACH_LINES_PER_VBLANK
 static int keepGoing(void *ud) {
 	return linesSince(*(const u16 *)ud) < RPCPROBE_ACH_LINES_PER_VBLANK;
 }
 
-// The stamp is the CRC-32 of the body: the program, then (version 3) the list
+// The stamp is the CRC-32 of the body: the programs, then the list
 static void checkStamp(u16 start) {
 	const u8 *p = (const u8 *)DSIRPC_ACH_LOCATION + ACH_HEADER_SIZE;
 	u32 c = crc, pos = crcPos;
@@ -358,10 +436,13 @@ static void checkStamp(u16 start) {
 		loadFailed(PROBE_ACH_E_STAMP);
 		return;
 	}
-	probeAchLoaded = (s16)vm.nAch;
+	probeAchLoaded = (s16)(vm.nAch + frameVm.nAch);
+	probeAchFrameLane = frameVm.nAch;
 	stage = STAGE_RUNNING;
 	listStart();
 	ACH_ANCHOR->status = DSIRPC_MENU_READY;
+	// The frame lane's samples need the game's writes in main RAM
+	if (frameMem) ProbeWatch_Clean();
 }
 
 void ProbeAch_SetTime(u32 secondsSince2000) {
@@ -383,33 +464,140 @@ void ProbeAch_MenuClosed(void) {
 	menuOpen = 0;
 }
 
-void ProbeAch_Tick(u16 tickStart) {
+void ProbeAch_Sample(void) {
+	if (stage != STAGE_RUNNING || !frameMem) return;
+	u16 start = ACH_REG_VCOUNT & 0x1FF;
+	u8 head = ringHead, next = (head + 1) & (ACH_FRAME_SLOTS - 1);
+	if (next == ringTail) { // the checking is that far behind: a gap
+		stats.dropped++;
+		return;
+	}
+	// The ARM9 writes its data cache back to main RAM at the start of its
+	// VBlank (probe_watch.c); wait a moment for that, unless it didn't come
+	// last time either (then only once a second, to notice it's back).
+	u32 seen = ProbeWatch_Cleaned();
+	if (seen == cleanSeen && (cleanOk || !(stats.unclean & 63))) {
+		while ((seen = ProbeWatch_Cleaned()) == cleanSeen && linesSince(start) < ACH_CLEAN_WAIT) {}
+	}
+	cleanOk = seen != cleanSeen;
+	cleanSeen = seen;
+	// None: ring the ARM9 again now and then (its hook isn't in yet, or the
+	// game replaced its VBlank handler)
+	if (!cleanOk && (++stats.unclean & 31) == 2) ProbeWatch_Clean();
+	AchVm_Sample(&sampleVm, ring + head * frameMem);
+	ringHead = next;
+	u16 lines = linesSince(start); // (the report's l=: what the checker costs the VBlank)
+	if (lines > stats.maxLines) stats.maxLines = lines;
+}
+
+int ProbeAch_Push(u32 id, u32 when) {
+	u8 head = pushHead, next = (head + 1) & (ACH_PUSHED - 1);
+	if (stage == STAGE_OFF || next == pushTail) return 0;
+	pushId[head] = id;
+	pushWhen[head] = when;
+	pushHead = next;
+	return 1;
+}
+
+// DSiRPC's unlocks: no longer checked, and earned in the menu's list (new
+// to it, unless it's marked earned already)
+static void takePushes(void) {
+	while (pushTail != pushHead) {
+		u8 tail = pushTail;
+		u32 id = pushId[tail];
+		AchVm_SetUnlocked(&vm, id);
+		AchVm_SetUnlocked(&frameVm, id);
+		DsirpcListEntry *e = listFind(id);
+		if (e && !(e->flags & (DSIRPC_LIST_EARNED | DSIRPC_LIST_ON_CONSOLE))) {
+			listMark(id, pushWhen[tail], ++unlockSeq, DSIRPC_LIST_EARNED);
+			ACH_ANCHOR->unlocks = unlockSeq;
+		}
+		__asm__ volatile ("" ::: "memory"); // (done with the slot before the VBlank may reuse it)
+		pushTail = (tail + 1) & (ACH_PUSHED - 1);
+	}
+}
+
+// A turn of checking: DSiRPC's unlocks, then the frame lane's samples in
+// order, then the pass lane, while more(ud) says so. The pass lane also
+// stops for a new sample (the idle side can get one in the middle).
+static int (*turnMore)(void *ud);
+static int passMore(void *ud) {
+	return ringTail == ringHead && turnMore(ud);
+}
+
+static void checkTurn(int (*more)(void *ud), void *ud) {
+	turnMore = more;
+	takePushes();
+	do {
+		u8 tail = ringTail;
+		if (tail != ringHead) {
+			AchVm_RunSampled(&frameVm, ring + tail * frameMem, onTriggered, 0);
+			ringTail = (tail + 1) & (ACH_FRAME_SLOTS - 1);
+			stats.frames++;
+		} else if (!vm.nAch) {
+			return;
+		} else if (AchVm_Run(&vm, passMore, onTriggered, ud)) {
+			stats.passes++;
+		}
+	} while (more(ud));
+}
+
+void ProbeAch_Tick(u16 tickStart, int idleAlive) {
 	ProbeAch_MenuClosed(); // the VBlank ticks only run while the menu is closed
 	clockTried = 0;
+	idleLines = 0;
 	clockPart += 1000;
 	if (clockPart >= ACH_VBLANKS_X1000) {
 		clockPart -= ACH_VBLANKS_X1000;
 		clockSeconds++;
 	}
 	if (stage == STAGE_OFF) return;
+	stats.idle = (u8)idleAlive;
+	// The idle side checks; this is only for a game whose swiHalt
+	// nds-bootstrap couldn't hook (and never in the middle of an idle turn).
+	if (stage == STAGE_RUNNING && (idleAlive || busy)) return;
 	// Whatever else this tick did comes first; skip a turn if it took long.
 	if (linesSince(tickStart) > RPCPROBE_ACH_SKIP_AFTER_LINES) return;
 
 	u16 start = ACH_REG_VCOUNT & 0x1FF;
-	if (stage == STAGE_CHECKING) {
-		checkStamp(start);
-	} else if (AchVm_Run(&vm, keepGoing, onTriggered, &start)) {
-		passes++;
-	}
+	if (stage == STAGE_CHECKING) checkStamp(start);
+	else checkTurn(keepGoing, &start);
 	u16 lines = linesSince(start);
-	if (lines > maxLines) maxLines = lines;
+	if (lines > stats.maxLines) stats.maxLines = lines;
 }
 
-void ProbeAch_TakeStats(u16 *passesOut, u16 *maxLinesOut) {
-	*passesOut = passes;
-	*maxLinesOut = maxLines;
-	passes = 0;
-	maxLines = 0;
+// The idle side's budget: RPCPROBE_ACH_IDLE_LINES_PER_VISIT scanlines a
+// visit, RPCPROBE_ACH_IDLE_LINES_PER_FRAME a frame, and never while an ARM9
+// ROM read waits
+typedef struct {
+	u16 start;
+	int (*romWaiting)(void);
+} IdleTurn;
+
+static int idleMore(void *ud) {
+	const IdleTurn *t = (const IdleTurn *)ud;
+	u16 used = linesSince(t->start);
+	return used < RPCPROBE_ACH_IDLE_LINES_PER_VISIT && idleLines + used < RPCPROBE_ACH_IDLE_LINES_PER_FRAME &&
+	       !t->romWaiting();
+}
+
+int ProbeAch_Idle(int (*romWaiting)(void)) {
+	if (stage != STAGE_RUNNING || busy) return 0;
+	IdleTurn t = { ACH_REG_VCOUNT & 0x1FF, romWaiting };
+	if (!idleMore(&t)) return romWaiting();
+	busy = 1;
+	checkTurn(idleMore, &t);
+	busy = 0;
+	idleLines += linesSince(t.start);
+	return romWaiting();
+}
+
+void ProbeAch_TakeStats(ProbeAchStats *out) {
+	*out = stats;
+	u8 idle = stats.idle;
+	ProbeAchStats zero = { 0 };
+	stats = zero;
+	stats.idle = idle;
 }
 
 int ProbeAch_SavePending(void) {

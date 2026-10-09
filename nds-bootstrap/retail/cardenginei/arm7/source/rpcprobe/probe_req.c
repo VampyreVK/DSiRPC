@@ -11,7 +11,15 @@
 // range falls outside main RAM. On a non-zero status no data follows.
 //
 // 'W' and 'F' (per-frame capture) use the same transport and reply header;
-// their formats are in probe_watch.h.
+// their formats are in probe_watch.h. So does 'U' (DSiRPC's own unlocks,
+// for the achievement checker and the in-game menu; probe_ach.h):
+//
+//   'U' | seq u16 | count u8 | count x (achievement id u32, when u32)
+//   reply: 'D' | seq u16 | taken u8 | status u8
+//
+// `when` is seconds since 2000-01-01 by the console's clock. Status 0: all
+// taken; 3: only the first `taken` (no set running, or no room just now:
+// send the rest again).
 //
 // The reply goes back to whoever sent the request (IP, port and next-hop MAC
 // taken from the request), not to a fixed address.
@@ -25,6 +33,9 @@
 #include "probe_req.h"
 #include "probe_watch.h"
 #include "twl_wifi.h"
+#if RPCPROBE_ACH
+#include "probe_ach.h"
+#endif
 #include "rpcprobe_config.h"
 
 #define ETHERTYPE_IPV4  0x0800
@@ -164,14 +175,32 @@ static void noteRequest(const u8 *srcIp, u16 srcPort, u16 seq) {
 	lastReqValid = 1;
 }
 
-// 'W' and 'F' (per-frame capture, probe_watch.h): same reply header as 'R'.
+#if RPCPROBE_ACH
+// 'U': DSiRPC's own unlocks (no reply body)
+static u16 pushUnlocks(const u8 *req, int len, u8 *count, u8 *status) {
+	u8 n = req[3], taken = 0;
+	if (len < 4 + 8 * n) {
+		*status = 1;
+	} else {
+		while (taken < n && ProbeAch_Push(get32(&req[4 + 8 * taken]), get32(&req[8 + 8 * taken]))) taken++;
+		*status = (taken < n) ? 3 : 0;
+	}
+	*count = taken;
+	return 0;
+}
+#endif
+
+// 'W', 'F' (per-frame capture, probe_watch.h) and 'U': same reply header as 'R'.
 static void handleWatchRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
 	u8 *resp = txFrame + 8 + 20 + 8;
 	resp[0] = 'D';
 	resp[1] = req[1]; resp[2] = req[2]; // seq, echoed
 	u8 count = 0, status = 0;
-	u16 body = (req[0] == 'W')
-		? ProbeWatch_Set(req, len, &count, &status)
+	u16 body =
+#if RPCPROBE_ACH
+		(req[0] == 'U') ? pushUnlocks(req, len, &count, &status) :
+#endif
+		(req[0] == 'W') ? ProbeWatch_Set(req, len, &count, &status)
 		: ProbeWatch_Fetch(req, len, &resp[5], RESP_MAX_DATA, &count, &status);
 	resp[3] = count;
 	resp[4] = status;
@@ -181,7 +210,7 @@ static void handleWatchRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, c
 
 static void handleRequest(const u8 *srcMac, const u8 *srcIp, u16 srcPort, const u8 *req, int len) {
 	if (len < 4) return;
-	if (req[0] != 'R' && req[0] != 'W' && req[0] != 'F') return;
+	if (req[0] != 'R' && req[0] != 'W' && req[0] != 'F' && req[0] != 'U') return;
 	noteRequest(srcIp, srcPort, get16(&req[1]));
 	if (req[0] != 'R') {
 		handleWatchRequest(srcMac, srcIp, srcPort, req, len);

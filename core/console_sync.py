@@ -5,15 +5,18 @@ can find DSiRPC on the network, it hands over the achievements unlocked
 while DSiRPC wasn't around and takes the achievement sets it doesn't have
 yet, so they're on the SD card for the next time it plays without DSiRPC.
 
-    sync = ConsoleSync(sets_for, on_unlocks)
+    sync = ConsoleSync(sets_for, on_unlocks, on_console)
     sync.start()           # UDP and TCP port 4245, on its own thread
     sync.stop()
 
 sets_for(game, stamps, unlocks) -> [(code, .DRS bytes)] and
 on_unlocks([unlock]) are the engine's (app/engine.py). on_unlocks returns
 False to leave the unlocks on the console (a dry run), anything else lets the
-launcher clear them. Everything here runs on this module's thread; the
-console waits while it works.
+launcher clear them. on_console(ip, game), if given, hears about each sync as
+it starts: the launcher syncs once it's connected (game None) and again as it
+starts a game (its code), so DSiRPC knows the DSi is there before the game
+says hello. Everything here runs on this module's thread; the console waits
+while it works.
 """
 
 import logging
@@ -30,9 +33,10 @@ HANGUP_TIMEOUT = 5.0
 
 
 class ConsoleSync:
-    def __init__(self, sets_for, on_unlocks, port=offline.SYNC_PORT, host=""):
+    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host=""):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
+        self.on_console = on_console
         self.port = port
         self.host = host
         self.udp = None
@@ -118,6 +122,11 @@ class ConsoleSync:
             conn.sendall(offline.build_answer(1, 0, []))
             self._await_hangup(conn)
             return
+        if self.on_console:
+            try:
+                self.on_console(addr[0], game)
+            except Exception:
+                logging.exception("Offline sync: on_console failed")
         # The sets first (that may download the game's), so the unlocks are
         # logged with their names; the sets leave out what was just unlocked.
         try:

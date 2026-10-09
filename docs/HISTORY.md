@@ -285,6 +285,21 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **The waiting screen knows the DSi's there, and a new DSi.**
+  The launcher syncs with DSiRPC as soon as it's connected (and again when
+  you pick a game), so the waiting screen now shows "DSi connected!" with a
+  green Wi-Fi sign and step 1 ticked off, then "Starting <game>..." until the
+  game says hello; the tray's status says the same. The DSi icon is redrawn
+  after Viv's mockup: 35 pixels wide so both screens have even margins (it
+  was 5 px left and 4 right), darker colours, speakers on the lid, the
+  buttons moved, and the bottom screen's six lines of text, finer than a
+  pixel, drawn at the window's resolution.
+
+- 2026-10-09: **The party fraction leads Discord's second line.** Black and
+  White's overworld line reads `1/1 PKMN | 0 Badges | Seen: 3 | Caught: 1`,
+  in place of Discord's own "(1 of 1)" after it (the Subway, Institute and
+  League lines start with it too).
+
 - 2026-10-09: **Black and White's Discord text, trimmed.** The second line
   is now `Badges | Seen | Caught`, and the achievements moved to the big
   picture's text, which Discord shows as a third line (the place's trainers

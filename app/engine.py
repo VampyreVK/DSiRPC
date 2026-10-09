@@ -126,7 +126,7 @@ class Engine:
         self.console_sync = None
         if not demo and not file:
             from core.console_sync import ConsoleSync
-            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks)
+            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen)
 
     # -- settings ----------------------------------------------------------
 
@@ -242,6 +242,23 @@ class Engine:
                 pass
 
     # -- offline play (core/console_sync.py's thread) --------------------------
+
+    def _console_seen(self, ip, game):
+        """The launcher synced: the DSi is connected, in the launcher (game
+        None) or starting a game, before the game says hello (the overlay's
+        waiting screen and the tray show it)."""
+        if not hasattr(self.source, 'launcher'):
+            return
+        from core import games, ra_set
+        title = games.NAMES.get(game or '')
+        if game and not title:
+            try:
+                s = ra_set.for_game(game)
+                title = s.title if s else None
+            except (ra_set.SetFileError, OSError, ValueError):
+                title = None
+        title = (title or game or '').replace("Pokemon", "Pokémon")
+        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'at': time.time()}
 
     def _offline_sets(self, game, stamps, unlocks=()):
         """[(code, .DRS bytes)] for the console: the game it's starting

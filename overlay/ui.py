@@ -436,61 +436,121 @@ def trophy(surf, x, y, earned=True):
     pixels(surf, x, y, _TROPHY, pal)
 
 
-# A DSi, open, 34x40: the lid with its screen (rows 0-20), the hinge, then
-# the base with the touch screen, the D-pad and A/B/X/Y level with the
-# middle of it, Start and Select below the buttons and the power button
-# below the D-pad.
+# A DSi, open, 35x40, after Viv's mockup: the lid with its screen and a
+# little speaker either side of it (rows 0-19), the hinge, then the base with
+# the touch screen, the D-pad and the power button on the left and A/B/X/Y,
+# Select and Start on the right, mirrored. Both screens have the same margin
+# either side. They're left plain for the caller: the Wi-Fi sign on the top
+# one (dsi_wifi), the lines of text on the bottom one (dsi_lines).
 _DSI = [
-    "..oooooooooooooooooooooooooooooo..",
-    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
-    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkssssssssssssssssssssskbbbbo",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbo",
-    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
-    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
-    "..oooooooooooooooooooooooooooooo..",
-    "...oHHHHHHHHHHHHHHHHHHHHHHHHHHo...",
-    "..oooooooooooooooooooooooooooooo..",
-    ".oddddddddddddddddddddddddddddddo.",
-    "oddddddddddddddddddddddddddddddddo",
-    "oddddddKKKKKKKKKKKKKKKKKKKKKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddpdddKtttttttttttttttttttKddpddo",
-    "odpppddKtttttttttttttttttttKdpdpdo",
-    "oddpdddKtttttttttttttttttttKddpddo",
-    "oddddddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKddpddo",
-    "oddpdddKtttttttttttttttttttKdddddo",
-    "oddddddKtttttttttttttttttttKddpddo",
-    "oddddddKKKKKKKKKKKKKKKKKKKKKdddddo",
-    "oddddddddddddddddddddddddddddddddo",
-    ".oddddddddddddddddddddddddddddddo.",
-    "..oooooooooooooooooooooooooooooo..",
+    "..ooooooooooooooooooooooooooooooo..",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obebebkssssssssssssssssssssskbebebo",
+    "obbebbkssssssssssssssssssssskbbebbo",
+    "obebebkssssssssssssssssssssskbebebo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssssssskbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "..ooooooooooooooooooooooooooooooo..",
+    "...oHHHHHHHHHHHHHHHHHHHHHHHHHHHo...",
+    "..ooooooooooooooooooooooooooooooo..",
+    ".odddddddddddddddddddddddddddddddo.",
+    "odddddddddddddddddddddddddddddddddo",
+    "oddddddkkkkkkkkkkkkkkkkkkkkkddddddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "odddpddkssssssssssssssssssskddpdddo",
+    "oddpppdkssssssssssssssssssskdpdpddo",
+    "odddpddkssssssssssssssssssskddpdddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "oddddddkssssssssssssssssssskdpddddo",
+    "oddddddkssssssssssssssssssskddddddo",
+    "oddddpdkssssssssssssssssssskdpddddo",
+    "oddddddkkkkkkkkkkkkkkkkkkkkkddddddo",
+    "odddddddddddddddddddddddddddddddddo",
+    ".odddddddddddddddddddddddddddddddo.",
+    "..ooooooooooooooooooooooooooooooo..",
 ]
-DSI_W, DSI_H = 34, 40
-DSI_TOP_SCREEN = (7, 4, 21, 12)     # x, y, w, h inside the icon
+DSI_W, DSI_H = 35, 40
+DSI_TOP_SCREEN = (7, 4, 21, 12)       # x, y, w, h inside the icon
+DSI_BOTTOM_SCREEN = (8, 25, 19, 11)
+_DSI_PALETTE = {
+    'o': (22, 27, 33), 'b': (61, 75, 95), 'e': (48, 62, 79), 'H': (37, 45, 57),
+    'd': (51, 63, 80), 'k': (17, 21, 27), 's': (28, 34, 43), 'p': (154, 160, 173),
+}
+
+# The Wi-Fi sign on the top screen (x, y inside the icon): the dot, then
+# each arc from the smallest out.
+DSI_WIFI = [
+    [(17, 13)],
+    [(16, 10), (17, 10), (18, 10), (15, 11), (19, 11)],
+    [(15, 8), (16, 8), (17, 8), (18, 8), (19, 8), (14, 9), (20, 9)],
+    [(14, 6), (15, 6), (16, 6), (17, 6), (18, 6), (19, 6), (20, 6), (13, 7), (21, 7), (12, 8), (22, 8)],
+]
+DSI_WIFI_OFF = (129, 148, 174)   # light grey until the DSi connects (then the caller's green)
+
+# The bottom screen's six lines of text, finer than the icon's pixels (drawn
+# at the window's resolution, see Overlay.blit_hires): (top, thickness) in
+# icon pixels from the screen's top, each line a little thicker than the one
+# above and the gaps a little narrower, the block centred on the screen like
+# the mockup's; they run from DSI_LINES_X to the same margin on the right.
+DSI_LINES = [(0.964, 0.25), (2.294, 0.48), (3.824, 0.69), (5.534, 0.76), (7.284, 0.83), (9.057, 1.0)]
+DSI_LINES_X = 1.86
+DSI_LINES_COLOR = (201, 208, 220)
+_dsi_lines = {}
 
 
-def dsi(surf, x, y, color=(72, 76, 88)):
-    """A small open DSi, top left corner at x, y. The top screen is left dark
-    for whatever the caller draws on it (DSI_TOP_SCREEN)."""
-    pixels(surf, x, y, _DSI, {
-        'o': (24, 28, 36), 'b': color, 'd': darken(color, 12), 'H': darken(color, 30),
-        'k': (20, 22, 28), 's': (36, 44, 56), 'K': (20, 22, 28), 't': (196, 212, 216),
-        'p': (150, 156, 168),
-    })
+def dsi(surf, x, y):
+    """A small open DSi, top left corner at x, y. The screens are left plain
+    for whatever the caller draws on them (DSI_TOP_SCREEN, DSI_BOTTOM_SCREEN)."""
+    pixels(surf, x, y, _DSI, _DSI_PALETTE)
+
+
+def dsi_wifi(surf, x, y, lit=4, on=DSI_WIFI_OFF, off=None):
+    """The Wi-Fi sign on the DSi at x, y: the dot and the first `lit - 1`
+    arcs in `on`, the rest in `off` (left out if None)."""
+    for i, part in enumerate(DSI_WIFI):
+        c = on if i < lit else off
+        if c:
+            for px, py in part:
+                surf.set_at((x + px, y + py), c)
+
+
+def dsi_lines(scale=24):
+    """The bottom screen's lines of text, `scale` pixels to each of the
+    icon's, on a clear surface the size of the screen (DSI_BOTTOM_SCREEN):
+    each pixel as covered as the line covers it, so it can be shrunk to any
+    size and keep the lines' weights."""
+    out = _dsi_lines.get(scale)
+    if out:
+        return out
+    _, _, w, h = DSI_BOTTOM_SCREEN
+    out = pygame.Surface((w * scale, h * scale), pygame.SRCALPHA)
+    x0, x1 = DSI_LINES_X * scale, (w - DSI_LINES_X) * scale
+    full = range(math.ceil(x0), math.floor(x1))
+    for top, thick in DSI_LINES:
+        a, b = top * scale, (top + thick) * scale
+        for row in range(math.floor(a), math.ceil(b)):
+            cover = min(b, row + 1) - max(a, row)
+            if cover <= 0:
+                continue
+            alpha = round(255 * cover)
+            out.fill((*DSI_LINES_COLOR, alpha), (full.start, row, len(full), 1))
+            for col, edge in ((full.start - 1, full.start - x0), (full.stop, x1 - full.stop)):
+                if edge > 0:
+                    out.set_at((col, row), (*DSI_LINES_COLOR, round(alpha * edge)))
+    _dsi_lines[scale] = out
+    return out

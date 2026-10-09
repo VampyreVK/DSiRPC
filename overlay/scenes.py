@@ -1113,31 +1113,46 @@ class Overlay:
 
     def draw_waiting(self, canvas, snap, t_ms):
         """While the DSi isn't sending: what to do, and the last game played,
-        in the same frame as the other views."""
+        in the same frame as the other views. Once the launcher has synced
+        (snap.launcher), the DSi shows as connected, and as starting the game
+        once one's picked, with the steps done so far ticked off."""
         t = ui.THEME
         ui.tiled_background(canvas, t_ms)
+        launcher = getattr(snap, 'launcher', None)
+        connected = bool(launcher)
 
-        # Header: the name, and a signal meter that fills up and resets.
+        # Header: the name, and a signal meter that fills up and resets (full
+        # once the DSi's connected).
         self._bar(canvas, 0, HEADER_H)
         self.font.draw(canvas, "DSiRPC", (5, 4), t['text_light'], t['text_light_shadow'])
-        level = (t_ms // 350) % 4
+        level = 3 if connected else (t_ms // 350) % 4
         for i in range(3):
             c = t['hp_green'] if i < level else t['bar_hi']
             pygame.draw.rect(canvas, c, (W - 18 + i * 5, 11 - i * 3, 3, 2 + i * 3))
 
-        # A DSi looking for a connection, and what to do, centred in a panel.
+        # A DSi looking for a connection (or connected), and what to do,
+        # centred in a panel.
         px, py, pw, ph = 3, 18, 250, 142
         ui.panel(canvas, (px, py, pw, ph))
         tx, tw = px + 58, pw - 64
-        status = self.font.wrap(snap.status or '', tw, 2)
+        dots = '.' * (1 + (t_ms // 400) % 3)
+        if launcher and launcher.get('game'):
+            title = self.font.fit(f"Starting {launcher.get('title') or launcher['game']}", tw - 12) + dots
+            status, done = [f"Loading it on the DSi at {launcher['ip']}"], 2
+        elif launcher:
+            title, status, done = "DSi connected!", [f"In the launcher, at {launcher['ip']}"], 1
+        else:
+            title, status, done = "Waiting for the DSi" + dots, self.font.wrap(snap.status or '', tw, 2), 0
         steps = ["Start the DSiRPC launcher.", "Press START and pick a game.", "It shows up here as you play."]
         block = 12 + 12 * len(status) + 10 + 16 * len(steps) - 4
         y = py + (ph - block) // 2
         ix, iy = px + 12, py + (ph - ui.DSI_H) // 2
         ui.dsi(canvas, ix, iy)
-        self._wifi(canvas, ix, iy, t_ms)
-        dots = '.' * (1 + (t_ms // 400) % 3)
-        self.font.draw(canvas, "Waiting for the DSi" + dots, (tx, y), t['text'], t['text_shadow'])
+        self._wifi(canvas, ix, iy, t_ms, connected)
+        bx, by, bw, bh = ui.DSI_BOTTOM_SCREEN
+        self.blit_hires(canvas, ui.dsi_lines(), (ix + bx, iy + by, bw, bh))
+        canvas = self.lift(canvas)
+        self.font.draw(canvas, title, (tx, y), t['text'], t['text_shadow'])
         y += 12
         for line in status:
             self.font.draw(canvas, line, (tx, y), t['text_muted'], t['text_shadow'])
@@ -1145,8 +1160,9 @@ class Overlay:
         pygame.draw.line(canvas, t['panel_lo'], (tx, y + 3), (px + pw - 7, y + 3))
         y += 10
         for n, line in enumerate(steps, 1):
-            ui.chip(canvas, self.mini, tx, y + 1, str(n), t['lead_border'])
-            self.font.draw(canvas, line, (tx + 12, y), t['text'], t['text_shadow'])
+            ticked = n <= done
+            ui.chip(canvas, self.mini, tx, y + 1, str(n), t['hp_green'] if ticked else t['lead_border'])
+            self.font.draw(canvas, line, (tx + 12, y), t['text_muted'] if ticked else t['text'], t['text_shadow'])
             y += 16
 
         # Footer: the last game played (its trainer, or its game card).
@@ -1169,19 +1185,14 @@ class Overlay:
                        t['text_light_shadow'])
         self.mini.draw(canvas, label, (44, FOOTER_Y + 19), t['hp_label'])
 
-    def _wifi(self, canvas, ix, iy, t_ms):
-        """Wi-Fi arcs on the DSi's top screen, lighting up one by one."""
-        t = ui.THEME
-        sx, sy, sw, sh = ui.DSI_TOP_SCREEN
-        cx, cy = ix + sx + sw // 2, iy + sy + sh - 3
-        lit = (t_ms // 400) % 4
-        off = (64, 76, 88)
-        canvas.set_at((cx, cy), t['hp_green'])
-        for i, r in enumerate((3, 5, 7)):
-            c = t['hp_green'] if i < lit else off
-            for deg in range(45, 136, 5):
-                rad = math.radians(deg)
-                canvas.set_at((cx + int(round(r * math.cos(rad))), cy - int(round(r * math.sin(rad)))), c)
+    def _wifi(self, canvas, ix, iy, t_ms, connected):
+        """The Wi-Fi sign on the DSi's top screen: light grey with its arcs
+        lighting up one by one while it looks for the DSi, all green once
+        the DSi's connected."""
+        if connected:
+            ui.dsi_wifi(canvas, ix, iy, on=ui.THEME['hp_green'])
+        else:
+            ui.dsi_wifi(canvas, ix, iy, lit=1 + (t_ms // 400) % 4, off=(46, 56, 70))
 
     # -- toasts ----------------------------------------------------------------
 

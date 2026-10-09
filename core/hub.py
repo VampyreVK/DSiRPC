@@ -59,13 +59,15 @@ def is_bw(state):
 class Snapshot:
     """What the hub knows right now. `state` is the last good parse (kept
     while offline, so a window can show the last known party), `online` says
-    whether the game answered recently."""
+    whether the game answered recently, `launcher` that the DSi is in the
+    DSiRPC launcher before a game says hello (DsiSource.launcher_state)."""
 
-    def __init__(self, state=None, online=False, updated=0.0, status="starting"):
+    def __init__(self, state=None, online=False, updated=0.0, status="starting", launcher=None):
         self.state = state
         self.online = online
         self.updated = updated      # time.time() of the last good parse
         self.status = status        # short human-readable source status
+        self.launcher = launcher    # {'ip', 'game', 'title', 'at'} or None
 
 
 class DsiSource:
@@ -139,9 +141,32 @@ class DsiSource:
         self.other = None       # OtherGame while the DSi runs something other than Platinum
         self.bw_started = None  # when Black/White started being read (for Discord's timer)
         self.bw_failed = False  # True: the last Black/White parse didn't look like the game; 'menu': not in the field yet
+        # The launcher's latest sync ({'ip', 'game', 'title', 'at'}), set by
+        # the engine (core/console_sync.py's on_console); see launcher_state.
+        self.launcher = None
+
+    LAUNCHER_FRESH_S = 15 * 60   # the launcher doesn't sync again while you pick, so it counts this long
+
+    @property
+    def launcher_state(self):
+        """The launcher's latest sync while the DSi is in the launcher (or
+        starting the game picked there): None once the game says hello, or
+        when it's old."""
+        seen = self.launcher
+        if not seen or time.time() - seen['at'] > self.LAUNCHER_FRESH_S:
+            return None
+        hellos = self.client.hellos
+        if hellos and hellos[-1][0] >= seen['at']:
+            return None
+        return seen
 
     @property
     def status(self):
+        seen = self.launcher_state
+        if seen:
+            if seen['game']:
+                return f"DSi at {seen['ip']}: starting {seen['title']}"
+            return f"DSi at {seen['ip']}: in the launcher"
         if self.client.dsi_ip is None:
             return f"Waiting for the DSi on UDP {self.port}"
         if self.failed:
@@ -579,7 +604,7 @@ class StateHub:
     def snapshot(self):
         with self._lock:
             s = self._snap
-            return Snapshot(s.state, s.online, s.updated, s.status)
+            return Snapshot(s.state, s.online, s.updated, s.status, s.launcher)
 
     def start(self):
         self._thread.start()
@@ -610,14 +635,16 @@ class StateHub:
                 snap = self._snap
                 if data is not None and data is prev and snap.online:
                     # Nothing new: the source was only checking achievements.
-                    snap = Snapshot(snap.state, True, snap.updated, getattr(self.source, 'status', ''))
+                    snap = Snapshot(snap.state, True, snap.updated, getattr(self.source, 'status', ''),
+                                    getattr(self.source, 'launcher_state', None))
                 elif data:
                     if not snap.online:
                         events.append({'type': 'online'})
                     events += diff_events(prev, data)
                     prev = data
                     last_ok = time.time()
-                    snap = Snapshot(data, True, last_ok, getattr(self.source, 'status', ''))
+                    snap = Snapshot(data, True, last_ok, getattr(self.source, 'status', ''),
+                                    getattr(self.source, 'launcher_state', None))
                 else:
                     online = snap.online and (time.time() - last_ok) < self.offline_after
                     if snap.online and not online:
@@ -626,7 +653,8 @@ class StateHub:
                         forget = getattr(self.source, 'forget_dsi', None)
                         if forget:
                             forget()
-                    snap = Snapshot(snap.state, online, snap.updated, getattr(self.source, 'status', ''))
+                    snap = Snapshot(snap.state, online, snap.updated, getattr(self.source, 'status', ''),
+                                    getattr(self.source, 'launcher_state', None))
                 self._snap = snap
 
             for fn in list(self._listeners):

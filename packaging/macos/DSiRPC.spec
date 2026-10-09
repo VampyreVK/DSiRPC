@@ -41,6 +41,9 @@ datas = [
     (os.path.join(ROOT, "Assets", "Consoles"), os.path.join("Assets", "Consoles")),
     (os.path.join(ROOT, "PokeGen4Charmap.txt"), "."),
     (os.path.join(ROOT, "dsirpc.cfg.sample"), "."),
+    # The overlay window's Dock icon (overlay/app.py)
+    (os.path.join(ROOT, "Assets", "icons", "Exports", "DSiRPC-iOS-Default-1024@1x.png"),
+     os.path.join("Assets", "icons", "Exports")),
 ]
 if DEFAULTS:
     datas.append((DEFAULTS, "."))

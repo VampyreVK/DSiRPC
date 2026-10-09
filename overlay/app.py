@@ -17,16 +17,20 @@ Keys: N next demo scene, V the party screen and back (to the battle in a
 import logging
 import os
 import queue
+import sys
 import threading
 
 import pygame
 
-from core.paths import DATA
+from core.paths import DATA, ROOT
 from .scenes import Overlay, W, H
 from .sprites import SpriteBank
 from . import ui
 
 CAPTIONS = {'auto': "DSiRPC", 'battle': "DSiRPC (battle)", 'party': "DSiRPC (party screen: V to go back)"}
+MAC = sys.platform == "darwin"
+# The macOS app's icon (Assets/icons), for the Dock while the window's open
+MAC_ICON = os.path.join(ROOT, "Assets", "icons", "Exports", "DSiRPC-iOS-Default-1024@1x.png")
 
 
 def parse_color(text):
@@ -58,6 +62,15 @@ class OverlayWindow:
         """Closes the window from another thread (run() returns soon after)."""
         self.stop_event.set()
 
+    @staticmethod
+    def _set_icon(win):
+        """DSiRPC's icon for the window (on a Mac, the Dock's), not pygame's."""
+        try:
+            icon = pygame.image.load(MAC_ICON)
+            win.set_icon(pygame.transform.smoothscale(icon, (512, 512)))
+        except (pygame.error, FileNotFoundError) as e:
+            logging.info(f"No window icon: {e}")
+
     def run(self):
         """Opens the window and draws until it's closed (or stop() is
         called). Returns True if the user closed it."""
@@ -65,12 +78,24 @@ class OverlayWindow:
         self.hub.add_listener(self._on_update)
         pygame.init()
         closed = False
+        win = None
         try:
             scale = self.scale
-            window = pygame.display.set_mode((W * scale, H * scale))
             caption = CAPTIONS['auto']
-            pygame.display.set_caption(caption)
-            canvas = pygame.Surface((W, H)).convert()
+            if MAC:
+                # A window in Retina pixels (the canvas scales up by a whole
+                # number, so it stays sharp), with DSiRPC's icon in the Dock
+                win = pygame.Window(caption, (W * scale, H * scale), allow_high_dpi=True)
+                self._set_icon(win)
+                window = win.get_surface()
+                logging.info(f"Window {win.size[0]}x{win.size[1]}, drawn at {window.get_width()}x{window.get_height()}")
+            else:
+                window = pygame.display.set_mode((W * scale, H * scale))
+                pygame.display.set_caption(caption)
+            # No alpha byte, whatever the window's format: a Mac's window has
+            # one, and a canvas converted to it got pixels pygame blends onto
+            # with alpha 0, which a Mac shows black (Overlay.present copies it)
+            canvas = pygame.Surface((W, H), 0, 32)
             overlay = Overlay(SpriteBank(os.path.join(DATA, "Assets")))
             overlay.hires_ok = True  # present() draws its sprites at the window's resolution
             clock = pygame.time.Clock()
@@ -87,7 +112,10 @@ class OverlayWindow:
                             overlay.toggle_view()
                         elif pygame.K_1 <= e.key <= pygame.K_6:
                             scale = e.key - pygame.K_0
-                            window = pygame.display.set_mode((W * scale, H * scale))
+                            if win:
+                                win.size = (W * scale, H * scale)
+                            else:
+                                window = pygame.display.set_mode((W * scale, H * scale))
                             if self.on_scale:
                                 self.on_scale(scale)
 
@@ -99,13 +127,23 @@ class OverlayWindow:
                 overlay.draw(canvas, self.hub.snapshot(), t_ms, dt)
                 if CAPTIONS[overlay.view] != caption:   # the view changed (V, or a battle began or ended)
                     caption = CAPTIONS[overlay.view]
-                    pygame.display.set_caption(caption)
+                    if win:
+                        win.title = caption
+                    else:
+                        pygame.display.set_caption(caption)
+                if win:
+                    window = win.get_surface()   # a new one after a resize (or a move to another screen)
                 overlay.present(window, canvas)
-                pygame.display.flip()
+                if win:
+                    win.flip()
+                else:
+                    pygame.display.flip()
                 dt = clock.tick(self.fps)
         except Exception:
             logging.exception("The overlay window crashed")
         finally:
             self.hub.remove_listener(self._on_update)
+            if win:
+                win.destroy()
             pygame.quit()
         return closed

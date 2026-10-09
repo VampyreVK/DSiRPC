@@ -302,6 +302,14 @@ in this table before assuming it's missing from RA entirely.
   drew its first frame before the first snapshot came through the pipe
   (_PipeHub started with None); it starts with an empty Snapshot now, like
   a StateHub, and a state that can't be pickled is skipped, not fatal.
+  Second test: text drawn on the canvas showed as black boxes, and the
+  header's glow and the battle backgrounds were missing. A Mac's window has
+  an alpha byte; the canvas, converted to its format, got pixels pygame
+  blends onto with alpha 0, which a Mac shows black. The canvas is plain
+  32-bit RGB now on every platform, and present() scales it in its own
+  format and blits it, which converts it properly. On a Mac the window is a
+  pygame.Window with allow_high_dpi (Retina pixels, so the canvas scales up
+  by a whole number and stays sharp), with DSiRPC's icon for the Dock.
 
 - 2026-10-09: **The launcher's icon on a 3DS.** On Viv's 3DS (TWiLight
   Menu++) three of the icon's four frames had scrambled colours: ndstool

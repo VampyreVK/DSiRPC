@@ -145,6 +145,7 @@ class Overlay:
         self.seq = 0               # order moves were seen in
         self.intro_until = 0       # the intro message follows the data until then
         self.read_at = None        # when the data being drawn was read (Snapshot.updated)
+        self.unova_battle = False  # the battle being drawn is Black or White's (their HUD)
 
     # -- state -----------------------------------------------------------------
 
@@ -397,6 +398,7 @@ class Overlay:
         t = ui.THEME
         b = d['battle']
         unova = d.get('kind') == 'bw'
+        self.unova_battle = unova  # Black and White's HUD for the boxes below
         place = 'field' if unova else terrain(d['location'])
         when = period(d['misc'].get('clock'))
         if unova:
@@ -499,7 +501,10 @@ class Overlay:
         while self.msg_queue and self.msg_queue[0][0] <= t_ms:
             start, l1, l2 = self.msg_queue.pop(0)
             self.msg = (l1, l2, start + self.MSG_MS)
-        if self.msg and t_ms < self.msg[2]:
+        if self.msg and t_ms < self.msg[2] and unova:
+            self.unova.message_band(canvas, (0, 146, W, H - 146))
+            self.unova.message_text(canvas, self.msg[0], self.msg[1])
+        elif self.msg and t_ms < self.msg[2]:
             ui.textbox(canvas, (0, 146, W, H - 146))
             self.font.draw(canvas, self.msg[0], (12, 156), t['text'], t['text_shadow'])
             self.font.draw(canvas, self.msg[1], (12, 170), t['text'], t['text_shadow'])
@@ -752,15 +757,20 @@ class Overlay:
         damaging move gets its type multiplier against `foe` (the first
         foe in a double battle)."""
         t = ui.THEME
-        ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
-                 hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
+        if self.unova_battle:
+            self.unova.message_band(canvas, (0, 146, W, H - 146))
+        else:
+            ui.panel(canvas, (0, 146, W, H - 146), fill=t['box_frame'], border=ui.darken(t['box_frame'], 30),
+                     hi=t['box_frame_hi'], lo=ui.darken(t['box_frame'], 16), radius=3)
+        button = self.unova.move_button if self.unova_battle else \
+            (lambda rect, canvas, *a, **k: ui.move_button(canvas, self.font, self.mini, rect, *a, **k))
         moves = (mon or {}).get('moves') or []
         pps = (mon or {}).get('pp') or []
         ups = (mon or {}).get('pp_ups') or []
         for i in range(4):
             rect = (5 + (i % 2) * 124, 150 + (i // 2) * 20, 122, 18)
             if i >= len(moves):
-                ui.move_button(canvas, self.font, self.mini, rect, None)
+                button(rect, canvas, None)
                 continue
             info = MOVE_INFO.get(moves[i])
             mtype, base = (info[0], info[2]) if info else (None, None)
@@ -769,8 +779,7 @@ class Overlay:
             if i < len((mon or {}).get('pp_max') or ()):
                 pp_max = mon['pp_max'][i]  # Black and White keep it
             effect = _effectiveness(mtype, foe) if info and info[1] != 'Status' else None
-            ui.move_button(canvas, self.font, self.mini, rect, moves[i], mtype, pp, pp_max,
-                           selected=i == picked, effect=effect)
+            button(rect, canvas, moves[i], mtype, pp, pp_max, selected=i == picked, effect=effect)
 
     def _hp_now(self, key, m, t_ms):
         """The HP to show: the old value until a queued hit lands."""
@@ -794,6 +803,9 @@ class Overlay:
 
     def _foe_box(self, canvas, m, x, y, dt_ms, k, hp_now):
         """Draws the foe's box with its top at y. Returns its height."""
+        if self.unova_battle:
+            hp = self._hp(('foe', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.foe_hud(canvas, m, x, y, hp, self._chips)
         h = 27 + 10 * self._box_rows(m, 104)
         ui.panel(canvas, (x, y, 112, h))
         self._name_line(canvas, m['nickname'], m['gender'], x + 5, y + 4)
@@ -808,6 +820,9 @@ class Overlay:
     def _your_box(self, canvas, m, x, bottom, dt_ms, hp_now):
         """Draws your box with its bottom edge at `bottom`. Returns its height."""
         t = ui.THEME
+        if self.unova_battle:
+            hp = self._hp(('yours', m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.your_hud(canvas, m, x, bottom, hp, self._chips)
         h = 37 + 10 * self._box_rows(m, 106)
         y = bottom - h
         ui.panel(canvas, (x, y, 116, h))
@@ -825,6 +840,9 @@ class Overlay:
     def _your_small_box(self, canvas, m, x, bottom, dt_ms, k, hp_now):
         """Your side's box in a double battle: like the foe's box, with its
         bottom edge at `bottom`. Returns its height."""
+        if self.unova_battle:
+            hp = self._hp(('yours', k, m['species_id']), hp_now, m['max_hp'], dt_ms)
+            return self.unova.your_hud(canvas, m, x, bottom, hp, self._chips, numbers=False)
         h = 27 + 10 * self._box_rows(m, 106)
         y = bottom - h
         ui.panel(canvas, (x, y, 116, h))

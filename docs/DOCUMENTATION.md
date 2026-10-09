@@ -488,23 +488,30 @@ table), so HP and moves show up quickly.
   header has the season (an icon and its name), the place (zone names from
   `bw_data.ZONES`) and the play time. The party sits in the party screen's
   chevron panels, three to a row (84x46, the panels' flat middle cut
-  short): name and gender, level, HP bar and numbers, status (the games'
-  own PSN/BRN/PAR/FRZ/FNT tags), a held-item mark, the red shiny star, an
-  animated icon; the lead's panel is the brighter blue, a fainted one's
+  short; the text keeps clear of their cut corners): name and gender,
+  level, HP bar and numbers, status (the games' own PSN/BRN/PAR/FRZ/FNT
+  tags), a held-item mark, the red shiny star, an animated icon; the lead's panel is the brighter blue, a fainted one's
   red, an egg's green, empty slots the outline. Under it an achievements
   panel like the game card's: count, meter and points, then the latest
   unlock (left two thirds: NEW or LATEST, title, when, description) and
   one still to earn (right third, changing every 6 s; MASTERED when done).
   The footer has your trainer walking (Hilbert or Hilda, from
   `Assets/Trainer-Overworld`), name, money, the eight Unova badges (the
-  trainer card's art, polished when earned, dimmed when not) and the
-  Pokédex. Battles use the battle view above, with the games' own sky and
+  trainer card's art at 2/5 size, polished when earned, dimmed when not)
+  and the Pokédex. Battles use the battle view above, with the games' own sky and
   platforms (`BattleBackgroundsTransparent.png`: ocean, mountain, field,
   forest, cave, snow and indoor skies by day, afternoon and night; grass,
   sand, snow, water, field, indoor and cave platforms), picked by
   `bw_data.terrain()` from the place and season (snowy routes in winter),
-  and the game's own max PP on the move buttons. Battles in Black and
-  White don't say yet who the trainer is (see section 9).
+  and the games' own HUD, drawn in code in the Battle HUD sheet's colours:
+  each side's name and level ride above a thin white bar with an arrow tip
+  and a dark underside (the foe's runs in from the left edge, yours from
+  the right with a dark plate under it for the HP numbers), the HP gauge
+  is the sheet's two-tone green, yellow and red, and messages and moves
+  sit on a dark see-through band with maroon edges (the move buttons dark,
+  with their type's colour as a stripe, and the game's own max PP).
+  Battles in Black and White don't say yet who the trainer is (see
+  section 9).
 - **Waiting view:** while the hub is offline, in the same frame: a DSi
   looking for a connection, the hub's status, what to do on the console,
   and the last game played in the footer.
@@ -1549,7 +1556,8 @@ not `+0x12AC`.
 ### Pokémon Black and White (USA)
 
 `core/bw_parser.py`. Addresses are Black's (`IRBO`); **White's (`IRAO`)
-are all `0x20` higher**. Other regions are elsewhere (JP −0x1A0, FR −0x80,
+are all `0x20` higher** (White's place names say White Forest where
+Black's say Black City). Other regions are elsewhere (JP −0x1A0, FR −0x80,
 DE −0xC0, IT −0x100, ES −0x40 from Black US, per pokebot-nds) and aren't
 read. Unlike Platinum there's no save pointer to follow: the save data sits
 1:1 in RAM at `0x0221BBAC` + its PKHeX save offset (party `0x18E00`,
@@ -1589,16 +1597,36 @@ stats are status (u32, `0x88`), level (`0x8C`), HP (`0x8E`), max HP
 battles read the battle copies (BTL_POKEPARAM): `+0x00` a pointer to the
 Pokémon's own 220 bytes (decrypted for its nickname, gender, shininess and
 trainer ID), `+0x0C` species, `+0x0E` max HP, `+0x10` HP, `+0x18` level,
-`+0xEE` stats (Atk, Def, SpA, SpD, Spe, u16 each), and `+0x104` the four
-moves, 14 bytes apart: u16 move, u8 PP, u8 max PP. A battle is wild when
-the trainer ID is 0 (or a foe carries your trainer IDs).
+`+0x16` ability, `+0xEE` stats (Atk, Def, SpA, SpD, Spe, u16 each), and
+from `+0x104` the four moves, 14 bytes apart, each twice: as learned, and
+at `+6` as used in battle (what Mimic or Transform changes), each u16
+move, u8 PP, u8 max PP. The parser reads the second (`+0x10A`), whose PP
+(`+0x10C`, max `+0x10D`) White's RetroAchievements notes have going down
+in battle. The battle copies are also at fixed addresses (`0x0226D6A4 +
+i * 0x224`: your six, then the foe's, per White's notes; Black's notes
+call the foe's first HP yours). A
+battle is wild when the trainer ID is 0 (or a foe carries your trainer
+IDs).
 
 Not known yet: the opponent's trainer class and name (the game looks them
 up in the ROM from the trainer ID, so the battle view says "a Trainer"),
 the battle copies' types, stat stages and status (the overlay doesn't show
 a battler's status in Black and White yet), the last move used, and the
-battle music. The RetroAchievements code notes for Pokémon Black (game
-3887) would be the place to fill these in.
+battle music.
+
+The RetroAchievements code notes for Black (game 3887) and White (game
+16211) are in `docs/memory-map/`. Every address above that they cover
+matches them (White's 0x20 higher). They also have leads not used yet: the
+music ID (`0x02258230`; `0x46C` a Gym Leader battle, `0x47B` a leader's
+last Pokémon, `0x47A` low HP, `0x518` a catch), the Gym Leader rooms by
+zone (`0x07` Striaton, `0x13` Nacrene, `0x1D` Castelia, `0x3F` Nimbasa,
+`0x61` Driftveil, `0x6C` Mistralton, `0x72` Icirrus, `0x79` Opelucid),
+the in-game clock (White: hour, minute, second, year, month, day as u32 at
+`0x02146A3C`; Black's is probably `0x20` lower, going by its rich
+presence), the weather (White: u8 `0x0224F9DD`, 0 clear, 1 snow, 2 rain,
+3 sandstorm, 4 heavy snow, 5 hail, 6 torrential rain, 7 heavy rain, 8
+diamond dust, 9 fog), every trainer's defeated flag, and the badges'
+shine.
 
 Sources: PKHeX (`PK5.cs`, `SAV5.cs`, `SaveBlockAccessor5BW.cs`, ...), the
 DevonStudios Gen V RNG scripts, NDS-Ironmon-Tracker, pokebot-nds,

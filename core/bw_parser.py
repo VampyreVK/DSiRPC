@@ -77,7 +77,11 @@ class BWParser(PlatinumParser):
     B_SOURCE = 0x00                # pointer to the Pokemon's own 220 bytes
     B_SPECIES, B_MAX_HP, B_HP, B_LEVEL = 0x0C, 0x0E, 0x10, 0x18
     B_SPEED = 0xF6                 # stats from +0xEE: Atk, Def, SpA, SpD, Spe
-    B_MOVES = 0x104                # 4 x 14 bytes: u16 move, u8 PP, u8 max PP, ...
+    # 4 moves, 14 bytes apart, each the move as learned (+0) and as used in
+    # battle (+6, what Mimic or Transform changes): u16 move, u8 PP, u8 max
+    # PP. This reads the second; White's RetroAchievements notes have its PP
+    # (+0x10C, +0x10D) going down in battle.
+    B_MOVES = 0x10A
     B_MOVE_SIZE = 14
     STYLES = ['single', 'double', 'triple', 'rotation']
     FACINGS = {0: 'up', 4: 'left', 8: 'down', 12: 'right'}
@@ -246,7 +250,7 @@ class BWParser(PlatinumParser):
             return None  # a party that doesn't decode: these aren't Black/White's addresses
 
         x, y, z = [self.read_s32(A(self.POSITION) + 4 * i) >> 16 for i in range(3)]
-        place = bw.zone_name(zone)
+        place = bw.zone_name(zone, self.version)
         d['zone'] = zone
         d['location'] = {
             'map_id': zone, 'name': place, 'area': place, 'x': x, 'z': z, 'height': y,

@@ -163,13 +163,17 @@ _ZONE_RANGES = [
     (0x197, 0x197, 'Lacunosa Pokémon Center'), (0x198, 0x19B, 'Lacunosa Town'), (0x19C, 0x19C, 'Undella Town'),
     (0x19D, 0x19D, 'Undella Pokémon Center'), (0x19E, 0x1A1, 'Undella Town'), (0x1A2, 0x1A5, 'Anville Town'),
     (0x1A6, 0x1A6, 'Union Room'), (0x1A7, 0x1A7, 'Route 17'), (0x1A8, 0x1A8, 'Black City'),
-    (0x1A9, 0x1A9, "Black City's Pokémon Center"), (0x1AA, 0x1AA, 'Black City'),
+    (0x1A9, 0x1A9, 'Black City Pokémon Center'), (0x1AA, 0x1AA, 'Black City'),
 ]
 ZONES = {zone: name for first, last, name in _ZONE_RANGES for zone in range(first, last + 1)}
 
 
-def zone_name(zone):
-    return ZONES.get(zone)
+def zone_name(zone, version='Black'):
+    """The place for a zone ID; White's Black City zones are White Forest."""
+    name = ZONES.get(zone)
+    if name and version == 'White' and name.startswith('Black'):
+        name = 'White Forest' if name.startswith('Black City') else 'White Forest Gate'
+    return name
 
 
 # Where battles happen, by words in the place's name: (sky, platform) for

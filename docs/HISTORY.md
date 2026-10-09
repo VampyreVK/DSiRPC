@@ -285,6 +285,20 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White, round two.** The RetroAchievements code
+  notes for both versions came in (`docs/memory-map/`): every address the
+  parser reads that they cover matches, White's 0x20 higher, so White
+  needed no new code; its place names now say White Forest where Black's
+  say Black City. The notes also moved the battle PP: each move is stored
+  twice in a battle copy, and the in-battle one (whose PP the notes watch
+  go down) is 6 bytes later than first thought. The overlay: the party
+  panels' text keeps clear of their cut corners (names further right, HP
+  further left), the badges are smaller (2/5 of the trainer card's), and
+  Black and White's battles get the games' own HUD (thin white arrow bars
+  with the names above them, a dark plate for your HP numbers, the
+  two-tone gauge, and a dark message band with maroon edges, the moves on
+  it too). New backgrounds and platforms are being drafted as concepts.
+
 - 2026-10-09: **Pokémon Black and White get their own overlay.** (Also:
   the overlay font has `|`, and the waiting screen's DSi has its D-pad and
   buttons beside the touch screen instead of above it.)

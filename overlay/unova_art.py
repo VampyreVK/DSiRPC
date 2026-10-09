@@ -254,10 +254,13 @@ class UnovaArt:
         return self._get(('badge', index, polished), make)
 
     def small_badge(self, index, polished=True):
-        """The badge at half size (for a row of eight)."""
+        """The badge at 2/5 size, about 22 px tall (for a row of eight)."""
         def make():
             b = self.badge(index, polished)
-            return pygame.transform.scale(b, (max(1, b.get_width() // 2), max(1, b.get_height() // 2))) if b else None
+            if not b:
+                return None
+            size = (max(1, round(b.get_width() * 0.4)), max(1, round(b.get_height() * 0.4)))
+            return pygame.transform.scale(b, size)
         return self._get(('small_badge', index, polished), make)
 
     # -- trainers ----------------------------------------------------------------

@@ -32,6 +32,8 @@ W, H = 256, 192
 HEADER_H = 14
 SLOT_W, SLOT_H = 84, 46
 SLOT_POS = [(1 + (i % 3) * (SLOT_W + 1), 15 + (i // 3) * (SLOT_H + 1)) for i in range(6)]
+NAME_X = 11                # the name's left edge in a panel
+HP_RIGHT = 9               # the HP bar's and numbers' gap to the panel's right edge
 ACH_RECT = (1, 110, 254, 51)
 ACH_SPLIT = 168            # the divider between the latest unlock and the one to earn
 FOOTER_Y = 162
@@ -51,6 +53,21 @@ WHITE = (248, 248, 248)
 SHADOW = (16, 24, 32)
 MUTED = (150, 172, 186)
 GOLD = (248, 208, 72)
+
+# The Battle HUD sheet's colours.
+HUD_INK = (32, 32, 32)
+HUD_WHITE = (248, 248, 248)
+HUD_LIGHT = (208, 208, 208)
+HUD_MID = (96, 96, 96)
+HUD_DARK = (48, 48, 48)
+HUD_PLATE = (49, 49, 49)
+HUD_HP = (0, 248, 72)
+HUD_GAUGE = [((0, 255, 74), (0, 189, 33)), ((234, 255, 0), (173, 189, 0)), ((255, 0, 0), (189, 0, 0))]
+HUD_EMPTY = ((255, 255, 255), (181, 181, 181))
+HUD_LV = (248, 168, 0)
+HUD_FOE_W = 120            # the foe's bar, from the left edge to its tip
+BAND = (16, 18, 26, 218)   # the message band (see-through)
+BAND_EDGE, BAND_EDGE_LO = (152, 40, 56), (72, 20, 30)
 
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
 # 7x7 season marks: a blossom, a sun, a leaf, a snowflake.
@@ -168,15 +185,16 @@ class UnovaScreen:
             rows, pal = _ITEM
             ui.pixels(canvas, x + 28, y + 37, rows, pal)
 
+        # Text keeps clear of the panel's cut corners (9 px diagonals).
         name = 'Egg' if egg else mon.get('nickname') or mon.get('species') or '?'
         star = self.art.shiny_star() if mon.get('shiny') and not egg else None
-        room = SLOT_W - 10 - (9 if star else 0)
+        room = SLOT_W - NAME_X - 8 - (10 if star else 0)
         sym, scol = (None, None) if egg else ui.gender_symbol(self.font, mon.get('gender'))
-        nw = self.font.draw(canvas, self.font.fit(name, room - (7 if sym else 0)), (x + 6, y + 3), WHITE, SHADOW)
+        nw = self.font.draw(canvas, self.font.fit(name, room - (7 if sym else 0)), (x + NAME_X, y + 4), WHITE, SHADOW)
         if sym:
-            self.font.draw(canvas, sym, (x + 7 + nw, y + 3), scol, SHADOW)
+            self.font.draw(canvas, sym, (x + NAME_X + 1 + nw, y + 4), scol, SHADOW)
         if star:
-            canvas.blit(star, (x + SLOT_W - 12, y + 4))
+            canvas.blit(star, (x + SLOT_W - 17, y + 5))
         if egg:
             self.mini.draw(canvas, "HATCHING", (x + 36, y + 20), MUTED)
             self.mini.draw(canvas, "SOON...", (x + 36, y + 28), MUTED)
@@ -192,8 +210,8 @@ class UnovaScreen:
             ui.status_tag(canvas, self.mini, x + 46 + lw + 2, y + 15, status)
         max_hp = max(1, mon.get('max_hp', 1))
         hp = self.o._hp(('bw', i, mon['species_id']), mon.get('curr_hp', 0), max_hp, dt_ms)
-        ui.hp_bar(canvas, self.mini, x + 35, y + 26, SLOT_W - 39, hp / max_hp)
-        self.font.draw(canvas, f"{int(round(hp))}/{mon.get('max_hp', 0)}", (x + SLOT_W - 5, y + 34),
+        ui.hp_bar(canvas, self.mini, x + 35, y + 26, SLOT_W - 35 - HP_RIGHT, hp / max_hp)
+        self.font.draw(canvas, f"{int(round(hp))}/{mon.get('max_hp', 0)}", (x + SLOT_W - HP_RIGHT - 1, y + 34),
                        WHITE, SHADOW, align='right')
 
     # -- achievements ----------------------------------------------------------
@@ -300,6 +318,143 @@ class UnovaScreen:
         return {'foe': (cx + far_dx, fy + far.get_height() * 2 // 3),
                 'you': (nx + near.get_width() * 9 // 20, ny + 21)}
 
+    # -- battle HUD ------------------------------------------------------------
+    #
+    # Black and White's battle boxes, drawn in code in the Battle HUD
+    # sheet's colours and shapes: a thin white bar with an arrow tip and a
+    # dark underside, the name riding above it; the foe's runs in from the
+    # left edge, yours from the right with a dark plate under it for the HP
+    # numbers. Messages sit on a dark band with maroon edges.
+
+    def _hud_bar(self, canvas, x0, x1, y, tip):
+        """The bar body, 9 rows from y, between x0 and x1, with its arrow
+        tip past x1 (tip='right') or before x0 (tip='left')."""
+        rows = [HUD_MID, HUD_WHITE, HUD_WHITE, HUD_WHITE, HUD_LIGHT, HUD_MID, HUD_DARK, HUD_DARK, HUD_INK]
+        for r, c in enumerate(rows):
+            reach = r if r <= 5 else 10 - r   # the tip: out to 5 px at the white's bottom, back under it
+            if tip == 'right':
+                pygame.draw.line(canvas, c, (x0, y + r), (x1 + reach, y + r))
+                canvas.set_at((x1 + reach + 1, y + r), HUD_INK)
+            else:
+                pygame.draw.line(canvas, c, (x0 - reach, y + r), (x1, y + r))
+                canvas.set_at((x0 - reach - 1, y + r), HUD_INK)
+
+    def _hud_gauge(self, canvas, x, y, width, frac):
+        """'HP' on its dark plate, then the gauge, inside a bar at row y."""
+        pygame.draw.rect(canvas, HUD_DARK, (x, y, 13, 6))
+        self.mini.draw(canvas, "HP", (x + 2, y + 1), HUD_HP)
+        gx, gw = x + 13, width - 13
+        pygame.draw.rect(canvas, HUD_DARK, (gx, y, gw, 5))
+        pygame.draw.rect(canvas, HUD_EMPTY[0], (gx + 1, y + 1, gw - 2, 2))
+        pygame.draw.line(canvas, HUD_EMPTY[1], (gx + 1, y + 3), (gx + gw - 2, y + 3))
+        frac = max(0.0, min(1.0, frac))
+        fill = int(round((gw - 2) * frac))
+        if frac > 0 and fill == 0:
+            fill = 1
+        if fill:
+            hi, lo = HUD_GAUGE[0 if frac > 0.5 else 1 if frac > 0.2 else 2]
+            pygame.draw.rect(canvas, hi, (gx + 1, y + 1, fill, 2))
+            pygame.draw.line(canvas, lo, (gx + 1, y + 3), (gx + fill, y + 3))
+
+    def _hud_name(self, canvas, m, x, y, right):
+        """Name and gender from x, 'Lv' and level ending at `right`."""
+        sym, scol = ui.gender_symbol(self.font, m.get('gender'))
+        lv = str(m.get('level', '?'))
+        lw = self.font.width(lv) + 9
+        room = right - x - lw - 4 - (7 if sym else 0)
+        nw = self.font.draw(canvas, self.font.fit(m['nickname'], room), (x, y), WHITE, HUD_INK)
+        if sym:
+            self.font.draw(canvas, sym, (x + nw + 1, y), scol, HUD_INK)
+        self.mini.draw(canvas, "Lv", (right - lw, y + 3), HUD_LV)
+        self.font.draw(canvas, lv, (right, y), WHITE, HUD_INK, align='right')
+
+    def _hud_status(self, canvas, m, x, y):
+        tag = self.art.status_tag(m.get('status')) if m.get('status') else None
+        if tag:
+            canvas.blit(tag, (x, y))
+            return tag.get_width() + 2
+        return 0
+
+    def foe_hud(self, canvas, m, x, y, hp, chips):
+        """The foe's box with its top at y, sliding in with x (its usual x
+        is 4). chips(canvas, m, x, y, width) draws stat-change chips and
+        returns their height. Returns the box's height."""
+        left = x - 4
+        end = left + HUD_FOE_W
+        self._hud_name(canvas, m, left + 4, y, end - 2)
+        by = y + 11
+        self._hud_bar(canvas, left - 8, end, by, 'right')
+        sx = left + 4 + self._hud_status(canvas, m, left + 4, by + 2)
+        self._hud_gauge(canvas, max(sx, left + 26), by + 1, end - 4 - max(sx, left + 26), hp / max(1, m['max_hp']))
+        return 20 + chips(canvas, m, left + 4, y + 21, HUD_FOE_W - 8)
+
+    def your_hud(self, canvas, m, x, bottom, hp, chips, numbers=True):
+        """Your box with its bottom at `bottom`, sliding in with x (its
+        usual x is 136). Without numbers (doubles) it's just the bar.
+        Returns its height."""
+        left = x - 8
+        rows = len(ui.chip_rows(self.mini, ui.stage_chips(m), W - left - 16))
+        h = (29 if numbers else 20) + 10 * rows
+        y = bottom - h
+        self._hud_name(canvas, m, left + 8, y, W - 4)
+        by = y + 11
+        self._hud_bar(canvas, left, W + 8, by, 'left')
+        sx = left + 6 + self._hud_status(canvas, m, left + 6, by + 2)
+        gx = max(sx, left + 30)
+        self._hud_gauge(canvas, gx, by + 1, W - 6 - gx, hp / max(1, m['max_hp']))
+        if numbers:
+            # The dark plate under the bar, its left edge slanting out.
+            for r in range(8):
+                pygame.draw.line(canvas, HUD_PLATE, (left + 14 - r, by + 9 + r), (W, by + 9 + r))
+            pygame.draw.line(canvas, HUD_INK, (left + 6, by + 17), (W, by + 17))
+            self.font.draw(canvas, f"{int(round(hp))}/{m['max_hp']}", (W - 6, by + 9), WHITE, HUD_INK,
+                           align='right')
+        chips(canvas, m, left + 8, y + h - 10 * rows, W - left - 16)
+        return h
+
+    def message_band(self, canvas, rect):
+        """The message box: a dark see-through band with maroon edges."""
+        x, y, w, h = rect
+        band = pygame.Surface((w, h), pygame.SRCALPHA)
+        band.fill(BAND)
+        canvas.blit(band, (x, y))
+        for yy, c in ((y, BAND_EDGE), (y + 1, BAND_EDGE_LO), (y + h - 2, BAND_EDGE_LO), (y + h - 1, BAND_EDGE)):
+            pygame.draw.line(canvas, c, (x, yy), (x + w - 1, yy))
+
+    def message_text(self, canvas, l1, l2):
+        self.font.draw(canvas, l1, (12, 156), WHITE, HUD_INK)
+        self.font.draw(canvas, l2, (12, 170), WHITE, HUD_INK)
+
+    def move_button(self, rect, canvas, name, mtype=None, pp=None, pp_max=None, selected=False, effect=None):
+        """A move on the band: a dark button with its type's colour as a
+        stripe and a glow when it was the one used last."""
+        x, y, w, h = rect
+        if name is None:
+            pygame.draw.rect(canvas, (44, 46, 54), rect)
+            pygame.draw.rect(canvas, (70, 72, 82), rect, 1)
+            self.font.draw(canvas, "-", (x + 8, y + 5), (110, 114, 124), HUD_INK)
+            return
+        c = ui.TYPE_COLORS.get(mtype, (150, 150, 150))
+        pygame.draw.rect(canvas, ui.darken(c, 70) if not selected else ui.darken(c, 30), rect)
+        pygame.draw.rect(canvas, ui.darken(c, 40) if not selected else c, (x + 1, y + 1, w - 2, h // 2 - 1))
+        pygame.draw.rect(canvas, c, (x, y, 4, h))
+        pygame.draw.rect(canvas, WHITE if selected else ui.darken(c, 100), rect, 1)
+        self.font.draw(canvas, name, (x + 8, y + 5), WHITE, HUD_INK)
+        if pp is not None and pp_max:
+            frac = pp / pp_max
+            col = WHITE if frac > 0.5 else (248, 224, 96) if frac > 0.25 else (248, 160, 72) if pp else (248, 96, 88)
+            text = f"{pp}/{pp_max}"
+            self.mini.draw(canvas, text, (x + w - 5 - self.mini.width(text), y + 7), col)
+            self.mini.draw(canvas, "PP", (x + w - 16 - self.mini.width(text), y + 7), ui.lighten(c, 70))
+        label = ui.EFFECT_LABELS.get(effect)
+        if label:
+            text, lc = label
+            lw = self.mini.width(text) + 4
+            lx = x + w - 3 - lw
+            pygame.draw.rect(canvas, ui.darken(lc, 60), (lx - 1, y, lw + 2, 7))
+            pygame.draw.rect(canvas, lc, (lx, y + 1, lw, 5))
+            self.mini.draw(canvas, text, (lx + 2, y + 1), WHITE)
+
     # -- footer ----------------------------------------------------------------
 
     def _footer(self, canvas, d, t_ms):
@@ -334,7 +489,7 @@ class UnovaScreen:
             if badge not in earned:
                 img = img.copy()
                 img.fill((90, 90, 100, 150), special_flags=pygame.BLEND_RGBA_MULT)
-            canvas.blit(img, (bx, H - 1 - img.get_height()))
+            canvas.blit(img, (bx, H - 4 - img.get_height()))
             bx += img.get_width() + 2
 
         dex = d.get('pokedex') or {}

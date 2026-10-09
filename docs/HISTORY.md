@@ -285,6 +285,13 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Black and White's Discord text, trimmed.** The second line
+  is now `Badges | Seen | Caught`, and the achievements moved to the big
+  picture's text, which Discord shows as a third line (the place's trainers
+  and items only show there when there are no achievements). The season's
+  name is gone from Discord and the overlay's header, since it seldom
+  changes: it still shows in its icon and effects.
+
 - 2026-10-09: **The party screen.** **V** used to cycle auto / party only /
   battle only, and a forgotten "party only" kept battles off the overlay.
   Now it opens a party screen of its own (moves with PP, nature, held item;

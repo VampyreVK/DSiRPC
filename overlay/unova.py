@@ -89,13 +89,6 @@ BAND = (16, 18, 26, 218)   # the message band (see-through)
 BAND_EDGE, BAND_EDGE_LO = (152, 40, 56), (72, 20, 30)
 
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
-# 7x7 season marks: a blossom, a sun, a leaf, a snowflake.
-_SEASON_ART = {
-    'spring': ([".#.#.", "#####", ".#o#.", "#####", ".#.#."], {'#': (248, 152, 192), 'o': (248, 232, 120)}),
-    'summer': (["#.#.#", ".###.", "##o##", ".###.", "#.#.#"], {'#': (248, 168, 40), 'o': (248, 232, 120)}),
-    'autumn': (["...##", "..###", ".###.", "###..", "#...."], {'#': (232, 112, 40)}),
-    'winter': (["#.#.#", ".###.", "##.##", ".###.", "#.#.#"], {'#': (168, 220, 248)}),
-}
 _ITEM = ([".##.", "#oo#", "#oo#", ".##."], {'#': (120, 72, 40), 'o': (232, 184, 96)})
 # Small icons for the header and HUD.
 _BALL = ([".kkk.", "krrrk", "kkwkk", "kwwwk", ".kkk."],
@@ -239,14 +232,12 @@ class UnovaScreen:
         pygame.draw.rect(canvas, INK, (0, 0, W, HEADER_H))
         pygame.draw.line(canvas, CYAN_LO, (0, HEADER_H - 1), (W - 1, HEADER_H - 1))
         self.fx.draw_header(canvas, HEADER_H, t_ms)
-        season = season_of(d)
-        _, pal = _SEASON_ART[season]
         self.fx.icon(canvas, 2, 2, t_ms)
         pt = d.get('playtime') or {}
         clock = f"{pt.get('hours', 0)}:{pt.get('minutes', 0):02d}"
         right = W - 4 - self.font.draw(canvas, clock, (W - 4, 3), WHITE, SHADOW, align='right') - 5
         # Chips, right to left: Repel steps, items found here, trainers
-        # beaten here; the season's name when there's none.
+        # beaten here (the season shows only in its icon and effects).
         route = d.get('route') or {}
         chips = []
         if d.get('repel'):
@@ -255,8 +246,6 @@ class UnovaScreen:
             if key in route:
                 done, total = route[key]
                 chips.append((art, f"{done}/{total}", GOLD if done == total else WHITE))
-        if not chips:
-            chips.append((None, season.upper(), pal['#']))
         for art, text, col in chips:
             tw = self.mini.width(text)
             self.mini.draw(canvas, text, (right - tw, 5), col)

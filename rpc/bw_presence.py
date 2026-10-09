@@ -8,13 +8,16 @@ parsed game state (core/bw_parser.py):
                 big image, your Pokemon's back sprite as the small one, and
                 "<yours> is fighting <foe>"
   otherwise:    "Playing", where you are (running, biking or surfing
-                through it when you are), badges / Pokedex / season, your
-                trainer the way you face on the place's turf as the big
-                image, standing, walking, running or on the bike as you are (with the trainers beaten and items found here
-                when the notes know them), your lead's overworld sprite as
-                the small one, and the party fraction; in the Battle Subway,
-                the Battle Institute and the Pokemon League their own lines
-                (streak, rank, Elite Four beaten)
+                through it when you are), "Badges | Seen | Caught", and the
+                achievements as the big picture's text (Discord shows it as
+                a third line; without them, who's where, with the place's
+                trainers beaten and items found); your trainer the way you
+                face on the place's turf as the big image, standing,
+                walking, running or on the bike as you are, your lead's
+                overworld sprite as the small one, and the party fraction;
+                in the Battle Subway, the Battle Institute and the Pokemon
+                League their own second line (streak, rank, Elite Four
+                beaten)
 
 The big images come from Assets/Unova-Battle (and -Shiny) and
 Assets/Unova-Trainer, made by Assets/Unova-Battle/process_unova.py. Only
@@ -142,12 +145,12 @@ def overworld_presence(d):
     place = loc.get('name') or loc.get('area') or "Unova"
     party = [m for m in d.get('party') or [] if not m.get('egg')]
     alive = sum(1 for m in party if m['curr_hp'] > 0)
-    season = (d.get('season') or '').capitalize()
     subway, institute, league = d.get('subway'), d.get('institute'), d.get('league')
 
     how = gait(d)
     details = f"{GAIT_VERB.get(how, 'Exploring')} {place}"
-    bits = [f"Badges: {len(d.get('badges') or [])}", f"Pokédex: {(d.get('pokedex') or {}).get('caught', 0)}"]
+    dex = d.get('pokedex') or {}
+    bits = [f"Badges: {len(d.get('badges') or [])}", f"Seen: {dex.get('seen', 0)}", f"Caught: {dex.get('caught', 0)}"]
     if subway:
         details = f"Riding the {subway['train']} Train" if subway.get('train') else "At the Battle Subway"
         bits = [f"Streak: {subway.get('streak', 0)}", f"Record: {subway.get('record', 0)}", f"{subway.get('bp', 0)} BP"]
@@ -157,23 +160,24 @@ def overworld_presence(d):
     elif league:
         details = "Challenging the Pokémon League"
         bits = [f"Elite Four beaten: {len(league.get('beaten') or [])}/4"] + bits[1:]
-    elif season:
-        bits.append(season)
+
+    # The big picture's text, which Discord shows as a third line: the
+    # achievements, else who's where (and the place's trainers and items).
     progress = d.get('progress')
     if progress and progress[1]:
-        bits.append(f"Achievements: {progress[0]}/{progress[1]}")
-
-    big = f"{d.get('trainer_name') or 'You'} in {place}"
-    route = d.get('route') or {}
-    extras = []
-    if 'trainers' in route:
-        extras.append("trainers beaten: {}/{}".format(*route['trainers']))
-    if 'items' in route:
-        extras.append("items found: {}/{}".format(*route['items']))
-    if d.get('repel'):
-        extras.append(f"Repel: {d['repel']} steps")
-    if extras:
-        big += " (" + ", ".join(extras) + ")"
+        big = f"Achievements: {progress[0]}/{progress[1]}"
+    else:
+        big = f"{d.get('trainer_name') or 'You'} in {place}"
+        route = d.get('route') or {}
+        extras = []
+        if 'trainers' in route:
+            extras.append("trainers beaten: {}/{}".format(*route['trainers']))
+        if 'items' in route:
+            extras.append("items found: {}/{}".format(*route['items']))
+        if d.get('repel'):
+            extras.append(f"Repel: {d['repel']} steps")
+        if extras:
+            big += " (" + ", ".join(extras) + ")"
 
     presence = {
         'name': game_name(d),

@@ -524,9 +524,9 @@ table), so HP and moves show up quickly.
   `Assets/PokemonBlackUI` (`overlay/unova_art.py`; no new image files). The
   header has the season (an animated icon), the place (zone names from
   `bw_data.ZONES`), small chips for the Repel steps left, the items found
-  and trainers beaten here (gold once they're all done; see section 9) or
-  the season's name when there's none of those, and the play time. The
-  season also dresses the whole view (`overlay/seasons.py`): spring
+  and trainers beaten here (gold once they're all done; see section 9),
+  and the play time. The season shows only in its icon and in how it
+  dresses the whole view (`overlay/seasons.py`): spring
   petals, summer sun rays and a warm glow (fireflies at night), autumn
   leaves blowing in gusts, winter snow that piles up on the panels' tops,
   frost around the edges, icicles under the header and a drift along the
@@ -824,9 +824,9 @@ game (below).
 | Field | Overworld | Battle |
 |---|---|---|
 | Line 1 | `Exploring <place>` (`Running through`, `Biking through`, `Surfing through` as you go about); `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
-| Line 2 | `Badges: 3 \| Pokédex: 31 \| Autumn \| Achievements: 4/9`; in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
+| Line 2 | `Badges: 3 \| Seen: 58 \| Caught: 31`; in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
 | Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
-| Large hover | `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
+| Large hover | `Achievements: 4/9` (Discord shows it as a third line); without achievements, `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
 | Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
 
 `<turf>` is `bw_data.terrain()`'s platform for the place and season:

@@ -39,6 +39,7 @@ import pygame
 from core import bw_data
 from core import platinum_data as pdata
 from . import markers, ui
+from .party_screen import CARD_GAP, CARD_POS, CARD_TOP, CARD_TRAY, CARD_W, draw_tray, live_party
 from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
 from .font import PixelFont
@@ -125,8 +126,16 @@ class Overlay:
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
-        self.view = 'auto'         # 'auto', 'party' or 'battle' (V key in the window)
-        self.showing_battle = False
+        # Which screen: the main view ('auto': the battle view in a battle,
+        # else the party, Unova or game card view) or the party screen
+        # (V in the window: party_pinned). A battle starting or ending
+        # unpins it. `showing` is what's on screen: 'main', 'battle' or
+        # 'party'.
+        self.party_pinned = False
+        self.view_in_battle = False
+        self.view_since = 0        # when the battle (or the time out of one) began
+        self.has_party = False     # the last state had a party to show
+        self.showing = 'main'
         self.wipe_start = None
         self.walk_until = 0
         self.last_pos = None
@@ -172,7 +181,7 @@ class Overlay:
                 self.shiny_intro_until = t_ms + 2500
             elif kind == 'level_up':
                 self.toast(f"{e['mon']['nickname']} grew to Lv. {e['mon']['level']}!")
-            elif kind == 'fainted' and not self.showing_battle:  # battles say it in the message box
+            elif kind == 'fainted' and self.showing != 'battle':  # battles say it in the message box
                 self.toast(f"{e['mon']['nickname']} fainted!")
             elif kind == 'badge_earned':
                 self.toast(f"Got the {e['badges'][-1]} Badge!", sparkly=True)
@@ -216,24 +225,32 @@ class Overlay:
         self.read_at = snap.updated
         other = bool(d) and d.get('kind') == 'other'
         in_battle = bool(d and not other and d['battle']['active'])
-        want_battle = in_battle if self.view == 'auto' else (self.view == 'battle' and in_battle)
+        if in_battle != self.view_in_battle:   # a battle started or ended: its own default view
+            self.view_in_battle, self.party_pinned, self.view_since = in_battle, False, t_ms
+        self.has_party = bool(d and not other and d.get('party'))
+        want = 'party' if self.party_pinned and self.has_party else 'battle' if in_battle else 'main'
 
-        # Battle transition: bars close, the view switches, bars open.
-        if want_battle != self.showing_battle and self.wipe_start is None:
+        # Switching screens: bars close, the screen switches, bars open.
+        if want != self.showing and self.wipe_start is None:
             self.wipe_start = t_ms
         wipe = None
         if self.wipe_start is not None:
             p = (t_ms - self.wipe_start) / (WIPE_MS / 2)
-            if p >= 1 and want_battle != self.showing_battle:
-                self.showing_battle = want_battle
-                self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
-                self.trainer_intro = None
-                self.caught_at = None
-                self.msg_queue, self.held = [], []
-                self.battle_since = t_ms if want_battle else None
-                if want_battle:
-                    self.intro_until = t_ms + 4500
-                    self.msg = (*self._battle_lines(d), self.intro_until)
+            if p >= 1 and want != self.showing:
+                was_battle, self.showing = self.showing == 'battle', want
+                if was_battle != (want == 'battle'):
+                    self.battlers, self.msg, self.effects, self.boxes = {}, None, [], {}
+                    self.trainer_intro = None
+                    self.caught_at = None
+                    self.msg_queue, self.held = [], []
+                    self.battle_since = t_ms if want == 'battle' else None
+                    if want == 'battle' and t_ms - self.view_since > WIPE_MS:
+                        # Back from the party screen in the middle of a
+                        # battle: no intro again.
+                        self.battle_since, self.trainer_intro = t_ms - 2000, {}
+                    elif want == 'battle':
+                        self.intro_until = t_ms + 4500
+                        self.msg = (*self._battle_lines(d), self.intro_until)
             if p >= 2:
                 self.wipe_start = None
             else:
@@ -243,7 +260,9 @@ class Overlay:
             self.draw_waiting(canvas, snap, t_ms)
         elif other:
             self.card.draw(canvas, d, t_ms)
-        elif self.showing_battle and in_battle:
+        elif self.showing == 'party' and self.has_party:
+            self.draw_party_screen(canvas, d, t_ms, dt_ms)
+        elif self.showing == 'battle' and in_battle:
             self.draw_battle(canvas, d, t_ms, dt_ms)
         elif d.get('kind') == 'bw':
             self.unova.draw(canvas, d, t_ms, dt_ms)
@@ -254,6 +273,21 @@ class Overlay:
         self.draw_toasts(top, t_ms)
         if wipe is not None:
             ui.wipe(top, wipe)
+
+    # -- which screen ------------------------------------------------------------
+
+    @property
+    def view(self):
+        """'party' while the party screen is pinned, else 'battle' in a
+        battle and 'auto' out of one."""
+        return 'party' if self.party_pinned else 'battle' if self.view_in_battle else 'auto'
+
+    def toggle_view(self):
+        """V in the window: the party screen, or back to the battle (in a
+        battle) or the main view (out of one). Nothing without a party."""
+        if self.party_pinned or self.has_party:
+            self.party_pinned = not self.party_pinned
+        return self.view
 
     # -- window-resolution sprites ----------------------------------------------
 
@@ -361,6 +395,65 @@ class Overlay:
 
     # -- party view ------------------------------------------------------------
 
+    def draw_party_screen(self, canvas, d, t_ms, dt_ms):
+        """The party screen (V): Black and White's in their own look
+        (overlay/unova.py), the others here."""
+        d = dict(d, party=live_party(d))
+        if d.get('kind') == 'bw':
+            self.unova.draw_party_screen(canvas, d, t_ms, dt_ms)
+            return
+        t = ui.THEME
+        ui.tiled_background(canvas, t_ms)
+        self._bar(canvas, 0, HEADER_H - 2)
+        ui.chip(canvas, self.mini, 5, 4, "PARTY", t['ach_lo'])
+        self.font.draw(canvas, d.get('trainer_name') or '', (35, 2), t['text_light'], t['text_light_shadow'])
+        pt = d['playtime']
+        right = W - 5 - self.font.draw(canvas, f"{pt['hours']}:{pt['minutes']:02d}", (W - 5, 2), t['text_light'],
+                                       t['text_light_shadow'], align='right')
+        if d['battle']['active']:
+            ui.chip(canvas, self.mini, right - 6 - self.mini.width("BATTLE") - 4, 4, "BATTLE", t['hp_red'])
+        party = d['party']
+        for i, (x, y) in enumerate(CARD_POS):
+            if i >= len(party):
+                self._empty_slot(canvas, x, y, CARD_W, CARD_TOP + CARD_GAP + CARD_TRAY)
+                continue
+            mon = party[i]
+            egg = mon.get('egg')
+            fainted = not egg and mon['curr_hp'] == 0
+            fill, lo, border = ((t['faint_fill'], t['faint_lo'], None) if fainted else
+                                (t['lead_fill'], t['lead_lo'], t['lead_border']) if i == 0 else (None, None, None))
+            ui.panel(canvas, (x, y, CARD_W, CARD_TOP + CARD_GAP + CARD_TRAY), fill=fill, lo=lo, border=border)
+            icon = None if egg else self.sprites.party_icon(mon['species_id'], mon['shiny'])
+            if icon:
+                frame = icon.frame(t_ms + i * 137)
+                fw, fh = frame.get_size()
+                k = min(1.0, 34 / fw, 32 / fh)
+                w, h = max(1, round(fw * k)), max(1, round(fh * k))
+                bob = 0 if fainted else ui.bob(t_ms + i * 200, 900, 1)
+                self.blit_hires(canvas, frame, (x + 19 - w // 2, y + CARD_TOP - 6 - h + bob, w, h),
+                                clip=(x + 2, y + 2, 34, CARD_TOP - 4), dim=fainted)
+        canvas = self.lift(canvas)
+        for i, mon in enumerate(party[:6]):
+            x, y = CARD_POS[i]
+            egg = mon.get('egg')
+            fainted = not egg and mon['curr_hp'] == 0
+            if mon['shiny'] and not egg:
+                ui.sparkle(canvas, x + 6, y + 6, t_ms + i * 90)
+            self._name_line(canvas, 'EGG' if egg else self.font.fit(mon['nickname'], CARD_W - 42),
+                            None if egg else mon['gender'], x + 37, y + 4)
+            if not egg:
+                lw = self._level(canvas, mon['level'], x + 37, y + 15)
+                status = 'Fainted' if fainted else mon.get('status')
+                if status:
+                    ui.status_tag(canvas, self.mini, x + 37 + lw + 3, y + 15, status)
+                hp = self._hp(('party', i, mon['species_id']), mon['curr_hp'], mon['max_hp'], dt_ms)
+                ui.hp_bar(canvas, self.mini, x + 37, y + 25, CARD_W - 42, hp / max(1, mon['max_hp']))
+                self.font.draw(canvas, f"{int(round(hp))}/{mon['max_hp']}", (x + CARD_W - 5, y + 33),
+                               t['text'], t['text_shadow'], align='right')
+            pygame.draw.line(canvas, t['panel_lo'], (x + 4, y + CARD_TOP), (x + CARD_W - 5, y + CARD_TOP))
+            draw_tray(canvas, self.mini, x + 5, y + CARD_TOP + CARD_GAP, CARD_W - 10, mon, t['text'], t['text_muted'],
+                      warn=t['ach_lo'], empty=t['hp_red'])
+
     def draw_party(self, canvas, d, t_ms, dt_ms):
         t = ui.THEME
         ui.tiled_background(canvas, t_ms)
@@ -385,15 +478,15 @@ class Overlay:
     def _bar(self, canvas, y, h):
         ui.bar(canvas, y, h)
 
-    def _empty_slot(self, canvas, x, y):
+    def _empty_slot(self, canvas, x, y, w=SLOT_W, h=SLOT_H):
         t = ui.THEME
         c = t['bg_dot'] if not t['chroma'] else (96, 110, 118)
-        for xx in range(x + 3, x + SLOT_W - 3, 4):
+        for xx in range(x + 3, x + w - 3, 4):
             canvas.set_at((xx, y), c)
-            canvas.set_at((xx, y + SLOT_H - 1), c)
-        for yy in range(y + 3, y + SLOT_H - 3, 4):
+            canvas.set_at((xx, y + h - 1), c)
+        for yy in range(y + 3, y + h - 3, 4):
             canvas.set_at((x, yy), c)
-            canvas.set_at((x + SLOT_W - 1, yy), c)
+            canvas.set_at((x + w - 1, yy), c)
 
     def _slot(self, canvas, mon, i, x, y, t_ms, dt_ms):
         t = ui.THEME

@@ -145,7 +145,7 @@ BW_PARTY = [
     _mon(554, 20, 0, 58, 'M', nickname='Darumaka', moves=('Tackle', 'Fire Fang')),
     dict(_mon(637, 1, 10, 10, 'genderless', nickname='Egg'), egg=True),
 ]
-BW_PARTY[1]['item'] = '#155'
+BW_PARTY[1]['item'] = 'Oran Berry'
 BW_SET = ra_set.RaSet({"ID": 3887, "Title": "Pokemon Black Version", "Achievements": [
     {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
     for i, (title, desc, pts) in enumerate([

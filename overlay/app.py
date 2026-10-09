@@ -9,8 +9,9 @@ dsirpc.py opens it with --overlay (or from the tray menu), next to the
 Discord Rich Presence; it only shows what the hub already reads, so it never
 talks to the DSi itself.
 
-Keys: N next demo scene, V switch view (auto / party / battle),
-      1-6 window scale.
+Keys: N next demo scene, V the party screen and back (to the battle in a
+      battle, else the main view; a battle starting or ending goes back
+      to its own), 1-6 window scale.
 """
 
 import logging
@@ -25,6 +26,7 @@ from .sprites import SpriteBank
 from . import ui
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CAPTIONS = {'auto': "DSiRPC", 'battle': "DSiRPC (battle)", 'party': "DSiRPC (party screen: V to go back)"}
 
 
 def parse_color(text):
@@ -66,7 +68,8 @@ class OverlayWindow:
         try:
             scale = self.scale
             window = pygame.display.set_mode((W * scale, H * scale))
-            pygame.display.set_caption("DSiRPC")
+            caption = CAPTIONS['auto']
+            pygame.display.set_caption(caption)
             canvas = pygame.Surface((W, H)).convert()
             overlay = Overlay(SpriteBank(os.path.join(HERE, "Assets")))
             overlay.hires_ok = True  # present() draws its sprites at the window's resolution
@@ -81,8 +84,7 @@ class OverlayWindow:
                         if e.key == pygame.K_n and hasattr(source, 'next_scene'):
                             source.next_scene()
                         elif e.key == pygame.K_v:
-                            overlay.view = {'auto': 'party', 'party': 'battle', 'battle': 'auto'}[overlay.view]
-                            pygame.display.set_caption(f"DSiRPC ({overlay.view})")
+                            overlay.toggle_view()
                         elif pygame.K_1 <= e.key <= pygame.K_6:
                             scale = e.key - pygame.K_0
                             window = pygame.display.set_mode((W * scale, H * scale))
@@ -95,6 +97,9 @@ class OverlayWindow:
                     evs.append(self._events.get_nowait())
                 overlay.handle_events(evs, t_ms)
                 overlay.draw(canvas, self.hub.snapshot(), t_ms, dt)
+                if CAPTIONS[overlay.view] != caption:   # the view changed (V, or a battle began or ended)
+                    caption = CAPTIONS[overlay.view]
+                    pygame.display.set_caption(caption)
                 overlay.present(window, canvas)
                 pygame.display.flip()
                 dt = clock.tick(self.fps)

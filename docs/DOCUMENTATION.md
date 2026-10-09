@@ -412,6 +412,22 @@ table), so HP and moves show up quickly.
   gender, level, HP bar sliding to its new value, status tag, a sparkle for
   shinies), and a footer with your trainer facing and walking the way you do,
   badges and Pokédex counts.
+- **Party screen** (**V**; `overlay/party_screen.py`, drawn by `scenes.py`
+  for Platinum and `unova.py` for Black and White in their own looks): the
+  whole canvas for the party, with PARTY and your name in the header (a red
+  BATTLE tag when one is going on underneath). Six tall cards, three across:
+  each Pokémon's panel (sprite, name, level, HP, status) over a tray with its
+  four moves (a stripe in the move's type colour, the name, and the PP when
+  the game gives it: gold when a quarter or less is left, red when out), its
+  nature and its held item. In a battle your battlers' HP, status and PP come
+  from the battle (each matched to the party Pokémon with its species, level
+  and nickname; `live_party()`), since the game keeps them in the battle's own
+  copies until it ends. **V** toggles between it and the battle view during a
+  battle (the battle by default) and the main view otherwise (that by
+  default); a battle starting or ending goes back to its default, and coming
+  back from it mid-battle doesn't replay the battle's intro. The window's
+  title says "party screen" while it's up. Games without a party (the game
+  card) ignore **V**.
 - **Battle view:** shown while `battle.active`, with a bar-wipe transition.
   The background (`overlay/backdrop.py`) is drawn in code: the sky follows the
   DS clock (morning, day, evening, night with stars), with drifting clouds,

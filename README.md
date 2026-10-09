@@ -234,8 +234,11 @@ you played.
 
 It draws at the DS's 256x192 and scales up by a whole number, so the pixels
 stay crisp. Add it to OBS with **Window Capture**, or share the window on
-Discord. Keys **1**-**6** change its size, and **V** switches between
-automatic, party only and battle only. For OBS's Chroma Key filter, set
+Discord. Keys **1**-**6** change its size, and **V** opens the party screen
+(all six Pokémon with their moves, PP, nature and held item; the window's
+title says when it's showing) and goes back again: to the battle during a
+battle, otherwise to the main view. A battle starting or ending always goes
+back to its own view. For OBS's Chroma Key filter, set
 `chroma` (a colour like `00FF00`) in `dsirpc.cfg`. The sprites are downloaded
 the first time they're needed, then kept.
 

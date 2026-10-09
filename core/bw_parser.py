@@ -190,7 +190,7 @@ class BWParser(PlatinumParser):
             'curr_hp': hp,
             'max_hp': max_hp,
             'status': self.status_text(status),
-            'item': None if not item else f'#{item}',
+            'item': bw.item_name(item),
             'moves': [self.name(bw.MOVES, m) for m in moves if m],
             'pp': [pp[k] for k, m in enumerate(moves) if m],
             'nature': bw.NATURES[nature] if nature < 25 else bw.NATURES[pid % 25],

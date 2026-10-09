@@ -12,6 +12,13 @@ from . import platinum_data as pdata
 BADGES = ['Trio', 'Basic', 'Insect', 'Bolt', 'Quake', 'Jet', 'Freeze', 'Legend']
 GYM_LEADERS = ['Cilan', 'Lenora', 'Burgh', 'Elesa', 'Clay', 'Skyla', 'Brycen', 'Drayden']
 NATURES = pdata.NATURES
+# Items keep Gen IV's numbers; Platinum's names cover all but Gen V's new ones.
+ITEMS = pdata.ITEMS
+
+
+def item_name(item):
+    """A held item's name, '#<id>' for one Platinum doesn't have, None for none."""
+    return None if not item else ITEMS[item] if item < len(ITEMS) else f'#{item}'
 STATUS_BITS = pdata.STATUS_BITS
 TYPE_CHART = pdata.TYPE_CHART
 DIRECTIONS = ['up', 'down', 'left', 'right']

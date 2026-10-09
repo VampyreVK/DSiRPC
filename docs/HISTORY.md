@@ -285,6 +285,13 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **The party screen.** **V** used to cycle auto / party only /
+  battle only, and a forgotten "party only" kept battles off the overlay.
+  Now it opens a party screen of its own (moves with PP, nature, held item;
+  live HP and PP in battle) and goes back to the battle or the main view,
+  and a battle starting or ending resets it. Black and White's held items
+  are named (Platinum's names: Gen V keeps their numbers).
+
 - 2026-10-09: **Discord's Unova pictures, adjusted.** Hilbert and Hilda are
   drawn 3x (Viv's pick of the sizes tried), filling Discord's round picture, and
   the Pokémon on the Unova turfs face right like Platinum's dioramas (they

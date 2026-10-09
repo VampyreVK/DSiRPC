@@ -37,6 +37,7 @@ import pygame
 
 from core import bw_data
 from . import ui
+from .party_screen import CARD_GAP, CARD_POS, CARD_TRAY, draw_tray
 from .gamecard import NEW_FOR_S, NEXT_EVERY_MS, ago
 from .seasons import SeasonFX
 from .unova_backdrop import UnovaBackdrop
@@ -177,6 +178,52 @@ class UnovaScreen:
         self._footer(canvas, d, t_ms)
         self.fx.draw_edges(canvas, HEADER_H, FOOTER_Y, t_ms)
         self.fx.draw_front(canvas, t_ms, bool(ui.THEME['chroma']))
+
+    def draw_party_screen(self, canvas, d, t_ms, dt_ms):
+        """The party screen (V): the whole screen for the party, each panel
+        over a tray with its moves, nature and held item, the season as on
+        the main view. `d`'s party has the battle's HP and PP in a battle
+        (party_screen.live_party)."""
+        party = (d.get('party') or [])[:len(CARD_POS)]
+        panels = [(f'card{i}', (x, y, SLOT_W, SLOT_H)) for i, (x, y) in enumerate(CARD_POS)]
+        self.fx.update(season_of(d), self.time_of_day(d), t_ms, panels)
+        self._background(canvas)
+        self._party_header(canvas, d, t_ms)
+        for i, (x, y) in enumerate(CARD_POS):
+            tray = (x, y + SLOT_H + CARD_GAP, SLOT_W, CARD_TRAY)
+            if i < len(party):
+                self._slot(canvas, party[i], i, x, y, t_ms)
+                fainted = not party[i].get('egg') and party[i].get('curr_hp', 0) == 0
+                bw_box(canvas, tray, border=(232, 96, 112) if fainted else CYAN_LO if i else CYAN)
+            else:
+                p = self.art.panel('empty', SLOT_W)
+                if p:
+                    canvas.blit(p, (x, y))
+                bw_box(canvas, tray, fill=(10, 20, 32), border=(40, 70, 90), hi=(16, 30, 44))
+        canvas = self.o.lift(canvas)
+        for i, mon in enumerate(party):
+            x, y = CARD_POS[i]
+            self._slot_info(canvas, mon, i, x, y, dt_ms)
+            draw_tray(canvas, self.mini, x + 5, y + SLOT_H + CARD_GAP, SLOT_W - 10, mon, WHITE, MUTED)
+        self.fx.draw_panels(canvas, panels)
+        self.fx.draw_edges(canvas, HEADER_H, H, t_ms)
+        self.fx.draw_front(canvas, t_ms, bool(ui.THEME['chroma']))
+
+    def _party_header(self, canvas, d, t_ms):
+        """The party screen's header: a ball, PARTY, your name; a BATTLE tag
+        when one is going on underneath, and the play time."""
+        pygame.draw.rect(canvas, INK, (0, 0, W, HEADER_H + 1))
+        pygame.draw.line(canvas, CYAN_LO, (0, HEADER_H), (W - 1, HEADER_H))
+        self.fx.draw_header(canvas, HEADER_H, t_ms)
+        rows, pal = _BALL
+        ui.pixels(canvas, 4, 4, rows, pal)
+        self.font.draw(canvas, "PARTY", (12, 3), GOLD, SHADOW)
+        self.font.draw(canvas, d.get('trainer_name') or '', (12 + self.font.width("PARTY") + 6, 3), WHITE, SHADOW)
+        pt = d.get('playtime') or {}
+        right = W - 4 - self.font.draw(canvas, f"{pt.get('hours', 0)}:{pt.get('minutes', 0):02d}", (W - 4, 3),
+                                       WHITE, SHADOW, align='right') - 6
+        if (d.get('battle') or {}).get('active'):
+            ui.chip(canvas, self.mini, right - self.mini.width("BATTLE") - 4, 4, "BATTLE", (200, 56, 64))
 
     def _background(self, canvas):
         t = ui.THEME

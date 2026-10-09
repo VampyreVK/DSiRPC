@@ -89,6 +89,8 @@ BAND = (16, 18, 26, 218)   # the message band (see-through)
 BAND_EDGE, BAND_EDGE_LO = (152, 40, 56), (72, 20, 30)
 
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
+# The season's name in the header ("Castelia City • Summer") is in its colour.
+SEASON_COLOR = {'spring': (248, 152, 192), 'summer': (248, 168, 40), 'autumn': (232, 112, 40), 'winter': (168, 220, 248)}
 _ITEM = ([".##.", "#oo#", "#oo#", ".##."], {'#': (120, 72, 40), 'o': (232, 184, 96)})
 # Small icons for the header and HUD.
 _BALL = ([".kkk.", "krrrk", "kkwkk", "kwwwk", ".kkk."],
@@ -237,7 +239,7 @@ class UnovaScreen:
         clock = f"{pt.get('hours', 0)}:{pt.get('minutes', 0):02d}"
         right = W - 4 - self.font.draw(canvas, clock, (W - 4, 3), WHITE, SHADOW, align='right') - 5
         # Chips, right to left: Repel steps, items found here, trainers
-        # beaten here (the season shows only in its icon and effects).
+        # beaten here.
         route = d.get('route') or {}
         chips = []
         if d.get('repel'):
@@ -254,9 +256,20 @@ class UnovaScreen:
                 rows_, pal_ = art
                 ui.pixels(canvas, right - len(rows_[0]), 7 - len(rows_) // 2, rows_, pal_)
                 right -= len(rows_[0]) + 5
+        # The place, then " • <Season>" (the place is cut short first; the
+        # season goes when there's too little room for both).
         loc = d.get('location') or {}
         name = loc.get('name') or loc.get('area') or 'Somewhere in Unova'
-        self.font.draw(canvas, self.font.fit(name, right - 13 - 4), (13, 3), WHITE, SHADOW)
+        season = season_of(d)
+        tag = f" \u2022 {season.capitalize()}"
+        room = right - 13 - 4
+        if room - self.font.width(tag) >= 40:
+            room -= self.font.width(tag)
+        else:
+            tag = None
+        x = 13 + self.font.draw(canvas, self.font.fit(name, room), (13, 3), WHITE, SHADOW) - 1
+        if tag:
+            self.font.draw(canvas, tag, (x, 3), SEASON_COLOR[season], SHADOW)
 
     # -- party -----------------------------------------------------------------
 
@@ -766,7 +779,7 @@ class UnovaScreen:
 
         dex = d.get('pokedex') or {}
         if dex.get('obtained', True):
-            self.mini.draw(canvas, "CAUGHT", (W - 26, FOOTER_Y + 7), GOLD)
-            self.font.draw(canvas, str(dex.get('caught', 0)), (W - 29, FOOTER_Y + 5), WHITE, SHADOW, align='right')
-            self.mini.draw(canvas, "SEEN", (W - 26, FOOTER_Y + 19), GOLD)
-            self.font.draw(canvas, str(dex.get('seen', 0)), (W - 29, FOOTER_Y + 17), WHITE, SHADOW, align='right')
+            self.mini.draw(canvas, "SEEN", (W - 26, FOOTER_Y + 7), GOLD)
+            self.font.draw(canvas, str(dex.get('seen', 0)), (W - 29, FOOTER_Y + 5), WHITE, SHADOW, align='right')
+            self.mini.draw(canvas, "CAUGHT", (W - 26, FOOTER_Y + 19), GOLD)
+            self.font.draw(canvas, str(dex.get('caught', 0)), (W - 29, FOOTER_Y + 17), WHITE, SHADOW, align='right')

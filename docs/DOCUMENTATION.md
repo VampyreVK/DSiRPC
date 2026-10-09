@@ -522,11 +522,13 @@ table), so HP and moves show up quickly.
 - **Unova view** (`overlay/unova.py`): Pokémon Black and White's main view,
   in the games' own look, cut at runtime from the sheets in
   `Assets/PokemonBlackUI` (`overlay/unova_art.py`; no new image files). The
-  header has the season (an animated icon), the place (zone names from
-  `bw_data.ZONES`), small chips for the Repel steps left, the items found
-  and trainers beaten here (gold once they're all done; see section 9),
-  and the play time. The season shows only in its icon and in how it
-  dresses the whole view (`overlay/seasons.py`): spring
+  header has the season (an animated icon), the place and the season's
+  name in its colour (`Castelia City • Summer`; zone names from
+  `bw_data.ZONES`; a long place is cut short first, and the season's name
+  goes only when there's no room for both), small chips for the Repel steps
+  left, the items found and trainers beaten here (gold once they're all
+  done; see section 9), and the play time. The season also dresses the
+  whole view (`overlay/seasons.py`): spring
   petals, summer sun rays and a warm glow (fireflies at night), autumn
   leaves blowing in gusts, winter snow that piles up on the panels' tops,
   frost around the edges, icicles under the header and a drift along the
@@ -555,7 +557,8 @@ table), so HP and moves show up quickly.
   bike, standing still puts a foot down), name, money, the eight Unova badges (the
   trainer card's art at 2/5 size, dimmed when not earned; earned ones show
   how well you've polished them on the trainer card: dull with a little
-  dust, clean, or polished with a glint) and the Pokédex. Battles use the battle view above with a background of
+  dust, clean, or polished with a glint) and the Pokédex (seen above
+  caught). Battles use the battle view above with a background of
   their own (`overlay/unova_backdrop.py`), built in code on the Diamond and
   Pearl skies of `BattleBackgroundsTransparent.png` (ocean, mountain,
   field, forest, cave, snow and indoor, by day, afternoon and night) with
@@ -826,7 +829,7 @@ game (below).
 | Line 1 | `Exploring <place>` (`Running through`, `Biking through`, `Surfing through` as you go about); `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
 | Line 2 | `Badges: 3 \| Seen: 58 \| Caught: 31`; in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
 | Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
-| Large hover | `Achievements: 4/9` (Discord shows it as a third line); without achievements, `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
+| Large hover | Discord shows it as a third line: `Achievements: 4/9` and `Trainers beaten: 3/5 \| Items found: 4/4 \| Repel: 82 steps` (the Repel only while one's active) taking turns every 30 s (`ROTATE_S`), just the achievements when the place has none of those; without achievements, `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
 | Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
 
 `<turf>` is `bw_data.terrain()`'s platform for the place and season:

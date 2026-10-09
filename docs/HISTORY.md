@@ -292,6 +292,13 @@ in this table before assuming it's missing from RA entirely.
   name is gone from Discord and the overlay's header, since it seldom
   changes: it still shows in its icon and effects.
 
+- 2026-10-09: **The third line takes turns, and the season's back in the
+  header.** Discord's third line now swaps every 30 s between the
+  achievements and the place's trainers beaten, items found and Repel steps
+  (when there are any). The overlay's header reads `Castelia City • Summer`
+  again (the season in its colour; the font got a `•`), and the footer has
+  the Pokédex's seen above caught.
+
 - 2026-10-09: **The party screen.** **V** used to cycle auto / party only /
   battle only, and a forgotten "party only" kept battles off the overlay.
   Now it opens a party screen of its own (moves with PP, nature, held item;

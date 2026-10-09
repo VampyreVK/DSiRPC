@@ -8,10 +8,11 @@ parsed game state (core/bw_parser.py):
                 big image, your Pokemon's back sprite as the small one, and
                 "<yours> is fighting <foe>"
   otherwise:    "Playing", where you are (running, biking or surfing
-                through it when you are), "Badges | Seen | Caught", and the
-                achievements as the big picture's text (Discord shows it as
-                a third line; without them, who's where, with the place's
-                trainers beaten and items found); your trainer the way you
+                through it when you are), "Badges | Seen | Caught", and as
+                the big picture's text (Discord shows it as a third line)
+                the achievements and the place's trainers beaten, items
+                found and Repel steps taking turns every 30 s (without
+                achievements, who's where with those); your trainer the way you
                 face on the place's turf as the big image, standing,
                 walking, running or on the bike as you are, your lead's
                 overworld sprite as the small one, and the party fraction;
@@ -40,6 +41,7 @@ GAIT_SUFFIX = {'walk': '', 'run': '-Run', 'bike': '-Bike', 'bike_stop': '-BikeSt
 GAIT_VERB = {'run': 'Running through', 'bike': 'Biking through', 'bike_stop': 'Biking through',
              'surf': 'Surfing through'}
 RECENT_S = 6.0   # a stop shorter than this keeps showing the way you moved
+ROTATE_S = 30    # the third line takes turns: the achievements, then the place's stats
 
 
 def turf(d):
@@ -162,22 +164,26 @@ def overworld_presence(d):
         bits = [f"Elite Four beaten: {len(league.get('beaten') or [])}/4"] + bits[1:]
 
     # The big picture's text, which Discord shows as a third line: the
-    # achievements, else who's where (and the place's trainers and items).
+    # achievements and the place's stats (trainers beaten, items found, the
+    # Repel's steps left) taking turns every ROTATE_S, else who's where with
+    # the stats.
+    route = d.get('route') or {}
+    stats = []
+    if 'trainers' in route:
+        stats.append("trainers beaten: {}/{}".format(*route['trainers']))
+    if 'items' in route:
+        stats.append("items found: {}/{}".format(*route['items']))
+    if d.get('repel'):
+        stats.append(f"Repel: {d['repel']} steps")
     progress = d.get('progress')
     if progress and progress[1]:
         big = f"Achievements: {progress[0]}/{progress[1]}"
+        if stats and int(time.time() // ROTATE_S) % 2:
+            big = " | ".join(s[:1].upper() + s[1:] for s in stats)
     else:
         big = f"{d.get('trainer_name') or 'You'} in {place}"
-        route = d.get('route') or {}
-        extras = []
-        if 'trainers' in route:
-            extras.append("trainers beaten: {}/{}".format(*route['trainers']))
-        if 'items' in route:
-            extras.append("items found: {}/{}".format(*route['items']))
-        if d.get('repel'):
-            extras.append(f"Repel: {d['repel']} steps")
-        if extras:
-            big += " (" + ", ".join(extras) + ")"
+        if stats:
+            big += " (" + ", ".join(stats) + ")"
 
     presence = {
         'name': game_name(d),

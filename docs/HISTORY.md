@@ -291,9 +291,9 @@ in this table before assuming it's missing from RA entirely.
   frame had one colour fewer (no unlit arc), so its palette was shifted,
   and the menu draws every frame with one palette. The unlit arcs are now
   the speakers' colour, so every frame has the same colours and the same
-  palette (tools/make_pixel_dsi.py checks it). The icon is also 32 wide
-  now (the Wi-Fi sign's middle column doubled), so it sits in the middle
-  of the rounded square instead of touching only its left edge.
+  palette (tools/make_pixel_dsi.py checks it). The DSi stays 31 wide (a
+  32-wide version, centred, was tried and taken back: Viv prefers the
+  original), so it's a pixel off centre in the 32x32 icon.
 
 - 2026-10-09: **The pixel DSi everywhere.** A third console picture for
   Discord, "Pixel DSi" (`Assets/Consoles/Pixel.gif`): the waiting screen's

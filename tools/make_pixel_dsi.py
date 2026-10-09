@@ -11,7 +11,7 @@ Wi-Fi sign light grey, its arcs lighting up one by one.
                               sits inside Discord's round picture
   launcher/icon.gif           the launcher's icon (BlocksDS's ndstool makes
                               it the DSi's animated icon): the same DSi
-                              redrawn 32x32 to fill the icon, its six
+                              redrawn 31x32 to fill the icon, its six
                               lines as four (each brighter than the one
                               above, as the bottom screen has 9 rows), and
                               the same colours in every frame
@@ -39,55 +39,53 @@ WIFI_DIM = (46, 56, 70)             # an arc that isn't lit yet
 
 DISCORD_SIZE, DISCORD_SCALE = 512, 9
 
-# The DSi redrawn 32x32 for the launcher's icon: the same parts as
+# The DSi redrawn 31x32 for the launcher's icon: the same parts as
 # overlay/ui.py's _DSI (same letters and colours), shorter screens and
-# bodies, mirrored left to right so it sits in the middle of the icon.
+# bodies, still mirrored left to right.
 ICON = [
-    "..oooooooooooooooooooooooooooo..",
-    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obebebksssssssssssssssssskbebebo",
-    "obbebbksssssssssssssssssskbbebbo",
-    "obebebksssssssssssssssssskbebebo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbksssssssssssssssssskbbbbbo",
-    "obbbbbkkkkkkkkkkkkkkkkkkkkbbbbbo",
-    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
-    "..oooooooooooooooooooooooooooo..",
-    "...oHHHHHHHHHHHHHHHHHHHHHHHHo...",
-    "..oooooooooooooooooooooooooooo..",
-    ".oddddddddddddddddddddddddddddo.",
-    "oddddddkkkkkkkkkkkkkkkkkkddddddo",
-    "oddddddksssssssssssssssskddddddo",
-    "odddpddksssssssssssssssskddpdddo",
-    "oddpppdksssssssssssssssskdpdpddo",
-    "odddpddksssssssssssssssskddpdddo",
-    "oddddddksssssssssssssssskddddddo",
-    "oddddddksssssssssssssssskddddddo",
-    "oddddddksssssssssssssssskdpddddo",
-    "oddddddksssssssssssssssskddddddo",
-    "oddddpdksssssssssssssssskdpddddo",
-    "oddddddkkkkkkkkkkkkkkkkkkddddddo",
-    ".oddddddddddddddddddddddddddddo.",
-    "..oooooooooooooooooooooooooooo..",
+    "..ooooooooooooooooooooooooooo..",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "obbbbbkkkkkkkkkkkkkkkkkkkbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obebebkssssssssssssssssskbebebo",
+    "obbebbkssssssssssssssssskbbebbo",
+    "obebebkssssssssssssssssskbebebo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkssssssssssssssssskbbbbbo",
+    "obbbbbkkkkkkkkkkkkkkkkkkkbbbbbo",
+    ".obbbbbbbbbbbbbbbbbbbbbbbbbbbo.",
+    "..ooooooooooooooooooooooooooo..",
+    "...oHHHHHHHHHHHHHHHHHHHHHHHo...",
+    "..ooooooooooooooooooooooooooo..",
+    ".odddddddddddddddddddddddddddo.",
+    "oddddddkkkkkkkkkkkkkkkkkddddddo",
+    "oddddddkssssssssssssssskddddddo",
+    "odddpddkssssssssssssssskddpdddo",
+    "oddpppdkssssssssssssssskdpdpddo",
+    "odddpddkssssssssssssssskddpdddo",
+    "oddddddkssssssssssssssskddddddo",
+    "oddddddkssssssssssssssskddddddo",
+    "oddddddkssssssssssssssskdpddddo",
+    "oddddddkssssssssssssssskddddddo",
+    "oddddpdkssssssssssssssskdpddddo",
+    "oddddddkkkkkkkkkkkkkkkkkddddddo",
+    ".odddddddddddddddddddddddddddo.",
+    "..ooooooooooooooooooooooooooo..",
 ]
-# The Wi-Fi sign: ui.DSI_WIFI two rows up, its middle column doubled (the
-# screen is an even 18 pixels wide here), so it stays centred.
-ICON_WIFI_ROWS = -2
+ICON_WIFI = (-2, -2)                # the Wi-Fi sign's offset from where ui.DSI_WIFI has it
 # Not-yet-lit arcs are the speakers' colour here, so every frame has the
 # very same colours: ndstool gives each frame its own palette (sorted by
 # colour), and some menus (TWiLight Menu++ on a 3DS) draw every frame with
 # one of them, which scrambled the frames whose palettes differed.
 ICON_WIFI_DIM = 'e'
 # The bottom screen's lines: (row, how far from the screen's colour to the
-# lines' colour), each 12 pixels wide from column 10.
+# lines' colour), each 11 pixels wide from column 10.
 ICON_LINES = [(21, 0.35), (23, 0.55), (25, 0.8), (27, 1.0)]
-ICON_LINES_X = (10, 22)
+ICON_LINES_X = (10, 21)
 
 
 def _mix(a, b, t):
@@ -125,9 +123,7 @@ def icon_frame(lit):
     for i, part in enumerate(ui.DSI_WIFI):
         c = ui.DSI_WIFI_OFF if i < lit else pal[ICON_WIFI_DIM]
         for x, y in part:
-            dx = x - 17   # from the sign's middle column
-            for col in ([15, 16] if dx == 0 else [15 + dx] if dx < 0 else [16 + dx]):
-                im.putpixel((col, y + ICON_WIFI_ROWS), _ds(c))
+            im.putpixel((x + ICON_WIFI[0], y + ICON_WIFI[1]), _ds(c))
     for y, t in ICON_LINES:
         for x in range(*ICON_LINES_X):
             im.putpixel((x, y), _ds(_mix(pal['s'], ui.DSI_LINES_COLOR, t)))

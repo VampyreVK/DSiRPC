@@ -559,7 +559,8 @@ class BWParser(PlatinumParser):
     def motion(cls, before, loc, now):
         """Sets loc's `gait` ('stand', 'walk', 'run', 'bike', 'bike_stop' or
         'surf') from how far the player moved since `before` (the last
-        location read, at its 'at'), and its 'at' to `now`."""
+        location read, at its 'at'), its 'at' to `now` and its 'moved' to
+        the last (gait, time) you were moving."""
         if loc.get('form') == 'surf':
             gait = 'surf'
         else:
@@ -576,3 +577,6 @@ class BWParser(PlatinumParser):
             loc['speed'] = round(speed, 2)
         loc['gait'] = gait
         loc['at'] = now
+        # The last way you moved and when, for Discord (whose updates are 5 s
+        # apart, so a short stop needn't change its picture).
+        loc['moved'] = (gait, now) if gait in ('walk', 'run', 'bike') else before.get('moved')

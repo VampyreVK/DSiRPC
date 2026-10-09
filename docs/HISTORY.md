@@ -285,6 +285,15 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **Discord's Unova GIFs without trails, and the trainer's
+  gait.** The GIFs only ever added pixels (`disposal=1`), so where a Pokémon
+  moved away its old pixels stayed: they trailed. `process_unova.py` now
+  writes them itself, clearing just the Pokémon's rectangle after a frame
+  when the next one needs pixels gone and keeping the turf, checked frame
+  by frame with Pillow, ffmpeg and ImageMagick, at about the same size.
+  Discord's trainer now stands, walks, runs or rides like the overlay's
+  ("Biking through Route 4"), held through short stops.
+
 - 2026-10-09: **Black and White: the trainer walks when you walk.** With
   `dsirpc_client.py --watch` (new: prints whatever changes in some ranges)
   Viv confirmed the facing on a console. Between full reads the hub now

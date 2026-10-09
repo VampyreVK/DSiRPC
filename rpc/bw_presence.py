@@ -7,9 +7,10 @@ parsed game state (core/bw_parser.py):
                 the turf the overlay's battle view uses for the place as the
                 big image, your Pokemon's back sprite as the small one, and
                 "<yours> is fighting <foe>"
-  otherwise:    "Playing", where you are, badges / Pokedex / season, your
-                trainer walking the way you face on the place's turf as the
-                big image (with the trainers beaten and items found here
+  otherwise:    "Playing", where you are (running, biking or surfing
+                through it when you are), badges / Pokedex / season, your
+                trainer the way you face on the place's turf as the big
+                image, standing, walking, running or on the bike as you are (with the trainers beaten and items found here
                 when the notes know them), your lead's overworld sprite as
                 the small one, and the party fraction; in the Battle Subway,
                 the Battle Institute and the Pokemon League their own lines
@@ -21,6 +22,8 @@ Unova's own Pokemon (494-649) have Unova turfs; older ones use Platinum's
 dioramas. The timer counts the save's playtime.
 """
 
+import time
+
 from pypresence import ActivityType
 
 from core import bw_data, games
@@ -28,6 +31,12 @@ from rpc import platinum_presence as platinum
 
 SPRITES = platinum.SPRITES
 UNOVA_DEX = range(494, 650)
+# The trainer GIFs for each gait (Unova-Trainer/<turf>/<name>-<Dir><suffix>.gif);
+# no surfing sheet, so standing.
+GAIT_SUFFIX = {'walk': '', 'run': '-Run', 'bike': '-Bike', 'bike_stop': '-BikeStop', 'stand': '-Stand', 'surf': '-Stand'}
+GAIT_VERB = {'run': 'Running through', 'bike': 'Biking through', 'bike_stop': 'Biking through',
+             'surf': 'Surfing through'}
+RECENT_S = 6.0   # a stop shorter than this keeps showing the way you moved
 
 
 def turf(d):
@@ -43,11 +52,23 @@ def foe_image(d, mon):
     return platinum.front_sprite(sid, shiny)
 
 
-def trainer_image(d):
+def gait(d, now=None):
+    """How you're getting about (the hub's `gait`), held on the last way you
+    moved through a short stop; walking when it isn't known."""
+    loc = d.get('location') or {}
+    g, moved = loc.get('gait'), loc.get('moved')
+    if g in ('stand', 'bike_stop') and moved and (now or time.time()) - moved[1] < RECENT_S \
+            and (moved[0] == 'bike') == (g == 'bike_stop'):
+        return moved[0]
+    return g or 'walk'
+
+
+def trainer_image(d, how=None):
     character = d.get('character') if d.get('character') in ('Hilbert', 'Hilda') else 'Hilbert'
     facing = (d.get('location') or {}).get('facing')
     facing = facing if facing in ('up', 'down', 'left', 'right') else 'down'
-    return f"{SPRITES}/Unova-Trainer/{turf(d)}/{character}-{facing.capitalize()}.gif?raw=true"
+    suffix = GAIT_SUFFIX.get(how or gait(d), '')
+    return f"{SPRITES}/Unova-Trainer/{turf(d)}/{character}-{facing.capitalize()}{suffix}.gif?raw=true"
 
 
 def game_name(d):
@@ -124,7 +145,8 @@ def overworld_presence(d):
     season = (d.get('season') or '').capitalize()
     subway, institute, league = d.get('subway'), d.get('institute'), d.get('league')
 
-    details = f"Exploring {place}"
+    how = gait(d)
+    details = f"{GAIT_VERB.get(how, 'Exploring')} {place}"
     bits = [f"Badges: {len(d.get('badges') or [])}", f"Pokédex: {(d.get('pokedex') or {}).get('caught', 0)}"]
     if subway:
         details = f"Riding the {subway['train']} Train" if subway.get('train') else "At the Battle Subway"
@@ -158,7 +180,7 @@ def overworld_presence(d):
         'activity_type': ActivityType.PLAYING,
         'details': details[:128],
         'state': " | ".join(bits)[:128],
-        'large_image': trainer_image(d),
+        'large_image': trainer_image(d, how),
         'large_text': big[:128],
     }
     if party:

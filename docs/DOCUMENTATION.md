@@ -807,9 +807,9 @@ game (below).
 
 | Field | Overworld | Battle |
 |---|---|---|
-| Line 1 | `Exploring <place>`; `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
+| Line 1 | `Exploring <place>` (`Running through`, `Biking through`, `Surfing through` as you go about); `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
 | Line 2 | `Badges: 3 \| Pokédex: 31 \| Autumn \| Achievements: 4/9`; in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
-| Large image | Your trainer walking the way you face, on the turf the battle view uses here: `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
+| Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
 | Large hover | `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4, Repel: 82 steps)` | Owner, species, level, HP, and "(caught before)" for a wild one you own |
 | Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
 
@@ -1781,7 +1781,7 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
 | `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file) |
 | `Unova-Battle`, `Unova-Battle-Shiny` | Pokémon Black and White's foe in battle (large): `<turf>/<id>.gif` for Unova's Pokémon (494-649) on each battle platform (grass, sand, snow, water, cave, indoor) | `Unova-Battle/process_unova.py`, below |
-| `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` | same |
+| `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg` | Added by hand; any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
@@ -1817,10 +1817,17 @@ images with the overlay's own code: each turf is drawn by
 view), and the Pokémon (from `Pokemon-Overworld` and
 `Shiny-Pokemon-Overworld`, halved to their real pixels and mirrored to face
 left) and the trainers (from the walking sheets) stand on it with their feet
-at y=126 of a 160x160 canvas, like the dioramas. The GIFs share one palette
-for all their frames, and after the first frame only the pixels that change
-are stored (the rest are transparent, `disposal=1`), so the turf is stored
-once: about 30-120 KB each. With no argument it makes Unova's Pokémon
+at y=126 of a 160x160 canvas, like the dioramas. The script writes the GIFs
+itself (`save_gif()`, with its own LZW encoder): one palette for all the
+frames, the first frame whole, and after it only the pixels that change.
+Drawing can't make a pixel see-through again, so when the next frame needs
+pixels gone (where the Pokémon was and isn't any more) the frame before is
+cleared once it's been shown (disposal 2), only its own rectangle around
+what it drew and what has to go; the first frame, which covers the whole
+canvas, is shown for 20 ms and an empty frame over that rectangle does the
+clearing. So nothing leaves a trail and the turf around the Pokémon is
+stored once: about 20-180 KB each. (The first version kept every pixel,
+`disposal=1`, so a Pokémon moving left trails behind it.) With no argument it makes Unova's Pokémon
 (494-649), about 75 MB a colour; `1-649` would make every Pokémon (about
 600 MB more), so older Pokémon show Platinum's dioramas instead. It needs
 Pillow and pygame-ce, and uses every CPU core.

@@ -32,6 +32,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# ...except the macOS app's, which is written by hand
+!packaging/macos/DSiRPC.spec
 
 # Installer logs
 pip-log.txt

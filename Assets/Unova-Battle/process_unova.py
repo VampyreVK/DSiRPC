@@ -5,6 +5,7 @@ Hilbert and Hilda walking on them, as small, optimised animated GIFs.
 
     python Assets/Unova-Battle/process_unova.py            # Unova's Pokemon (494-649)
     python Assets/Unova-Battle/process_unova.py 1-649      # any range
+    python Assets/Unova-Battle/process_unova.py trainers   # only Hilbert and Hilda
 
 Writes (next to the other Assets folders, served by GitHub Pages):
 
@@ -22,7 +23,8 @@ Pokemon come from Assets/Pokemon-Overworld and Shiny-Pokemon-Overworld (the
 animated front sprites, drawn at 2x and facing right): halved to their real
 pixels and mirrored to face left like a foe, then stood on the turf with
 their feet at y=126 of a 160x160 canvas, like Platinum's dioramas. The
-trainers come from Assets/Trainer-Overworld's walking sheets.
+trainers come from Assets/Trainer-Overworld's sheets (walking, running, on
+the bike), drawn bigger (TRAINER_SCALE) to fill Discord's round picture.
 
 The GIFs are kept small, and written by save_gif() itself: one palette for
 every frame, the first frame whole and after it only the pixels that
@@ -46,6 +48,10 @@ from PIL import Image, ImageOps, ImageSequence  # noqa: E402
 
 CANVAS = 160
 FEET_Y = 126
+# The trainers are drawn 3.5x their own pixels and stand a little higher, so
+# with the turf they fill Discord's round picture (nothing outside a circle
+# 2 px inside the canvas, for any gait, direction or frame).
+TRAINER_SCALE, TRAINER_FEET_Y = 3.5, 120
 TURF_W, TURF_H = 136, 34          # the turf's top ellipse
 TURFS = ['grass', 'sand', 'snow', 'water', 'cave', 'indoor']   # core/bw_data.terrain()'s platforms
 DIRECTIONS = ['Down', 'Left', 'Right', 'Up']
@@ -86,15 +92,15 @@ def crop_union(frames):
     return [f.crop(box) for f in frames] if box else frames
 
 
-def compose(sprites, ground):
-    """Each sprite frame on the turf, feet at FEET_Y, centred."""
+def compose(sprites, ground, feet=FEET_Y):
+    """Each sprite frame on the turf, feet at `feet`, centred."""
     out = []
     tx = (CANVAS - ground.width) // 2
-    ty = FEET_Y - 5 - ground.height // 2   # the feet a little below the turf's middle
+    ty = feet - 5 - ground.height // 2   # the feet a little below the turf's middle
     for s in sprites:
         frame = Image.new('RGBA', (CANVAS, CANVAS), (0, 0, 0, 0))
         frame.alpha_composite(ground, (tx, ty))
-        frame.alpha_composite(s, ((CANVAS - s.width) // 2, FEET_Y - s.height))
+        frame.alpha_composite(s, ((CANVAS - s.width) // 2, feet - s.height))
         out.append(frame)
     return out
 
@@ -243,11 +249,12 @@ def make_trainers():
             cell = sheet.width // 4
             for row, direction in enumerate(DIRECTIONS):
                 frames = [sheet.crop((c * cell, row * cell, (c + 1) * cell, (row + 1) * cell)) for c in range(4)]
-                frames = crop_union(halve(frames))
+                frames = [f.resize((round(f.width * TRAINER_SCALE), round(f.height * TRAINER_SCALE)), Image.NEAREST)
+                          for f in crop_union(halve(frames))]
                 if ms is None:
                     frames = frames[:1]
                 for kind in TURFS:
-                    save_gif(compose(frames, turf(kind)), [ms or 1000] * len(frames),
+                    save_gif(compose(frames, turf(kind), TRAINER_FEET_Y), [ms or 1000] * len(frames),
                              os.path.join(ASSETS, 'Unova-Trainer', kind, f'{name}-{direction}{suffix}.gif'))
                     n += 1
     return n
@@ -255,9 +262,11 @@ def make_trainers():
 
 def main():
     lo, hi = 494, 649
+    print(f"Trainers: {make_trainers()} GIFs")
+    if sys.argv[1:] == ['trainers']:
+        return
     if len(sys.argv) > 1:
         lo, hi = (int(v) for v in sys.argv[1].split('-'))
-    print(f"Trainers: {make_trainers()} GIFs")
     jobs = [(sid, shiny) for sid in range(lo, hi + 1) for shiny in (False, True)]
     with Pool() as pool:
         done = 0

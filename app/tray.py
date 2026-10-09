@@ -1,5 +1,6 @@
 """
-tray.py - DSiRPC as a tray icon (DSiRPC.bat, or 'dsirpc.py tray').
+tray.py - DSiRPC as a tray icon (DSiRPC.bat, or 'dsirpc.py tray'), or a menu
+bar icon in the macOS app (packaging/macos/).
 
 Right-click the icon for the menu:
 
@@ -10,10 +11,10 @@ Right-click the icon for the menu:
     Discord presence                   on/off
     Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
-    Start with Windows                 on/off
+    Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
-    Setup...                           'dsirpc.py setup' in a console window
-    Open log / Open DSiRPC folder
+    Setup...                           'dsirpc.py setup' in a console window (Terminal on a Mac)
+    Open log / Open DSiRPC folder      (on a Mac, the folder with your settings)
     ---
     Quit
 
@@ -23,6 +24,12 @@ application ID. The on/off choices are saved in dsirpc.cfg.
 
 Only one DSiRPC can run at a time (it needs the DSi's UDP port, 4244); a
 second one says so and exits.
+
+On a Mac the icon is in the menu bar and a click opens the menu (there's no
+left-click action). The menu bar owns the main thread, so changes to the
+icon and the menu are handed to it (on_main), and the overlay window runs in
+a process of its own (overlay/remote.py). Setup runs in Terminal, and opens
+by itself the first time, when there's no dsirpc.cfg yet.
 """
 
 import logging
@@ -31,8 +38,11 @@ import subprocess
 import sys
 import threading
 
+from core.paths import DATA
 from . import startup
 from .engine import Engine, PortInUse, LOG_FILE, ROOT
+
+MAC = sys.platform == "darwin"
 
 COLORS = {
     'playing': (88, 208, 128),
@@ -41,11 +51,18 @@ COLORS = {
 }
 
 
+def _applescript_text(text):
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def message_box(text, title="DSiRPC"):
-    """A Windows message box (or a printed line elsewhere)."""
+    """A Windows message box, a dialog on a Mac (or a printed line elsewhere)."""
     if sys.platform == "win32":
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, text, title, 0x40)  # MB_ICONINFORMATION
+    elif MAC:
+        subprocess.run(["osascript", "-e", f"display dialog {_applescript_text(text)} with title "
+                        f"{_applescript_text(title)} buttons {{\"OK\"}} default button 1"], check=False)
     else:
         print(f"{title}: {text}")
 
@@ -73,7 +90,52 @@ def _open(path):
     if sys.platform == "win32":
         os.startfile(path)
     else:
-        subprocess.Popen(["xdg-open", path])
+        subprocess.Popen(["open" if MAC else "xdg-open", path])
+
+
+def on_main(fn):
+    """Runs fn() on the menu bar's thread on a Mac (AppKit only takes
+    changes there), else right away."""
+    if MAC:
+        from PyObjCTools import AppHelper
+        AppHelper.callAfter(fn)
+    else:
+        fn()
+
+
+def nudge_local_network():
+    """One UDP packet to the local network's discard port, so macOS asks
+    for Local Network access right away (it asks when an app first sends
+    there, and DSiRPC mostly listens). Nothing listens on that port."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.sendto(b"DSiRPC", ("255.255.255.255", 9))
+    except OSError as e:
+        logging.info(f"Local network check: {e}")
+
+
+def open_setup():
+    """'dsirpc.py setup' in a console window: a new console on Windows,
+    Terminal on a Mac (through a small .command file in DSiRPC's data
+    folder; the app runs its own copy of setup)."""
+    if MAC:
+        import shlex
+        if getattr(sys, "frozen", False):
+            args = [sys.executable, "setup"]
+        else:
+            args = [sys.executable, os.path.join(ROOT, "dsirpc.py"), "setup"]
+        os.makedirs(DATA, exist_ok=True)
+        script = os.path.join(DATA, "DSiRPC Setup.command")
+        with open(script, "w") as f:
+            f.write("#!/bin/sh\nclear\n" + " ".join(shlex.quote(a) for a in args) + "\n")
+        os.chmod(script, 0o755)
+        subprocess.Popen(["open", script])
+        return
+    args = [_console_python(), os.path.join(ROOT, "dsirpc.py"), "setup"]
+    flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+    subprocess.Popen(args, cwd=ROOT, creationflags=flags)
 
 
 def _console_python():
@@ -91,7 +153,8 @@ def run_tray(cfg, **engine_args):
     try:
         engine = Engine(cfg, discord=cfg.discord, **engine_args)
     except PortInUse:
-        message_box("DSiRPC is already running (its icon is in the taskbar's notification area), "
+        where = "the menu bar" if MAC else "the taskbar's notification area"
+        message_box(f"DSiRPC is already running (its icon is in {where}), "
                     "or another DSiRPC tool is using the DSi's UDP port 4244.")
         return 1
     engine.persist = True
@@ -104,6 +167,12 @@ def run_tray(cfg, **engine_args):
             return 'problem'
         return 'playing' if engine.online else 'waiting'
 
+    def notify(body, title):
+        try:
+            icon.notify(body, title)
+        except Exception as e:   # on a Mac it's osascript, which can fail
+            logging.info(f"Couldn't show a notification: {e}")
+
     def refresh(events=()):
         with lock:
             s = status()
@@ -114,11 +183,11 @@ def run_tray(cfg, **engine_args):
             icon.update_menu()
             for e in events:
                 if e['type'] == 'online':
-                    icon.notify(engine.headline(), "DSiRPC: DSi connected")
+                    notify(engine.headline(), "DSiRPC: DSi connected")
                 elif e['type'] == 'offline':
-                    icon.notify("No data from the DSi for 30 s. DSiRPC waits for it to come back.", "DSiRPC")
+                    notify("No data from the DSi for 30 s. DSiRPC waits for it to come back.", "DSiRPC")
                 elif e['type'] == 'game_changed':
-                    icon.notify(f"Now playing {e['title']}", "DSiRPC")
+                    notify(f"Now playing {e['title']}", "DSiRPC")
                 elif e['type'] == 'achievement':
                     p = e.get('progress')
                     body = f"{e['title']} ({e['points']} points)\n{e['description']}"
@@ -126,13 +195,13 @@ def run_tray(cfg, **engine_args):
                         body += f"\n{p[0]} of {p[1]} in {e['game']}"
                     if not e['sent']:
                         body += "\n(not sent to RetroAchievements)"
-                    icon.notify(body[:255], "Achievement unlocked!")
+                    notify(body[:255], "Achievement unlocked!")
                 elif e['type'] == 'offline_unlocks':
                     n = e['count']
                     body = ", ".join(e['titles'][:3]) + (f" and {n - 3} more" if n > 3 else "")
                     body += "\n" + ("Sent to RetroAchievements." if e['sent']
                                     else "Not sent: sending unlocks is off in setup.")
-                    icon.notify(body[:255], f"{n} achievement{'s' if n != 1 else ''} from offline play")
+                    notify(body[:255], f"{n} achievement{'s' if n != 1 else ''} from offline play")
 
     def toggle_discord(icon_, item):
         on = not engine.discord.enabled
@@ -143,7 +212,7 @@ def run_tray(cfg, **engine_args):
     def overlay_closed():
         engine.cfg.overlay = False
         engine.save_config()
-        refresh()
+        on_main(refresh)
 
     def toggle_overlay(icon_, item):
         on = not engine.overlay_on
@@ -170,12 +239,7 @@ def run_tray(cfg, **engine_args):
         try:
             startup.set_enabled(not startup.is_enabled())
         except OSError as e:
-            icon.notify(f"Couldn't change it: {e}", "DSiRPC")
-
-    def open_setup(icon_, item):
-        args = [_console_python(), os.path.join(ROOT, "dsirpc.py"), "setup"]
-        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-        subprocess.Popen(args, cwd=ROOT, creationflags=flags)
+            notify(f"Couldn't change it: {e}", "DSiRPC")
 
     def quit_(icon_, item):
         icon.stop()
@@ -188,25 +252,32 @@ def run_tray(cfg, **engine_args):
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
-        Item("Start with Windows", toggle_startup, checked=lambda i: startup.is_enabled(),
+        Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),
         Menu.SEPARATOR,
-        Item("Setup...", open_setup),
+        Item("Setup...", lambda i, it: open_setup()),
         Item("Open log", lambda i, it: _open(LOG_FILE)),
-        Item("Open DSiRPC folder", lambda i, it: _open(ROOT)),
+        Item("Open DSiRPC folder", lambda i, it: _open(DATA)),
         Menu.SEPARATOR,
         Item("Quit", quit_),
     )
     icon = pystray.Icon("DSiRPC", make_icon('waiting'), "DSiRPC: starting", menu)
-    engine.on_change = refresh
+    engine.on_change = lambda events: on_main(lambda: refresh(events))
+
+    def show():
+        icon.visible = True
 
     def setup(icon_):
         try:
-            icon.visible = True
+            on_main(show)
+            if MAC:
+                nudge_local_network()
             engine.start()
+            if MAC and not cfg.loaded_from:
+                open_setup()   # the first time: there's no dsirpc.cfg yet
             if cfg.overlay:
                 engine.set_overlay(True, on_closed=overlay_closed)
-            refresh()
+            on_main(refresh)
         except Exception:
             logging.exception("Tray setup failed")
 

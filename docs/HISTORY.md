@@ -285,6 +285,20 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **A macOS app.** `DSiRPC-<version>-macos.zip` (the `macos`
+  job, `packaging/macos/build_app.py`): DSiRPC.app, made with PyInstaller,
+  for Apple silicon, with Viv's icon set (`Assets/icons/adaptive.icns`). It's
+  the tray as a menu bar icon with the same menu; setup stays the console
+  wizard, run in Terminal (by itself the first time); Open at Login is a
+  launch agent. macOS wants the menu bar and any window on the main thread,
+  so the overlay window is a process of its own there (`overlay/remote.py`,
+  fed the hub's snapshots through a pipe; tried headless on Linux with the
+  demo hub) and icon/menu changes are handed to the main thread. The app
+  writes to `~/Library/Application Support/DSiRPC` (`core/paths.py`), bundles
+  `certifi` for HTTPS, builds the rcheevos library as a `.dylib`, and runs a
+  `selfcheck` in CI. Not signed with a Developer ID (no paid Apple account),
+  so the first launch is right-click > Open. Windows is unchanged.
+
 - 2026-10-09: **The launcher's icon on a 3DS.** On Viv's 3DS (TWiLight
   Menu++) three of the icon's four frames had scrambled colours: ndstool
   gives each frame its own palette, sorted by colour, and the all-lit

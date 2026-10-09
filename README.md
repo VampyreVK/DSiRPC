@@ -23,7 +23,8 @@ your party and battles (or any other game's progress) for streaming.
 - The console's **Wi-Fi set up** for the same network as your PC. On a DSi, a
   WPA2 network has to be saved in connection 4, 5 or 6 (System Settings >
   Internet > Connection Settings > Advanced Setup).
-- A **64-bit Windows 10 or 11 PC** with the **Discord** desktop app.
+- A **64-bit Windows 10 or 11 PC**, or a **Mac with Apple silicon** (M1 or
+  later, macOS 12+), with the **Discord** desktop app.
 
 ## Install
 
@@ -44,6 +45,18 @@ your party and battles (or any other game's progress) for streaming.
 5. **On the SD card:** copy the `DSiRPC` folder from the zip's `SD card`
    folder to the root of the card, so you have `sd:/DSiRPC/dsirpc-launcher.nds`
    and `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`. Keep the two together.
+
+### On a Mac
+
+Download **`DSiRPC-<version>-macos.zip`** instead and drag **DSiRPC.app**
+into Applications. It isn't signed with an Apple developer account, so open
+it the first time with right-click > **Open** (or System Settings > Privacy &
+Security > **Open Anyway**). Its icon appears in the menu bar, and setup
+opens in Terminal the first time (the same questions as `Setup.bat`). Allow
+it on the **local network** when macOS asks, or it never hears from the
+console. The SD card files are the same as above. Its settings, log and
+achievement sets are in `~/Library/Application Support/DSiRPC`. The zip's
+`README.txt` has the details.
 
 ## Playing
 
@@ -140,14 +153,15 @@ Right-click it for the menu:
 | **Discord presence** | Show the game on Discord, or not |
 | **Console icon** | The picture Discord shows for games without their own presence: DSi XL, New 3DS, or none |
 | **Overlay window** | The stream overlay (a left click on the icon toggles it too) |
-| **Start with Windows** | Start DSiRPC in the tray when you sign in |
-| **Setup...** | Runs setup again, to change an answer |
-| **Open log** / **Open DSiRPC folder** | `logs\dsirpc.log`, and the folder DSiRPC is in |
+| **Start with Windows** | Start DSiRPC in the tray when you sign in (**Open at Login** on a Mac) |
+| **Setup...** | Runs setup again, to change an answer (in Terminal on a Mac) |
+| **Open log** / **Open DSiRPC folder** | `logs\dsirpc.log`, and the folder DSiRPC is in (on a Mac, the folder with its settings) |
 | **Quit** | Stops DSiRPC |
 
 The dot is green while the game answers, amber while DSiRPC waits for the
 console, and red if Discord can't be reached (or there's no Discord
-application yet).
+application yet). On a Mac the icon is in the menu bar, with the same menu;
+a click opens it.
 
 ## RetroAchievements
 

@@ -33,7 +33,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `Assets/` | Sprites served by GitHub Pages for Discord and the overlay, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
-| `packaging/` | The Windows download: `build_release.py`, and the `README.txt`, license list and release notes that go with it |
+| `packaging/` | The Windows download: `build_release.py`, and the `README.txt`, license list and release notes that go with it; `packaging/macos/`: the macOS app (below) |
 | `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
@@ -199,7 +199,7 @@ For testing and development, run from the repo root:
 
 ## 9. Builds and releases
 
-[`.github/workflows/build.yml`](../.github/workflows/build.yml) builds three
+[`.github/workflows/build.yml`](../.github/workflows/build.yml) builds four
 things on GitHub:
 
 | Job | Output |
@@ -207,11 +207,12 @@ things on GitHub:
 | `nds-bootstrap` | `nds-bootstrap-dsirpc.nds`, with the same Docker image as above |
 | `launcher` | `dsirpc-launcher.nds`, with the same Docker image as above |
 | `windows` | `DSiRPC-<version>-windows.zip`, the Windows download (`packaging/build_release.py`, below), on a Windows runner |
+| `macos` | `DSiRPC-<version>-macos.zip`, the macOS app (`packaging/macos/build_app.py`, below), on an Apple silicon runner |
 
 It runs when a push to `main` changes DSiRPC's files, on pull requests, and on
 demand (Actions tab > **Build DSiRPC** > **Run workflow**). Each run keeps the
 outputs as artifacts (`nds-bootstrap-dsirpc`, `dsirpc-launcher`,
-`DSiRPC-windows`), which GitHub downloads as zips.
+`DSiRPC-windows`, `DSiRPC-macos`), which GitHub downloads as zips.
 
 To publish a release, push a tag that starts with `v`:
 
@@ -224,7 +225,7 @@ git push origin v0.4.0
 
 The release is named after the tag. Its notes start with
 `packaging/RELEASE_NOTES.md` (how to install), followed by notes generated
-from the commits, and it has the Windows zip and both `.nds` files attached.
+from the commits, and it has the Windows and macOS zips and both `.nds` files attached.
 
 ### The Windows download
 
@@ -256,3 +257,41 @@ everything DSiRPC uses. The zip goes in `dist\`; `--discord-client-id` and
 The zip holds no settings, sets or logs, so unzipping a newer one over an
 older folder updates DSiRPC and keeps the user's `dsirpc.cfg`, `ra\` and
 `logs\`.
+
+### The macOS app
+
+`packaging/macos/build_app.py` makes `DSiRPC.app` with PyInstaller
+(`packaging/macos/DSiRPC.spec`) and zips it with the same `SD card` folder,
+`licenses/` (plus `THIRD-PARTY-macOS.txt`) and its own `README.txt`. On a Mac
+with Apple silicon, from the repo root:
+
+```
+python -m pip install -r requirements.txt pyinstaller certifi
+```
+```
+python packaging/macos/build_app.py --nds-dir <folder with both .nds files> --version test
+```
+
+It builds `third_party/rcheevos/librcheevos.dylib` first if it isn't there
+(rcheevos' tag `RCHEEVOS_TAG` from GitHub plus `dsirpc_offline.c`, with the
+system's `cc`), writes `defaults.cfg` like the Windows build, and runs the
+built app once with `selfcheck` (`packaging/macos/dsirpc_app.py`, the app's
+entry point: it imports everything and loads rcheevos). The zip goes in
+`dist/`.
+
+How the app differs from the Windows download:
+
+- It's a menu bar app (`LSUIElement`), started as `dsirpc.py tray`, with the
+  icon set in `Assets/icons` (`adaptive.icns`).
+- It writes nothing inside itself: `core/paths.py`'s `DATA` is
+  `~/Library/Application Support/DSiRPC` there (dsirpc.cfg, logs, `ra/`, the
+  downloaded sprites).
+- macOS wants the menu bar and every window on the main thread, so the tray's
+  overlay window is a process of its own (`overlay/remote.py`), and changes to
+  the icon and menu go through `app/tray.py`'s `on_main`.
+- Setup runs in Terminal (a `.command` file in the data folder runs the app
+  with `setup`), by itself the first time; Open at Login is a launch agent
+  (`app/startup.py`).
+- It has no Developer ID signature (PyInstaller signs it ad hoc), so the first
+  launch needs right-click > Open, and macOS may ask for Local Network access
+  again after each update. HTTPS uses `certifi`'s certificates.

@@ -12,7 +12,11 @@ answer in [brackets]; Enter keeps it.
                           exactly which game you play (optional)
   5. Achievement sets     for the game the DSi runs now, or any game code:
                           from RetroAchievements or RALibretro's cache
-  6. Start with Windows   (Windows only)
+  6. Start with Windows   ("Open at Login" in the macOS app)
+
+The macOS app (packaging/macos/) runs this in Terminal from its menu bar
+menu, and by itself the first time; its packages come with it, so step 1
+only checks the rcheevos library there.
 
 Everything is saved to dsirpc.cfg.
 """
@@ -99,6 +103,10 @@ def check_packages():
 
 def step_packages():
     heading(1, "Python packages")
+    if getattr(sys, "frozen", False):   # the macOS app: everything's inside it
+        say("The DSiRPC app brings everything it needs.")
+        _check_rcheevos()
+        return
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     # A release download brings its own Python, in the python folder
     bundled = os.path.normcase(os.path.abspath(sys.executable)).startswith(
@@ -118,6 +126,10 @@ def step_packages():
             if r.returncode != 0:
                 say("The install didn't finish (see the messages above). DSiRPC won't start until "
                     "these packages are installed.")
+    _check_rcheevos()
+
+
+def _check_rcheevos():
     try:
         sys.path.insert(0, ROOT)
         from core.rcheevos import library, RcheevosMissing
@@ -562,18 +574,23 @@ def step_sets(cfg):
 
 def step_startup():
     from . import startup
-    heading(6, "Start with Windows")
+    mac = sys.platform == "darwin"
+    heading(6, startup.label())
     if not startup.supported():
-        say("Only on Windows; skipped.")
+        say("Only on Windows and macOS; skipped.")
         return
-    say("DSiRPC can start in the tray (by the clock) whenever you sign in to Windows, so it's "
-        "always ready when you play.")
+    if mac:
+        say("DSiRPC can open in the menu bar whenever you log in, so it's always ready when you play.")
+    else:
+        say("DSiRPC can start in the tray (by the clock) whenever you sign in to Windows, so it's "
+            "always ready when you play.")
     on = startup.is_enabled()
-    want = yes("Start DSiRPC with Windows?", on)
+    want = yes("Open DSiRPC at login?" if mac else "Start DSiRPC with Windows?", on)
     if want != on or (want and startup.current() != startup.command()):
         try:
             startup.set_enabled(want)
-            say("Done: it'll start with Windows." if want else "Done: it won't start with Windows.")
+            when = "at login" if mac else "with Windows"
+            say(f"Done: it'll start {when}." if want else f"Done: it won't start {when}.")
         except OSError as e:
             say(f"Couldn't change it: {e}")
 
@@ -584,7 +601,8 @@ def run_setup():
     print("DSiRPC setup")
     print("============")
     say("This gets DSiRPC ready on this PC. For each question, the answer in [brackets] is what's "
-        "saved now: press Enter to keep it. Run Setup.bat again any time to change an answer.")
+        "saved now: press Enter to keep it. " + ("Choose Setup... in DSiRPC's menu bar menu"
+        if getattr(sys, "frozen", False) else "Run Setup.bat") + " again any time to change an answer.")
     step_packages()
     cfg = Config()
     migrated = cfg.loaded_from and os.path.basename(cfg.loaded_from) == OLD_CONFIG_NAME
@@ -605,6 +623,13 @@ def run_setup():
         say(f"Couldn't save {cfg.path}: {e}")
         return 1
     say()
+    if sys.platform == "darwin":
+        say("You're all set! DSiRPC is in the menu bar (the little DSi by the clock): click it for "
+            "the menu. If it never finds the DSi, allow it in System Settings > Privacy & Security > "
+            "Local Network.")
+        if sys.stdin and sys.stdin.isatty():
+            ask("Press Enter to close")
+        return 0
     say("You're all set! Double-click DSiRPC.bat to start DSiRPC: it sits in the tray, by the "
         "clock (right-click its icon for the menu). If it never finds the DSi, allow Python "
         "through the Windows firewall for private networks.")

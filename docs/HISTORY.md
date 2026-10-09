@@ -285,6 +285,11 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-09: **The party fraction leads Discord's second line.** Black and
+  White's overworld line reads `1/1 PKMN | 0 Badges | Seen: 3 | Caught: 1`,
+  in place of Discord's own "(1 of 1)" after it (the Subway, Institute and
+  League lines start with it too).
+
 - 2026-10-09: **Black and White's Discord text, trimmed.** The second line
   is now `Badges | Seen | Caught`, and the achievements moved to the big
   picture's text, which Discord shows as a third line (the place's trainers

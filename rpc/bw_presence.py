@@ -8,18 +8,18 @@ parsed game state (core/bw_parser.py):
                 big image, your Pokemon's back sprite as the small one, and
                 "<yours> is fighting <foe>"
   otherwise:    "Playing", where you are (running, biking or surfing
-                through it when you are), "Badges | Seen | Caught", and as
-                the big picture's text (Discord shows it as a third line)
-                the achievements and the place's trainers beaten and items
-                found (or the Repel's steps, while one's active) taking turns
-                every 30 s (without achievements, who's where with those);
-                your trainer the way you
-                face on the place's turf as the big image, standing,
-                walking, running or on the bike as you are, your lead's
-                overworld sprite as the small one, and the party fraction;
-                in the Battle Subway, the Battle Institute and the Pokemon
-                League their own second line (streak, rank, Elite Four
-                beaten)
+                through it when you are), "1/1 PKMN | 0 Badges | Seen: 3 |
+                Caught: 1" (the party fraction first), and as the big
+                picture's text (Discord shows it as a third line) the
+                achievements and the place's trainers beaten and items found
+                (or the Repel's steps, while one's active) taking turns every
+                30 s (without achievements, who's where with those); your
+                trainer the way you face on the place's turf as the big
+                image, standing, walking, running or on the bike as you are,
+                and your lead's overworld sprite as the small one; in the
+                Battle Subway, the Battle Institute and the Pokemon League
+                their own second line after the party fraction (streak,
+                rank, Elite Four beaten)
 
 The big images come from Assets/Unova-Battle (and -Shiny) and
 Assets/Unova-Trainer, made by Assets/Unova-Battle/process_unova.py. Only
@@ -153,7 +153,7 @@ def overworld_presence(d):
     how = gait(d)
     details = f"{GAIT_VERB.get(how, 'Exploring')} {place}"
     dex = d.get('pokedex') or {}
-    bits = [f"Badges: {len(d.get('badges') or [])}", f"Seen: {dex.get('seen', 0)}", f"Caught: {dex.get('caught', 0)}"]
+    bits = [f"{len(d.get('badges') or [])} Badges", f"Seen: {dex.get('seen', 0)}", f"Caught: {dex.get('caught', 0)}"]
     if subway:
         details = f"Riding the {subway['train']} Train" if subway.get('train') else "At the Battle Subway"
         bits = [f"Streak: {subway.get('streak', 0)}", f"Record: {subway.get('record', 0)}", f"{subway.get('bp', 0)} BP"]
@@ -163,6 +163,8 @@ def overworld_presence(d):
     elif league:
         details = "Challenging the Pokémon League"
         bits = [f"Elite Four beaten: {len(league.get('beaten') or [])}/4"] + bits[1:]
+    if party:  # the party fraction leads the line (not Discord's own "(1 of 6)")
+        bits.insert(0, f"{alive}/{len(party)} PKMN")
 
     # The big picture's text, which Discord shows as a third line: the
     # achievements and the place's stats (the Repel's steps left while one's
@@ -200,7 +202,6 @@ def overworld_presence(d):
         species = '' if mon_name(lead) == lead['species'] else f" ({lead['species']})"
         presence['small_image'] = platinum.overworld_sprite(lead['species_id'], lead.get('shiny'))
         presence['small_text'] = f"Lead: {mon_name(lead)}{species}, {_hp(lead)}"[:128]
-        presence['party_size'] = [alive, len(party)]
     return presence
 
 

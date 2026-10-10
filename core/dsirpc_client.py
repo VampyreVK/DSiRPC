@@ -194,6 +194,7 @@ class DSiClient:
         self.last_hello = None
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
+        self._tick_report_due = 0.0  # when to log the console's VBlank tick next (_tick_report)
         self.ach = AchReport()
         self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
         self._in_hook = False
@@ -206,6 +207,7 @@ class DSiClient:
             self.last_hello = data.decode(errors="replace")
             self.hellos.append((time.time(), self.last_hello))
             self.game = game_from_hello(self.last_hello)
+            self._tick_report()
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
@@ -218,6 +220,35 @@ class DSiClient:
                          "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def _tick_report(self):
+        """Once a minute, what rpcprobe cost the console's ARM7 (its hellos'
+        vb=, the longest VBlank tick since the hello before, in scanlines)
+        and how busy the link was (rx= frames from the network, req=
+        requests served), to tell its cost apart from the game's own."""
+        now = time.time()
+        if now < self._tick_report_due:
+            return
+        first = not self._tick_report_due
+        self._tick_report_due = now + 60
+        if first:
+            return
+        times = [at for at, _ in self.hellos if at >= now - 60]
+        recent = [_hello_fields(text) for at, text in self.hellos if at >= now - 60]
+        ticks = sorted(int(f['vb']) for f in recent if f.get('vb', '').isdigit())
+        if len(ticks) < 2 or times[-1] - times[0] < 10:
+            return
+        text = (f"Console: its VBlank tick (rpcprobe) took up to {ticks[-1]} scanlines over the last minute "
+                f"({ticks[len(ticks) // 2]} typical; a frame has 263)")
+        try:
+            rx = int(recent[-1]['rx']) - int(recent[0]['rx'])
+            req = int(recent[-1]['req']) - int(recent[0]['req'])
+            span = times[-1] - times[0]
+            if rx >= 0 and req >= 0:  # (not across a restart)
+                text += f", {rx / span:.1f} network frames and {req / span:.1f} requests a second"
+        except (KeyError, ValueError):
+            pass
+        logging.info(text)
 
     def listen(self, seconds):
         """Takes in hellos for `seconds`, so .game and .last_hello stay

@@ -285,6 +285,28 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-10 (later): **Black and White's slow battles: what the logs and
+  the RAM dump say.** Viv's next session (a new save) played a whole rival
+  battle and five minutes without freezing, but battles still loaded slowly
+  (the first HP change came 96 s after the battle started). The RAM dump
+  Viv sent is from the day before (6:47 playtime, Seen 3, Caught 1: the
+  16:49 session), on the build with the checker at `0x0CFB0000` (its set,
+  "DRSE" IRBO, is there), and not in a battle; it does show the bug fixed
+  just before on hardware: nds-bootstrap's slot table (`0x027D8000`) has
+  751 slots, the last three at `0x0CFF0000`-`0x0CFFC000`. The cache wasn't
+  churning (353 of 751 slots used, no sector twice), and the last ROM read
+  was an ordinary 16 KB fill. Nothing found ties slow loads to DSiRPC's code:
+  Black and White's ROM reads go through the ARM7's IPC interrupt (its
+  swiHalt hook never runs: the checker's `h=0`), in non-blocking steps the
+  ARM9 re-pings every millisecond; the checker's VBlank turn is 34 to 44
+  scanlines in battle and a reply tick about 76; the ARM9's cache write-back
+  is 128 clean-by-index instructions; the IPC doorbell (3) only finishes a
+  card DMA when nds-bootstrap's 'DMA9' marker is set. Next: time a battle
+  with stock nds-bootstrap in DS mode (the mode DSiRPC needs) and with
+  DSiRPC quit on the PC. To read the Wi-Fi side's cost from any log, DSiRPC
+  now logs the hellos' `vb=` (longest and median), and their `rx` and `req`
+  rates, once a minute.
+
 - 2026-10-10: **Pokémon Black and White freezing, the real cause (likely),
   and fixes from Viv's Mac logs.** `romLocationAdjust()` (bootloaderi's
   `main.arm7.c`) checks upstream's skips first and DSiRPC's jump past the

@@ -128,8 +128,9 @@
 // in bootloaderi's main.arm7.c). It ends at 0x0CFE0000: a DSi-enhanced game
 // (unit code > 0, like Pokemon Black and White) uses the 128 KB above that
 // (0x02FE0000, the same RAM), which romLocationAdjust() keeps the ROM cache
-// out of too; it used to start at 0x0CFB0000, so its last 64 KB (the unlock
-// file and the ring) overwrote those games' memory.
+// out of too (also when its jump past this area lands there); it used to
+// start at 0x0CFB0000, so its last 64 KB (the unlock file and the ring)
+// overwrote those games' memory.
 #define DSIRPC_ACH_LOCATION        0x0CFA0000
 #define DSIRPC_ACH_SIZE            0x40000
 #define DSIRPC_WATCH_RING_SIZE     0x800

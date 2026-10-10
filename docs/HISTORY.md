@@ -285,6 +285,30 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-10: **Pokémon Black and White freezing, the real cause (likely),
+  and fixes from Viv's Mac logs.** `romLocationAdjust()` (bootloaderi's
+  `main.arm7.c`) checks upstream's skips first and DSiRPC's jump past the
+  checker's memory last, so a ROM cache slot pushed past the checker landed
+  on `0x0CFE0000` with nothing left to skip it, and the slots after it
+  followed: for Black and White in DS mode (unit code 2, pkmnGen5), the
+  cache's last 7 slots (112 KB; 3 with the checker at `0x0CFB0000`) sat in
+  the top 128 KB the game uses, which upstream never touches (a simulation
+  of the slot table: upstream ends at `0x0CFDC000`). Once the game had read
+  about 12 MB of ROM, ROM data overwrote its memory: freezes a few minutes
+  in, or in the intro. The jump now skips that 128 KB too for a DSi-enhanced
+  game (744 slots, the last at `0x0CF9C000`). Viv's `dsirpc.log` also showed
+  the checker's report going quiet and "its memory doesn't look the way
+  DSiRPC expects" half a minute before a freeze. Also from those logs:
+  quitting after the DSi had gone quiet crashed (`set_watch` with no IP:
+  `_exchange` now raises `TimeoutError`, which every caller handles); the
+  per-frame drain crashed on records of another watch list after the console
+  came back (`FrameCapture.service` now sends its list again); the macOS
+  app had no Black and White art (no download has `Assets/PokemonBlackUI`,
+  and `unova_art.py`, unlike `sprites.py`, never downloaded: it now fetches
+  a missing sheet in the background, and the battle background isn't cached
+  while one is on its way); and the Dock icon was the full-bleed export, so
+  it's now drawn on macOS's grid (824 of 1024 pixels, with a soft shadow).
+
 - 2026-10-09: **Pokémon Black and White freezing, fixed (likely).** The
   in-game achievement checker's memory (`DSIRPC_ACH_LOCATION`, 256 KB) was at
   `0x0CFB0000`-`0x0CFF0000`, but a DSi-enhanced game (unit code > 0) uses the

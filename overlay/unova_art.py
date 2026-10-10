@@ -17,14 +17,20 @@ the only image files:
     game icon     the animated title icon, Black's or White's
 
 The sheets load the first time something is asked for (pygame needs its
-display first) and every piece is cached. Anything missing comes back as
-None, and the views draw without it.
+display first) and every piece is cached. A sheet missing from Assets/ (a
+release download doesn't include them) is fetched from GitHub Pages in the
+background, as overlay/sprites.py does for the sprites. Until it's there,
+or if it can't be had, pieces come back as None, and the views draw without
+them.
 """
 
 import logging
 import os
+import threading
 
 import pygame
+
+from .sprites import _download
 
 FOLDER = 'PokemonBlackUI'
 _SHEET = 'DS _ DSi - Pokemon Black _ White - {} - {}.png'
@@ -181,24 +187,48 @@ class UnovaArt:
         self.folder = os.path.join(assets_dir, FOLDER)
         self._sheets = {}
         self._cache = {}
+        self._fetching = set()     # sheets being downloaded right now
 
     def _sheet(self, name):
         if name not in self._sheets:
+            path = os.path.join(self.folder, name)
+            if not os.path.exists(path):
+                self._fetch(name, path)
+                return None  # asked again once it's downloaded
             try:
-                self._sheets[name] = pygame.image.load(os.path.join(self.folder, name)).convert_alpha()
-            except (pygame.error, FileNotFoundError, OSError) as e:
+                self._sheets[name] = pygame.image.load(path).convert_alpha()
+            except (pygame.error, OSError) as e:
                 logging.warning(f"Black/White art missing ({name}): {e}")
                 self._sheets[name] = None
         return self._sheets[name]
 
+    def _fetch(self, name, path):
+        if name in self._fetching:
+            return
+        self._fetching.add(name)
+
+        def run():
+            if not _download(f"{FOLDER}/{name}", path):
+                logging.warning(f"Black/White art missing ({name}): not in {self.folder}, and it couldn't be downloaded")
+                self._sheets[name] = None
+            self._fetching.discard(name)
+        threading.Thread(target=run, name="unova-art", daemon=True).start()
+
     def _get(self, key, make):
         if key not in self._cache:
             try:
-                self._cache[key] = make()
+                piece = make()
             except Exception:
                 logging.exception(f"Couldn't cut {key} from the Black/White sheets")
-                self._cache[key] = None
+                piece = None
+            if piece is None and self._fetching:
+                return None  # a sheet may still be on its way: try again then
+            self._cache[key] = piece
         return self._cache[key]
+
+    def pending(self):
+        """True while a sheet is still downloading."""
+        return bool(self._fetching)
 
     def _cut(self, sheet_name, rect, key, trim=False):
         sheet = self._sheet(sheet_name)

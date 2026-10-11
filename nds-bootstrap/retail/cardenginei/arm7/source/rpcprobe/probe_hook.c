@@ -91,6 +91,7 @@ static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hell
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
 static u16 hoAchSeen = 0;      // probeAchTriggered when the in-game menu last opened
+static u8 hoRomBusy = 0;       // VBlanks left to keep the tick short after a ROM read (RPCPROBE_ROM_BUSY_VBLANKS)
 extern int tryLockMutex(int *addr);   // card_engine_header.s
 extern int unlockMutex(int *addr);
 #endif
@@ -394,9 +395,17 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// DSi: the lid closing turns the Wi-Fi off (the lid rule at the top)
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
 	if (lidClosed) Probe_LidClosed();
+	// An ARM9 ROM read under way (sdMutex is NULL then), or one lately: this
+	// tick stays short, since the ARM7 serves the read from an interrupt it
+	// holds up (rpcprobe_build.h)
+	if (!sdMutex) hoRomBusy = RPCPROBE_ROM_BUSY_VBLANKS;
+	else if (hoRomBusy) hoRomBusy--;
+	const int romBusy = hoRomBusy != 0;
+	(void)romBusy; // (unused with both RPCPROBE_ACH and RPCPROBE_REQUESTS off)
 #if RPCPROBE_ACH
 	// The checker's frame lane samples first, at the same point of every frame
-	ProbeAch_Sample();
+	if (romBusy) ProbeAch_SkipSample();
+	else ProbeAch_Sample();
 	// The achievement LED (not on the first tick, which reads the SD card)
 	if (hoStage != HO_LOAD) ProbeLed_Tick((int)probeAchTriggered - (int)hoAchSeen, lidClosed);
 #endif
@@ -404,7 +413,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// Per-frame capture first, so every sample is taken at the same point
 	// in the frame (and before anything else this tick costs time).
 	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
-	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service();
+	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service(romBusy ? 1 : RPCPROBE_RX53_FRAMES_PER_VBLANK);
 #endif
 	if (hoStage == HO_LOAD && hoTimer == 0) {
 		gameLoad((const u8 *)ndsHeader);
@@ -446,7 +455,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// if Probe_HaltTick() hasn't run for a while (nds-bootstrap couldn't
 	// hook this game's swiHalt)
 	if (hoNoHalt < 255) hoNoHalt++;
-	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD);
+	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD, romBusy);
 
 	// Unlocks are saved from Probe_HaltTick() too. If that hasn't run for a
 	// while, here instead, unless a ROM read is under way (sdMutex is NULL

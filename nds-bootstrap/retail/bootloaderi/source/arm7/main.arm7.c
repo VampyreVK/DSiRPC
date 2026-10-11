@@ -62,7 +62,9 @@
 // association. Cost: DS-only games lose their own DS-mode wifi features.
 // (The white screen first blamed on this was rpcprobe writing to the SD card
 // from VBlank mid-boot - see rpcprobe/DEBUGGING.md.)
+#ifndef DSIRPC_KEEP_DSI_WIFI // (a test build can set it with DSIRPC_CFLAGS)
 #define DSIRPC_KEEP_DSI_WIFI 1
+#endif
 
 #include "tonccpy.h"
 #include "dmaTwl.h"

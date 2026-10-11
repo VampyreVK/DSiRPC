@@ -285,6 +285,19 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-11 (later): **The back-off wasn't it; test builds to narrow it
+  down.** With the VBlank tick kept short during ROM reads, Black and White
+  loaded just as slowly, so it isn't the tick's length. Also ruled out: an
+  interrupt storm from the Wi-Fi chip (both loaders zero `REG_AUXIE`, and
+  rpcprobe masks the card interrupt). The CI now builds two test versions of
+  nds-bootstrap on runs started by hand (`nds-bootstrap-variants`, not
+  packaged): `no-rpcprobe` (`-DDSIRPC_NO_RPCPROBE`: no Wi-Fi side, no
+  checker, no ARM9 hook) and `ds-mode-wifi` (`-DDSIRPC_KEEP_DSI_WIFI=0`: the
+  board switched to DS mode as stock does, which Platinum already showed
+  matters to a Pokemon game's own wireless). With launching our build
+  straight from TWiLight (no launcher handoff), the three say whether it's
+  our code, the Wi-Fi board's mode, or the launch.
+
 - 2026-10-11: **Black and White's slow loads: rpcprobe's VBlank tick backs
   off during ROM reads.** Viv's tests: stock nds-bootstrap loaded normally;
   ours offline (the checker, no Wi-Fi) slowly; ours online, with DSiRPC quit

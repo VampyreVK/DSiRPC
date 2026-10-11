@@ -1718,7 +1718,7 @@ void runCardEngineCheck(void) {
   	// }
 }
 
-#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 // rpcprobe: an ARM9 request the swiHalt hook below serves is waiting (its
 // achievement checker stops for it)
 static int haltRequestWaiting(void) {
@@ -1733,7 +1733,7 @@ void runCardEngineCheckHalt(void) {
 	nocashMessage("runCardEngineCheckHalt");
 	#endif	
 
-	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 haltCheckAgain:
 	#endif
 
@@ -1808,7 +1808,7 @@ haltCheckAgain:
   		// unlockMutex(&cardEgnineCommandMutex);
   	// }
 
-	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 	// rpcprobe: saves offline play's unlocks and checks achievements a
 	// while; back to the top when it stopped for an ARM9 request
 	if (Probe_HaltTick(&saveMutex, haltRequestWaiting)) goto haltCheckAgain;
@@ -2131,7 +2131,7 @@ void myIrqHandlerVBlank(void) {
 		while (REG_VCOUNT != 191) swiDelay(100);
 		while (REG_VCOUNT == 191) swiDelay(100);
 	} else {
-		#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+		#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 		Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex); // rpcprobe
 		#endif
 		break;

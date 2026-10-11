@@ -99,6 +99,43 @@ jobs:
             LICENSE-nds-bootstrap.txt
           if-no-files-found: error
 
+  # Test builds of nds-bootstrap with one of DSiRPC's pieces switched off, to
+  # find what slows a game down on hardware (only for runs started by hand).
+  # Never packaged: each has its own file name; rename it to
+  # nds-bootstrap-dsirpc.nds on the SD card to try it.
+  nds-bootstrap-variants:
+    name: nds-bootstrap test build (${{ matrix.name }})
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: no-rpcprobe      # no Wi-Fi side, no checker, no ARM9 hook
+            cflags: -DDSIRPC_NO_RPCPROBE
+          - name: ds-mode-wifi     # the Wi-Fi board switched to DS mode, as stock does
+            cflags: -DDSIRPC_KEEP_DSI_WIFI=0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: nds-bootstrap
+          filter: blob:none
+
+      - name: Build lzss
+        run: gcc -O2 -static nds-bootstrap/lzss.c -o lzss
+
+      - name: Build nds-bootstrap
+        run: docker run --rm -e DSIRPC_CFLAGS="${{ matrix.cflags }}" -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
+
+      - name: Name the output
+        run: cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc-${{ matrix.name }}.nds
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nds-bootstrap-test-${{ matrix.name }}
+          path: nds-bootstrap-dsirpc-${{ matrix.name }}.nds
+          if-no-files-found: error
+
   launcher:
     name: launcher
     runs-on: ubuntu-latest

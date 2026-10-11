@@ -44,10 +44,15 @@ void ProbeAch_SetTime(u32 secondsSince2000);
 // Every VBlank, as early as possible: the frame lane's sample of this frame.
 void ProbeAch_Sample(void);
 
+// Instead, in a VBlank kept short (a ROM read under way): no sample, counted
+// as a frame the frame lane couldn't sample.
+void ProbeAch_SkipSample(void);
+
 // Every VBlank, last. tickStart: the scanline the VBlank tick started on.
 // idleAlive: ProbeAch_Idle() has run lately; if not, the checking happens
-// here instead, in what's left of the VBlank budget.
-void ProbeAch_Tick(u16 tickStart, int idleAlive);
+// here instead, in what's left of the VBlank budget. romBusy: a ROM read is
+// under way (or was lately), so no checking in this VBlank.
+void ProbeAch_Tick(u16 tickStart, int idleAlive, int romBusy);
 
 // Outside interrupts, whenever the game's ARM7 idles (cardengine.c's swiHalt
 // hook): the checking, for a while. romWaiting() says nds-bootstrap has an

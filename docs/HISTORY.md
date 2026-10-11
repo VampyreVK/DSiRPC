@@ -285,6 +285,33 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-11: **Black and White's slow loads: rpcprobe's VBlank tick backs
+  off during ROM reads.** Viv's tests: stock nds-bootstrap loaded normally;
+  ours offline (the checker, no Wi-Fi) slowly; ours online, with DSiRPC quit
+  on the Mac or running, very slowly, at a steady 60 fps, battle sprites and
+  everything else that loads. So it's the console side, it grows with the
+  VBlank tick (the new log line: 63 scanlines typical and up to about 110,
+  with 90 network frames a second drained, 30 of them requests; with DSiRPC
+  quit the requests go but the slowness stays), and the PC's requests don't
+  matter. Not the SD card: the checker reads its set into RAM once and only
+  writes unlocks. Black and White (like Gen 4) have nds-bootstrap's
+  `altReadMethod`: no swiHalt hook (NDSBTSRP.LOG has no "swiHalt hooked"), so
+  the ARM7 serves every ROM read from its IPC interrupt in non-blocking
+  steps, one each time the ARM9 sees 'PING' and pings back, and the VBlank
+  tick (checker turn, frame-lane sample, Wi-Fi drain) holds that interrupt
+  up. Ruled out on the way: the ARM9's cache write-back (128 clean-by-index
+  instructions, and the cache slots are invalidated before they're filled),
+  the doorbell (only over its own value or none), interrupts (only off for
+  an RTC read on an unlock), NDMA (the Wi-Fi side never uses it), the LED
+  (I2C only on a change), and the `wifiIrq` check (it only gates the
+  in-game menu now). Now, while a ROM read is under way (nds-bootstrap
+  passes no SD mutex then) and for 30 VBlanks after one was seen
+  (`RPCPROBE_ROM_BUSY_VBLANKS`), the tick skips the checker's turn and the
+  frame-lane sample (counted as not sampled) and drains at most one frame
+  from the Wi-Fi chip. If loads are still slow with that, the next suspects
+  are the ARM7 cardengine's `-Os` build (needed to fit 61 KB) and the ARM9's
+  per-VBlank cache write-back.
+
 - 2026-10-10 (later): **Black and White's slow battles: what the logs and
   the RAM dump say.** Viv's next session (a new save) played a whole rival
   battle and five minutes without freezing, but battles still loaded slowly

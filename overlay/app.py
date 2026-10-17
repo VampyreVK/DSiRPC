@@ -64,12 +64,26 @@ class OverlayWindow:
 
     @staticmethod
     def _set_icon(win):
-        """DSiRPC's icon for the window (on a Mac, the Dock's), not pygame's."""
+        """DSiRPC's icon for the window (on a Mac, the Dock's), not pygame's.
+        The export is full-bleed, so it's drawn the way macOS lays its icons
+        out: 824 of 1024 pixels wide, centred, over a soft shadow."""
         try:
             icon = pygame.image.load(MAC_ICON)
-            win.set_icon(pygame.transform.smoothscale(icon, (512, 512)))
         except (pygame.error, FileNotFoundError) as e:
             logging.info(f"No window icon: {e}")
+            return
+        size = 512
+        body = size * 824 // 1024
+        icon = pygame.transform.smoothscale(icon, (body, body))
+        at = ((size - body) // 2, (size - body) // 2 - size // 256)
+        shadow = pygame.Surface((size, size), pygame.SRCALPHA)
+        mask = icon.copy()
+        mask.fill((0, 0, 0, 255), special_flags=pygame.BLEND_RGBA_MIN)  # the icon's shape in black
+        mask.fill((255, 255, 255, 76), special_flags=pygame.BLEND_RGBA_MULT)  # at 30%
+        shadow.blit(mask, (at[0], at[1] + size * 12 // 1024))
+        out = pygame.transform.gaussian_blur(shadow, size * 14 // 1024)
+        out.blit(icon, at)
+        win.set_icon(out)
 
     def run(self):
         """Opens the window and draws until it's closed (or stop() is

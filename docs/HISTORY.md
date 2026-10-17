@@ -285,6 +285,17 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-10: **Fixes from Viv's Mac logs.** Quitting after the DSi had gone
+  quiet crashed (`set_watch` with no IP: `_exchange` now raises
+  `TimeoutError`, which every caller handles); the per-frame drain crashed on
+  records of another watch list after the console came back
+  (`FrameCapture.service` now sends its list again); the macOS app had no
+  Black and White art (no download has `Assets/PokemonBlackUI`, and
+  `unova_art.py`, unlike `sprites.py`, never downloaded: it now fetches a
+  missing sheet in the background, and the battle background isn't cached
+  while one is on its way); and the Dock icon was the full-bleed export, so
+  it's now drawn on macOS's grid (824 of 1024 pixels, with a soft shadow).
+
 - 2026-10-09: **A macOS app.** `DSiRPC-<version>-macos.zip` (the `macos`
   job, `packaging/macos/build_app.py`): DSiRPC.app, made with PyInstaller,
   for Apple silicon, with Viv's icon set (`Assets/icons/adaptive.icns`). It's

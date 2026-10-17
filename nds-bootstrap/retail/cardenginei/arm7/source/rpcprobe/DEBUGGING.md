@@ -125,7 +125,7 @@ are none ("no set loaded": the game wasn't started from the launcher;
 different releases; "set not loaded": its program doesn't add up; "sync to
 list": a version 2 set, without the list). Nothing at all means no
 anchor: this isn't DSiRPC's nds-bootstrap, or the game runs in DSi mode. The
-anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CFB0028`) if you want to look
+anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CFA0028`) if you want to look
 at it with the RAM viewer: `"DRMA"`, the game code, the status, the last
 unlock number, the one the menu last saw, open, and the list's offset
 (`common/include/dsirpc_ach_menu.h`).

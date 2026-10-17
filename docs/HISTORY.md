@@ -296,6 +296,32 @@ in this table before assuming it's missing from RA entirely.
   while one is on its way); and the Dock icon was the full-bleed export, so
   it's now drawn on macOS's grid (824 of 1024 pixels, with a soft shadow).
 
+- 2026-10-10: **Pokémon Black and White freezing, the real cause (likely).**
+  `romLocationAdjust()` (bootloaderi's `main.arm7.c`) checks upstream's skips
+  first and DSiRPC's jump past the checker's memory last, so a ROM cache slot
+  pushed past the checker landed on `0x0CFE0000` with nothing left to skip
+  it, and the slots after it followed: for Black and White in DS mode (unit
+  code 2, pkmnGen5), the cache's last 7 slots (112 KB; 3 with the checker at
+  `0x0CFB0000`) sat in the top 128 KB the game uses, which upstream never
+  touches (a simulation of the slot table: upstream ends at `0x0CFDC000`).
+  Once the game had read about 12 MB of ROM, ROM data overwrote its memory:
+  freezes a few minutes in, or in the intro. The jump now skips that 128 KB
+  too for a DSi-enhanced game (744 slots, the last at `0x0CF9C000`). Viv's
+  `dsirpc.log` also showed the checker's report going quiet and "its memory
+  doesn't look the way DSiRPC expects" half a minute before a freeze.
+
+- 2026-10-09: **Pokémon Black and White freezing, fixed (likely).** The
+  in-game achievement checker's memory (`DSIRPC_ACH_LOCATION`, 256 KB) was at
+  `0x0CFB0000`-`0x0CFF0000`, but a DSi-enhanced game (unit code > 0) uses the
+  top 128 KB of the 16 MB, `0x0CFE0000` up (`0x02FE0000`, the same RAM;
+  nds-bootstrap keeps its ROM cache out of it for those games too). So the
+  checker's last 64 KB, the unlock file (read from the SD card at the start)
+  and the per-frame capture's ring (written every VBlank), overwrote Black
+  and White's memory: random freezes, and likely the Pokémon missing from
+  the intro. Platinum, a plain DS game, keeps that memory elsewhere, so it
+  was never hit. The area now ends at `0x0CFE0000`. Whether the minute-long
+  battle loads were the same thing is still to be seen on Viv's DSi.
+
 - 2026-10-09: **A macOS app.** `DSiRPC-<version>-macos.zip` (the `macos`
   job, `packaging/macos/build_app.py`): DSiRPC.app, made with PyInstaller,
   for Apple silicon, with Viv's icon set (`Assets/icons/adaptive.icns`). It's

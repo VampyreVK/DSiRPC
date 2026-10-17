@@ -149,6 +149,7 @@ class Overlay:
         self.layer = None
         self._over = None
         self._over_big = None
+        self._big = None
         self._sharp = {}
         self.backdrop = Backdrop()
         self.battle_since = None   # when the battle view appeared (intro slide-in)
@@ -321,9 +322,15 @@ class Overlay:
 
     def present(self, window, canvas):
         """Scales the frame up into `window`: the canvas, then the queued
-        sprites at the window's own resolution, then the layer above them."""
+        sprites at the window's own resolution, then the layer above them.
+        The canvas is scaled in its own format and then blitted, which
+        converts it to the window's (a Mac's window has an alpha byte, the
+        canvas doesn't: see app.py)."""
         size = window.get_size()
-        pygame.transform.scale(canvas, size, window)
+        if self._big is None or self._big.get_size() != size:
+            self._big = pygame.Surface(size, 0, canvas)
+        pygame.transform.scale(canvas, size, self._big)
+        window.blit(self._big, (0, 0))
         if not self.hires:
             return
         s = size[0] / canvas.get_width()

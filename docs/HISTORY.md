@@ -285,11 +285,84 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-10: **Fixes from Viv's Mac logs.** Quitting after the DSi had gone
+  quiet crashed (`set_watch` with no IP: `_exchange` now raises
+  `TimeoutError`, which every caller handles); the per-frame drain crashed on
+  records of another watch list after the console came back
+  (`FrameCapture.service` now sends its list again); the macOS app had no
+  Black and White art (no download has `Assets/PokemonBlackUI`, and
+  `unova_art.py`, unlike `sprites.py`, never downloaded: it now fetches a
+  missing sheet in the background, and the battle background isn't cached
+  while one is on its way); and the Dock icon was the full-bleed export, so
+  it's now drawn on macOS's grid (824 of 1024 pixels, with a soft shadow).
+
+- 2026-10-10: **Pokémon Black and White freezing, the real cause (likely).**
+  `romLocationAdjust()` (bootloaderi's `main.arm7.c`) checks upstream's skips
+  first and DSiRPC's jump past the checker's memory last, so a ROM cache slot
+  pushed past the checker landed on `0x0CFE0000` with nothing left to skip
+  it, and the slots after it followed: for Black and White in DS mode (unit
+  code 2, pkmnGen5), the cache's last 7 slots (112 KB; 3 with the checker at
+  `0x0CFB0000`) sat in the top 128 KB the game uses, which upstream never
+  touches (a simulation of the slot table: upstream ends at `0x0CFDC000`).
+  Once the game had read about 12 MB of ROM, ROM data overwrote its memory:
+  freezes a few minutes in, or in the intro. The jump now skips that 128 KB
+  too for a DSi-enhanced game (744 slots, the last at `0x0CF9C000`). Viv's
+  `dsirpc.log` also showed the checker's report going quiet and "its memory
+  doesn't look the way DSiRPC expects" half a minute before a freeze.
+
+- 2026-10-09: **Pokémon Black and White freezing, fixed (likely).** The
+  in-game achievement checker's memory (`DSIRPC_ACH_LOCATION`, 256 KB) was at
+  `0x0CFB0000`-`0x0CFF0000`, but a DSi-enhanced game (unit code > 0) uses the
+  top 128 KB of the 16 MB, `0x0CFE0000` up (`0x02FE0000`, the same RAM;
+  nds-bootstrap keeps its ROM cache out of it for those games too). So the
+  checker's last 64 KB, the unlock file (read from the SD card at the start)
+  and the per-frame capture's ring (written every VBlank), overwrote Black
+  and White's memory: random freezes, and likely the Pokémon missing from
+  the intro. Platinum, a plain DS game, keeps that memory elsewhere, so it
+  was never hit. The area now ends at `0x0CFE0000`. Whether the minute-long
+  battle loads were the same thing is still to be seen on Viv's DSi.
+
+- 2026-10-09: **A macOS app.** `DSiRPC-<version>-macos.zip` (the `macos`
+  job, `packaging/macos/build_app.py`): DSiRPC.app, made with PyInstaller,
+  for Apple silicon, with Viv's icon set (`Assets/icons/adaptive.icns`). It's
+  the tray as a menu bar icon with the same menu; setup stays the console
+  wizard, run in Terminal (by itself the first time); Open at Login is a
+  launch agent. macOS wants the menu bar and any window on the main thread,
+  so the overlay window is a process of its own there (`overlay/remote.py`,
+  fed the hub's snapshots through a pipe; tried headless on Linux with the
+  demo hub) and icon/menu changes are handed to the main thread. The app
+  writes to `~/Library/Application Support/DSiRPC` (`core/paths.py`), bundles
+  `certifi` for HTTPS, builds the rcheevos library as a `.dylib`, and runs a
+  `selfcheck` in CI. Not signed with a Developer ID (no paid Apple account),
+  so the first launch is right-click > Open. Windows is unchanged. First
+  test on Viv's Mac: the overlay window flashed black and closed, as it
+  drew its first frame before the first snapshot came through the pipe
+  (_PipeHub started with None); it starts with an empty Snapshot now, like
+  a StateHub, and a state that can't be pickled is skipped, not fatal.
+  Second test: text drawn on the canvas showed as black boxes, and the
+  header's glow and the battle backgrounds were missing. A Mac's window has
+  an alpha byte; the canvas, converted to its format, got pixels pygame
+  blends onto with alpha 0, which a Mac shows black. The canvas is plain
+  32-bit RGB now on every platform, and present() scales it in its own
+  format and blits it, which converts it properly. On a Mac the window is a
+  pygame.Window with allow_high_dpi (Retina pixels, so the canvas scales up
+  by a whole number and stays sharp), with DSiRPC's icon for the Dock.
+
+- 2026-10-09: **The launcher's icon on a 3DS.** On Viv's 3DS (TWiLight
+  Menu++) three of the icon's four frames had scrambled colours: ndstool
+  gives each frame its own palette, sorted by colour, and the all-lit
+  frame had one colour fewer (no unlit arc), so its palette was shifted,
+  and the menu draws every frame with one palette. The unlit arcs are now
+  the speakers' colour, so every frame has the same colours and the same
+  palette (tools/make_pixel_dsi.py checks it). The DSi stays 31 wide (a
+  32-wide version, centred, was tried and taken back: Viv prefers the
+  original), so it's a pixel off centre in the 32x32 icon.
+
 - 2026-10-09: **The pixel DSi everywhere.** A third console picture for
   Discord, "Pixel DSi" (`Assets/Consoles/Pixel.gif`): the waiting screen's
   DSi looking for a connection, animated, with room around it for Discord's
   round picture. The launcher has it as its animated icon too, redrawn
-  31x32 to fill the icon (its six lines as four at that size, and its
+  32x32 to fill the icon (its six lines as four at that size, and its
   colours the DS's own 15-bit ones, so the menu shows exactly the GIF), and
   is now "DSiRPC / RPC & RA Tracking / VampyreVK" in the DSi's menus. Both
   are made by `tools/make_pixel_dsi.py`, checked with BlocksDS's ndstool

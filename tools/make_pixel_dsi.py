@@ -11,9 +11,10 @@ Wi-Fi sign light grey, its arcs lighting up one by one.
                               sits inside Discord's round picture
   launcher/icon.gif           the launcher's icon (BlocksDS's ndstool makes
                               it the DSi's animated icon): the same DSi
-                              redrawn 31x32 to fill the 32x32 icon, its
-                              six lines as four (each brighter than the
-                              one above, as the bottom screen has 9 rows)
+                              redrawn 31x32 to fill the icon, its six
+                              lines as four (each brighter than the one
+                              above, as the bottom screen has 9 rows), and
+                              the same colours in every frame
 
 Run it again after changing the DSi in overlay/ui.py:
   python tools/make_pixel_dsi.py
@@ -76,6 +77,11 @@ ICON = [
     "..ooooooooooooooooooooooooooo..",
 ]
 ICON_WIFI = (-2, -2)                # the Wi-Fi sign's offset from where ui.DSI_WIFI has it
+# Not-yet-lit arcs are the speakers' colour here, so every frame has the
+# very same colours: ndstool gives each frame its own palette (sorted by
+# colour), and some menus (TWiLight Menu++ on a 3DS) draw every frame with
+# one of them, which scrambled the frames whose palettes differed.
+ICON_WIFI_DIM = 'e'
 # The bottom screen's lines: (row, how far from the screen's colour to the
 # lines' colour), each 11 pixels wide from column 10.
 ICON_LINES = [(21, 0.35), (23, 0.55), (25, 0.8), (27, 1.0)]
@@ -115,7 +121,7 @@ def icon_frame(lit):
             if ch in pal:
                 im.putpixel((x, y), _ds(pal[ch]))
     for i, part in enumerate(ui.DSI_WIFI):
-        c = ui.DSI_WIFI_OFF if i < lit else WIFI_DIM
+        c = ui.DSI_WIFI_OFF if i < lit else pal[ICON_WIFI_DIM]
         for x, y in part:
             im.putpixel((x + ICON_WIFI[0], y + ICON_WIFI[1]), _ds(c))
     for y, t in ICON_LINES:
@@ -153,7 +159,11 @@ def main():
     jobs = [(os.path.join(ROOT, "Assets", "Consoles", "Pixel.gif"), discord_frame),
             (os.path.join(ROOT, "launcher", "icon.gif"), icon_frame)]
     for path, frame in jobs:
-        n = save_gif([frame(lit) for lit in LIT], path)
+        frames = [frame(lit) for lit in LIT]
+        if frame is icon_frame:   # one palette must fit every frame (see ICON_WIFI_DIM)
+            sets = {frozenset(c for _, c in f.getcolors()) for f in frames}
+            assert len(sets) == 1, "the icon's frames don't all have the same colours"
+        n = save_gif(frames, path)
         print(f"{os.path.relpath(path, ROOT)}: {len(LIT)} frames, {n} colours")
 
 

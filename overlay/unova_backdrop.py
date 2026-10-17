@@ -94,7 +94,9 @@ class UnovaBackdrop:
         """The background for a battle under `sky_kind` skies at `when`."""
         still = self._still.get((sky_kind, when))
         if still is None:
-            still = self._still[(sky_kind, when)] = self._make_still(sky_kind, when)
+            still = self._make_still(sky_kind, when)
+            if not self.art.pending():  # not the plain stand-in while the sheet downloads
+                self._still[(sky_kind, when)] = still
         canvas.blit(still, (0, 0))
         if particles:
             self._particles(canvas, PARTICLES.get(sky_kind, 'pollen'), when, t_ms)

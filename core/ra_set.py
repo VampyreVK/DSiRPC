@@ -22,8 +22,9 @@ import json
 import os
 import re
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-RA_DIR = os.path.join(os.path.dirname(HERE), "ra")
+from .paths import DATA
+
+RA_DIR = os.path.join(DATA, "ra")   # the DSiRPC folder's ra/, or the macOS app's data folder's
 MEDIA = "https://media.retroachievements.org"
 
 # RetroAchievements console IDs

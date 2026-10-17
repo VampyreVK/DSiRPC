@@ -5,15 +5,19 @@
 #                                   Python, both .nds files in an "SD card"
 #                                   folder, and README.txt
 #                                   (packaging/build_release.py)
+#   DSiRPC-<version>-macos.zip    - the macOS download: DSiRPC.app (a menu bar
+#                                   app, Apple silicon), the same "SD card"
+#                                   folder and README.txt
+#                                   (packaging/macos/build_app.py)
 #
 # - Push to main (when DSiRPC's files change), pull requests, or "Run
-#   workflow" on the Actions tab: builds all three and attaches them to the
+#   workflow" on the Actions tab: builds all four and attaches them to the
 #   run as artifacts.
 # - Push a tag starting with "v" (for example v0.4.0): also publishes a GitHub
-#   release with all three.
+#   release with all four.
 #
 # The .nds files use the same Docker images as the local build commands in
-# docs/DEVELOPMENT.md. The Windows download bakes in the Discord applications
+# docs/DEVELOPMENT.md. The Windows and macOS downloads bake in the Discord applications
 # in the repository variables DISCORD_CLIENT_ID (Platinum, and every game
 # without its own) and DISCORD_DEFAULT_CLIENT_ID (optional: other games), if
 # they're set (Settings > Secrets and variables > Actions > Variables).
@@ -36,6 +40,7 @@ on:
       - "third_party/**"
       - "packaging/**"
       - "Assets/Consoles/**"
+      - "Assets/icons/**"
       - "dsirpc.py"
       - "requirements.txt"
       - "Setup.bat"
@@ -160,10 +165,56 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  macos:
+    name: macOS download
+    needs: [nds-bootstrap, launcher]
+    runs-on: macos-latest   # Apple silicon
+    steps:
+      # DSiRPC's own files, the console pictures and the app's icon
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            app
+            core
+            overlay
+            rpc
+            utils
+            third_party
+            packaging
+            Assets/Consoles
+            Assets/icons
+          filter: blob:none
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: nds
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # PyInstaller makes DSiRPC.app; build_app.py builds the rcheevos
+      # library first and checks the app once it's made
+      - name: Build the app
+        env:
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
+          DISCORD_DEFAULT_CLIENT_ID: ${{ vars.DISCORD_DEFAULT_CLIENT_ID }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
+          python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller certifi
+          python packaging/macos/build_app.py --version "$version" --nds-dir nds --require-nds
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DSiRPC-macos
+          path: dist/*.zip
+          if-no-files-found: error
+
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [nds-bootstrap, launcher, windows]
+    needs: [nds-bootstrap, launcher, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write

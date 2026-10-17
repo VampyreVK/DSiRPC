@@ -17,6 +17,8 @@ import logging
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Where dsirpc.cfg is: the DSiRPC folder, or the macOS app's data folder (core/paths.py)
+from core.paths import DATA  # noqa: E402
 CONFIG_NAME = "dsirpc.cfg"
 OLD_CONFIG_NAME = "PokemonPlatinumRPC.cfg"
 DEFAULTS_NAME = "defaults.cfg"
@@ -43,8 +45,8 @@ class Config:
             self.path = config_file
             self.loaded_from = config_file if os.path.exists(config_file) else None
         else:
-            self.path = os.path.join(ROOT, CONFIG_NAME)
-            old = os.path.join(ROOT, OLD_CONFIG_NAME)
+            self.path = os.path.join(DATA, CONFIG_NAME)
+            old = os.path.join(DATA, OLD_CONFIG_NAME)
             if os.path.exists(self.path):
                 self.loaded_from = self.path
             elif os.path.exists(old):
@@ -237,6 +239,7 @@ racache: {self.racache}
 auto_import: {yn(self.ra_auto_import)}
 """
         tmp = self.path + ".tmp"
+        os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)   # the macOS app's data folder, the first time
         with open(tmp, "w", encoding="utf-8", newline="\r\n") as f:
             f.write(text)
         os.replace(tmp, self.path)

@@ -1,0 +1,22 @@
+What DSiRPC.app bundles (the macOS download)
+=====================================================================
+
+THIRD-PARTY.txt covers the SD card files and rcheevos. Its "python"
+entries are the Windows download's; DSiRPC.app has its own copy of the
+same things, made with PyInstaller:
+
+DSiRPC.app/Contents/MacOS/DSiRPC
+    PyInstaller's bootloader: GPLv2 or later with an exception that allows
+    bundling programs under any license. https://pyinstaller.org/
+
+DSiRPC.app/Contents/Frameworks
+    Python: Python Software Foundation License. https://www.python.org/
+    pypresence (MIT), pygame-ce (LGPL 2.1, with SDL under the zlib
+    license), Pillow (MIT-CMU), pystray (LGPLv3) and PyObjC (MIT), which
+    pystray uses for the menu bar icon. The libraries are separate files
+    inside the app, as the LGPL asks.
+    third_party/rcheevos/librcheevos.dylib: rcheevos (MIT), built from
+    https://github.com/RetroAchievements/rcheevos (v12.5.0) plus DSiRPC's
+    dsirpc_offline.c (MIT).
+
+DSiRPC's own code is MIT licensed: https://github.com/VampyreVK/DSiRPC

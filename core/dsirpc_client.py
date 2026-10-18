@@ -240,6 +240,8 @@ class DSiClient:
         """Sends `kind` | seq | `body` (sent again, same seq, while no reply
         comes) and returns the reply's (count, data). Raises RuntimeError if
         the DSi refused it, TimeoutError if nothing came back."""
+        if self.dsi_ip is None:  # gone quiet (core/hub.py forgets it): nowhere to send
+            raise TimeoutError("no DSi to ask")
         self.seq = (self.seq + 1) & 0xFFFF
         pkt = struct.pack(">cH", kind, self.seq) + body
 

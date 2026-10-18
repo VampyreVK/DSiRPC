@@ -84,6 +84,7 @@ class FrameCapture:
         self.frames = 0         # records checked
         self.lost = 0           # records the ring lost before they were fetched
         self.failed = 0         # drains that got no reply
+        self.resent = 0         # times the console held another watch list's records
         self._map = []          # [(address, offset in a record)] per byte
 
     @property
@@ -150,6 +151,14 @@ class FrameCapture:
                 return triggered
             except (TimeoutError, RuntimeError):
                 self.failed += 1
+                return triggered
+            if records and len(records[0][2]) != sum(n for _, n in self.watches):
+                # Not this watch list's records (the console came back still
+                # holding an older one): give it ours again and start over.
+                if not self.resent:
+                    logging.info("Per-frame checking: the console's records aren't this watch list's; sending it again")
+                self.resent += 1
+                self._restart()
                 return triggered
             if lost:
                 self.lost += lost

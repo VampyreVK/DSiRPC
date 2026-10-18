@@ -326,6 +326,27 @@ red when Discord can't be reached or there's no application ID. Windows
 notifications say when the DSi connects, goes quiet and switches games, and
 when an achievement unlocks.
 
+**The macOS app** (`packaging/macos/`, built by the `macos` job; see
+docs/DEVELOPMENT.md) is the same tray as a menu bar icon, with the same menu
+(a click opens it; pystray has no left-click action there). macOS wants the
+menu bar and every window on the main thread, so changes to the icon and
+menu go through `on_main()` (PyObjC's `AppHelper.callAfter`), and the
+overlay window runs in a process of its own (`overlay/remote.py`:
+`RemoteOverlay` starts it and sends it the hub's snapshots and events
+through a pipe; the window's 1-6 keys and closing it come back the same
+way). **Open at Login** (`app/startup.py`) is a launch agent,
+`~/Library/LaunchAgents/io.github.vampyrevk.dsirpc.plist`, that opens the
+app. **Setup...** runs setup in Terminal (a `.command` file in the data
+folder that runs the app with `setup`), and the app does that by itself
+when there's no `dsirpc.cfg` yet; setup's first step only checks the
+rcheevos library there, as the app brings its packages. Everything it
+writes is in `~/Library/Application Support/DSiRPC` (`core/paths.py`'s
+`DATA`: dsirpc.cfg, logs, `ra/`, the downloaded sprites), which **Open
+DSiRPC folder** opens. At start it sends one UDP packet to the local
+network's discard port, so macOS asks for Local Network access straight
+away (without it, DSiRPC never hears the DSi); notifications are macOS's
+own (osascript).
+
 **Setup** (`app/setup_wizard.py`). Every question shows the current value,
 and Enter keeps it, so it's safe to run again:
 
@@ -752,6 +773,7 @@ numbers mean.
 | `core/ra_api.py` | `RAClient`: the `dorequest.php` requests (`login2`, `gameid`, `achievementsets`, `systemgames`, `startsession`, `ping`, `awardachievement`), encoded byte for byte like rcheevos, with DSiRPC's User-Agent |
 | `core/ra_hash.py` | `nds_hash()`: RetroAchievements' hash of a DS game file (port of rcheevos' `rc_hash_nintendo_ds`), `RomIndex`: which file in a folder is which game code (`ra/cache/roms.json`) |
 | `core/ra_set.py` | Loads a RetroAchievements set file (both of RA's formats) and finds one by game code in `ra/` |
+| `core/paths.py` | `ROOT` (DSiRPC's code and what comes with it) and `DATA` (where it writes: dsirpc.cfg, logs, `ra/`, downloaded sprites): the same folder, except in the macOS app, where `DATA` is `~/Library/Application Support/DSiRPC` |
 | `core/game_titles.py` | DS game titles by game code from GameTDB's list (`dstdb.txt`, downloaded into `ra/cache/` and refreshed monthly): `titles(code, cache_dir)` gives the code's title, the same game's US and European titles, then `core/games.py`'s name, for title matching when the header can't be read |
 | `core/ra_cache.py` | Finds sets in an RA emulator's cache: `data_dir()` (the emulator's folder, `RACache` or `RACache\Data`), `scan()` (DS/DSi sets only, cached by file time), `read_header()` (title and code from the header copy at `0x023FFE00`), `candidates()` / `auto_pick()` (title matching, below), `import_set()` |
 | `core/ra_presence.py` | `RichPresenceReader`: evaluates a set's rich presence script against the DSi's memory. Each read fetches what the script used last time in one batch; anything new is fetched on the spot. Addresses past main RAM read as 0. |
@@ -763,8 +785,8 @@ numbers mean.
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game |
-| `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon, setup and Start with Windows (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 
@@ -1335,8 +1357,8 @@ All paths below are under `nds-bootstrap/retail/`.
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
-| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory, and the ROM-in-RAM size limit is 256 KB smaller to match |
-| `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFB0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area at the top of the DSi's 16 MB (the middle of the 3DS's 32 MB); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
+| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory (and, for a DSi-enhanced game, out of the 128 KB right after it, as upstream does), and the ROM-in-RAM size limit is 256 KB smaller to match |
+| `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFA0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area near the top of the DSi's 16 MB (the middle of the 3DS's 32 MB), ending at `0x0CFE0000`, where a DSi-enhanced game's own top 128 KB starts (`0x02FE0000`, the same RAM: it used to overlap it by 64 KB, which corrupted Pokémon Black and White); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
 
 ### `rpcprobe/` files
@@ -1808,7 +1830,7 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Pokemon-Overworld` | Lead Pokémon (small, overworld) | `process_sprites.py` (margin 4) |
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
 | `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
-| `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file) |
+| `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file), and downloads a sheet missing from `Assets/` (a release download has none) from GitHub Pages in the background, as `sprites.py` does for the sprites |
 | `Unova-Battle`, `Unova-Battle-Shiny` | Pokémon Black and White's foe in battle (large): `<turf>/<id>.gif` for Unova's Pokémon (494-649) on each battle platform (grass, sand, snow, water, cave, indoor) | `Unova-Battle/process_unova.py`, below |
 | `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg`, and `Pixel.gif` ("Pixel DSi": the overlay's pixel DSi looking for a connection, animated, in the middle of a clear 512x512 square so it fits Discord's round picture) | Added by hand, except `Pixel.gif` (`tools/make_pixel_dsi.py`); any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
@@ -2030,7 +2052,7 @@ section 8).
 |---|---|
 | `README.md` | Installing and using DSiRPC |
 | `docs/DEVELOPMENT.md` | Running from the source code, building, the command line and tools, releases |
-| `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes |
+| `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes; `packaging/macos/`: the macOS app (`build_app.py`, `DSiRPC.spec`, the entry point `dsirpc_app.py`, its `README.txt`) |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
 | `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
 | `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent, the unlocks you have); all gitignored |

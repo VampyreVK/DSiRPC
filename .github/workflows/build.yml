@@ -111,10 +111,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: no-rpcprobe      # no Wi-Fi side, no checker, no ARM9 hook
-            cflags: -DDSIRPC_NO_RPCPROBE
-          - name: ds-mode-wifi     # the Wi-Fi board switched to DS mode, as stock does
-            cflags: -DDSIRPC_KEEP_DSI_WIFI=0
+          # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0)
+          - name: no-wifi-side     # the checker and its ARM9 hook, but the Wi-Fi chip never touched
+            cflags: -DDSIRPC_NO_WIFI
+          - name: no-checker       # the Wi-Fi side only: no checker, no ARM9 hook
+            cflags: -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK
+          - name: no-arm9-hook     # the checker and the Wi-Fi side, without the ARM9 hook
+            cflags: -DDSIRPC_NO_ARM9_HOOK
     steps:
       - uses: actions/checkout@v4
         with:

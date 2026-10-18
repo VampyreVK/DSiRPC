@@ -45,7 +45,9 @@
 // DSiRPC launcher puts in sd:/RPCSET.BIN (probe_ach.c). With Wi-Fi, a
 // "DSiRPC ach" packet after each hello says how it's going, so it can be
 // compared with what DSiRPC unlocks. 0 = off.
+#ifndef RPCPROBE_ACH // (a test build can set it with DSIRPC_CFLAGS)
 #define RPCPROBE_ACH 1
+#endif
 
 // The checker runs while the game's ARM7 idles (nds-bootstrap's swiHalt
 // hook, outside interrupts): at most this many scanlines (about 64 us

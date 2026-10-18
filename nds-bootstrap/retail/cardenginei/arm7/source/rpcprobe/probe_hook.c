@@ -87,11 +87,11 @@ static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 176)
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
+static u8 hoRomBusy = 0;       // VBlanks left to keep the tick short after a ROM read (RPCPROBE_ROM_BUSY_VBLANKS)
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
 static u16 hoAchSeen = 0;      // probeAchTriggered when the in-game menu last opened
-static u8 hoRomBusy = 0;       // VBlanks left to keep the tick short after a ROM read (RPCPROBE_ROM_BUSY_VBLANKS)
 extern int tryLockMutex(int *addr);   // card_engine_header.s
 extern int unlockMutex(int *addr);
 #endif
@@ -146,6 +146,9 @@ static int putStr(char *p, const char *str) {
 
 static void handoffLoad(void) {
 	u8 valid = RpcProbeHandoff_Load();
+#ifdef DSIRPC_NO_WIFI
+	valid = 0; // test build: the Wi-Fi chip is never touched (the checker still runs)
+#endif
 #if RPCPROBE_ACH
 	ProbeAch_SetTime(rpcProbeHandoff.time); // offline too: it dates the unlocks
 #endif

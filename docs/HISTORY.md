@@ -285,6 +285,25 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-18: **Black and White's slow loads: it's rpcprobe, not the board
+  or the launcher.** Viv's tests, against stock nds-bootstrap (normal): ours
+  started straight from TWiLight (no launcher handoff, nothing of DSiRPC's
+  in the in-game menu) loaded normally; `no-rpcprobe` (all of DSiRPC's
+  console code compiled out, started from the launcher) loaded normally;
+  `ds-mode-wifi` (started from the launcher, the achievements in the menu)
+  was very slow. That last one didn't really keep the board in DS mode:
+  rpcprobe's `handoffRestore()` switches it back to DSi mode a few seconds
+  in, so it ran like our normal build without a connection. So it's
+  something rpcprobe does in game, and since the back-off ruled out the
+  length of its VBlank tick, what's left is the checker (with the ARM9 hook
+  it turns on for the cache write-back) or the Wi-Fi side's work with the
+  chip the launcher left powered. Three more test builds split those:
+  `no-wifi-side` (`-DDSIRPC_NO_WIFI`: rpcprobe never touches the chip, the
+  checker runs), `no-checker` (`-DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK`: the
+  Wi-Fi side only) and `no-arm9-hook` (`-DDSIRPC_NO_ARM9_HOOK`: both, without
+  the ARM9 VBlank hook). Also: `hoRomBusy` (the back-off) is declared outside
+  the checker's `#if`, so a build without the checker compiles.
+
 - 2026-10-11 (later): **The back-off wasn't it; test builds to narrow it
   down.** With the VBlank tick kept short during ROM reads, Black and White
   loaded just as slowly, so it isn't the tick's length. Also ruled out: an

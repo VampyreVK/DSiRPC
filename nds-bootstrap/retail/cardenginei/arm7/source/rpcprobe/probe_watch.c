@@ -68,6 +68,7 @@ static void put16(u8 *p, u16 v) { p[0] = v >> 8; p[1] = v & 0xFF; }
 
 void ProbeWatch_Init(void) {
 	arm9Block = 0;
+#ifndef DSIRPC_NO_ARM9_HOOK // (a test build: no ARM9 half, so no VBlank hook, no write-back)
 	for (u32 a = PW_ARM9_SCAN_START; a + sizeof(DsirpcWatchBlock) <= PW_ARM9_SCAN_END; a += 32) {
 		volatile DsirpcWatchBlock *b = (volatile DsirpcWatchBlock *)a;
 		if (b->magic0 == DSIRPC_WATCH_MAGIC0 && b->magic1 == DSIRPC_WATCH_MAGIC1
@@ -76,6 +77,7 @@ void ProbeWatch_Init(void) {
 			break;
 		}
 	}
+#endif
 	probeWatchArm9 = arm9Block ? (u8)(1 + arm9Block->hooks) : 0;
 }
 

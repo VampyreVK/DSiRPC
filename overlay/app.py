@@ -31,6 +31,8 @@ CAPTIONS = {'auto': "DSiRPC", 'battle': "DSiRPC (battle)", 'party': "DSiRPC (par
 MAC = sys.platform == "darwin"
 # The macOS app's icon (Assets/icons), for the Dock while the window's open
 MAC_ICON = os.path.join(ROOT, "Assets", "icons", "Exports", "DSiRPC-iOS-Default-1024@1x.png")
+# Windows: the Pixel DSi (its first frame) on the taskbar and in Alt+Tab
+TASKBAR_ICON = os.path.join(ROOT, "Assets", "Consoles", "Pixel.gif")
 
 
 def parse_color(text):
@@ -85,6 +87,36 @@ class OverlayWindow:
         out.blit(icon, at)
         win.set_icon(out)
 
+    @staticmethod
+    def _set_windows_icons():
+        """Windows: the tray's icon in the title bar and the Pixel DSi on the
+        taskbar, not pygame's. SDL gives a window one icon for both, so the
+        taskbar's (ICON_BIG) is swapped afterwards."""
+        try:
+            from app.tray import make_icon
+            tray = make_icon('playing')
+            pygame.display.set_icon(pygame.image.frombytes(tray.tobytes(), tray.size, 'RGBA'))
+        except Exception as e:
+            logging.info(f"No window icon: {e}")
+        try:
+            import ctypes
+            import tempfile
+            from ctypes import wintypes
+            from PIL import Image
+            ico = os.path.join(tempfile.gettempdir(), "dsirpc_taskbar.ico")
+            Image.open(TASKBAR_ICON).convert('RGBA').save(ico, sizes=[(256, 256), (48, 48), (32, 32), (16, 16)])
+            user32 = ctypes.WinDLL("user32")  # our own function objects, not windll's shared ones
+            user32.LoadImageW.restype = wintypes.HANDLE
+            user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
+                                          ctypes.c_int, ctypes.c_int, wintypes.UINT]
+            user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            # IMAGE_ICON, LR_LOADFROMFILE | LR_DEFAULTSIZE: the 32x32 one
+            hicon = user32.LoadImageW(None, ico, 1, 0, 0, 0x10 | 0x40)
+            if hicon:
+                user32.SendMessageW(pygame.display.get_wm_info()['window'], 0x80, 1, hicon)  # WM_SETICON, ICON_BIG
+        except Exception as e:
+            logging.info(f"No taskbar icon: {e}")
+
     def run(self):
         """Opens the window and draws until it's closed (or stop() is
         called). Returns True if the user closed it."""
@@ -106,6 +138,8 @@ class OverlayWindow:
             else:
                 window = pygame.display.set_mode((W * scale, H * scale))
                 pygame.display.set_caption(caption)
+                if sys.platform == "win32":
+                    self._set_windows_icons()
             # No alpha byte, whatever the window's format: a Mac's window has
             # one, and a canvas converted to it got pixels pygame blends onto
             # with alpha 0, which a Mac shows black (Overlay.present copies it)

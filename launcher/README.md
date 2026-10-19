@@ -27,8 +27,8 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    the clock itself to date unlocks, and only falls back to `time=` plus the
    VBlanks since when it can't.
 5. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
-6. **START:** pick a game. A file browser opens in the launcher's own folder
-   (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
+6. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
+   launcher's own folder if there's no such folder (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
    **START** goes back). The launcher then:
    - finds our nds-bootstrap build next to itself: `nds-bootstrap-dsirpc.nds`,
      or the only `nds-bootstrap*.nds` in that folder. If there's neither, it

@@ -88,8 +88,9 @@ achievement sets are in `~/Library/Application Support/DSiRPC`. The zip's
    DSi mode in TWiLight Menu++'s per-game settings. Away from your PC? Press
    **B** while it connects to [play offline](#playing-offline).
 3. Press **START** and pick your game: **A** opens a folder or picks the game,
-   **B** goes up a folder (the browser opens in the `DSiRPC` folder, so press
-   **B** to get to your games). The launcher starts it, still connected.
+   **B** goes up a folder (the browser opens in `roms/nds`, or in the
+   `DSiRPC` folder if there's no `roms/nds`). The launcher starts it, still
+   connected.
    (**SELECT** disconnects and goes back instead.)
 4. Within about 15 seconds, Discord shows what you're playing, and the tray
    icon's dot turns green.

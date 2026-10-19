@@ -1987,11 +1987,15 @@ void myIrqHandlerVBlank(void) {
 
 	if (afterSwapTimer > 0) {
 		if (afterSwapTimer == 60*3) {
-			if (lockMutex(&saveMutex)) {
-				saveMainScreenSetting();
+			// DSiRPC: the setting goes to the SD card, so not in the middle of
+			// an IPC-served ROM read either (ipcReadBusy()): a frame later
+			if (!ipcReadBusy()) {
+				if (lockMutex(&saveMutex)) {
+					saveMainScreenSetting();
+				}
+				unlockMutex(&saveMutex);
+				afterSwapTimer = 0;
 			}
-			unlockMutex(&saveMutex);
-			afterSwapTimer = 0;
 		} else afterSwapTimer++;
 	}
 

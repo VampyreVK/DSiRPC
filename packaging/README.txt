@@ -71,8 +71,8 @@ STEP 3: PLAYING
    that in TWiLight Menu++'s per-game settings for it.
 
 3. Press START and pick your game: A opens a folder or picks the game,
-   B goes up a folder (the browser opens in the DSiRPC folder, so press B
-   to get to your games). The game starts, still connected.
+   B goes up a folder (the browser opens in roms/nds, or in the DSiRPC
+   folder if there's no roms/nds). The game starts, still connected.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 

@@ -424,6 +424,24 @@ class Engine:
                 logging.warning(f"No offline sync: UDP/TCP port {self.console_sync.port} is in use ({e})")
                 self.console_sync = None
 
+    def restart_console_sync(self):
+        """Closes the launcher's sync ports and opens them again with a new
+        listener (from the tray's thread, once macOS lets DSiRPC on the
+        local network: the listener opened before that never hears the
+        launcher)."""
+        old = self.console_sync
+        if not old or not self._started:
+            return
+        old.stop()
+        from core.console_sync import ConsoleSync
+        new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host)
+        try:
+            new.start()
+        except OSError as e:
+            logging.warning(f"No offline sync: UDP/TCP port {new.port} is in use ({e})")
+            new = None
+        self.console_sync = new
+
     def stop(self):
         self.set_overlay(False)
         if self.console_sync:

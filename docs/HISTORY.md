@@ -285,6 +285,20 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19: **The launcher's sync after a macOS app update.** Each update
+  of the Mac app (signed ad hoc, so a new app to macOS) asks for Local
+  Network access again, and the session that asked never synced: Viv's log
+  showed `Local network check: [Errno 65] No route to host` at start, then
+  nearly four hours without one sync or sync error, though the launcher's
+  broadcasts reached the Mac (tcpdump) and the game itself connected fine.
+  Quitting and opening DSiRPC again fixed it, and the same had happened on
+  2026-10-09 (a restart a minute later, then syncs as usual). So the sync
+  listener opened before macOS allowed DSiRPC on the local network stays
+  deaf after it does. Now, when that first check fails, the tray tries again
+  every 3 seconds and, once a packet gets out, opens the sync ports again
+  with a new listener (`watch_local_network()` in `app/tray.py`,
+  `Engine.restart_console_sync()`).
+
 - 2026-10-10: **Fixes from Viv's Mac logs.** Quitting after the DSi had gone
   quiet crashed (`set_watch` with no IP: `_exchange` now raises
   `TimeoutError`, which every caller handles); the per-frame drain crashed on

@@ -344,8 +344,11 @@ writes is in `~/Library/Application Support/DSiRPC` (`core/paths.py`'s
 `DATA`: dsirpc.cfg, logs, `ra/`, the downloaded sprites), which **Open
 DSiRPC folder** opens. At start it sends one UDP packet to the local
 network's discard port, so macOS asks for Local Network access straight
-away (without it, DSiRPC never hears the DSi); notifications are macOS's
-own (osascript).
+away (without it, DSiRPC never hears the DSi). If that packet can't get out
+yet (macOS is still asking, as after every update), it tries again every 3
+seconds, and once one does, it opens the launcher's sync ports again with a
+new listener: the one opened before access was given never hears the
+launcher. Notifications are macOS's own (osascript).
 
 **Setup** (`app/setup_wizard.py`). Every question shows the current value,
 and Enter keeps it, so it's safe to run again:

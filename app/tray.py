@@ -103,17 +103,37 @@ def on_main(fn):
         fn()
 
 
-def nudge_local_network():
+def nudge_local_network(quiet=False):
     """One UDP packet to the local network's discard port, so macOS asks
     for Local Network access right away (it asks when an app first sends
-    there, and DSiRPC mostly listens). Nothing listens on that port."""
+    there, and DSiRPC mostly listens). Nothing listens on that port.
+    Returns whether the packet got out (False while macOS hasn't allowed
+    it yet)."""
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             s.sendto(b"DSiRPC", ("255.255.255.255", 9))
+        return True
     except OSError as e:
-        logging.info(f"Local network check: {e}")
+        if not quiet:
+            logging.info(f"Local network check: {e}")
+        return False
+
+
+def watch_local_network(on_access, every=3.0):
+    """After a failed nudge_local_network(): tries again every few seconds
+    and calls on_access() once a packet gets out. The launcher's sync
+    listener, opened before macOS allowed DSiRPC on the local network,
+    stays deaf after it does (the launcher's broadcasts reached the Mac,
+    and DSiRPC only heard them once it was restarted), so on_access opens
+    it again."""
+    def run():
+        while not nudge_local_network(quiet=True):
+            threading.Event().wait(every)
+        logging.info("Local network check: works now")
+        on_access()
+    threading.Thread(target=run, name="LocalNetwork", daemon=True).start()
 
 
 def open_setup():
@@ -270,9 +290,10 @@ def run_tray(cfg, **engine_args):
     def setup(icon_):
         try:
             on_main(show)
-            if MAC:
-                nudge_local_network()
+            network_ok = nudge_local_network() if MAC else True
             engine.start()
+            if not network_ok:
+                watch_local_network(engine.restart_console_sync)
             if MAC and not cfg.loaded_from:
                 open_setup()   # the first time: there's no dsirpc.cfg yet
             if cfg.overlay:

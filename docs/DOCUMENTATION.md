@@ -1349,11 +1349,12 @@ All paths below are under `nds-bootstrap/retail/`.
 | File | Change |
 |---|---|
 | `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/misc.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | DSiRPC's ARM9 half: once rpcprobe has found the game's `OS_Halt` and rings, `myIrqHandlerIPC`'s call to `dsirpcWatchService()` makes `OS_Halt` jump to `dsirpcIdle`, which writes the ARM9's whole data cache back to main RAM and then halts, so whenever the game is idle its latest writes reach main RAM for rpcprobe (see [section 7](#7-wire-protocol)); `reset()` (`misc.c`) tells it the game was loaded again, unpatched. Nothing runs in the game's interrupts: the VBlank hook this replaced, before or after the game's own handler, slowed Pokémon Black and White's battle loads to a crawl. Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. That cardengine has 1,416 bytes free. |
-| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running), and `Probe_HaltTick(&saveMutex, haltRequestWaiting)` at the end of `runCardEngineCheckHalt()`, the swiHalt hook, where the checker's unlocks are saved and its checking runs; when it stops because an ARM9 ROM read (or NAND command) is waiting (`haltRequestWaiting()`), the hook serves it and calls it again (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
+| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running), and `Probe_HaltTick(&saveMutex, haltRequestWaiting)` at the end of `runCardEngineCheckHalt()`, the swiHalt hook, where the checker's unlocks are saved and its checking runs; when it stops because an ARM9 ROM read (or NAND command) is waiting (`haltRequestWaiting()`), the hook serves it and calls it again (not in the `ALTERNATIVE`/`TWLSDK` variants). In a game with `altReadMethod` (`ipcReads`, from the bootloader) the hook only calls `Probe_HaltTick(NULL, NULL)`: no SD card there and no stopping, since those ROM reads stay on the IPC interrupt. Also four fixes to upstream's debug-only code. |
 | `cardenginei/arm9_igm/source/inGameMenu.c`, `inGameMenu.h`, `dsirpc_ach.c`, `dsirpc_ach.h`, `common/include/dsirpc_ach_menu.h`, `cardenginei/arm7/source/inGameMenu.c` | nds-bootstrap's in-game menu shows the game's achievements: new unlocks and how many are earned on its main screen, and an "Achievements" item with the whole list (below, "The in-game menu"). Its ARM7 side tells rpcprobe when the menu opens (`Probe_MenuOpened()`), when the lid closes in it (`Probe_LidClosed()`) and when it resets or quits the game (`Probe_MenuClosed()`). Not in the flashcard (B4DS) builds. The menu binary is 33,880 of its 39,936 bytes. |
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
+| `bootloaderi/source/arm7/hook_arm7.c`, `bootloaderi/source/arm7/patch_arm7.c` | The swiHalt hook for rpcprobe in a game with `altReadMethod` (the Gen 4 and Gen 5 Pokémon games, among others): `patchSwiHalt()` puts it in for an ARM7 in ARM code but leaves `newSwiHaltAddr` at 0, so the ARM9 keeps pinging the ARM7 for its ROM reads, and `b_ipcReads` (`ce7->valueBits` bit 26) tells the ARM7 cardengine to serve nothing in that hook, just call `Probe_HaltTick(NULL, NULL)`. |
 | `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory (and, for a DSi-enhanced game, out of the 128 KB right after it, as upstream does), and the ROM-in-RAM size limit is 256 KB smaller to match |
 | `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFA0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area near the top of the DSi's 16 MB (the middle of the 3DS's 32 MB), ending at `0x0CFE0000`, where a DSi-enhanced game's own top 128 KB starts (`0x02FE0000`, the same RAM: it used to overlap it by 64 KB, which corrupted Pokémon Black and White); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
@@ -1431,8 +1432,18 @@ the console only runs the result:
   when nds-bootstrap has an ARM9 ROM read to serve there (the hook serves
   it and calls back). The frame lane's samples come first, then the pass
   lane, which can stop after any 8 memory values or conditions and carry
-  on next time. The VBlank only samples (`l=` in the report). For a game
-  whose swiHalt nds-bootstrap couldn't hook (the hook hasn't run for
+  on next time. The VBlank only samples (`l=` in the report). A game that
+  nds-bootstrap runs with `altReadMethod` (the Gen 4 and Gen 5 Pokémon games,
+  among others: it serves their ROM reads from the IPC interrupt, against
+  random freezes) used to have no swiHalt hook at all; DSiRPC's bootloader
+  puts it in anyway, for rpcprobe alone (`b_ipcReads`: the hook serves
+  nothing of nds-bootstrap's there, rpcprobe doesn't wait for those reads,
+  which interrupt it by themselves, and the VBlank still saves), so the
+  checking gets the ARM7's idle time there too (2026-10-19; before, Black
+  and White's 89-achievement frame lane fell behind in the VBlank and its
+  pass lane never ran). For a game whose swiHalt nds-bootstrap couldn't hook
+  (an ARM7 in Thumb code with `altReadMethod`, or no swiHalt found; the hook
+  hasn't run for
   `RPCPROBE_ACH_IDLE_DEAD`, 30, VBlanks), the VBlank does the checking as
   before: `RPCPROBE_ACH_LINES_PER_VBLANK` (20) scanlines, about 1.3 ms,
   after the rest of the tick, skipped if the tick already took
@@ -1472,7 +1483,9 @@ the console only runs the result:
   `saveMutex`. `Probe_HaltTick()` takes the same lock with `tryLockMutex()`
   (so never while a save or ROM read is under way) and writes one 16-byte slot
   (section 7). For a game whose swiHalt nds-bootstrap couldn't hook, the
-  VBlank does it after two seconds without a halt, under the same lock and
+  VBlank does it after two seconds without a halt, and for an `altReadMethod`
+  game (whose ROM reads use the SD card from the IPC interrupt, which can
+  come in the middle of the hook) every VBlank, both under the same lock and
   only while no non-blocking ROM read is in flight (`readOngoing`). Without
   `RPCUNLK.BIN` (the game wasn't started from the launcher), or with 255
   unlocks already waiting, unlocks are counted (`x` in the report) but not

@@ -84,6 +84,7 @@
 #define isDlp BIT(21)
 #define useColorLut BIT(22)
 #define clearRamOnReset BIT(23)
+#define ipcReads BIT(26) // DSiRPC: altReadMethod, ROM reads served from the IPC interrupt (bootloaderi's patch_arm7.c)
 #define i2cBricked BIT(30)
 #define scfgLocked BIT(31)
 
@@ -1732,6 +1733,18 @@ void runCardEngineCheckHalt(void) {
 	#ifdef DEBUG		
 	nocashMessage("runCardEngineCheckHalt");
 	#endif	
+
+	// DSiRPC: a game whose ROM reads are served from the IPC interrupt
+	// (altReadMethod) only has this hook for rpcprobe, so nothing of
+	// nds-bootstrap's runs here, as without it. rpcprobe doesn't touch the SD
+	// card here either (no lock: the IPC interrupt reads it at any moment),
+	// and doesn't stop for those reads, which interrupt it anyway.
+	if (valueBits & ipcReads) {
+		#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
+		Probe_HaltTick(NULL, NULL);
+		#endif
+		return;
+	}
 
 	#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 haltCheckAgain:

@@ -61,6 +61,7 @@
 #define b_clearRamOnReset BIT(23)
 #define b_saveRelocation BIT(24)
 #define b_asyncCardReadMinimal BIT(25)
+#define b_ipcReads BIT(26) // DSiRPC: altReadMethod, so the swiHalt hook is only rpcprobe's (patch_arm7.c)
 #define b_i2cBricked BIT(30)
 #define b_scfgLocked BIT(31)
 
@@ -459,6 +460,9 @@ int hookNdsRetailArm7(
 	}
 	if (REG_SCFG_EXT == 0) {
 		ce7->valueBits |= b_scfgLocked;
+	}
+	if (altReadMethod) {
+		ce7->valueBits |= b_ipcReads;
 	}
 	ce7->mainScreen               = mainScreen;
 	ce7->language                 = language;

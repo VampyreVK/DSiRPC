@@ -75,7 +75,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 | `fr` | Frame lane samples checked since the last report: about 60 a second when it keeps up |
 | `fd` | Frames the frame lane couldn't sample since the last report, because its checking had fallen 8 frames behind (the game's ARM7 had little idle time, or the frame lane is too big for this game). Should be 0. |
 | `fc` | Samples taken with no write-back of the ARM9's data cache since the VBlank before, so a value may be a frame late: the game was busy the whole frame (loading, mostly), or its `OS_Halt` isn't patched (no ARM9 half: `a9=0`; not found or not yet: `a9=1`). Most games idle every frame, so outside loading it should stay near 0 once `a9` is 2 or more. |
-| `h` | 1: the checking runs in the game's idle time (nds-bootstrap's swiHalt hook). 0: in the VBlank (that hook hasn't run for half a second: a game whose swiHalt nds-bootstrap couldn't hook) |
+| `h` | 1: the checking runs in the game's idle time (nds-bootstrap's swiHalt hook; since 2026-10-19 also in a game with `altReadMethod`, such as the Gen 4 and Gen 5 Pokémon games, where the hook is rpcprobe's alone). 0: in the VBlank (that hook hasn't run for half a second: a game whose swiHalt nds-bootstrap couldn't hook, such as an `altReadMethod` game whose ARM7 is Thumb code) |
 | `st` | The set's stamp (its CRC-32): DSiRPC knows from it which achievements the console checks, and leaves them to it |
 | `ids` | The latest unlocks, at most 8 (as many as fit) |
 

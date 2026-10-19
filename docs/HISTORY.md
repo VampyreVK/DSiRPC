@@ -285,6 +285,28 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (late night): **The checker gets the ARM7's idle time in Pokémon
+  games too.** (Branch `bw-checker-idle-time`, off the known-good
+  `bw-dsi-load-debug`.) nds-bootstrap gives a game with `altReadMethod` no
+  swiHalt hook: its ROM reads are served from the IPC interrupt, a step each
+  time the ARM9 pings, and the ARM9 pings only while `newSwiHaltAddr` is 0
+  (`hook_arm9.c`). Now `patchSwiHalt()` puts the hook in anyway when the
+  game's ARM7 is ARM code, but keeps `newSwiHaltAddr` at 0 (the save patches
+  may have set it, for the Thumb hook's code), so the reads stay where they
+  were, and `hook_arm7.c` sets a new `b_ipcReads` (`valueBits` bit 26). With
+  it, `runCardEngineCheckHalt()` serves nothing of nds-bootstrap's and only
+  calls `Probe_HaltTick(NULL, NULL)`: no SD card there (an IPC interrupt can
+  start an SD read in the middle of the hook, so the VBlank keeps saving the
+  unlocks, under `saveMutex` and only while no read is in flight), and no
+  stopping for ROM reads, which interrupt the checking by themselves. So the
+  hook adds nothing but rpcprobe's turn before the halt, and the `ALTERNATIVE`
+  and `TWLSDK` cardengines return from it at once. Built (all variants);
+  ARM7 cardengine 784 bytes free. To check on hardware: no freezes over long
+  sessions in Gen 4 and Gen 5 (why `altReadMethod` exists), battle loads
+  still 21 s, and the once-a-minute log line saying the checker runs "in the
+  game's idle time" with Black's every-frame checks near 60 a second and its
+  passes above 0.
+
 - 2026-10-19 (night): **The idle-time write-backs work on hardware; the
   checker's real limit in Pokémon games.** Viv's timings with that build:
   Black's battle intro takes 21 seconds offline and 22 online, stock speed

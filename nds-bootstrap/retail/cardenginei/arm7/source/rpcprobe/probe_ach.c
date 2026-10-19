@@ -564,18 +564,18 @@ static int idleMore(void *ud) {
 	const IdleTurn *t = (const IdleTurn *)ud;
 	u16 used = linesSince(t->start);
 	return used < RPCPROBE_ACH_IDLE_LINES_PER_VISIT && idleLines + used < RPCPROBE_ACH_IDLE_LINES_PER_FRAME &&
-	       !t->romWaiting();
+	       !(t->romWaiting && t->romWaiting());
 }
 
 int ProbeAch_Idle(int (*romWaiting)(void)) {
 	if (stage != STAGE_RUNNING || busy) return 0;
 	IdleTurn t = { ACH_REG_VCOUNT & 0x1FF, romWaiting };
-	if (!idleMore(&t)) return romWaiting();
+	if (!idleMore(&t)) return romWaiting && romWaiting();
 	busy = 1;
 	checkTurn(idleMore, &t);
 	busy = 0;
 	idleLines += linesSince(t.start);
-	return romWaiting();
+	return romWaiting && romWaiting();
 }
 
 void ProbeAch_TakeStats(ProbeAchStats *out) {

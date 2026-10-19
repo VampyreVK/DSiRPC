@@ -20,8 +20,10 @@
 // saving the achievement checker's unlocks, happens in Probe_HaltTick()
 // (outside interrupts) and only while it holds nds-bootstrap's SD card lock
 // (saveMutex), which its save and ROM reads take too. Only for a game whose
-// swiHalt nds-bootstrap couldn't hook does the VBlank save them, with the
-// same lock and only when no ROM read is under way.
+// swiHalt nds-bootstrap couldn't hook, or one whose ROM reads it serves from
+// the IPC interrupt (altReadMethod: they may come in the middle of the
+// hook), does the VBlank save them, with the same lock and only when no ROM
+// read is under way.
 //
 // Lid rule: a DSi that goes to sleep (the game's own sleep when the lid
 // closes) while the Wi-Fi chip is still connected to the access point shuts
@@ -90,6 +92,7 @@ static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hell
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
+static u8 hoHaltNoSd = 0;      // Probe_HaltTick() may not use the SD card (ROM reads from the IPC interrupt)
 static u16 hoAchSeen = 0;      // probeAchTriggered when the in-game menu last opened
 extern int tryLockMutex(int *addr);   // card_engine_header.s
 extern int unlockMutex(int *addr);
@@ -387,7 +390,9 @@ int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void)) {
 #endif
 #if RPCPROBE_ACH
 	hoNoHalt = 0;
-	achSave(sdMutex);
+	// No SD card lock here (sdMutex NULL): the VBlank saves instead
+	hoHaltNoSd = !sdMutex;
+	if (sdMutex) achSave(sdMutex);
 	return ProbeAch_Idle(romWaiting);
 #else
 	(void)sdMutex;
@@ -468,9 +473,9 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 #endif
 
 	// Unlocks are saved from Probe_HaltTick() too. If that hasn't run for a
-	// while, here instead, unless a ROM read is under way (sdMutex is NULL
-	// then).
-	if (hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK && sdMutex) achSave(sdMutex);
+	// while, or can't use the SD card, here instead, unless a ROM read is
+	// under way (sdMutex is NULL then).
+	if ((hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK || hoHaltNoSd) && sdMutex) achSave(sdMutex);
 #else
 	(void)sdMutex;
 #endif

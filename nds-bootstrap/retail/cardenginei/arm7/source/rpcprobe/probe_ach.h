@@ -52,7 +52,7 @@ void ProbeAch_Tick(u16 tickStart, int idleAlive);
 // Outside interrupts, whenever the game's ARM7 idles (cardengine.c's swiHalt
 // hook): the checking, for a while. romWaiting() says nds-bootstrap has an
 // ARM9 ROM read to serve; the checking stops for it. Returns 1 if it stopped
-// for that (serve it, then call again).
+// for that (serve it, then call again). NULL: no such reads to stop for.
 int ProbeAch_Idle(int (*romWaiting)(void));
 
 // Saving unlocks. Outside interrupts (cardengine.c's swiHalt hook), with

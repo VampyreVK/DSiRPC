@@ -9,7 +9,8 @@
 // once, on the first call, for the game code, ROM version and header CRC
 // the hellos report; never written. sdMutex: nds-bootstrap's SD card lock
 // (cardengine.c's saveMutex), or NULL while a ROM read is under way; only
-// used if Probe_HaltTick() never runs (see probe_hook.c).
+// used if Probe_HaltTick() never runs, or runs without it (see
+// probe_hook.c).
 void Probe_VBlankTick(const void *ndsHeader, int *sdMutex);
 
 // cardengine.c's runCardEngineCheckHalt() calls this every time the game's
@@ -17,7 +18,10 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex);
 // checker's unlocks to the SD card when sdMutex (saveMutex) is free, then
 // checks achievements for a while (probe_ach.c). romWaiting() says an ARM9
 // ROM read waits to be served; the checking stops for it. Returns 1 if it
-// did: serve the read, then call again.
+// did: serve the read, then call again. In a game whose ROM reads
+// nds-bootstrap serves from the IPC interrupt (altReadMethod), both are
+// NULL: no SD card here (the VBlank saves), and no stopping (those reads
+// interrupt the checking by themselves).
 int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void));
 
 // The lid closed on a DSi: turns rpcprobe's Wi-Fi off for the rest of the

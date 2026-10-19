@@ -285,13 +285,18 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
-- 2026-10-19 (the 3DS, part two): **The 3DS works; DSi-enhanced games need a
-  DS-mode start from TWiLight first.** Viv confirmed DSi mode was the 3DS's
+- 2026-10-19 (release cleanups): The screen-swap hotkey's delayed save to
+  the SD card waits out IPC-served ROM reads like the in-game menu does
+  (`ipcReadBusy()`); the launcher's game picker opens in `sd:/roms/nds` when
+  there is one; on Windows the overlay window has the tray's icon in its
+  title bar and the Pixel DSi on the taskbar; and the trainer sprite folders
+  are `Sinnoh-Trainer-Overworld` and `Unova-Trainer-Overworld`.
+
+- 2026-10-19 (the 3DS, part two): **The 3DS works, and our nds-bootstrap
+  keeps its own patch cache.** Viv confirmed DSi mode was the 3DS's
   problem, and found that a DSi-enhanced game also has to be started once in
   DS mode from TWiLight Menu++ with its normal nds-bootstrap, the first time
-  and after a TWiLight or nds-bootstrap update, for DSiRPC to work in it. The
-  README (Playing, Troubleshooting, Known issues), the download READMEs, the
-  launcher's README and DOCUMENTATION.md now say so. The only per-game thing
+  and after a TWiLight or nds-bootstrap update, for DSiRPC to work in it. The only per-game thing
   stock nds-bootstrap leaves behind that ours read is its patch offset cache
   (`patchOffsetCache/<game code>-<header CRC>.bin`): the same name, the same
   version (121, upstream's too) and type, and no note of DS or DSi mode. So
@@ -300,8 +305,10 @@ in this table before assuming it's missing from RA entirely.
   its own (`<game code>-<header CRC>-DSiRPC.bin`, `conf_sd.cpp`). No cached
   offset was found that would break DSiRPC in DS mode (the ARM7 hooks are
   found the same way in both modes, and stock never caches the swiHalt
-  offset for `altReadMethod` games), so: to check on hardware whether the
-  DS-mode start from TWiLight is still needed with it. Also on GitHub: the
+  offset for `altReadMethod` games), so it was tested on hardware: with it,
+  Viv's 3DS shows Black's achievements from the launcher even right after
+  a DSi-mode run from TWiLight, so the DS-mode start isn't needed, and the
+  docs no longer ask for it. Also on GitHub: the
   tests workflow's sparse checkout had no `launcher/source`, so
   `test_launcher_ini.py` couldn't build `bootstrap_ini.c`; and the hub's
   console-checker test failed now and then, because the console ran the

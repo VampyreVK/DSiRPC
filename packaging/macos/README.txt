@@ -20,9 +20,9 @@ WHAT YOU NEED
   Internet > Connection Settings > Advanced Setup.)
 - A Mac with Apple silicon (M1 or later) on macOS 12 or newer, with the
   Discord app.
-- Your games as .nds files on the SD card. DSi-enhanced games (Pokemon
-  Black and White, and later) need one start in DS mode from TWiLight
-  Menu++ before the launcher (see STEP 3).
+- Your games as .nds files on the SD card. The launcher starts
+  DSi-enhanced games (Pokemon Black and White, and later) in DS mode by
+  itself, since DSiRPC only runs there.
 
 
 STEP 1: THE MAC
@@ -88,14 +88,6 @@ couldn't) to play offline: games start the same way, without Discord, and
 achievements unlocked offline are sent the next time the launcher syncs
 with DSiRPC. README.md on GitHub has the details.
 
-DSi-enhanced games (Pokemon Black and White, and later): before you play
-one from the launcher for the first time, and again after updating
-TWiLight Menu++ or nds-bootstrap, start it once in DS mode from TWiLight
-Menu++ itself, with its normal nds-bootstrap, or DSiRPC won't work in it.
-Select the game, press Y, set "Run in" to "DS mode", and start it. Then
-quit and start it from the launcher, which always runs these games in DS
-mode.
-
 
 IF SOMETHING DOESN'T WORK
 ---------------------------------------------------------------------
@@ -107,12 +99,11 @@ IF SOMETHING DOESN'T WORK
 - Discord shows nothing while the icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (menu > Setup...).
 - The game starts but never shows up, and nds-bootstrap's in-game menu
-  (L + Down + SELECT) has no achievements: if it's a DSi-enhanced game,
-  start it once in DS mode from TWiLight Menu++ (STEP 3), then from the
-  launcher again. Also copy both SD card files from this download (the
-  launcher and nds-bootstrap go together). The menu should say
-  nds-bootstrap-DSiRPC at the bottom; if it says just nds-bootstrap, the
-  game was started from TWiLight Menu++ instead of the DSiRPC launcher.
+  (L + Down + SELECT) has no achievements: copy both SD card files from
+  this download (the launcher and nds-bootstrap go together). The menu
+  should say nds-bootstrap-DSiRPC at the bottom; if it says just
+  nds-bootstrap, the game was started from TWiLight Menu++ instead of the
+  DSiRPC launcher.
 - DSiRPC's settings, log and achievement sets are in
   ~/Library/Application Support/DSiRPC (menu > Open DSiRPC folder, or
   Open log).

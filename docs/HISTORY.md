@@ -285,6 +285,32 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (the 3DS): **Why DSiRPC never started on a 3DS, and the menu
+  says whose nds-bootstrap it is.** (Branch `3ds-fix-and-docs`, off
+  `bw-checker-idle-time`.) On Viv's 3DS the launcher connected and synced
+  ("Starting Pokémon Black" on the PC), but the game never said hello and
+  the in-game menu had no achievements. Viv's RAM dump (32 MB from
+  `0x0C000000`, taken from the in-game menu) told why: the TWLSDK ARM9
+  cardengine sat at `0x02FD8800` (byte for byte our build's
+  `cardenginei_arm9_twlsdk.bin`, but for its patched fields) and the DS-mode
+  one's place, `0x027FC000`, was empty, with no trace of DSiRPC anywhere and
+  the checker's memory at `0x0CFA0000` holding the game's code. Pokémon
+  Black ran in DSi mode, and nds-bootstrap's TWLSDK cardengines have none of
+  DSiRPC (rpcprobe is only in the DS-mode ones). The launcher keeps
+  TWiLight's `DSI_MODE` (nds-bootstrap's own default, when the key is
+  missing, is DSi mode); the DSi had it off, the 3DS on. Now
+  `bootstrap_ini_prepare()` sets `DSI_MODE = 0` for a DSi-enhanced game (unit
+  code 2, read from its header by the new `nds_unit_code()`), even when the
+  ini already names it, since TWiLight may switch it back; DSi-exclusive
+  games (which need DSi mode) and DS games keep theirs.
+  `tests/test_launcher_ini.py` builds `bootstrap_ini.c` for the PC and
+  checks that, the save search and the ini editing (the DS-mode tests fail
+  without the fix). The in-game menu's main screen now says
+  `nds-bootstrap-DSiRPC` (`-DSiRPC` printed after its `nds-bootstrap`, in
+  every build), so a crash on the way out of the menu can be told apart from
+  stock's. To check on hardware: on the 3DS, Pokémon Black started from the
+  launcher connects to DSiRPC and its in-game menu lists the achievements.
+
 - 2026-10-19 (even later): **The tests are a suite GitHub runs.** The
   harnesses run by hand through the Black/White work are now `tests/`
   (pytest, [tests/README.md](../tests/README.md)), run by

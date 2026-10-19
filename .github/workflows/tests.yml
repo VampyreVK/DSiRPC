@@ -3,6 +3,7 @@
 #     play's achievement checker against rcheevos frame by frame, the
 #     per-frame capture, and the idle-time write-back (rpcprobe and the ARM9
 #     half)
+#   - the launcher's nds-bootstrap.ini handling (launcher/source/bootstrap_ini.c)
 #   - the PC side: the offline formats, the launcher sync, the protocol
 #     client, the Black/White parser and the hub against a fake DSi on the
 #     loopback network
@@ -19,6 +20,7 @@ on:
       - "tests/**"
       - "third_party/**"
       - "nds-bootstrap/retail/**"
+      - "launcher/source/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   pull_request:
@@ -28,6 +30,7 @@ on:
       - "tests/**"
       - "third_party/**"
       - "nds-bootstrap/retail/**"
+      - "launcher/source/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   workflow_dispatch:
@@ -60,6 +63,7 @@ jobs:
             nds-bootstrap/retail/common/include
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe
             nds-bootstrap/retail/cardenginei/arm9/source
+            launcher/source
           filter: blob:none
 
       - uses: actions/setup-python@v5

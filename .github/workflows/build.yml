@@ -111,13 +111,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0)
-          - name: no-wifi-side     # the checker and its ARM9 hook, but the Wi-Fi chip never touched
-            cflags: -DDSIRPC_NO_WIFI
-          - name: no-checker       # the Wi-Fi side only: no checker, no ARM9 hook
-            cflags: -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK
-          - name: no-arm9-hook     # the checker and the Wi-Fi side, without the ARM9 hook
-            cflags: -DDSIRPC_NO_ARM9_HOOK
+          # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0;
+          # no-wifi-side, -DDSIRPC_NO_WIFI; no-checker, -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK;
+          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK)
+          - name: arm9-no-clean    # the ARM9 hook runs every VBlank, but never writes the cache back
+            cflags: -DDSIRPC_ARM9_NO_CLEAN
+          - name: arm9-clean-idle  # the write-back, but not during ROM reads (nor 30 VBlanks after)
+            cflags: -DDSIRPC_ARM9_CLEAN_IDLE
     steps:
       - uses: actions/checkout@v4
         with:

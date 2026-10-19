@@ -285,6 +285,24 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19: **Black and White's slow loads: it's the ARM9 hook.** Viv's
+  tests: `no-arm9-hook` (the checker and the Wi-Fi side, without the ARM9
+  half) loaded normally, with the achievements in the menu; `no-checker`
+  (the Wi-Fi side alone) loaded normally; `no-wifi-side` (the checker and
+  its ARM9 hook, the chip never touched) was slow, like offline play was.
+  So it's the ARM9 half the checker turns on: the hook in front of the
+  game's VBlank handler, or the whole-cache write-back it does there every
+  VBlank. Its time is tiny (128 cache lines), so it's more likely what the
+  write-back does than how long it takes: it puts every dirty line of the
+  ARM9's data cache in main RAM every frame, where a line normally stays in
+  the cache until it's evicted or thrown away. B/W's reads go through
+  nds-bootstrap's RAM cache, filled by the ARM7, with the two CPUs taking
+  turns over IPC. Two test builds split it: `arm9-no-clean` (the hook runs
+  and counts, nothing written back) and `arm9-clean-idle` (no write-back
+  while a ROM read is under way, nor for 30 VBlanks after: if that's normal,
+  it's a fix that keeps the checker's every-frame accuracy outside loads).
+  The ARM9 cardengine's Makefile takes `$(DSIRPC_CFLAGS)` now too.
+
 - 2026-10-18: **Black and White's slow loads: it's rpcprobe, not the board
   or the launcher.** Viv's tests, against stock nds-bootstrap (normal): ours
   started straight from TWiLight (no launcher handoff, nothing of DSiRPC's

@@ -109,6 +109,16 @@ asm(
 extern u8 dsirpcVBlankHooks[];
 void dsirpcCleanDCache(void);
 
+#ifdef DSIRPC_ARM9_CLEAN_IDLE
+// A test build's switch (see dsirpcWatchSnapshot): one of nds-bootstrap's ROM
+// reads is under way while a command waits for the ARM7 or a DMA read has a
+// step going on either side; the write-back waits this many VBlanks after.
+#define DSIRPC_ROM_QUIET_VBLANKS 30
+extern vu32* volatile sharedAddr;
+extern bool dmaReadOnArm7, dmaReadOnArm9;
+static u8 romQuiet;
+#endif
+
 // The watched values into the next slot (n of them)
 static void takeSnapshot(DsirpcWatchBlock *b, u32 n, u16 vcount) {
 	u32 gen = b->gen;
@@ -168,7 +178,17 @@ void dsirpcWatchSnapshot(void) {
 		// Everything the game wrote out to main RAM, then the count (its
 		// own line written back last, so the ARM7 never sees the new count
 		// before the rest)
+#if defined(DSIRPC_ARM9_NO_CLEAN)
+		// (a test build: the hook runs and counts, but writes nothing back)
+#elif defined(DSIRPC_ARM9_CLEAN_IDLE)
+		// (a test build: no write-back while a ROM read is under way, nor
+		// for a while after one)
+		if (sharedAddr[3] || dmaReadOnArm7 || dmaReadOnArm9) romQuiet = DSIRPC_ROM_QUIET_VBLANKS;
+		else if (romQuiet) romQuiet--;
+		if (!romQuiet) dsirpcCleanDCache();
+#else
 		dsirpcCleanDCache();
+#endif
 		b->cleaned++;
 		DC_FlushRange(&b->cleaned, 4);
 	}

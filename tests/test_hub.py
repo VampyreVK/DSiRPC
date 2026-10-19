@@ -201,21 +201,27 @@ def test_achievements_on_the_pc(hub, rcheevos):
 def test_achievements_with_the_consoles_checker(hub, rcheevos):
     raset = ra_set.RaSet(gen_set.make_set(120, seed=4))
     hub.sets["TEST"] = raset
-    data = offline.build_set(raset, "TEST")
+    # The console runs a set with the first 60 (as if it was built before
+    # the rest existed), so DSiRPC checks the other 60 itself
+    half = gen_set.make_set(120, seed=4)
+    half["PatchData"]["Achievements"] = half["PatchData"]["Achievements"][:60]
+    data = offline.build_set(ra_set.RaSet(half), "TEST")
     offline.remember_set(data)
     info = offline.read_set(data)
-    frame_lane = set(info["frame"])
-    puzzle = PuzzleOnDsi(raset, console={"ids": frame_lane, "stamp": info["stamp"], "frame_lane": len(frame_lane),
-                                         "n": len(info["frame"]) + len(info["pass"])})
+    on_console = set(info["frame"]) | set(info["pass"])
+    assert len(on_console) == 60
+    puzzle = PuzzleOnDsi(raset, console={"ids": on_console, "stamp": info["stamp"], "frame_lane": len(info["frame"]),
+                                         "n": len(on_console)})
     fake, src = hub(ram=_puzzle_ram(), game=puzzle, before_start=lambda f: setattr(puzzle, "fake", f))
     unlocks = _run(src, 15.0)
     ra = src.ra_game
-    # What the console checks every frame isn't checked on the PC too
-    assert not ra.in_runtime & frame_lane
-    assert not set(ra.capture.ids if ra.capture else ()) & frame_lane
+    # What the console checks isn't checked on the PC too
+    assert ra.in_runtime and not ra.in_runtime & on_console
+    assert not set(ra.capture.ids if ra.capture else ()) & on_console
     # The console's unlocks count; DSiRPC's own are pushed to the console
     by_console = {aid for aid, (_, bc, _) in unlocks.items() if bc}
-    assert by_console and by_console <= frame_lane
+    assert by_console and by_console <= on_console
     end = time.time()
     mine = {aid for aid, (at, bc, _) in unlocks.items() if not bc and at < end - 3.0}
-    assert mine and mine <= {aid for aid, _ in fake.pushed}
+    assert mine - on_console, "DSiRPC should have unlocked some of its own half"
+    assert mine <= {aid for aid, _ in fake.pushed}

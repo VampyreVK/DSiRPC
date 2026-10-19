@@ -94,7 +94,7 @@ class OverlayWindow:
         taskbar's (ICON_BIG) is swapped afterwards."""
         try:
             from app.tray import make_icon
-            tray = make_icon('playing')
+            tray = make_icon(None)  # no status dot: it wouldn't follow the console
             pygame.display.set_icon(pygame.image.frombytes(tray.tobytes(), tray.size, 'RGBA'))
         except Exception as e:
             logging.info(f"No window icon: {e}")

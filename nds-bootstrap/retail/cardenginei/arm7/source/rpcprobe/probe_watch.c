@@ -152,8 +152,8 @@ void ProbeWatch_Sample(u16 vcount) {
 	volatile DsirpcWatchBlock *b = arm9Block;
 	u16 vc9;
 	if (b && useArm9 && takeArm9(b, v, recSize - REC_HEADER, &vc9)) {
-		// The ARM9's snapshot from the start of a VBlank (normally the one
-		// before this), read through its cache before the game's own VBlank
+		// The ARM9's snapshot from a VBlank (normally the one before this),
+		// read through its cache right after the game's own VBlank
 		// code ran. Its scanline, flag clear.
 		put16(&rec[2], vc9 & WATCH_REC_VCOUNT);
 		stall = 0;

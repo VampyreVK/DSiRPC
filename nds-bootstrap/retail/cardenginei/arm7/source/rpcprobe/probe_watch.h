@@ -7,8 +7,8 @@
 // Who reads the values: the ARM9, when the ARM9 cardengine carries DSiRPC's
 // half (cardenginei/arm9/source/dsirpc_watch.c). The game's writes sit in
 // the ARM9's data cache for a while, so reading main RAM from the ARM7 can
-// see them a frame or more late; the ARM9 reads through its cache, at the
-// very start of every VBlank, before the game's own VBlank code runs. The
+// see them a frame or more late; the ARM9 reads through its cache, in every
+// VBlank right after the game's own VBlank handler. The
 // ARM7 records the ARM9's snapshots in order, one per VBlank (common/include/
 // dsirpc_watch_block.h). When there's none to record (the ARM9's
 // hook isn't in yet, the game had interrupts off, or the cardengine has no
@@ -18,9 +18,9 @@
 // Nothing here writes to the game's memory: the watch list lives in
 // rpcprobe's own memory, the ring in the main RAM nds-bootstrap sets aside
 // for DSiRPC (locations.h's DSIRPC_WATCH_RING_LOCATION), and the hand-over
-// block in the ARM9 cardengine's. The ARM9's hook is put in front of the game's VBlank
+// block in the ARM9 cardengine's. The ARM9's hook goes around the game's VBlank
 // interrupt handler (in the game's interrupt table, like nds-bootstrap's own
-// hooks) and calls that handler unchanged.
+// hooks): it calls that handler unchanged, first, then takes the snapshot.
 //
 // Wire format (big endian, like 'R'; see probe_req.c for the transport):
 //

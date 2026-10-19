@@ -26,8 +26,8 @@ Late reads are the only problem. The counter's rate (60 or 30 a second) just
 says how fast that screen runs.
 
 Builds whose hellos say a9=1 or more have the ARM9 read the values: through
-its own cache (so never late) and at the very start of each VBlank, before
-the game's own VBlank code, so a value the game changes right then is always
+its own cache (so never late) and in each VBlank right after the game's own
+VBlank handler, so a value the game changes right then is always
 read on the same side of that change. The ARM7 only fills in when there's no
 ARM9 snapshot to record; the report counts both and judges the ARM9's records
 on their own. --arm7-only turns the ARM9 off for a run, to compare.

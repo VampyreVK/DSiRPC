@@ -113,12 +113,10 @@ jobs:
         include:
           # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0;
           # no-wifi-side, -DDSIRPC_NO_WIFI; no-checker, -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK;
-          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK; arm9-no-clean, -DDSIRPC_ARM9_NO_CLEAN;
-          # arm9-clean-idle, no write-back during ROM reads)
-          - name: arm9-clean-lines # the write-back only of the cache lines the checker reads
-            cflags: -DDSIRPC_CLEAN_LINES
-          - name: arm9-delay       # nothing written back, but the game's VBlank handler waits 8 scanlines
-            cflags: -DDSIRPC_ARM9_DELAY
+          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK; and, with the ARM9's work before the game's
+          # VBlank handler: arm9-no-clean, arm9-clean-idle, arm9-clean-lines, arm9-delay)
+          - name: writeback-after  # the checker's whole-cache write-back again, after the game's VBlank handler
+            cflags: -DRPCPROBE_ACH_WRITEBACK=1
     steps:
       - uses: actions/checkout@v4
         with:

@@ -74,7 +74,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 | `f` | Of the `n`, how many are checked every frame (the set's frame lane) |
 | `fr` | Frame lane samples checked since the last report: about 60 a second when it keeps up |
 | `fd` | Frames the frame lane couldn't sample since the last report, because its checking had fallen 8 frames behind (the game's ARM7 had little idle time, or the frame lane is too big for this game). Should be 0. |
-| `fc` | Samples taken without the ARM9's data cache write-back first (its VBlank hook isn't in: the game replaced its VBlank handler, or the doorbell couldn't ring yet). Should be 0 after the first second; rpcprobe rings again while it isn't. |
+| `fc` | Samples taken without the ARM9's data cache write-back first (its VBlank hook isn't in: the game replaced its VBlank handler, or the doorbell couldn't ring yet). Always 0 unless built with `RPCPROBE_ACH_WRITEBACK` (off: the frame lane samples main RAM as it is); with it, should be 0 after the first second, and rpcprobe rings again while it isn't. |
 | `h` | 1: the checking runs in the game's idle time (nds-bootstrap's swiHalt hook). 0: in the VBlank (that hook hasn't run for half a second: a game whose swiHalt nds-bootstrap couldn't hook) |
 | `st` | The set's stamp (its CRC-32): DSiRPC knows from it which achievements the console checks, and leaves them to it |
 | `ids` | The latest unlocks, at most 8 (as many as fit) |

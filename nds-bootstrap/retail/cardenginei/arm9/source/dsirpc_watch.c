@@ -7,17 +7,18 @@
 // GSDD and TWLSDK variants compile this file to nothing, and the ARM7 then
 // never finds the block and reads by itself.
 //
-// The snapshot runs from a hook in front of the game's VBlank interrupt
-// handler (entry 0 of the game's interrupt table, the same table
-// nds-bootstrap hooks for IPC sync and the colour LUT). The hook is only put
-// in once a watch list is set (the ARM7 rings the IPC doorbell for it), so a
-// game nobody is capturing runs exactly as without DSiRPC.
+// The snapshot runs from a hook around the game's VBlank interrupt handler
+// (entry 0 of the game's interrupt table, the same table nds-bootstrap hooks
+// for IPC sync and the colour LUT): the game's handler first, then the
+// snapshot, so the game's own VBlank work never starts late (holding it up
+// at the start of a VBlank, even by a few scanlines, slowed Pokemon Black and
+// White's battle loads to a crawl). The hook is only put in once a watch list
+// is set (the ARM7 rings the IPC doorbell for it), so a game nobody is
+// capturing runs exactly as without DSiRPC.
 //
-// Offline play's achievement checker uses the same hook: with the block's
-// `clean` set (a set with a frame lane is running), it also writes the data
-// cache back to main RAM at the start of every VBlank, so the ARM7 samples
-// what the game wrote: the whole cache, or only the lines the ARM7 lists in
-// the block's runs[] (dsirpc_watch_block.h).
+// With the block's `clean` set (offline play's checker, only in a build with
+// RPCPROBE_ACH_WRITEBACK), the hook also writes the whole data cache back to
+// main RAM, after the game's handler too (dsirpc_watch_block.h).
 
 #include <nds/ndstypes.h>
 
@@ -38,7 +39,7 @@
 // back later must still get the handler that hook was made for. After the
 // last one, the ARM7 reads by itself.
 #define DSIRPC_HOOKS     4
-#define DSIRPC_HOOK_SIZE 20 // bytes of ARM code per hook, see below
+#define DSIRPC_HOOK_SIZE 16 // bytes of ARM code per hook, see below
 
 extern cardengineArm9* volatile ce9;
 
@@ -57,12 +58,11 @@ u32 dsirpcVBlankOrig[DSIRPC_HOOKS];
 void dsirpcWatchSnapshot(void);
 
 // The hooks, in ARM code, since the game's interrupt dispatcher jumps to
-// table entries in ARM state. Each one saves the registers a C call can
-// change (plus two words for the jump below) and passes its own saved
-// handler's address to the common part, which takes the snapshot and then
-// jumps to that handler with every register as it was, so the handler runs
-// exactly as if it had been called directly and returns to the dispatcher
-// itself. A hook with no saved handler (0) returns to the dispatcher.
+// table entries in ARM state. Each one keeps the dispatcher's return address
+// (and r4, for its own saved handler's address) on the stack and goes to the
+// common part, which calls that handler first, with r0-r3 as the dispatcher
+// left them, then takes the snapshot, then returns to the dispatcher. A hook
+// with no saved handler (0) only takes the snapshot.
 asm(
 "	.pushsection .text\n"
 "	.syntax unified\n"
@@ -71,22 +71,18 @@ asm(
 "	.global dsirpcVBlankHooks\n"
 "dsirpcVBlankHooks:\n"
 "	.irp n, 0, 1, 2, 3\n"                // DSIRPC_HOOKS of them
-"	sub	sp, sp, #8\n"                  // room for the jump target (and 8-byte alignment)
-"	stmfd	sp!, {r0-r3, r12, lr}\n"
-"	ldr	r0, [pc, #0]\n"                // the .word below
+"	stmfd	sp!, {r4, lr}\n"              // (two words: the stack stays 8-byte aligned)
+"	ldr	r4, [pc, #0]\n"                // the .word below
 "	b	dsirpcVBlankCommon\n"
 "	.word	dsirpcVBlankOrig + 4 * \\n\n"
 "	.endr\n"
 "dsirpcVBlankCommon:\n"
-"	ldr	r0, [r0]\n"
-"	str	r0, [sp, #24]\n"               // jump target, above the saved registers
-"	bl	dsirpcWatchSnapshot\n"
-"	ldr	r0, [sp, #24]\n"
-"	cmp	r0, #0\n"
-"	ldreq	r0, [sp, #20]\n"              // no handler: back to the dispatcher (saved lr)
-"	streq	r0, [sp, #24]\n"
-"	ldmfd	sp!, {r0-r3, r12, lr}\n"
-"	ldr	pc, [sp], #8\n"                // jump (to ARM or Thumb) and drop the two words
+"	ldr	r4, [r4]\n"                    // the game's handler (r4 survives it: callee-saved)
+"	cmp	r4, #0\n"
+"	blxne	r4\n"                         // the game's VBlank work first (ARM or Thumb)
+"	bl	dsirpcWatchSnapshot\n"         // then ours
+"	ldmfd	sp!, {r4, lr}\n"
+"	bx	lr\n"                          // back to the dispatcher
 // Writes every dirty line of the data cache back to main RAM (clean by
 // index: 4 segments of 32 lines, libnds' DC_FlushAll without the
 // invalidate), then drains the write buffer. ARM code: Thumb has no MCR.
@@ -104,29 +100,11 @@ asm(
 "	bne	1b\n"
 "	mcr	p15, 0, r1, c7, c10, 4\n"     // drain the write buffer
 "	bx	lr\n"
-// Writes some lines back to main RAM, the dirty ones (clean by address):
-// r0 = the first line's address, r1 = how many (1 or more). The write buffer
-// drains after, with the count (DC_FlushRange()).
-"	.global dsirpcCleanLines\n"
-"	.type	dsirpcCleanLines, %function\n"
-"dsirpcCleanLines:\n"
-"3:	mcr	p15, 0, r0, c7, c10, 1\n"     // clean data cache line (address)
-"	add	r0, r0, #32\n"
-"	subs	r1, r1, #1\n"
-"	bne	3b\n"
-"	bx	lr\n"
 "	.thumb\n"
 "	.popsection\n"
 );
 extern u8 dsirpcVBlankHooks[];
 void dsirpcCleanDCache(void);
-void dsirpcCleanLines(u32 first, u32 lines);
-
-#ifdef DSIRPC_ARM9_DELAY
-// A test build's switch (see dsirpcWatchSnapshot)
-#define DSIRPC_DELAY_LINES     8
-#define DSIRPC_LINES_PER_FRAME 263
-#endif
 
 // The watched values into the next slot (n of them)
 static void takeSnapshot(DsirpcWatchBlock *b, u32 n, u16 vcount) {
@@ -171,26 +149,9 @@ static void takeSnapshot(DsirpcWatchBlock *b, u32 n, u16 vcount) {
 	DC_FlushRange(&b->latest, 4);
 }
 
-// The data cache out to main RAM for the checker: only the lines in runs[]
-// if the ARM7 listed them (the ones its frame lane reads), the whole cache
-// if it didn't, none while it's rewriting them.
-static void cleanCache(DsirpcWatchBlock *b) {
-	u32 n = b->runCount;
-	if (!n) {
-		dsirpcCleanDCache();
-		return;
-	}
-	if (n > DSIRPC_CLEAN_RUNS) return; // DSIRPC_RUNS_UPDATING
-	DC_InvalidateRange(b->runs, sizeof(b->runs)); // the ARM7 writes them straight to RAM
-	for (u32 i = 0; i < n; i++) {
-		u32 r = b->runs[i];
-		dsirpcCleanLines(r & ~31u, (r & 31) + 1);
-	}
-}
-
-// Called by the hooks at the start of every VBlank interrupt, before the
-// game's own handler. Cheap when there's nothing to do: one cache-line
-// invalidate and a compare.
+// Called by the hooks in every VBlank interrupt, right after the game's own
+// handler. Cheap when there's nothing to do: one cache-line invalidate and a
+// compare.
 void dsirpcWatchSnapshot(void) {
 	DsirpcWatchBlock *b = &dsirpcWatchBlock;
 	u16 vcount = REG_VCOUNT_RO;
@@ -204,27 +165,15 @@ void dsirpcWatchSnapshot(void) {
 		// Everything the game wrote out to main RAM, then the count (its
 		// own line written back last, so the ARM7 never sees the new count
 		// before the rest)
-#if defined(DSIRPC_ARM9_NO_CLEAN)
-		// (a test build: the hook runs and counts, but writes nothing back)
-#elif defined(DSIRPC_ARM9_DELAY)
-		// (a test build: nothing written back, but the game's VBlank handler
-		// waits about as long as a write-back of the whole cache could take)
-		for (;;) {
-			s32 d = (s32)REG_VCOUNT_RO - (s32)vcount;
-			if (d < 0) d += DSIRPC_LINES_PER_FRAME;
-			if (d >= DSIRPC_DELAY_LINES) break;
-		}
-#else
-		cleanCache(b);
-#endif
+		dsirpcCleanDCache();
 		b->cleaned++;
 		DC_FlushRange(&b->cleaned, 4);
 	}
 }
 
 // Called from myIrqHandlerIPC on every IPC sync interrupt (the ARM7 rings
-// when it needs the hook). Puts a hook in front of the game's VBlank handler
-// if there's a watch list and none of ours is there.
+// when it needs the hook). Puts a hook around the game's VBlank handler if
+// there's a watch list and none of ours is there.
 void dsirpcWatchService(void) {
 	DsirpcWatchBlock *b = &dsirpcWatchBlock;
 	DC_InvalidateRange(b, 32);

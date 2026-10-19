@@ -49,6 +49,16 @@
 #define RPCPROBE_ACH 1
 #endif
 
+// 1 = the frame lane has the ARM9 write its data cache back to main RAM in
+// every VBlank (probe_watch.c, dsirpc_watch.c) and waits a moment for it, so
+// its samples see every value the game wrote. 0 = it samples main RAM as it
+// is: now and then a value is a frame late (or one that lasted a single
+// frame is missed). 0, since holding the ARM9 up in its VBlank, even by a
+// few scanlines, slowed Pokemon Black and White's battle loads to a crawl.
+#ifndef RPCPROBE_ACH_WRITEBACK // (a test build can set it with DSIRPC_CFLAGS)
+#define RPCPROBE_ACH_WRITEBACK 0
+#endif
+
 // The checker runs while the game's ARM7 idles (nds-bootstrap's swiHalt
 // hook, outside interrupts): at most this many scanlines (about 64 us
 // each; a frame has 263) a visit, and a frame. The rest of the idle time the

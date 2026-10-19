@@ -107,8 +107,10 @@ static u32 *ring;                      // its samples: ACH_FRAME_SLOTS x frameMe
 static u16 frameMem;                   // memory values in a sample (0: no frame lane)
 static volatile u8 ringHead, ringTail; // the VBlank adds at ringHead, the checking takes from ringTail
 static volatile u8 busy;               // the idle side is part way through a turn of checking
+#if RPCPROBE_ACH_WRITEBACK
 static u8 cleanOk;                     // the last sample got the ARM9's write-back
 static u32 cleanSeen;                  // probe_watch.c's write-back count at the last sample
+#endif
 static u16 idleLines;                  // scanlines the idle side used this frame
 static ProbeAchStats stats;
 static u32 bodySize, crcPos, crc, crcWanted;   // body: the programs, then the list
@@ -441,8 +443,10 @@ static void checkStamp(u16 start) {
 	stage = STAGE_RUNNING;
 	listStart();
 	ACH_ANCHOR->status = DSIRPC_MENU_READY;
+#if RPCPROBE_ACH_WRITEBACK
 	// The frame lane's samples need the game's writes in main RAM
 	if (frameMem) ProbeWatch_Clean();
+#endif
 }
 
 void ProbeAch_SetTime(u32 secondsSince2000) {
@@ -464,71 +468,6 @@ void ProbeAch_MenuClosed(void) {
 	menuOpen = 0;
 }
 
-#ifdef DSIRPC_CLEAN_LINES
-// Test build: the ARM9's write-back limited to the cache lines the frame
-// lane reads (probe_watch.c's ProbeWatch_SetRuns()). Every ACH_SURVEY_EVERY
-// samples, the sampling VM's reads (pointers followed with the values it just
-// read) are listed as runs of lines, sorted by address, and handed over if
-// they changed. Lines past DSIRPC_CLEAN_RUNS runs aren't written back: those
-// values may be read a little late, as without the ARM9.
-#include "dsirpc_watch_block.h"
-#define ACH_SURVEY_EVERY 128
-static u32 runs[DSIRPC_CLEAN_RUNS];    // a run: its first line's address | (lines - 1)
-static u8 runCount, surveyIn;
-
-static void surveyLine(u32 line) {
-	// the first run that starts after line
-	u32 lo = 0, hi = runCount;
-	while (lo < hi) {
-		u32 mid = (lo + hi) >> 1;
-		if ((runs[mid] & ~31u) <= line) lo = mid + 1;
-		else hi = mid;
-	}
-	if (lo > 0) {
-		// in the run before, or right after it: one line longer, and one run
-		// with the next if they now touch (at most 32 lines a run)
-		u32 r = runs[lo - 1], end = (r & ~31u) + ((r & 31) + 1) * 32;
-		if (line < end) return;
-		if (line == end && (r & 31) < 31) {
-			r++;
-			if (lo < runCount && (runs[lo] & ~31u) == end + 32 && (r & 31) + (runs[lo] & 31) + 1 <= 31) {
-				r += (runs[lo] & 31) + 1;
-				for (u32 i = lo; i + 1 < runCount; i++) runs[i] = runs[i + 1];
-				runCount--;
-			}
-			runs[lo - 1] = r;
-			return;
-		}
-	}
-	if (lo < runCount && (runs[lo] & ~31u) == line + 32 && (runs[lo] & 31) < 31) {
-		runs[lo] = line | ((runs[lo] & 31) + 1); // right before the next run
-		return;
-	}
-	if (runCount >= DSIRPC_CLEAN_RUNS) return;
-	for (u32 i = runCount; i > lo; i--) runs[i] = runs[i - 1];
-	runs[lo] = line;
-	runCount++;
-}
-
-static void surveyRead(uint32_t a, uint32_t n, void *ud) {
-	(void)ud;
-	if (a > ACH_RAM_SIZE - n) return; // past main RAM: the VM reads 0 there
-	u32 line = ((u32)ACH_RAM + a) & ~31u, last = ((u32)ACH_RAM + a + n - 1) & ~31u;
-	for (; line <= last; line += 32) surveyLine(line);
-}
-
-static void survey(void) {
-	if (surveyIn) {
-		surveyIn--;
-		return;
-	}
-	surveyIn = ACH_SURVEY_EVERY - 1;
-	runCount = 0;
-	AchVm_ForEachRead(&sampleVm, surveyRead, 0);
-	ProbeWatch_SetRuns(runs, runCount);
-}
-#endif
-
 void ProbeAch_Sample(void) {
 	if (stage != STAGE_RUNNING || !frameMem) return;
 	u16 start = ACH_REG_VCOUNT & 0x1FF;
@@ -537,9 +476,10 @@ void ProbeAch_Sample(void) {
 		stats.dropped++;
 		return;
 	}
-	// The ARM9 writes its data cache back to main RAM at the start of its
-	// VBlank (probe_watch.c); wait a moment for that, unless it didn't come
-	// last time either (then only once a second, to notice it's back).
+#if RPCPROBE_ACH_WRITEBACK
+	// The ARM9 writes its data cache back to main RAM in its VBlank
+	// (probe_watch.c); wait a moment for that, unless it didn't come last
+	// time either (then only once a second, to notice it's back).
 	u32 seen = ProbeWatch_Cleaned();
 	if (seen == cleanSeen && (cleanOk || !(stats.unclean & 63))) {
 		while ((seen = ProbeWatch_Cleaned()) == cleanSeen && linesSince(start) < ACH_CLEAN_WAIT) {}
@@ -549,10 +489,8 @@ void ProbeAch_Sample(void) {
 	// None: ring the ARM9 again now and then (its hook isn't in yet, or the
 	// game replaced its VBlank handler)
 	if (!cleanOk && (++stats.unclean & 31) == 2) ProbeWatch_Clean();
-	AchVm_Sample(&sampleVm, ring + head * frameMem);
-#ifdef DSIRPC_CLEAN_LINES
-	survey();
 #endif
+	AchVm_Sample(&sampleVm, ring + head * frameMem);
 	ringHead = next;
 	u16 lines = linesSince(start); // (the report's l=: what the checker costs the VBlank)
 	if (lines > stats.maxLines) stats.maxLines = lines;

@@ -285,6 +285,27 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19: **Black and White's slow loads: it's the timing, not the
+  cache.** Viv's tests: `arm9-clean-lines` (only the checker's cache lines
+  written back) was very slow, and `arm9-delay` (nothing written back, the
+  game's VBlank handler held back 8 scanlines) slower still. Lined up with
+  the earlier ones, how slow a battle loads follows how long the ARM9 hook
+  holds the game's VBlank handler up: not at all (`no-arm9-hook`) normal, a
+  few microseconds (`arm9-no-clean`) nearly normal, the write-backs very
+  slow, 8 scanlines slowest. So whatever the hook writes back doesn't matter;
+  starting the game's VBlank work late does. Black and White's battles do
+  something there that has to happen early in the VBlank (most likely
+  uploading the battle's graphics, which the 3D engine only allows in the
+  first twenty-odd scanlines of each VBlank). Two changes: the hook now calls
+  the game's handler first and takes its snapshot after (the snapshot is
+  still taken at the same point of every frame, so DSiRPC's per-frame
+  capture keeps working), and the checker no longer asks for the write-back
+  (`RPCPROBE_ACH_WRITEBACK 0`: its frame lane samples main RAM as it is, so
+  now and then a value is a frame late), so offline play doesn't hook the
+  ARM9 at all. The clean-lines and delay switches are gone. Test build
+  `writeback-after` brings the write-back back, after the game's handler, to
+  see whether work there hurts too.
+
 - 2026-10-19: **Black and White's slow loads: it's mostly the write-back.**
   Viv's tests: `arm9-no-clean` (the hook, nothing written back) loaded much
   faster, though still not quite as fast as without DSiRPC; `arm9-clean-idle`

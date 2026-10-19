@@ -2846,7 +2846,12 @@ int loadFromSD(configuration* conf, const char *bootstrapPath) {
 		fclose(ndsFile);
 	}
 
-	sprintf(patchOffsetCacheFilePath, "%s:/_nds/nds-bootstrap/patchOffsetCache/%s-%04X.bin", conf->gameOnFlashcard ? "fat" : "sd", romTid, headerCRC);
+	// DSiRPC: a cache file of its own. TWiLight Menu++'s nds-bootstrap keeps one
+	// for the same game under the same name and version, with no note of DS or
+	// DSi mode: it may come from a DSi-mode run, while this build runs
+	// DSi-enhanced games in DS mode, and once the versions differ, each would
+	// rebuild the other's on every switch
+	sprintf(patchOffsetCacheFilePath, "%s:/_nds/nds-bootstrap/patchOffsetCache/%s-%04X-DSiRPC.bin", conf->gameOnFlashcard ? "fat" : "sd", romTid, headerCRC);
 
 	if (access(patchOffsetCacheFilePath, F_OK) != 0) {
 		char buffer[0x200] = {0};

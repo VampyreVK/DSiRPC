@@ -113,11 +113,12 @@ jobs:
         include:
           # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0;
           # no-wifi-side, -DDSIRPC_NO_WIFI; no-checker, -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK;
-          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK)
-          - name: arm9-no-clean    # the ARM9 hook runs every VBlank, but never writes the cache back
-            cflags: -DDSIRPC_ARM9_NO_CLEAN
-          - name: arm9-clean-idle  # the write-back, but not during ROM reads (nor 30 VBlanks after)
-            cflags: -DDSIRPC_ARM9_CLEAN_IDLE
+          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK; arm9-no-clean, -DDSIRPC_ARM9_NO_CLEAN;
+          # arm9-clean-idle, no write-back during ROM reads)
+          - name: arm9-clean-lines # the write-back only of the cache lines the checker reads
+            cflags: -DDSIRPC_CLEAN_LINES
+          - name: arm9-delay       # nothing written back, but the game's VBlank handler waits 8 scanlines
+            cflags: -DDSIRPC_ARM9_DELAY
     steps:
       - uses: actions/checkout@v4
         with:
@@ -129,6 +130,13 @@ jobs:
 
       - name: Build nds-bootstrap
         run: docker run --rm -e DSIRPC_CFLAGS="${{ matrix.cflags }}" -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
+
+      # How much of each card engine's region is used (ARM7 61 KB, ARM9 0x2FA0
+      # bytes in DS mode): the binaries, and where the ARM9 one's .bss ends
+      - name: Card engine sizes
+        run: |
+          ls -l nds-bootstrap/retail/nitrofiles_dec/cardenginei_arm7.bin nds-bootstrap/retail/nitrofiles_dec/cardenginei_arm9.bin || true
+          grep -h -E "^ +0x[0-9a-f]+ +(__bss_end|__end__) " nds-bootstrap/retail/cardenginei/arm7/build/*.map nds-bootstrap/retail/cardenginei/arm9/build/*.map || true
 
       - name: Name the output
         run: cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc-${{ matrix.name }}.nds

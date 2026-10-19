@@ -14,9 +14,10 @@
 // game nobody is capturing runs exactly as without DSiRPC.
 //
 // Offline play's achievement checker uses the same hook: with the block's
-// `clean` set (a set with a frame lane is running), it also writes the whole
-// data cache back to main RAM at the start of every VBlank, so the ARM7
-// samples what the game wrote (dsirpc_watch_block.h).
+// `clean` set (a set with a frame lane is running), it also writes the data
+// cache back to main RAM at the start of every VBlank, so the ARM7 samples
+// what the game wrote: the whole cache, or only the lines the ARM7 lists in
+// the block's runs[] (dsirpc_watch_block.h).
 
 #include <nds/ndstypes.h>
 
@@ -103,20 +104,28 @@ asm(
 "	bne	1b\n"
 "	mcr	p15, 0, r1, c7, c10, 4\n"     // drain the write buffer
 "	bx	lr\n"
+// Writes some lines back to main RAM, the dirty ones (clean by address):
+// r0 = the first line's address, r1 = how many (1 or more). The write buffer
+// drains after, with the count (DC_FlushRange()).
+"	.global dsirpcCleanLines\n"
+"	.type	dsirpcCleanLines, %function\n"
+"dsirpcCleanLines:\n"
+"3:	mcr	p15, 0, r0, c7, c10, 1\n"     // clean data cache line (address)
+"	add	r0, r0, #32\n"
+"	subs	r1, r1, #1\n"
+"	bne	3b\n"
+"	bx	lr\n"
 "	.thumb\n"
 "	.popsection\n"
 );
 extern u8 dsirpcVBlankHooks[];
 void dsirpcCleanDCache(void);
+void dsirpcCleanLines(u32 first, u32 lines);
 
-#ifdef DSIRPC_ARM9_CLEAN_IDLE
-// A test build's switch (see dsirpcWatchSnapshot): one of nds-bootstrap's ROM
-// reads is under way while a command waits for the ARM7 or a DMA read has a
-// step going on either side; the write-back waits this many VBlanks after.
-#define DSIRPC_ROM_QUIET_VBLANKS 30
-extern vu32* volatile sharedAddr;
-extern bool dmaReadOnArm7, dmaReadOnArm9;
-static u8 romQuiet;
+#ifdef DSIRPC_ARM9_DELAY
+// A test build's switch (see dsirpcWatchSnapshot)
+#define DSIRPC_DELAY_LINES     8
+#define DSIRPC_LINES_PER_FRAME 263
 #endif
 
 // The watched values into the next slot (n of them)
@@ -162,6 +171,23 @@ static void takeSnapshot(DsirpcWatchBlock *b, u32 n, u16 vcount) {
 	DC_FlushRange(&b->latest, 4);
 }
 
+// The data cache out to main RAM for the checker: only the lines in runs[]
+// if the ARM7 listed them (the ones its frame lane reads), the whole cache
+// if it didn't, none while it's rewriting them.
+static void cleanCache(DsirpcWatchBlock *b) {
+	u32 n = b->runCount;
+	if (!n) {
+		dsirpcCleanDCache();
+		return;
+	}
+	if (n > DSIRPC_CLEAN_RUNS) return; // DSIRPC_RUNS_UPDATING
+	DC_InvalidateRange(b->runs, sizeof(b->runs)); // the ARM7 writes them straight to RAM
+	for (u32 i = 0; i < n; i++) {
+		u32 r = b->runs[i];
+		dsirpcCleanLines(r & ~31u, (r & 31) + 1);
+	}
+}
+
 // Called by the hooks at the start of every VBlank interrupt, before the
 // game's own handler. Cheap when there's nothing to do: one cache-line
 // invalidate and a compare.
@@ -180,14 +206,16 @@ void dsirpcWatchSnapshot(void) {
 		// before the rest)
 #if defined(DSIRPC_ARM9_NO_CLEAN)
 		// (a test build: the hook runs and counts, but writes nothing back)
-#elif defined(DSIRPC_ARM9_CLEAN_IDLE)
-		// (a test build: no write-back while a ROM read is under way, nor
-		// for a while after one)
-		if (sharedAddr[3] || dmaReadOnArm7 || dmaReadOnArm9) romQuiet = DSIRPC_ROM_QUIET_VBLANKS;
-		else if (romQuiet) romQuiet--;
-		if (!romQuiet) dsirpcCleanDCache();
+#elif defined(DSIRPC_ARM9_DELAY)
+		// (a test build: nothing written back, but the game's VBlank handler
+		// waits about as long as a write-back of the whole cache could take)
+		for (;;) {
+			s32 d = (s32)REG_VCOUNT_RO - (s32)vcount;
+			if (d < 0) d += DSIRPC_LINES_PER_FRAME;
+			if (d >= DSIRPC_DELAY_LINES) break;
+		}
 #else
-		dsirpcCleanDCache();
+		cleanCache(b);
 #endif
 		b->cleaned++;
 		DC_FlushRange(&b->cleaned, 4);

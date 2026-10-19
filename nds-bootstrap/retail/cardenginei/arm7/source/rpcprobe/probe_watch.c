@@ -105,6 +105,23 @@ u32 ProbeWatch_Cleaned(void) {
 	return b ? b->cleaned : 0;
 }
 
+#ifdef DSIRPC_CLEAN_LINES
+void ProbeWatch_SetRuns(const u32 *runs, int n) {
+	volatile DsirpcWatchBlock *b = arm9Block;
+	if (!b || n > DSIRPC_CLEAN_RUNS) return;
+	if (b->runCount == n) {
+		int i = 0;
+		while (i < n && b->runs[i] == runs[i]) i++;
+		if (i == n) return; // the same as before
+	}
+	// The ARM9 writes nothing back while they change (rather than the whole
+	// cache, which it does with none at all)
+	b->runCount = DSIRPC_RUNS_UPDATING;
+	for (int i = 0; i < n; i++) b->runs[i] = runs[i];
+	b->runCount = (u8)n;
+}
+#endif
+
 // Copies the next ARM9 snapshot's values (n bytes) to `v` and its scanline
 // to *vc. Returns 1 if there was one to record.
 static int takeArm9(volatile DsirpcWatchBlock *b, u8 *v, int n, u16 *vc) {

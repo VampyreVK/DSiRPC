@@ -79,6 +79,11 @@ void ProbeWatch_Init(void);
 void ProbeWatch_Clean(void);
 u32 ProbeWatch_Cleaned(void);
 
+// The test build with DSIRPC_CLEAN_LINES: limits that write-back to these
+// runs of cache lines (the ones the frame lane reads; each its first line's
+// address | (lines - 1), at most DSIRPC_CLEAN_RUNS). 0 runs: the whole cache.
+void ProbeWatch_SetRuns(const u32 *runs, int n);
+
 // Called once per VBlank (while connected) with the scanline the tick
 // started on.
 void ProbeWatch_Sample(u16 vcount);

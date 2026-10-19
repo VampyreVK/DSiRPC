@@ -21,8 +21,9 @@
 // reads by itself as before).
 //
 // Ownership is split by cache line, so neither CPU ever writes a line the
-// other one writes: the ARM9 never writes the first two lines (and
-// invalidates them before reading), and the ARM7 never writes the rest.
+// other one writes: the ARM9 never writes the first two lines or the last
+// four (and invalidates them before reading), and the ARM7 never writes the
+// ones in between.
 //
 // The block also serves offline play's achievement checker
 // (rpcprobe/probe_ach.c): its frame lane samples main RAM from the ARM7 at
@@ -44,7 +45,10 @@
 //         latest also sees the whole slot). A snapshot taken while the list
 //         was changing is dropped.
 //   ARM9, every VBlank while clean is set: after the snapshot (if any),
-//         clean the data cache, then cleaned + 1, written back.
+//         clean the data cache, then cleaned + 1, written back. With
+//         runCount set, only the lines in runs[] (the ones the checker's
+//         frame lane reads, which the ARM7 lists), not the whole cache;
+//         none while it's DSIRPC_RUNS_UPDATING (the ARM7 is rewriting them).
 //   ARM7, every VBlank: record the oldest slot it hasn't recorded yet (it
 //         starts one snapshot behind the newest, since the ARM9's VBlank and
 //         its own start at almost the same moment). If there's none, read
@@ -58,9 +62,11 @@
 
 #define DSIRPC_WATCH_MAGIC0  0x43505244u // "DRPC"
 #define DSIRPC_WATCH_MAGIC1  0x39435457u // "WTC9"
-#define DSIRPC_WATCH_VERSION 3
+#define DSIRPC_WATCH_VERSION 4
 #define DSIRPC_WATCH_MAX     8           // values, at most 4 bytes each
 #define DSIRPC_WATCH_SLOTS   4           // snapshots kept, newest overwrites oldest
+#define DSIRPC_CLEAN_RUNS    32          // runs of cache lines the write-back can be limited to
+#define DSIRPC_RUNS_UPDATING 0xFF        // runCount while the ARM7 rewrites runs: no write-back
 
 typedef struct {
 	u32 seq;                          // 0x00  snapshot number (1, 2, ...), written last
@@ -79,7 +85,8 @@ typedef struct {
 	u8  clean;                        // 0x0B  1 = write the data cache back every VBlank
 	u32 gen;                          // 0x0C  list number, a new one after every change
 	u8  sizes[DSIRPC_WATCH_MAX];      // 0x10  1, 2 or 4
-	u32 pad1[2];                      // 0x18
+	u8  runCount;                     // 0x18  with clean set: write back only runs[] (0: the whole cache)
+	u8  pad1[7];                      // 0x19
 	u32 addrs[DSIRPC_WATCH_MAX];      // 0x20  main RAM addresses
 	// Written by the ARM9 only.
 	u32 latest;                       // 0x40  number of the newest finished snapshot, 0 = none yet
@@ -88,10 +95,13 @@ typedef struct {
 	u32 pad2[5];                      // 0x4C
 	DsirpcWatchSlot slots[DSIRPC_WATCH_SLOTS]; // 0x60  snapshot n is in slots[n % DSIRPC_WATCH_SLOTS]
 	u32 pad3[4];                      // 0x110
-} DsirpcWatchBlock;                   // 0x120
+	// Written by the ARM7 only.
+	u32 runs[DSIRPC_CLEAN_RUNS];      // 0x120  a run of lines: its first line's address | (lines - 1)
+} DsirpcWatchBlock;                   // 0x1A0
 
 _Static_assert(sizeof(DsirpcWatchSlot) == 0x2C, "DsirpcWatchSlot layout");
-_Static_assert(sizeof(DsirpcWatchBlock) == 0x120, "DsirpcWatchBlock must be whole cache lines");
+_Static_assert(sizeof(DsirpcWatchBlock) == 0x1A0, "DsirpcWatchBlock must be whole cache lines");
+_Static_assert(__builtin_offsetof(DsirpcWatchBlock, runs) == 0x120, "DsirpcWatchBlock layout");
 _Static_assert(__builtin_offsetof(DsirpcWatchBlock, addrs) == 0x20, "DsirpcWatchBlock layout");
 _Static_assert(__builtin_offsetof(DsirpcWatchBlock, latest) == 0x40, "DsirpcWatchBlock layout");
 _Static_assert(__builtin_offsetof(DsirpcWatchBlock, slots) == 0x60, "DsirpcWatchBlock layout");

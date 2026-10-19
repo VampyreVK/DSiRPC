@@ -298,6 +298,36 @@ static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
 	return value.v;
 }
 
+#ifdef DSIRPC_CLEAN_LINES // (a test build's, so it costs the others no space: probe_ach.c)
+void AchVm_ForEachRead(const AchVm *vm, void (*onRead)(uint32_t addr, uint32_t n, void *ud), void *ud) {
+	uint32_t nPlain = vm->nPlain, nMem = nPlain + vm->nMod;
+	for (uint32_t i = 0; i < nMem; i++) {
+		if (i < nPlain) {
+			const uint8_t *p = vm->plain + i * PLAIN_SIZE;
+			uint32_t head = rd32(p + 4); // size, type
+			if (((head >> 8) & 0xff) != T_NONE && (head & 0xff) < S_COUNT)
+				onRead(rd32(p), sharedBytes[head & 0xff], ud);
+			continue;
+		}
+		// The address modifiedValue() reads at, for an indirect read
+		const uint8_t *m = vm->mod + (i - nPlain) * MOD_SIZE;
+		uint32_t head = rd32(m);
+		if (((head >> 16) & 0xff) != O_INDIRECT_READ || (head & 0xff) >= S_COUNT) continue;
+		uint64_t pv = packedOperand(vm, m + 4), pm = packedOperand(vm, m + 12);
+		uint32_t a;
+		if (isInt(TV_T(pv)) && isInt(TV_T(pm))) {
+			a = TV_V(pv) + TV_V(pm);
+		} else {
+			Tv value = { TV_V(pv), (uint8_t)TV_T(pv) }, modifier = { TV_V(pm), (uint8_t)TV_T(pm) };
+			add(&value, &modifier);
+			convert(&value, T_UNSIGNED);
+			a = value.v;
+		}
+		onRead(a, sharedBytes[head & 0xff], ud);
+	}
+}
+#endif
+
 // rc_update_memref_value, plus whether it changed in the update before
 static inline __attribute__((always_inline)) void setMemref(AchVm *vm, uint32_t i, uint32_t v) {
 	uint8_t before = (uint8_t)(vm->memChanged[i] << 1) & 2;

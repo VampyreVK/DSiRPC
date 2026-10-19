@@ -285,6 +285,25 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19: **Black and White's slow loads: it's mostly the write-back.**
+  Viv's tests: `arm9-no-clean` (the hook, nothing written back) loaded much
+  faster, though still not quite as fast as without DSiRPC; `arm9-clean-idle`
+  (no write-back during ROM reads) was as slow as ever. So the whole-cache
+  write-back does most of the harm, and not only while a read is under way:
+  Black and White seem to load a bit each frame between VBlanks, so a read is
+  rarely in flight at the start of one. Also: DSiRPC showed the battling
+  Pokémon well before the game did, so the battle data was loaded early and
+  it's the rest (graphics) that crawls. How the write-back hurts isn't known
+  yet: holding the game's VBlank handler back (it runs first), or something
+  in what it writes back. Two test builds: `arm9-delay` writes nothing back
+  but holds the game's VBlank handler back 8 scanlines (if that's slow, it's
+  the timing), and `arm9-clean-lines` writes back only the cache lines the
+  checker's frame lane reads (the likely fix either way, keeping the
+  every-frame accuracy): every 128 samples the ARM7 lists them as runs of
+  lines (`AchVm_ForEachRead()`, pointers followed with the values just read)
+  in the shared block, which grows to version 4 with an ARM7-written
+  `runs[32]`.
+
 - 2026-10-19: **Black and White's slow loads: it's the ARM9 hook.** Viv's
   tests: `no-arm9-hook` (the checker and the Wi-Fi side, without the ARM9
   half) loaded normally, with the achievements in the menu; `no-checker`

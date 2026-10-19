@@ -118,6 +118,11 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 void AchVm_Sample(AchVm *vm, uint32_t *out);
 void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud);
 
+// Tells onRead every memory read the next update of the memory values makes:
+// its RetroAchievements address and size in bytes, pointers followed with
+// the values the last update read (so call it after one). Reads nothing.
+void AchVm_ForEachRead(const AchVm *vm, void (*onRead)(uint32_t addr, uint32_t n, void *ud), void *ud);
+
 // The id and state of achievement i (for tests and status).
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i);
 

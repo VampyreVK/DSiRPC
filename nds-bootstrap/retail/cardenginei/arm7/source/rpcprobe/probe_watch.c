@@ -26,23 +26,39 @@
 #ifndef PW_REG_IPC_SYNC
 #define PW_REG_IPC_SYNC (*(vu16 *)0x04000180)
 #endif
+#ifndef PW_REG_VCOUNT
+#define PW_REG_VCOUNT (*(vu16 *)0x04000006)
+#endif
+#define PW_LINES_PER_FRAME 263
 #define PW_IPC_SYNC_IRQ_REQUEST (1 << 13)
 #define PW_DOORBELL 3 // nds-bootstrap's own DMA doorbell; the ARM9 does nothing else for it
 
-// With no ARM9 snapshot to record for this many VBlanks in a row, ring the
-// ARM9 to put its hook (back) in, and again once a second while it lasts.
-#define PW_STALL_RING 2
-#define PW_RING_EVERY 60
+// While a copy of OS_Halt isn't patched (the ARM9 hasn't answered yet, or
+// the game was loaded again), ask again this often, in VBlanks
+#define PW_ASK_EVERY 60
+
+// The last two words of the game's module params (NitroSDK's crt0)
+#define PW_NITROCODE_BE 0xDEC00621u
+#define PW_NITROCODE_LE 0x2106C0DEu
 
 // Reported in the hellos as a9=: 0 = no ARM9 half, 1 = found, 2 or more =
-// found and its VBlank hook in (1 + the number of hooks it has put in).
+// found and OS_Halt patched (1 + the copies patched).
 u8 probeWatchArm9 = 0;
 
 static volatile DsirpcWatchBlock *arm9Block = 0;
-static u8 useArm9 = 0;    // this watch list may use the ARM9 (the PC can say no)
-static u32 gen = 0;       // number of the current list in the block, never 0 once used
-static u32 want = 0;      // number of the next ARM9 snapshot to record, 0 = not in step yet
-static u16 stall = 0;     // VBlanks in a row with no ARM9 snapshot to record
+static u32 cleanedSeen = 0; // the block's write-back count at the last VBlank
+static u8 fresh = 0;        // a write-back came between the last two VBlanks
+static u16 askIn = 0;       // VBlanks until asking for the patch again
+
+// Looking for OS_Halt: the game's module params first, for where its static
+// code ends, then that code
+enum { SCAN_NONE = 0, SCAN_PARAMS, SCAN_HALT, SCAN_DONE };
+static u8 scanStage = SCAN_NONE;
+static u32 binStart = 0;    // the game's ARM9 binary (NDS header)
+static u32 binSize = 0;     // (as stored, so less than its code if it was compressed)
+static u32 scanAt = 0, scanEnd = 0;
+static u8 sites = 0;        // copies of OS_Halt found
+static u32 siteAt[DSIRPC_IDLE_SITES];
 
 typedef struct {
 	u32 addr;
@@ -66,9 +82,14 @@ static u16 get16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
 static u32 get32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
 static void put16(u8 *p, u16 v) { p[0] = v >> 8; p[1] = v & 0xFF; }
 
+static u16 linesSince(u16 start) {
+	u16 now = PW_REG_VCOUNT & 0x1FF;
+	return (now >= start) ? now - start : now + PW_LINES_PER_FRAME - start;
+}
+
 void ProbeWatch_Init(void) {
 	arm9Block = 0;
-#ifndef DSIRPC_NO_ARM9_HOOK // (a test build: no ARM9 half, so no VBlank hook, no write-back)
+#ifndef DSIRPC_NO_ARM9_HOOK // (a test build: no ARM9 half, so no write-backs)
 	for (u32 a = PW_ARM9_SCAN_START; a + sizeof(DsirpcWatchBlock) <= PW_ARM9_SCAN_END; a += 32) {
 		volatile DsirpcWatchBlock *b = (volatile DsirpcWatchBlock *)a;
 		if (b->magic0 == DSIRPC_WATCH_MAGIC0 && b->magic1 == DSIRPC_WATCH_MAGIC1
@@ -78,7 +99,75 @@ void ProbeWatch_Init(void) {
 		}
 	}
 #endif
-	probeWatchArm9 = arm9Block ? (u8)(1 + arm9Block->hooks) : 0;
+	if (arm9Block) cleanedSeen = arm9Block->cleaned;
+	probeWatchArm9 = arm9Block ? (u8)(1 + arm9Block->hooked) : 0;
+	askIn = 0;
+}
+
+void ProbeWatch_Game(const void *ndsHeader) {
+	if (!ndsHeader || scanStage != SCAN_NONE) return;
+	u32 dst = *(const u32 *)((const u8 *)ndsHeader + 0x28);  // arm9destination
+	u32 size = *(const u32 *)((const u8 *)ndsHeader + 0x2C); // arm9binarySize
+	if (dst < MAINRAM_LO || dst >= MAINRAM_HI || (dst & 3) || size < 12 || size > MAINRAM_HI - dst) return;
+	binStart = dst;
+	binSize = size & ~3u;
+	scanAt = binStart;
+	scanEnd = binStart + binSize;
+	scanStage = SCAN_PARAMS;
+}
+
+// The module params found, with their nitrocode at `at`: the static code
+// runs up to where the autoload blocks start (their third word). It was
+// decompressed in place, so it can go past the size in the header.
+static void foundParams(u32 at) {
+	u32 end = binStart + binSize;
+	u32 params = at - 0x1C;
+	if (params >= binStart) {
+		u32 autoLoad = *(vu32 *)(params + 8);
+		if (autoLoad > binStart + 12 && autoLoad <= MAINRAM_HI) end = autoLoad & ~3u;
+	}
+	scanAt = binStart;
+	scanEnd = end;
+	scanStage = SCAN_HALT;
+}
+
+int ProbeWatch_Idle(u16 maxLines, int (*romWaiting)(void)) {
+	if (scanStage != SCAN_PARAMS && scanStage != SCAN_HALT) return 0;
+	u16 start = PW_REG_VCOUNT & 0x1FF;
+	for (;;) {
+		if (romWaiting && romWaiting()) return 1; // the ARM9 waits for the ARM7: serve that first
+		u32 stop = scanAt + 4 * 256;             // 256 words between looks at the clock
+		if (stop > scanEnd) stop = scanEnd;
+		if (scanStage == SCAN_PARAMS) {
+			for (; scanAt < stop; scanAt += 4) {
+				if (*(vu32 *)scanAt == PW_NITROCODE_BE && scanAt + 8 <= scanEnd
+				 && *(vu32 *)(scanAt + 4) == PW_NITROCODE_LE) {
+					foundParams(scanAt);
+					break;
+				}
+			}
+			if (scanStage == SCAN_PARAMS && scanAt >= scanEnd) {
+				// None: just the binary's size from the header
+				scanAt = binStart;
+				scanEnd = binStart + binSize;
+				scanStage = SCAN_HALT;
+			}
+		} else {
+			for (; scanAt < stop; scanAt += 4) {
+				// OS_Halt's middle word, the rarest of its three, then the other two
+				if (*(vu32 *)scanAt != DSIRPC_OS_HALT_1 || scanAt < binStart + 4 || scanAt + 8 > scanEnd) continue;
+				if (*(vu32 *)(scanAt - 4) == DSIRPC_OS_HALT_0 && *(vu32 *)(scanAt + 4) == DSIRPC_OS_HALT_2
+				 && sites < DSIRPC_IDLE_SITES) {
+					siteAt[sites++] = scanAt - 4;
+				}
+			}
+			if (scanAt >= scanEnd) {
+				scanStage = SCAN_DONE; // ProbeWatch_Tick() asks for the patch
+				return 0;
+			}
+		}
+		if (linesSince(start) >= maxLines) return 0;
+	}
 }
 
 // Ring the ARM9, but only over our own doorbell value or none: any other
@@ -93,55 +182,33 @@ static void ringArm9(void) {
 	}
 }
 
-void ProbeWatch_Clean(void) {
+void ProbeWatch_Tick(void) {
 	volatile DsirpcWatchBlock *b = arm9Block;
-	if (!b) return;
-	b->clean = 1;
+	if (!b) {
+		fresh = 0;
+		return;
+	}
+	u32 c = b->cleaned;
+	fresh = c != cleanedSeen;
+	cleanedSeen = c;
+	u32 hooked = b->hooked;
+	probeWatchArm9 = (u8)(1 + (hooked < DSIRPC_IDLE_SITES ? hooked : DSIRPC_IDLE_SITES));
+
+	// Every copy of OS_Halt found and not patched yet (or not any more,
+	// after a reset): hand them over and ring, now and then again
+	if (scanStage != SCAN_DONE || hooked >= sites) return;
+	if (askIn) {
+		askIn--;
+		return;
+	}
+	askIn = PW_ASK_EVERY;
+	for (int i = 0; i < DSIRPC_IDLE_SITES; i++) b->haltAt[i] = i < sites ? siteAt[i] : 0;
+	b->ask = (u16)(b->ask + 1);
 	ringArm9();
 }
 
-u32 ProbeWatch_Cleaned(void) {
-	volatile DsirpcWatchBlock *b = arm9Block;
-	return b ? b->cleaned : 0;
-}
-
-// Copies the next ARM9 snapshot's values (n bytes) to `v` and its scanline
-// to *vc. Returns 1 if there was one to record.
-static int takeArm9(volatile DsirpcWatchBlock *b, u8 *v, int n, u16 *vc) {
-	u32 latest = b->latest;
-	if (!latest) return 0; // the hook hasn't run yet
-	s32 ahead = (s32)(latest - want);
-	int fresh = 0;
-	if (!want || ahead >= 2 || ahead < -1) {
-		// Not in step (just started, or VBlanks went by without us): start
-		// one behind the newest. The ARM9's VBlank and ours start at almost
-		// the same moment, so the newest may or may not be this VBlank's
-		// yet, but the one before it is always there.
-		want = latest > 1 ? latest - 1 : 1;
-		fresh = 1;
-	}
-	while ((s32)(latest - want) >= 0) {
-		volatile DsirpcWatchSlot *s = &b->slots[want % DSIRPC_WATCH_SLOTS];
-		if (s->seq != want) { want = 0; return 0; }        // already overwritten
-		if (s->gen != gen) { want++; fresh = 1; continue; }    // taken with an older list
-		// Coming into step, never start on the newest (for the reason
-		// above): wait a VBlank, and it's the one before the newest.
-		if (fresh && want == latest) return 0;
-		for (int k = 0; k < n; k++) v[k] = s->values[k];
-		*vc = s->vcount;
-		if (s->seq != want) { want = 0; return 0; } // overwritten while copying
-		want++;
-		return 1;
-	}
-	// None newer yet: the ARM9's VBlank interrupt is late this time, or there
-	// are no snapshots for now (the hook is out, or the game has interrupts
-	// off). When they come back, recording carries on from the next one,
-	// which may then be the newest each time (this VBlank's rather than the
-	// one before); the first time the ARM9 is late again, the ARM7 fills in
-	// once and is one behind from then on. Waiting for one behind right
-	// away instead (one more fill-in every time) can skip a snapshot when the
-	// ARM9 is late just then; one fill-in now and then is the better trade.
-	return 0;
+int ProbeWatch_Fresh(void) {
+	return fresh;
 }
 
 void ProbeWatch_Sample(u16 vcount) {
@@ -149,39 +216,25 @@ void ProbeWatch_Sample(u16 vcount) {
 	u8 *rec = &ring[(written % ringSlots) * recSize];
 	put16(&rec[0], tick);
 	u8 *v = &rec[REC_HEADER];
-	volatile DsirpcWatchBlock *b = arm9Block;
-	u16 vc9;
-	if (b && useArm9 && takeArm9(b, v, recSize - REC_HEADER, &vc9)) {
-		// The ARM9's snapshot from a VBlank (normally the one before this),
-		// read through its cache right after the game's own VBlank
-		// code ran. Its scanline, flag clear.
-		put16(&rec[2], vc9 & WATCH_REC_VCOUNT);
-		stall = 0;
-	} else {
-		for (int i = 0; i < watchCount; i++) {
-			u32 a = watches[i].addr;
-			u8 n = watches[i].size;
-			// One load per value when it's aligned, so a value the game is
-			// writing at that moment can't be read half old, half new.
-			if (n == 4 && !(a & 3)) {
-				u32 x = *(vu32 *)a;
-				v[0] = x; v[1] = x >> 8; v[2] = x >> 16; v[3] = x >> 24;
-			} else if (n == 2 && !(a & 1)) {
-				u16 x = *(vu16 *)a;
-				v[0] = x; v[1] = x >> 8;
-			} else {
-				for (u8 k = 0; k < n; k++) v[k] = *(vu8 *)(a + k);
-			}
-			v += n;
+	for (int i = 0; i < watchCount; i++) {
+		u32 a = watches[i].addr;
+		u8 n = watches[i].size;
+		// One load per value when it's aligned, so a value the game is
+		// writing at that moment can't be read half old, half new.
+		if (n == 4 && !(a & 3)) {
+			u32 x = *(vu32 *)a;
+			v[0] = x; v[1] = x >> 8; v[2] = x >> 16; v[3] = x >> 24;
+		} else if (n == 2 && !(a & 1)) {
+			u16 x = *(vu16 *)a;
+			v[0] = x; v[1] = x >> 8;
+		} else {
+			for (u8 k = 0; k < n; k++) v[k] = *(vu8 *)(a + k);
 		}
-		// Read here, straight from main RAM: may be behind the ARM9's cache.
-		put16(&rec[2], (vcount & WATCH_REC_VCOUNT) | WATCH_REC_ARM7);
-		// No snapshot: the hook isn't in yet, or the game replaced its
-		// VBlank handler (or had interrupts off for a while). Ask the ARM9
-		// to put it (back) in.
-		if (b && useArm9 && ++stall % PW_RING_EVERY == PW_STALL_RING) ringArm9();
+		v += n;
 	}
-	if (b) probeWatchArm9 = (u8)(1 + b->hooks);
+	// Up to date if the ARM9 wrote its cache back since the last VBlank;
+	// if not, a value may be a frame late: marked.
+	put16(&rec[2], (vcount & WATCH_REC_VCOUNT) | (fresh ? 0 : WATCH_REC_ARM7));
 	written++;
 	tick++;
 }
@@ -203,37 +256,18 @@ u16 ProbeWatch_Set(const u8 *req, int len, u8 *count, u8 *status) {
 		if (a < MAINRAM_LO || a >= MAINRAM_HI || s > MAINRAM_HI - a) { *status = 2; return 0; }
 		size += s;
 	}
-	// Valid: replace the list and start the ring over. The ARM9 stops
-	// first (count 0), and the new list gets a new number, so snapshots of
-	// the old one are never recorded.
+	// Valid: replace the list and start the ring over
 	watchCount = 0;
-	want = 0;
-	stall = 0;
-	volatile DsirpcWatchBlock *b = arm9Block;
-	if (b) b->count = 0;
 	for (int i = 0; i < n; i++) {
 		const u8 *w = &req[4 + 5 * i];
 		watches[i].addr = get32(w);
 		watches[i].size = w[4];
-		if (b) {
-			b->addrs[i] = watches[i].addr;
-			b->sizes[i] = watches[i].size;
-		}
-	}
-	useArm9 = !(raw & WATCH_ARM7_ONLY);
-	if (b) {
-		if (++gen == 0) gen = 1;
-		b->gen = gen;
-		b->count = useArm9 ? n : 0; // ARM7-only: the ARM9 takes no snapshots at all
 	}
 	recSize = size;
 	ringSlots = WATCH_RING_BYTES / size;
 	written = 0;
 	tick = 0;
 	watchCount = n;
-	// Have the ARM9 put its VBlank hook in now, rather than after the
-	// first VBlanks without snapshots.
-	if (b && useArm9 && n) ringArm9();
 	*status = 0;
 	return 0;
 }

@@ -1,59 +1,41 @@
-// dsirpc_watch_block.h - DSiRPC's per-frame capture, the block the two CPUs
-// share. See cardenginei/arm7/source/rpcprobe/probe_watch.c (the ARM7 half)
-// and cardenginei/arm9/source/dsirpc_watch.c (the ARM9 half).
+// dsirpc_watch_block.h - the block rpcprobe (the ARM7) and DSiRPC's ARM9
+// half share. See cardenginei/arm7/source/rpcprobe/probe_watch.c (the ARM7
+// half) and cardenginei/arm9/source/dsirpc_watch.c (the ARM9 half).
 //
 // Why the ARM9 is involved at all: the game runs on the ARM9, whose data
 // cache holds its writes back from main RAM for a while (measured on
 // Platinum: a frame late on a third of frames in menus and battles, several
-// frames during loading). The ARM7 reads main RAM directly, so it sees those
-// values late. The ARM9 reads through its own cache and always sees what the
-// game just wrote, so it does the reading and hands the values over here.
+// frames during loading; a value set for just one frame may never reach main
+// RAM at all). rpcprobe reads main RAM directly, for offline play's
+// achievement checker (rpcprobe/probe_ach.c) and for DSiRPC (its memory
+// reads and per-frame capture), so it would see those values late or never.
 //
-// When it reads matters too. Games update some values the moment VBlank
-// starts (Platinum's VBlank counter, for one), so a read made a little after
-// that sometimes lands before the update and sometimes after it. The ARM9
-// takes its snapshot in its VBlank interrupt right after the game's own
-// VBlank handler, so every frame is read at the same point. (Not before it:
-// holding the game's VBlank work up, even by a few scanlines, slowed Pokemon
-// Black and White's battle loads to a crawl.)
+// So the ARM9 writes its whole data cache back to main RAM (a clean: the
+// cache keeps its contents) whenever the game has nothing to do: its idle
+// thread calls the SDK's OS_Halt to wait for the next interrupt, and the ARM9
+// half patches OS_Halt to do the write-back first. A game busy all frame
+// (Pokemon Black and White loading a battle) never gets there, so this never
+// takes time the game wants; anything done in the ARM9's VBlank interrupt
+// did, even a few microseconds of it, and slowed those battle loads to a
+// crawl. A game that idles once its frame is done, as most do, has every
+// frame's values in main RAM by the next VBlank, which is when rpcprobe
+// samples them.
 //
-// The block lives in the ARM9 cardengine's .data. The ARM7 finds it by
+// Finding OS_Halt: rpcprobe searches the game's ARM9 binary in main RAM for
+// its three instructions, in the ARM7's own idle time, and lists every copy
+// in haltAt. Then it rings the ARM9 (IPC sync 3, nds-bootstrap's do-nothing
+// doorbell) after raising ask; the ARM9 checks that each address still holds
+// OS_Halt and makes it jump to its write-back routine instead, which then
+// does what OS_Halt does.
+//
+// The block lives in the ARM9 cardengine's .data. rpcprobe finds it by
 // scanning that cardengine's region for the two magic words and the version
-// (so a build or variant without it is simply never found, and the ARM7
-// reads by itself as before).
+// (so a build or variant without it is simply never found, and rpcprobe reads
+// main RAM as it is).
 //
 // Ownership is split by cache line, so neither CPU ever writes a line the
-// other one writes: the ARM9 never writes the first two lines (and
-// invalidates them before reading), and the ARM7 never writes the rest.
-//
-// The block can also serve offline play's achievement checker
-// (rpcprobe/probe_ach.c, only in a build with RPCPROBE_ACH_WRITEBACK): its
-// frame lane samples main RAM from the ARM7 at the start of every VBlank,
-// and the game's latest writes may still be in the ARM9's data cache then (a
-// value set for just one frame may never reach main RAM at all). With
-// `clean` set, the ARM9 writes its whole data cache back to main RAM in
-// every VBlank interrupt, after the game's handler (a clean: the cache keeps
-// its contents), then counts it in `cleaned`; the ARM7 waits a moment for
-// the count to change before it samples.
-//
-// How it runs:
-//   ARM7, on a new watch list: count = 0, write the list, gen = a new
-//         number, count = n. Then ring the ARM9 (IPC sync 3, nds-bootstrap's
-//         do-nothing doorbell) so it hooks its VBlank interrupt.
-//   ARM9, every VBlank while count > 0 (after the game's VBlank handler):
-//         read every watched value into the next slot, tag it with gen and
-//         its number, write the slot back to RAM, then latest = its number
-//         and write that back too (slot first, so an ARM7 that sees the new
-//         latest also sees the whole slot). A snapshot taken while the list
-//         was changing is dropped.
-//   ARM9, every VBlank while clean is set: after the snapshot (if any),
-//         clean the data cache, then cleaned + 1, written back.
-//   ARM7, every VBlank: record the oldest slot it hasn't recorded yet (it
-//         starts one snapshot behind the newest, since the ARM9's snapshot
-//         comes during its VBlank and its own reading at the start of
-//         one). If there's none, read
-//         main RAM itself and mark the record as such; if that goes on, ring
-//         the ARM9 again (the game may have replaced its VBlank handler).
+// other one writes: the ARM9 never writes the first line (and invalidates it
+// before reading), and the ARM7 never writes the second.
 
 #ifndef DSIRPC_WATCH_BLOCK_H
 #define DSIRPC_WATCH_BLOCK_H
@@ -62,43 +44,34 @@
 
 #define DSIRPC_WATCH_MAGIC0  0x43505244u // "DRPC"
 #define DSIRPC_WATCH_MAGIC1  0x39435457u // "WTC9"
-#define DSIRPC_WATCH_VERSION 3
-#define DSIRPC_WATCH_MAX     8           // values, at most 4 bytes each
-#define DSIRPC_WATCH_SLOTS   4           // snapshots kept, newest overwrites oldest
+#define DSIRPC_WATCH_VERSION 4
+#define DSIRPC_IDLE_SITES    4           // copies of OS_Halt rpcprobe can list
 
-typedef struct {
-	u32 seq;                          // 0x00  snapshot number (1, 2, ...), written last
-	u32 gen;                          // 0x04  the list it was taken with
-	u16 vcount;                       // 0x08  scanline it was taken on
-	u16 pad;                          // 0x0A
-	u8  values[4 * DSIRPC_WATCH_MAX]; // 0x0C  each watch's bytes, in list order
-} DsirpcWatchSlot;                    // 0x2C
+// The SDK's OS_Halt (ARM code): mov r0, #0 / mcr p15, 0, r0, c7, c0, 4 / bx lr
+#define DSIRPC_OS_HALT_0 0xE3A00000u
+#define DSIRPC_OS_HALT_1 0xEE070F90u
+#define DSIRPC_OS_HALT_2 0xE12FFF1Eu
 
 typedef struct {
 	// Written by the ARM7 only.
 	u32 magic0;                       // 0x00
 	u32 magic1;                       // 0x04
 	u16 version;                      // 0x08
-	u8  count;                        // 0x0A  watches in use, 0 = off
-	u8  clean;                        // 0x0B  1 = write the data cache back every VBlank
-	u32 gen;                          // 0x0C  list number, a new one after every change
-	u8  sizes[DSIRPC_WATCH_MAX];      // 0x10  1, 2 or 4
-	u32 pad1[2];                      // 0x18
-	u32 addrs[DSIRPC_WATCH_MAX];      // 0x20  main RAM addresses
+	u16 ask;                          // 0x0A  one more each time rpcprobe asks for the patch
+	u32 haltAt[DSIRPC_IDLE_SITES];    // 0x0C  OS_Halt's copies in the game, 0 = none
+	u32 pad1;                         // 0x1C
 	// Written by the ARM9 only.
-	u32 latest;                       // 0x40  number of the newest finished snapshot, 0 = none yet
-	u32 hooks;                        // 0x44  times the VBlank hook was put in (1 normally)
-	u32 cleaned;                      // 0x48  data cache write-backs (with clean set)
-	u32 pad2[5];                      // 0x4C
-	DsirpcWatchSlot slots[DSIRPC_WATCH_SLOTS]; // 0x60  snapshot n is in slots[n % DSIRPC_WATCH_SLOTS]
-	u32 pad3[4];                      // 0x110
-} DsirpcWatchBlock;                   // 0x120
+	u32 cleaned;                      // 0x20  write-backs done in the game's idle time (counts up)
+	u32 hooked;                       // 0x24  copies of OS_Halt patched (0 again after a reset)
+	u32 pad2[6];                      // 0x28
+} DsirpcWatchBlock;                   // 0x40
 
-_Static_assert(sizeof(DsirpcWatchSlot) == 0x2C, "DsirpcWatchSlot layout");
-_Static_assert(sizeof(DsirpcWatchBlock) == 0x120, "DsirpcWatchBlock must be whole cache lines");
-_Static_assert(__builtin_offsetof(DsirpcWatchBlock, addrs) == 0x20, "DsirpcWatchBlock layout");
-_Static_assert(__builtin_offsetof(DsirpcWatchBlock, latest) == 0x40, "DsirpcWatchBlock layout");
-_Static_assert(__builtin_offsetof(DsirpcWatchBlock, slots) == 0x60, "DsirpcWatchBlock layout");
-_Static_assert(__builtin_offsetof(DsirpcWatchBlock, cleaned) == 0x48, "DsirpcWatchBlock layout");
+// For dsirpc_watch.c's assembly
+#define DSIRPC_BLOCK_CLEANED 0x20
+
+_Static_assert(sizeof(DsirpcWatchBlock) == 0x40, "DsirpcWatchBlock must be whole cache lines");
+_Static_assert(__builtin_offsetof(DsirpcWatchBlock, haltAt) == 0x0C, "DsirpcWatchBlock layout");
+_Static_assert(__builtin_offsetof(DsirpcWatchBlock, cleaned) == DSIRPC_BLOCK_CLEANED, "DsirpcWatchBlock layout");
+_Static_assert(__builtin_offsetof(DsirpcWatchBlock, hooked) == 0x24, "DsirpcWatchBlock layout");
 
 #endif // DSIRPC_WATCH_BLOCK_H

@@ -49,15 +49,11 @@
 #define RPCPROBE_ACH 1
 #endif
 
-// 1 = the frame lane has the ARM9 write its data cache back to main RAM in
-// every VBlank (probe_watch.c, dsirpc_watch.c) and waits a moment for it, so
-// its samples see every value the game wrote. 0 = it samples main RAM as it
-// is: now and then a value is a frame late (or one that lasted a single
-// frame is missed). 0, since holding the ARM9 up in its VBlank, even by a
-// few scanlines, slowed Pokemon Black and White's battle loads to a crawl.
-#ifndef RPCPROBE_ACH_WRITEBACK // (a test build can set it with DSIRPC_CFLAGS)
-#define RPCPROBE_ACH_WRITEBACK 0
-#endif
+// Looking for the game's OS_Halt (probe_watch.c: the ARM9 patches it to write
+// its data cache back whenever the game is idle) takes this many scanlines at
+// most per visit to the game's idle time, from the start until it's found.
+// The game's ARM9 binary is read 256 words between looks at the clock.
+#define RPCPROBE_WATCH_SCAN_LINES 4
 
 // The checker runs while the game's ARM7 idles (nds-bootstrap's swiHalt
 // hook, outside interrupts): at most this many scanlines (about 64 us
@@ -82,9 +78,12 @@
 // interrupt, a step each time the ARM9 pings), and for this many VBlanks
 // after one was seen, the VBlank tick stays short so it doesn't hold the
 // reads up: no checker turn, no frame-lane sample, and at most one frame
-// from the Wi-Fi chip. Pokemon Black and White's battles took up to a
-// minute to load without it. 0 = off.
-#define RPCPROBE_ROM_BUSY_VBLANKS 30
+// from the Wi-Fi chip. 0 = off, now: Pokemon Black and White's slow battle
+// loads, which this was for, turned out to come from the ARM9's VBlank hook,
+// and the checker missed every frame it didn't sample.
+#ifndef RPCPROBE_ROM_BUSY_VBLANKS // (a test build can set it with DSIRPC_CFLAGS)
+#define RPCPROBE_ROM_BUSY_VBLANKS 0
+#endif
 
 // Unlocks are saved to sd:/RPCUNLK.BIN from nds-bootstrap's swiHalt hook
 // (outside interrupts). If that hook hasn't run for this many VBlanks (a

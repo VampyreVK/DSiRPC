@@ -78,7 +78,7 @@ typedef struct {
 	u16 maxLines;  // the longest the checker took in one VBlank, in scanlines
 	u16 frames;    // frame lane samples checked
 	u16 dropped;   // frames the frame lane couldn't sample (its checking fell behind)
-	u16 unclean;   // samples taken without the ARM9 writing its cache back first
+	u16 unclean;   // samples taken with no write-back from the ARM9 since the VBlank before
 	u8  idle;      // 1 if the checking ran in the idle time, 0 in the VBlank
 } ProbeAchStats;
 void ProbeAch_TakeStats(ProbeAchStats *s);

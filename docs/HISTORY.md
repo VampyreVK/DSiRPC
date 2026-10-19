@@ -285,6 +285,43 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (later): **The ARM9 writes its cache back in the game's idle
+  time instead.** Viv's timings of a wild battle's intro: hook-after build
+  offline (no ARM9 hook at all) 21 seconds, as with stock nds-bootstrap;
+  online (its snapshot after the game's VBlank handler) 33; `writeback-after`
+  61; `no-arm9-hook` online 22. So it was all the ARM9 hook, and work right
+  after the game's VBlank handler hurts as much as before it (the game most
+  likely does its time-critical work as soon as the VBlank interrupt
+  returns); the Wi-Fi side costs nothing. Viv's priority is the console's own
+  checker missing nothing, offline too, so rather than reading main RAM as it
+  is (a frame late on a third to half of the frames on Platinum, and a value
+  set for a single frame can be missed), the ARM9 now writes its whole data
+  cache back whenever the game is idle: rpcprobe looks for the SDK's
+  `OS_Halt` (`mov r0, #0` / `mcr p15, 0, r0, c7, c0, 4` / `bx lr`) in the
+  game's static ARM9 code (up to where the module params say the autoload
+  blocks start, since nds-bootstrap decompressed it in place), a few
+  scanlines at a time in the ARM7's idle time, and asks the ARM9 (IPC
+  doorbell) to make it jump to `dsirpcIdle`: the clean, a count, then the
+  halt. It runs with interrupts on and only when the game's idle thread has
+  nothing to do, so it never takes time the game wants (a game busy all frame
+  just doesn't get it that frame), and a game that idles once its frame is
+  done has every value in main RAM by the next VBlank. No stack (the idle
+  thread has very little). The VBlank hooks, snapshots and their slots are
+  gone (block version 4, 64 bytes; the ARM9 cardengine has 1,416 bytes free,
+  the ARM7 one 720); the capture's records are now read by the ARM7 and
+  marked when no write-back came since the one before, and `fc=` counts the
+  checker's samples like that. `RPCPROBE_ACH_WRITEBACK` is gone, and
+  `RPCPROBE_ROM_BUSY_VBLANKS` is 0 (it skipped the frame lane during and
+  after every ROM read, for slow loads that weren't its doing). Tested on
+  the PC (the search on a fake binary with its static code past the header's
+  size, a look-alike and a copy past the code, the patch, re-asking after a
+  reset and over another doorbell value, the record flags) and built with
+  devkitARM (the routine's disassembly checked); `frame_check.py` now says
+  which late reads had no write-back before them. Not yet on hardware: the
+  hellos' `a9=` (2 or more) and `fc=` say whether it works there. Test
+  builds `rom-busy-backoff` (the back-off at 30 again) and `no-arm9-hook`,
+  in case a battle loads slowly again.
+
 - 2026-10-19: **Black and White's slow loads: it's the timing, not the
   cache.** Viv's tests: `arm9-clean-lines` (only the checker's cache lines
   written back) was very slow, and `arm9-delay` (nothing written back, the

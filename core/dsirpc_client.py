@@ -14,10 +14,11 @@ per request; read_ranges() splits bigger jobs automatically.
 
 Per-frame capture (rpcprobe/probe_watch.h): set_watch() sends a 'W' with up
 to 8 values to read every VBlank, and fetch_frames() drains the records with
-'F'. Same transport and reply header as 'R'. Each record says whether the
-ARM9 read the values (through its cache, so never late, in each VBlank right
-after the game's VBlank handler; builds whose hellos say a9=1 or more) or the
-ARM7 read main RAM itself (may lag the game's writes).
+'F'. Same transport and reply header as 'R'. The ARM7 reads the values from
+main RAM at the start of every VBlank; each record says whether the ARM9 had
+written its data cache back since the record before (builds whose hellos say
+a9=2 or more do that whenever the game is idle), else a value may be a frame
+late.
 
 The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
 port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,
@@ -61,7 +62,7 @@ MAX_DATA = 192
 MAX_WATCHES = 8
 MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
-REC_ARM7 = 0x8000         # in a record's scanline field: the ARM7 read it
+REC_ARM7 = 0x8000         # in a record's scanline field: no ARM9 write-back since the record before
 STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM", 3: "no watch list set"}
 
 
@@ -315,7 +316,8 @@ class DSiClient:
         """Per-frame capture: [(addr, size), ...] with size 1, 2 or 4, at
         most MAX_WATCHES. The DSi reads them every VBlank from now on and
         restarts its record numbering at 0. [] stops the capture.
-        arm7_only: don't use the ARM9 even if it's there (for comparing)."""
+        arm7_only: builds before 2026-10-19 only: don't use the ARM9's
+        snapshots (for comparing); newer ones always read from the ARM7."""
         if len(watches) > MAX_WATCHES:
             raise ValueError(f"at most {MAX_WATCHES} watches")
         body = struct.pack(">B", len(watches) | (WATCH_ARM7_ONLY if arm7_only and watches else 0))

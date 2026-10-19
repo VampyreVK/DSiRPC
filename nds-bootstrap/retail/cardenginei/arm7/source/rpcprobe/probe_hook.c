@@ -183,7 +183,7 @@ static void handoffProbe(void) {
 #if RPCPROBE_REQUESTS
 	if (hoStage == HO_RUN) {
 		ProbeReq_Announce();
-		ProbeWatch_Init(); // find the ARM9 half of the per-frame capture
+		ProbeWatch_Init(); // the ARM9 half (found again: probe_watch.h)
 	}
 #endif
 }
@@ -231,8 +231,9 @@ static void handoffSend(void) {
 	n += putDec(&msg[n], (u16)TwlWifi_TxCmd53Errors());
 	n += putStr(&msg[n], " rep=");
 	n += putDec(&msg[n], probeReqRepeats);
-	// The per-frame capture's ARM9 half: 0 = none, 1 = found, 2+ = its
-	// VBlank hook is in (probe_watch.h).
+	// DSiRPC's ARM9 half: 0 = none, 1 = found, 2+ = the game's OS_Halt
+	// patched, so the ARM9 writes its cache back in the game's idle time
+	// (probe_watch.h).
 	n += putStr(&msg[n], " a9=");
 	n += putDec(&msg[n], probeWatchArm9);
 #endif
@@ -381,6 +382,10 @@ void Probe_MenuClosed(void) {
 }
 
 int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void)) {
+#if RPCPROBE_REQUESTS
+	// Looking for the game's OS_Halt (only at the start, until it's found)
+	if (ProbeWatch_Idle(RPCPROBE_WATCH_SCAN_LINES, romWaiting)) return 1;
+#endif
 #if RPCPROBE_ACH
 	hoNoHalt = 0;
 	achSave(sdMutex);
@@ -405,6 +410,11 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	else if (hoRomBusy) hoRomBusy--;
 	const int romBusy = hoRomBusy != 0;
 	(void)romBusy; // (unused with both RPCPROBE_ACH and RPCPROBE_REQUESTS off)
+#if RPCPROBE_REQUESTS
+	// Did the ARM9 write its cache back since the last VBlank (the samples
+	// below say so), and is OS_Halt patched (if not, ask)
+	ProbeWatch_Tick();
+#endif
 #if RPCPROBE_ACH
 	// The checker's frame lane samples first, at the same point of every frame
 	if (romBusy) ProbeAch_SkipSample();
@@ -422,6 +432,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 		gameLoad((const u8 *)ndsHeader);
 #if RPCPROBE_REQUESTS
 		ProbeWatch_Init(); // the ARM9 half, for the checker's frame lane too
+		ProbeWatch_Game(ndsHeader); // where to look for OS_Halt
 #endif
 #if RPCPROBE_ACH
 		ProbeAch_Load(ndsHeader); // first VBlank: the SD card is safe to read
@@ -459,6 +470,11 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// hook this game's swiHalt)
 	if (hoNoHalt < 255) hoNoHalt++;
 	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD, romBusy);
+#if RPCPROBE_REQUESTS
+	// Looking for OS_Halt here instead, a little at a time, if the
+	// swiHalt hook doesn't run
+	if (hoNoHalt >= RPCPROBE_ACH_IDLE_DEAD) ProbeWatch_Idle(2, 0);
+#endif
 
 	// Unlocks are saved from Probe_HaltTick() too. If that hasn't run for a
 	// while, here instead, unless a ROM read is under way (sdMutex is NULL

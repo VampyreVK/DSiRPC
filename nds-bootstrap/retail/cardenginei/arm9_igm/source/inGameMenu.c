@@ -492,6 +492,10 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 
 	// Print info
 	print(1, 0x18 - 3, igmText.ndsBootstrap, FONT_LIGHT_GRAY, false);
+	// DSiRPC: "nds-bootstrap-DSiRPC", so it's never taken for stock nds-bootstrap
+	int titleLen = 0;
+	while (titleLen < (int)sizeof(igmText.ndsBootstrap) && igmText.ndsBootstrap[titleLen]) titleLen++;
+	print(1 + titleLen, 0x18 - 3, (const unsigned char *)"-DSiRPC", FONT_LIGHT_GRAY, false);
 	print(1, 0x18 - 2, igmText.version, FONT_LIGHT_GRAY, false);
 
 	#ifndef B4DS

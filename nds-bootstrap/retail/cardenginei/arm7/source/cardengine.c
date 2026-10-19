@@ -84,6 +84,7 @@
 #define isDlp BIT(21)
 #define useColorLut BIT(22)
 #define clearRamOnReset BIT(23)
+#define ipcReads BIT(26) // DSiRPC: altReadMethod, ROM reads served from the IPC interrupt (bootloaderi's patch_arm7.c)
 #define i2cBricked BIT(30)
 #define scfgLocked BIT(31)
 
@@ -1718,7 +1719,7 @@ void runCardEngineCheck(void) {
   	// }
 }
 
-#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 // rpcprobe: an ARM9 request the swiHalt hook below serves is waiting (its
 // achievement checker stops for it)
 static int haltRequestWaiting(void) {
@@ -1733,7 +1734,19 @@ void runCardEngineCheckHalt(void) {
 	nocashMessage("runCardEngineCheckHalt");
 	#endif	
 
-	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	// DSiRPC: a game whose ROM reads are served from the IPC interrupt
+	// (altReadMethod) only has this hook for rpcprobe, so nothing of
+	// nds-bootstrap's runs here, as without it. rpcprobe doesn't touch the SD
+	// card here either (no lock: the IPC interrupt reads it at any moment),
+	// and doesn't stop for those reads, which interrupt it anyway.
+	if (valueBits & ipcReads) {
+		#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
+		Probe_HaltTick(NULL, NULL);
+		#endif
+		return;
+	}
+
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 haltCheckAgain:
 	#endif
 
@@ -1808,7 +1821,7 @@ haltCheckAgain:
   		// unlockMutex(&cardEgnineCommandMutex);
   	// }
 
-	#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 	// rpcprobe: saves offline play's unlocks and checks achievements a
 	// while; back to the top when it stopped for an ARM9 request
 	if (Probe_HaltTick(&saveMutex, haltRequestWaiting)) goto haltCheckAgain;
@@ -1845,6 +1858,21 @@ void myIrqHandlerFIFO(void) {
 	}
 }
 
+
+// DSiRPC: an ARM9 ROM read served from the IPC interrupt (ipcReads) is under
+// way: its command is waiting, or the SD card is partway through it (read in
+// chunks, with nothing holding saveMutex, unlike a read served from the
+// swiHalt hook), or its last chunk's 'DMA9' hasn't reached the ARM9 yet. The
+// in-game menu would use the SD card in the middle of it and take over the
+// sharedAddr words its handshake uses, so once the menu closed, the game
+// could wait forever for a read that never finishes. The menu opens a moment
+// later instead. (A 'PING' the ARM9 still needs always comes with the command
+// waiting; one left over from a DMA read means nothing.)
+static bool ipcReadBusy(void) {
+	if (!(valueBits & ipcReads)) return false;
+	const u32 cmd = sharedAddr[3];
+	return readOngoing || (cmd >= (vu32)0x025FFB08 && cmd <= (vu32)0x025FFB0A) || sharedAddr[4] == 0x39414D44; // 'DMA9'
+}
 
 void myIrqHandlerVBlank(void) {
   while (1) {
@@ -1943,7 +1971,7 @@ void myIrqHandlerVBlank(void) {
 	}
 #endif */
 
-	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */) {
+	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq && !ipcReadBusy()) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */) {
 		if (tryLockMutex(&saveMutex)) {
 #ifdef TWLSDK
 		igmText = (struct IgmText *)INGAME_MENU_LOCATION;
@@ -1959,11 +1987,15 @@ void myIrqHandlerVBlank(void) {
 
 	if (afterSwapTimer > 0) {
 		if (afterSwapTimer == 60*3) {
-			if (lockMutex(&saveMutex)) {
-				saveMainScreenSetting();
+			// DSiRPC: the setting goes to the SD card, so not in the middle of
+			// an IPC-served ROM read either (ipcReadBusy()): a frame later
+			if (!ipcReadBusy()) {
+				if (lockMutex(&saveMutex)) {
+					saveMainScreenSetting();
+				}
+				unlockMutex(&saveMutex);
+				afterSwapTimer = 0;
 			}
-			unlockMutex(&saveMutex);
-			afterSwapTimer = 0;
 		} else afterSwapTimer++;
 	}
 
@@ -2131,7 +2163,7 @@ void myIrqHandlerVBlank(void) {
 		while (REG_VCOUNT != 191) swiDelay(100);
 		while (REG_VCOUNT == 191) swiDelay(100);
 	} else {
-		#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+		#if !defined(ALTERNATIVE) && !defined(TWLSDK) && !defined(DSIRPC_NO_RPCPROBE)
 		Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex); // rpcprobe
 		#endif
 		break;

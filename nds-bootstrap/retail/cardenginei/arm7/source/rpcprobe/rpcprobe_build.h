@@ -45,7 +45,15 @@
 // DSiRPC launcher puts in sd:/RPCSET.BIN (probe_ach.c). With Wi-Fi, a
 // "DSiRPC ach" packet after each hello says how it's going, so it can be
 // compared with what DSiRPC unlocks. 0 = off.
+#ifndef RPCPROBE_ACH // (a test build can set it with DSIRPC_CFLAGS)
 #define RPCPROBE_ACH 1
+#endif
+
+// Looking for the game's OS_Halt (probe_watch.c: the ARM9 patches it to write
+// its data cache back whenever the game is idle) takes this many scanlines at
+// most per visit to the game's idle time, from the start until it's found.
+// The game's ARM9 binary is read 256 words between looks at the clock.
+#define RPCPROBE_WATCH_SCAN_LINES 4
 
 // The checker runs while the game's ARM7 idles (nds-bootstrap's swiHalt
 // hook, outside interrupts): at most this many scanlines (about 64 us

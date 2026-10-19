@@ -30,10 +30,16 @@ int ini_set(const char *path, const char *section, const char *const *keys,
 bool find_save(const char *game, const char *prev_nds, const char *prev_sav,
                char *out, size_t outsz);
 
-// Makes nds-bootstrap boot `game`: if the ini already names it, nothing
-// changes. Otherwise NDS_PATH and SAV_PATH are set, the last game's
-// per-game values (manual, donor SDK, MPU patch) are reset, and its cheat
-// files are removed (TWiLight writes new ones for each game it launches).
+// The game's unit code, its header's byte 0x12: 0 for a DS game, 2 for
+// DSi-enhanced, 3 for DSi-exclusive. -1 if the file can't be read.
+int nds_unit_code(const char *path);
+
+// Makes nds-bootstrap boot `game`: NDS_PATH and SAV_PATH are set, the last
+// game's per-game values (manual, donor SDK, MPU patch) are reset, and its
+// cheat files are removed (TWiLight writes new ones for each game it
+// launches); if the ini already names the game, those stay as they are. A
+// DSi-enhanced game is set to run in DS mode (DSI_MODE = 0) either way, since
+// DSiRPC's part of nds-bootstrap only runs in DS mode.
 // Returns 0 on success, or -1 with a message for the screen in msg.
 int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz);
 

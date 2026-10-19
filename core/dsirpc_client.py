@@ -14,10 +14,11 @@ per request; read_ranges() splits bigger jobs automatically.
 
 Per-frame capture (rpcprobe/probe_watch.h): set_watch() sends a 'W' with up
 to 8 values to read every VBlank, and fetch_frames() drains the records with
-'F'. Same transport and reply header as 'R'. Each record says whether the
-ARM9 read the values (through its cache, so never late, at the start of each
-VBlank; builds whose hellos say a9=1 or more) or the ARM7 read main RAM
-itself (may lag the game's writes).
+'F'. Same transport and reply header as 'R'. The ARM7 reads the values from
+main RAM at the start of every VBlank; each record says whether the ARM9 had
+written its data cache back since the record before (builds whose hellos say
+a9=2 or more do that whenever the game is idle), else a value may be a frame
+late.
 
 The DSi also broadcasts "DSiRPC hello ..." packets once a second on the same
 port. This client uses the first one to learn the DSi's IP (or pass --dsi-ip,
@@ -61,7 +62,7 @@ MAX_DATA = 192
 MAX_WATCHES = 8
 MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
-REC_ARM7 = 0x8000         # in a record's scanline field: the ARM7 read it
+REC_ARM7 = 0x8000         # in a record's scanline field: no ARM9 write-back since the record before
 STATUS_TEXT = {0: "ok", 1: "malformed or too big", 2: "range outside main RAM", 3: "no watch list set"}
 
 
@@ -194,6 +195,7 @@ class DSiClient:
         self.last_hello = None
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
+        self._tick_report_due = 0.0  # when to log the console's VBlank tick next (_tick_report)
         self.ach = AchReport()
         self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
         self._in_hook = False
@@ -206,6 +208,7 @@ class DSiClient:
             self.last_hello = data.decode(errors="replace")
             self.hellos.append((time.time(), self.last_hello))
             self.game = game_from_hello(self.last_hello)
+            self._tick_report()
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
@@ -218,6 +221,35 @@ class DSiClient:
                          "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def _tick_report(self):
+        """Once a minute, what rpcprobe cost the console's ARM7 (its hellos'
+        vb=, the longest VBlank tick since the hello before, in scanlines)
+        and how busy the link was (rx= frames from the network, req=
+        requests served), to tell its cost apart from the game's own."""
+        now = time.time()
+        if now < self._tick_report_due:
+            return
+        first = not self._tick_report_due
+        self._tick_report_due = now + 60
+        if first:
+            return
+        times = [at for at, _ in self.hellos if at >= now - 60]
+        recent = [_hello_fields(text) for at, text in self.hellos if at >= now - 60]
+        ticks = sorted(int(f['vb']) for f in recent if f.get('vb', '').isdigit())
+        if len(ticks) < 2 or times[-1] - times[0] < 10:
+            return
+        text = (f"Console: its VBlank tick (rpcprobe) took up to {ticks[-1]} scanlines over the last minute "
+                f"({ticks[len(ticks) // 2]} typical; a frame has 263)")
+        try:
+            rx = int(recent[-1]['rx']) - int(recent[0]['rx'])
+            req = int(recent[-1]['req']) - int(recent[0]['req'])
+            span = times[-1] - times[0]
+            if rx >= 0 and req >= 0:  # (not across a restart)
+                text += f", {rx / span:.1f} network frames and {req / span:.1f} requests a second"
+        except (KeyError, ValueError):
+            pass
+        logging.info(text)
 
     def listen(self, seconds):
         """Takes in hellos for `seconds`, so .game and .last_hello stay
@@ -284,7 +316,8 @@ class DSiClient:
         """Per-frame capture: [(addr, size), ...] with size 1, 2 or 4, at
         most MAX_WATCHES. The DSi reads them every VBlank from now on and
         restarts its record numbering at 0. [] stops the capture.
-        arm7_only: don't use the ARM9 even if it's there (for comparing)."""
+        arm7_only: builds before 2026-10-19 only: don't use the ARM9's
+        snapshots (for comparing); newer ones always read from the ARM7."""
         if len(watches) > MAX_WATCHES:
             raise ValueError(f"at most {MAX_WATCHES} watches")
         body = struct.pack(">B", len(watches) | (WATCH_ARM7_ONLY if arm7_only and watches else 0))

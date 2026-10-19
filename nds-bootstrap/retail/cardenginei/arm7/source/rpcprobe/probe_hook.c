@@ -20,8 +20,10 @@
 // saving the achievement checker's unlocks, happens in Probe_HaltTick()
 // (outside interrupts) and only while it holds nds-bootstrap's SD card lock
 // (saveMutex), which its save and ROM reads take too. Only for a game whose
-// swiHalt nds-bootstrap couldn't hook does the VBlank save them, with the
-// same lock and only when no ROM read is under way.
+// swiHalt nds-bootstrap couldn't hook, or one whose ROM reads it serves from
+// the IPC interrupt (altReadMethod: they may come in the middle of the
+// hook), does the VBlank save them, with the same lock and only when no ROM
+// read is under way.
 //
 // Lid rule: a DSi that goes to sleep (the game's own sleep when the lid
 // closes) while the Wi-Fi chip is still connected to the access point shuts
@@ -90,6 +92,7 @@ static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hell
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
+static u8 hoHaltNoSd = 0;      // Probe_HaltTick() may not use the SD card (ROM reads from the IPC interrupt)
 static u16 hoAchSeen = 0;      // probeAchTriggered when the in-game menu last opened
 extern int tryLockMutex(int *addr);   // card_engine_header.s
 extern int unlockMutex(int *addr);
@@ -145,6 +148,9 @@ static int putStr(char *p, const char *str) {
 
 static void handoffLoad(void) {
 	u8 valid = RpcProbeHandoff_Load();
+#ifdef DSIRPC_NO_WIFI
+	valid = 0; // test build: the Wi-Fi chip is never touched (the checker still runs)
+#endif
 #if RPCPROBE_ACH
 	ProbeAch_SetTime(rpcProbeHandoff.time); // offline too: it dates the unlocks
 #endif
@@ -179,7 +185,7 @@ static void handoffProbe(void) {
 #if RPCPROBE_REQUESTS
 	if (hoStage == HO_RUN) {
 		ProbeReq_Announce();
-		ProbeWatch_Init(); // find the ARM9 half of the per-frame capture
+		ProbeWatch_Init(); // the ARM9 half (found again: probe_watch.h)
 	}
 #endif
 }
@@ -227,8 +233,9 @@ static void handoffSend(void) {
 	n += putDec(&msg[n], (u16)TwlWifi_TxCmd53Errors());
 	n += putStr(&msg[n], " rep=");
 	n += putDec(&msg[n], probeReqRepeats);
-	// The per-frame capture's ARM9 half: 0 = none, 1 = found, 2+ = its
-	// VBlank hook is in (probe_watch.h).
+	// DSiRPC's ARM9 half: 0 = none, 1 = found, 2+ = the game's OS_Halt
+	// patched, so the ARM9 writes its cache back in the game's idle time
+	// (probe_watch.h).
 	n += putStr(&msg[n], " a9=");
 	n += putDec(&msg[n], probeWatchArm9);
 #endif
@@ -377,9 +384,15 @@ void Probe_MenuClosed(void) {
 }
 
 int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void)) {
+#if RPCPROBE_REQUESTS
+	// Looking for the game's OS_Halt (only at the start, until it's found)
+	if (ProbeWatch_Idle(RPCPROBE_WATCH_SCAN_LINES, romWaiting)) return 1;
+#endif
 #if RPCPROBE_ACH
 	hoNoHalt = 0;
-	achSave(sdMutex);
+	// No SD card lock here (sdMutex NULL): the VBlank saves instead
+	hoHaltNoSd = !sdMutex;
+	if (sdMutex) achSave(sdMutex);
 	return ProbeAch_Idle(romWaiting);
 #else
 	(void)sdMutex;
@@ -394,6 +407,11 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// DSi: the lid closing turns the Wi-Fi off (the lid rule at the top)
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
 	if (lidClosed) Probe_LidClosed();
+#if RPCPROBE_REQUESTS
+	// Did the ARM9 write its cache back since the last VBlank (the samples
+	// below say so), and is OS_Halt patched (if not, ask)
+	ProbeWatch_Tick();
+#endif
 #if RPCPROBE_ACH
 	// The checker's frame lane samples first, at the same point of every frame
 	ProbeAch_Sample();
@@ -404,12 +422,13 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// Per-frame capture first, so every sample is taken at the same point
 	// in the frame (and before anything else this tick costs time).
 	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
-	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service();
+	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service(RPCPROBE_RX53_FRAMES_PER_VBLANK);
 #endif
 	if (hoStage == HO_LOAD && hoTimer == 0) {
 		gameLoad((const u8 *)ndsHeader);
 #if RPCPROBE_REQUESTS
 		ProbeWatch_Init(); // the ARM9 half, for the checker's frame lane too
+		ProbeWatch_Game(ndsHeader); // where to look for OS_Halt
 #endif
 #if RPCPROBE_ACH
 		ProbeAch_Load(ndsHeader); // first VBlank: the SD card is safe to read
@@ -447,11 +466,16 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// hook this game's swiHalt)
 	if (hoNoHalt < 255) hoNoHalt++;
 	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD);
+#if RPCPROBE_REQUESTS
+	// Looking for OS_Halt here instead, a little at a time, if the
+	// swiHalt hook doesn't run
+	if (hoNoHalt >= RPCPROBE_ACH_IDLE_DEAD) ProbeWatch_Idle(2, 0);
+#endif
 
 	// Unlocks are saved from Probe_HaltTick() too. If that hasn't run for a
-	// while, here instead, unless a ROM read is under way (sdMutex is NULL
-	// then).
-	if (hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK && sdMutex) achSave(sdMutex);
+	// while, or can't use the SD card, here instead, unless a ROM read is
+	// under way (sdMutex is NULL then).
+	if ((hoNoHalt >= RPCPROBE_ACH_SAVE_FALLBACK || hoHaltNoSd) && sdMutex) achSave(sdMutex);
 #else
 	(void)sdMutex;
 #endif

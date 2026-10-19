@@ -16,6 +16,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 7. [Command line](#7-command-line)
 8. [Tools](#8-tools)
 9. [Builds and releases](#9-builds-and-releases)
+10. [Tests](#10-tests)
 
 ## 1. Repository layout
 
@@ -30,6 +31,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](../ra/README.md)) |
 | `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64, with DSiRPC's offline set compiler (`dsirpc_offline.c`) built in; how to rebuild it is in its README |
 | `tools/` | Developer and testing tools (see [Tools](#8-tools)), and the charmap table generator (`tools/charmap/`) |
+| `tests/`, `pytest.ini` | The tests: the console's checker, capture and idle-time write-back built for the PC against rcheevos, and the PC side against a fake DSi (see [Tests](#10-tests)) |
 | `Assets/` | Sprites served by GitHub Pages for Discord and the overlay, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
@@ -38,6 +40,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
+| `.github/workflows/tests.yml` | The GitHub Action that runs the tests (see [Tests](#10-tests)) |
 
 ## 2. Requirements
 
@@ -95,6 +98,15 @@ the SD card as `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
 Menu++'s own copy, so you always know which one you are launching. The build
 prints a few harmless `fatal: not a git repository` lines; that's
 nds-bootstrap looking for its version tag.
+
+A test build with one of DSiRPC's pieces switched off, to find what slows a
+game down on hardware, takes the switches in `DSIRPC_CFLAGS` (listed in
+[nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md): no
+ARM9 half, no rpcprobe, no Wi-Fi side, no checker, stock DS-mode Wi-Fi):
+add `-e DSIRPC_CFLAGS="-DDSIRPC_NO_ARM9_HOOK"` (for example) after
+`docker run --rm`, and rename the output so it isn't mistaken for a normal
+build. Make doesn't notice flag changes, so clean first
+([DOCUMENTATION.md, section 3.1](DOCUMENTATION.md#31-build-gotcha-make-doesnt-notice-flag-changes)).
 
 ### Launcher
 
@@ -211,8 +223,10 @@ things on GitHub:
 
 It runs when a push to `main` changes DSiRPC's files, on pull requests, and on
 demand (Actions tab > **Build DSiRPC** > **Run workflow**). Each run keeps the
-outputs as artifacts (`nds-bootstrap-dsirpc`, `dsirpc-launcher`,
-`DSiRPC-windows`, `DSiRPC-macos`), which GitHub downloads as zips.
+outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
+GitHub downloads as zips, and the two downloads' own zips
+(`DSiRPC-<version>-windows.zip`, `DSiRPC-<version>-macos.zip`), uploaded as
+they are (`archive: false`), so they download as one zip, not a zip in a zip.
 
 To publish a release, push a tag that starts with `v`:
 
@@ -295,3 +309,27 @@ How the app differs from the Windows download:
 - It has no Developer ID signature (PyInstaller signs it ad hoc), so the first
   launch needs right-click > Open, and macOS may ask for Local Network access
   again after each update. HTTPS uses `certifi`'s certificates.
+
+## 10. Tests
+
+[`tests/`](../tests/README.md) checks what decides whether an achievement is
+missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
+write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
+against rcheevos frame by frame, and DSiRPC's side (the offline formats, the
+launcher's sync, the protocol client, the Black/White parser, the hub)
+against a fake DSi on the loopback network. From the repo root:
+
+```
+python -m pip install -r tests/requirements.txt
+```
+```
+python -m pytest
+```
+
+The C parts need Linux (or WSL) and gcc, and the checker tests need the
+rcheevos library; [tests/README.md](../tests/README.md) has the details.
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs them
+all on GitHub whenever a push or pull request changes `core/`, `tools/`,
+`tests/`, `third_party/` or `nds-bootstrap/retail/`, building rcheevos from
+its tag first (cached), and once more for the checker library with
+AddressSanitizer's runtime preloaded.

@@ -68,7 +68,8 @@ def message_box(text, title="DSiRPC"):
 
 
 def make_icon(status):
-    """The tray icon, drawn here: a little DSi (two screens) with a status dot."""
+    """The tray icon, drawn here: a little DSi (two screens) with a status dot
+    (none for status None: the overlay window's icon)."""
     from PIL import Image, ImageDraw
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -80,9 +81,10 @@ def make_icon(status):
     d.rectangle((15, 7, 49, 9), fill=screen_hi)
     d.rectangle((19, 38, 45, 56), fill=screen)
     d.rectangle((19, 38, 45, 40), fill=screen_hi)
-    c = COLORS.get(status, COLORS['waiting'])
-    d.ellipse((38, 38, 62, 62), fill=(255, 255, 255, 255))
-    d.ellipse((41, 41, 59, 59), fill=c + (255,))
+    if status is not None:
+        c = COLORS.get(status, COLORS['waiting'])
+        d.ellipse((38, 38, 62, 62), fill=(255, 255, 255, 255))
+        d.ellipse((41, 41, 59, 59), fill=c + (255,))
     return img
 
 

@@ -40,6 +40,7 @@ CFLAGS	:=	-g -Wall -O2\
 
 # ADD -DDEBUG here for logging/debug
 CFLAGS	+=	$(INCLUDE) -DARM9 -DNO_CARDID
+CFLAGS	+=	$(DSIRPC_CFLAGS)
 CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)

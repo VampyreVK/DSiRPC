@@ -17,9 +17,9 @@
 // so what happens in between is missed. The frame lane is the achievements
 // DSiRPC picked as needing every frame (core/offline.py), few enough to
 // sample every frame: ProbeAch_Sample() reads every memory value they use at
-// the start of every VBlank (after the ARM9 has written its data cache back
-// to main RAM, so the ARM7 sees what the game wrote; probe_watch.c), all at
-// once, into a ring of samples. The checking takes them in order, so every
+// the start of every VBlank (from main RAM, where the ARM9 writes its data
+// cache back whenever the game is idle, so the ARM7 sees what the game wrote
+// that frame; probe_watch.c), all at once, into a ring of samples. The checking takes them in order, so every
 // frame is checked as it was, however late. If the checking falls so far
 // behind that the ring is full, frames aren't sampled until there's room
 // (a gap, counted in the report).
@@ -87,7 +87,6 @@
 #define ACH_FRAME_SLOTS     8          // the frame lane's ring of samples (a power of 2;
                                        // DSiRPC's offline.FRAME_SLOTS)
 #define ACH_PUSHED          8          // DSiRPC's unlocks waiting to be marked (a power of 2)
-#define ACH_CLEAN_WAIT      3          // scanlines a sample waits for the ARM9's cache write-back
 
 enum { STAGE_OFF, STAGE_CHECKING, STAGE_RUNNING };
 
@@ -107,8 +106,6 @@ static u32 *ring;                      // its samples: ACH_FRAME_SLOTS x frameMe
 static u16 frameMem;                   // memory values in a sample (0: no frame lane)
 static volatile u8 ringHead, ringTail; // the VBlank adds at ringHead, the checking takes from ringTail
 static volatile u8 busy;               // the idle side is part way through a turn of checking
-static u8 cleanOk;                     // the last sample got the ARM9's write-back
-static u32 cleanSeen;                  // probe_watch.c's write-back count at the last sample
 static u16 idleLines;                  // scanlines the idle side used this frame
 static ProbeAchStats stats;
 static u32 bodySize, crcPos, crc, crcWanted;   // body: the programs, then the list
@@ -441,8 +438,6 @@ static void checkStamp(u16 start) {
 	stage = STAGE_RUNNING;
 	listStart();
 	ACH_ANCHOR->status = DSIRPC_MENU_READY;
-	// The frame lane's samples need the game's writes in main RAM
-	if (frameMem) ProbeWatch_Clean();
 }
 
 void ProbeAch_SetTime(u32 secondsSince2000) {
@@ -472,18 +467,9 @@ void ProbeAch_Sample(void) {
 		stats.dropped++;
 		return;
 	}
-	// The ARM9 writes its data cache back to main RAM at the start of its
-	// VBlank (probe_watch.c); wait a moment for that, unless it didn't come
-	// last time either (then only once a second, to notice it's back).
-	u32 seen = ProbeWatch_Cleaned();
-	if (seen == cleanSeen && (cleanOk || !(stats.unclean & 63))) {
-		while ((seen = ProbeWatch_Cleaned()) == cleanSeen && linesSince(start) < ACH_CLEAN_WAIT) {}
-	}
-	cleanOk = seen != cleanSeen;
-	cleanSeen = seen;
-	// None: ring the ARM9 again now and then (its hook isn't in yet, or the
-	// game replaced its VBlank handler)
-	if (!cleanOk && (++stats.unclean & 31) == 2) ProbeWatch_Clean();
+	// No write-back from the ARM9 since the last VBlank (the game was busy
+	// all frame, or OS_Halt isn't patched): a value may be a frame late
+	if (!ProbeWatch_Fresh()) stats.unclean++;
 	AchVm_Sample(&sampleVm, ring + head * frameMem);
 	ringHead = next;
 	u16 lines = linesSince(start); // (the report's l=: what the checker costs the VBlank)
@@ -578,18 +564,18 @@ static int idleMore(void *ud) {
 	const IdleTurn *t = (const IdleTurn *)ud;
 	u16 used = linesSince(t->start);
 	return used < RPCPROBE_ACH_IDLE_LINES_PER_VISIT && idleLines + used < RPCPROBE_ACH_IDLE_LINES_PER_FRAME &&
-	       !t->romWaiting();
+	       !(t->romWaiting && t->romWaiting());
 }
 
 int ProbeAch_Idle(int (*romWaiting)(void)) {
 	if (stage != STAGE_RUNNING || busy) return 0;
 	IdleTurn t = { ACH_REG_VCOUNT & 0x1FF, romWaiting };
-	if (!idleMore(&t)) return romWaiting();
+	if (!idleMore(&t)) return romWaiting && romWaiting();
 	busy = 1;
 	checkTurn(idleMore, &t);
 	busy = 0;
 	idleLines += linesSince(t.start);
-	return romWaiting();
+	return romWaiting && romWaiting();
 }
 
 void ProbeAch_TakeStats(ProbeAchStats *out) {

@@ -285,6 +285,334 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (release cleanups): The screen-swap hotkey's delayed save to
+  the SD card waits out IPC-served ROM reads like the in-game menu does
+  (`ipcReadBusy()`); the launcher's game picker opens in `sd:/roms/nds` when
+  there is one; on Windows the overlay window has the tray's icon in its
+  title bar and the Pixel DSi on the taskbar; and the trainer sprite folders
+  are `Sinnoh-Trainer-Overworld` and `Unova-Trainer-Overworld`.
+
+- 2026-10-19 (the 3DS, part two): **The 3DS works, and our nds-bootstrap
+  keeps its own patch cache.** Viv confirmed DSi mode was the 3DS's
+  problem, and found that a DSi-enhanced game also has to be started once in
+  DS mode from TWiLight Menu++ with its normal nds-bootstrap, the first time
+  and after a TWiLight or nds-bootstrap update, for DSiRPC to work in it. The only per-game thing
+  stock nds-bootstrap leaves behind that ours read is its patch offset cache
+  (`patchOffsetCache/<game code>-<header CRC>.bin`): the same name, the same
+  version (121, upstream's too) and type, and no note of DS or DSi mode. So
+  ours took one made in a DSi-mode run as it was, and once the versions
+  differ, each would rebuild the other's at every switch. Our build now keeps
+  its own (`<game code>-<header CRC>-DSiRPC.bin`, `conf_sd.cpp`). No cached
+  offset was found that would break DSiRPC in DS mode (the ARM7 hooks are
+  found the same way in both modes, and stock never caches the swiHalt
+  offset for `altReadMethod` games), so it was tested on hardware: with it,
+  Viv's 3DS shows Black's achievements from the launcher even right after
+  a DSi-mode run from TWiLight, so the DS-mode start isn't needed, and the
+  docs no longer ask for it. Also on GitHub: the
+  tests workflow's sparse checkout had no `launcher/source`, so
+  `test_launcher_ini.py` couldn't build `bootstrap_ini.c`; and the hub's
+  console-checker test failed now and then, because the console ran the
+  whole set, leaving DSiRPC nothing of its own to unlock unless it beat the
+  first report. Now the console runs half the set.
+
+- 2026-10-19 (the 3DS): **Why DSiRPC never started on a 3DS, and the menu
+  says whose nds-bootstrap it is.** (Branch `3ds-fix-and-docs`, off
+  `bw-checker-idle-time`.) On Viv's 3DS the launcher connected and synced
+  ("Starting Pokémon Black" on the PC), but the game never said hello and
+  the in-game menu had no achievements. Viv's RAM dump (32 MB from
+  `0x0C000000`, taken from the in-game menu) told why: the TWLSDK ARM9
+  cardengine sat at `0x02FD8800` (byte for byte our build's
+  `cardenginei_arm9_twlsdk.bin`, but for its patched fields) and the DS-mode
+  one's place, `0x027FC000`, was empty, with no trace of DSiRPC anywhere and
+  the checker's memory at `0x0CFA0000` holding the game's code. Pokémon
+  Black ran in DSi mode, and nds-bootstrap's TWLSDK cardengines have none of
+  DSiRPC (rpcprobe is only in the DS-mode ones). The launcher keeps
+  TWiLight's `DSI_MODE` (nds-bootstrap's own default, when the key is
+  missing, is DSi mode); the DSi had it off, the 3DS on. Now
+  `bootstrap_ini_prepare()` sets `DSI_MODE = 0` for a DSi-enhanced game (unit
+  code 2, read from its header by the new `nds_unit_code()`), even when the
+  ini already names it, since TWiLight may switch it back; DSi-exclusive
+  games (which need DSi mode) and DS games keep theirs.
+  `tests/test_launcher_ini.py` builds `bootstrap_ini.c` for the PC and
+  checks that, the save search and the ini editing (the DS-mode tests fail
+  without the fix). The in-game menu's main screen now says
+  `nds-bootstrap-DSiRPC` (`-DSiRPC` printed after its `nds-bootstrap`, in
+  every build), so a crash on the way out of the menu can be told apart from
+  stock's. To check on hardware: on the 3DS, Pokémon Black started from the
+  launcher connects to DSiRPC and its in-game menu lists the achievements.
+
+- 2026-10-19 (even later): **The tests are a suite GitHub runs.** The
+  harnesses run by hand through the Black/White work are now `tests/`
+  (pytest, [tests/README.md](../tests/README.md)), run by
+  `.github/workflows/tests.yml` whenever `core/`, `tools/`, `tests/`,
+  `third_party/` or `nds-bootstrap/retail/` change: rcheevos v12.5.0 with
+  `dsirpc_offline.c` is built from its tag (the commit checked, the library
+  cached), then everything runs, then the checker library's tests again with
+  AddressSanitizer's runtime preloaded. The console's code is built with gcc
+  for the PC, with stand-ins for its hardware and ASan and UBSan on:
+  `probe_ach_vm.c` against rcheevos every frame (with and without the
+  skipping, the frame lane's ring, budgeted passes, fuzzed conditions,
+  pushed unlocks, cut-short programs); `probe_ach.c` with real sets (idle
+  visits, VBlank-only, starved, ROM reads waiting, no ROM-read callback as in
+  `altReadMethod` games, missed write-backs, and its `RPCUNLK.BIN` slots read
+  back by `core/offline.py` and not checked again the next session); the
+  idle-time write-back's two halves (`probe_watch.c`, and `dsirpc_watch.c`
+  with its assembly swapped for a stand-in) in ten cases, the capture ring's
+  `'W'`/`'F'` and the ARM9 refusing anything but a real `OS_Halt` in main RAM
+  among them. The PC side: `core/offline.py`'s formats, `console_sync.py`
+  against a stand-in launcher, `dsirpc_client.py` and `hub.py` against a fake
+  DSi on the loopback network (127.0.0.2), the Black/White parser and its
+  quick reads, `tools/frame_check.py`. 107 tests, about 80 seconds plus 15
+  for the ASan step; breaking rpcprobe's re-ask interval or the unlock
+  slots' check on purpose fails them. Nothing in the current code failed.
+
+- 2026-10-19 (very late night): **A freeze on leaving nds-bootstrap's
+  in-game menu.** Viv hit one, once, in Black with the build below. What fits:
+  in a game with `altReadMethod`, nds-bootstrap serves the ARM9's ROM reads
+  from the ARM7's IPC interrupt in chunks (`fileReadNonBLocking()`, then
+  `resumeFileRead()` each time the ARM9 answers a `'PING'`), and nothing
+  holds `saveMutex` meanwhile, unlike a read served from the swiHalt hook,
+  which holds it throughout. The menu only opens on `tryLockMutex(&saveMutex)`,
+  so elsewhere it never opens mid-read, but in these games it can: then it
+  reads and writes the SD card itself (the game's RAM out to the page file and
+  the menu in, the reverse on the way out) in the middle of the SD card's read,
+  and takes over `sharedAddr[4]` and `[5]` (where the read's `'DMA9'` and
+  `'PING'` go) and `[1]` and `[2]` (a waiting command's length and source; it
+  restores only `[0]`). Once it closes, the read may never finish, and the
+  game waits for it forever. That's upstream's (an `altReadMethod` game had
+  it before the build below too, which leaves the reads alone), and one
+  freeze proves nothing, but nothing else found fits. Now the ARM7
+  cardengine's `ipcReadBusy()` holds the menu hotkey back, in a `b_ipcReads`
+  game, while `readOngoing`, while a ROM read command waits in `sharedAddr[3]`,
+  or while a `'DMA9'` hasn't reached the ARM9 yet; the hotkey is checked every
+  VBlank, so the menu opens as soon as the read is done. (Not a `'PING'` on its
+  own: one the ARM9 still needs always comes with the command waiting, and a
+  multi-chunk DMA read leaves one behind until it ends.) Built (all variants);
+  ARM7 cardengine 720 bytes free. To check on hardware: open and close the menu
+  often, during loads too (battle intros, doors), with no freezes and the menu
+  still opening at once.
+
+- 2026-10-19 (late night): **The checker gets the ARM7's idle time in Pokémon
+  games too.** (Branch `bw-checker-idle-time`, off the known-good
+  `bw-dsi-load-debug`.) nds-bootstrap gives a game with `altReadMethod` no
+  swiHalt hook: its ROM reads are served from the IPC interrupt, a step each
+  time the ARM9 pings, and the ARM9 pings only while `newSwiHaltAddr` is 0
+  (`hook_arm9.c`). Now `patchSwiHalt()` puts the hook in anyway when the
+  game's ARM7 is ARM code, but keeps `newSwiHaltAddr` at 0 (the save patches
+  may have set it, for the Thumb hook's code), so the reads stay where they
+  were, and `hook_arm7.c` sets a new `b_ipcReads` (`valueBits` bit 26). With
+  it, `runCardEngineCheckHalt()` serves nothing of nds-bootstrap's and only
+  calls `Probe_HaltTick(NULL, NULL)`: no SD card there (an IPC interrupt can
+  start an SD read in the middle of the hook, so the VBlank keeps saving the
+  unlocks, under `saveMutex` and only while no read is in flight), and no
+  stopping for ROM reads, which interrupt the checking by themselves. So the
+  hook adds nothing but rpcprobe's turn before the halt, and the `ALTERNATIVE`
+  and `TWLSDK` cardengines return from it at once. Built (all variants);
+  ARM7 cardengine 784 bytes free. To check on hardware: no freezes over long
+  sessions in Gen 4 and Gen 5 (why `altReadMethod` exists), battle loads
+  still 21 s, and the once-a-minute log line saying the checker runs "in the
+  game's idle time" with Black's every-frame checks near 60 a second and its
+  passes above 0.
+
+- 2026-10-19 (night): **The idle-time write-backs work on hardware; the
+  checker's real limit in Pokémon games.** Viv's timings with that build:
+  Black's battle intro takes 21 seconds offline and 22 online, stock speed
+  both ways. In the log (sitting in a battle, using Leer for a few minutes),
+  the checker's samples taken with no write-back since the VBlank before were
+  904 in the first minute (the game's start, before `OS_Halt` was patched,
+  plus the battle's load), then 82, 18, 6 and 4: the write-backs come almost
+  every frame. So the ROM-read back-off is gone for good
+  (`RPCPROBE_ROM_BUSY_VBLANKS`, its code and its test build). The same log
+  shows the checker can't keep up in Black, though. nds-bootstrap runs every
+  Gen 4 and Gen 5 Pokémon game with its `altReadMethod` ("fixes random
+  freezing", `conf_sd.cpp`), which leaves out its ARM7 swiHalt hook, so
+  rpcprobe's checker gets none of the ARM7's idle time in them, only its
+  VBlank turns (`RPCPROBE_ACH_LINES_PER_VBLANK`, 20 scanlines). Platinum's
+  set (32 of 100 every frame) fits: 62 frames a second checked, 1.9 passes.
+  Black's (89 of 117 every frame, a frame lane sized for idle time) doesn't:
+  31 to 55 frames a second checked (400 to 1,865 a minute not sampled, the
+  most in battle) and no passes at all, so its 28 pass-lane achievements are
+  never checked on the console. Options: give the checker the ARM7's idle
+  time in those games (the swiHalt hook for rpcprobe only, with nds-bootstrap
+  still serving reads from its interrupt), or build a frame lane that fits
+  the VBlank turns for them.
+
+- 2026-10-19 (later): **The ARM9 writes its cache back in the game's idle
+  time instead.** Viv's timings of a wild battle's intro: hook-after build
+  offline (no ARM9 hook at all) 21 seconds, as with stock nds-bootstrap;
+  online (its snapshot after the game's VBlank handler) 33; `writeback-after`
+  61; `no-arm9-hook` online 22. So it was all the ARM9 hook, and work right
+  after the game's VBlank handler hurts as much as before it (the game most
+  likely does its time-critical work as soon as the VBlank interrupt
+  returns); the Wi-Fi side costs nothing. Viv's priority is the console's own
+  checker missing nothing, offline too, so rather than reading main RAM as it
+  is (a frame late on a third to half of the frames on Platinum, and a value
+  set for a single frame can be missed), the ARM9 now writes its whole data
+  cache back whenever the game is idle: rpcprobe looks for the SDK's
+  `OS_Halt` (`mov r0, #0` / `mcr p15, 0, r0, c7, c0, 4` / `bx lr`) in the
+  game's static ARM9 code (up to where the module params say the autoload
+  blocks start, since nds-bootstrap decompressed it in place), a few
+  scanlines at a time in the ARM7's idle time, and asks the ARM9 (IPC
+  doorbell) to make it jump to `dsirpcIdle`: the clean, a count, then the
+  halt. It runs with interrupts on and only when the game's idle thread has
+  nothing to do, so it never takes time the game wants (a game busy all frame
+  just doesn't get it that frame), and a game that idles once its frame is
+  done has every value in main RAM by the next VBlank. No stack (the idle
+  thread has very little). The VBlank hooks, snapshots and their slots are
+  gone (block version 4, 64 bytes; the ARM9 cardengine has 1,416 bytes free,
+  the ARM7 one 720); the capture's records are now read by the ARM7 and
+  marked when no write-back came since the one before, and `fc=` counts the
+  checker's samples like that. `RPCPROBE_ACH_WRITEBACK` is gone, and
+  `RPCPROBE_ROM_BUSY_VBLANKS` is 0 (it skipped the frame lane during and
+  after every ROM read, for slow loads that weren't its doing). Tested on
+  the PC (the search on a fake binary with its static code past the header's
+  size, a look-alike and a copy past the code, the patch, re-asking after a
+  reset and over another doorbell value, the record flags) and built with
+  devkitARM (the routine's disassembly checked); `frame_check.py` now says
+  which late reads had no write-back before them. Not yet on hardware: the
+  hellos' `a9=` (2 or more) and `fc=` say whether it works there. Test
+  builds `rom-busy-backoff` (the back-off at 30 again) and `no-arm9-hook`,
+  in case a battle loads slowly again.
+
+- 2026-10-19: **Black and White's slow loads: it's the timing, not the
+  cache.** Viv's tests: `arm9-clean-lines` (only the checker's cache lines
+  written back) was very slow, and `arm9-delay` (nothing written back, the
+  game's VBlank handler held back 8 scanlines) slower still. Lined up with
+  the earlier ones, how slow a battle loads follows how long the ARM9 hook
+  holds the game's VBlank handler up: not at all (`no-arm9-hook`) normal, a
+  few microseconds (`arm9-no-clean`) nearly normal, the write-backs very
+  slow, 8 scanlines slowest. So whatever the hook writes back doesn't matter;
+  starting the game's VBlank work late does. Black and White's battles do
+  something there that has to happen early in the VBlank (most likely
+  uploading the battle's graphics, which the 3D engine only allows in the
+  first twenty-odd scanlines of each VBlank). Two changes: the hook now calls
+  the game's handler first and takes its snapshot after (the snapshot is
+  still taken at the same point of every frame, so DSiRPC's per-frame
+  capture keeps working), and the checker no longer asks for the write-back
+  (`RPCPROBE_ACH_WRITEBACK 0`: its frame lane samples main RAM as it is, so
+  now and then a value is a frame late), so offline play doesn't hook the
+  ARM9 at all. The clean-lines and delay switches are gone. Test build
+  `writeback-after` brings the write-back back, after the game's handler, to
+  see whether work there hurts too.
+
+- 2026-10-19: **Black and White's slow loads: it's mostly the write-back.**
+  Viv's tests: `arm9-no-clean` (the hook, nothing written back) loaded much
+  faster, though still not quite as fast as without DSiRPC; `arm9-clean-idle`
+  (no write-back during ROM reads) was as slow as ever. So the whole-cache
+  write-back does most of the harm, and not only while a read is under way:
+  Black and White seem to load a bit each frame between VBlanks, so a read is
+  rarely in flight at the start of one. Also: DSiRPC showed the battling
+  Pokémon well before the game did, so the battle data was loaded early and
+  it's the rest (graphics) that crawls. How the write-back hurts isn't known
+  yet: holding the game's VBlank handler back (it runs first), or something
+  in what it writes back. Two test builds: `arm9-delay` writes nothing back
+  but holds the game's VBlank handler back 8 scanlines (if that's slow, it's
+  the timing), and `arm9-clean-lines` writes back only the cache lines the
+  checker's frame lane reads (the likely fix either way, keeping the
+  every-frame accuracy): every 128 samples the ARM7 lists them as runs of
+  lines (`AchVm_ForEachRead()`, pointers followed with the values just read)
+  in the shared block, which grows to version 4 with an ARM7-written
+  `runs[32]`.
+
+- 2026-10-19: **Black and White's slow loads: it's the ARM9 hook.** Viv's
+  tests: `no-arm9-hook` (the checker and the Wi-Fi side, without the ARM9
+  half) loaded normally, with the achievements in the menu; `no-checker`
+  (the Wi-Fi side alone) loaded normally; `no-wifi-side` (the checker and
+  its ARM9 hook, the chip never touched) was slow, like offline play was.
+  So it's the ARM9 half the checker turns on: the hook in front of the
+  game's VBlank handler, or the whole-cache write-back it does there every
+  VBlank. Its time is tiny (128 cache lines), so it's more likely what the
+  write-back does than how long it takes: it puts every dirty line of the
+  ARM9's data cache in main RAM every frame, where a line normally stays in
+  the cache until it's evicted or thrown away. B/W's reads go through
+  nds-bootstrap's RAM cache, filled by the ARM7, with the two CPUs taking
+  turns over IPC. Two test builds split it: `arm9-no-clean` (the hook runs
+  and counts, nothing written back) and `arm9-clean-idle` (no write-back
+  while a ROM read is under way, nor for 30 VBlanks after: if that's normal,
+  it's a fix that keeps the checker's every-frame accuracy outside loads).
+  The ARM9 cardengine's Makefile takes `$(DSIRPC_CFLAGS)` now too.
+
+- 2026-10-18: **Black and White's slow loads: it's rpcprobe, not the board
+  or the launcher.** Viv's tests, against stock nds-bootstrap (normal): ours
+  started straight from TWiLight (no launcher handoff, nothing of DSiRPC's
+  in the in-game menu) loaded normally; `no-rpcprobe` (all of DSiRPC's
+  console code compiled out, started from the launcher) loaded normally;
+  `ds-mode-wifi` (started from the launcher, the achievements in the menu)
+  was very slow. That last one didn't really keep the board in DS mode:
+  rpcprobe's `handoffRestore()` switches it back to DSi mode a few seconds
+  in, so it ran like our normal build without a connection. So it's
+  something rpcprobe does in game, and since the back-off ruled out the
+  length of its VBlank tick, what's left is the checker (with the ARM9 hook
+  it turns on for the cache write-back) or the Wi-Fi side's work with the
+  chip the launcher left powered. Three more test builds split those:
+  `no-wifi-side` (`-DDSIRPC_NO_WIFI`: rpcprobe never touches the chip, the
+  checker runs), `no-checker` (`-DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK`: the
+  Wi-Fi side only) and `no-arm9-hook` (`-DDSIRPC_NO_ARM9_HOOK`: both, without
+  the ARM9 VBlank hook). Also: `hoRomBusy` (the back-off) is declared outside
+  the checker's `#if`, so a build without the checker compiles.
+
+- 2026-10-11 (later): **The back-off wasn't it; test builds to narrow it
+  down.** With the VBlank tick kept short during ROM reads, Black and White
+  loaded just as slowly, so it isn't the tick's length. Also ruled out: an
+  interrupt storm from the Wi-Fi chip (both loaders zero `REG_AUXIE`, and
+  rpcprobe masks the card interrupt). The CI now builds two test versions of
+  nds-bootstrap on runs started by hand (`nds-bootstrap-variants`, not
+  packaged): `no-rpcprobe` (`-DDSIRPC_NO_RPCPROBE`: no Wi-Fi side, no
+  checker, no ARM9 hook) and `ds-mode-wifi` (`-DDSIRPC_KEEP_DSI_WIFI=0`: the
+  board switched to DS mode as stock does, which Platinum already showed
+  matters to a Pokemon game's own wireless). With launching our build
+  straight from TWiLight (no launcher handoff), the three say whether it's
+  our code, the Wi-Fi board's mode, or the launch.
+
+- 2026-10-11: **Black and White's slow loads: rpcprobe's VBlank tick backs
+  off during ROM reads.** Viv's tests: stock nds-bootstrap loaded normally;
+  ours offline (the checker, no Wi-Fi) slowly; ours online, with DSiRPC quit
+  on the Mac or running, very slowly, at a steady 60 fps, battle sprites and
+  everything else that loads. So it's the console side, it grows with the
+  VBlank tick (the new log line: 63 scanlines typical and up to about 110,
+  with 90 network frames a second drained, 30 of them requests; with DSiRPC
+  quit the requests go but the slowness stays), and the PC's requests don't
+  matter. Not the SD card: the checker reads its set into RAM once and only
+  writes unlocks. Black and White (like Gen 4) have nds-bootstrap's
+  `altReadMethod`: no swiHalt hook (NDSBTSRP.LOG has no "swiHalt hooked"), so
+  the ARM7 serves every ROM read from its IPC interrupt in non-blocking
+  steps, one each time the ARM9 sees 'PING' and pings back, and the VBlank
+  tick (checker turn, frame-lane sample, Wi-Fi drain) holds that interrupt
+  up. Ruled out on the way: the ARM9's cache write-back (128 clean-by-index
+  instructions, and the cache slots are invalidated before they're filled),
+  the doorbell (only over its own value or none), interrupts (only off for
+  an RTC read on an unlock), NDMA (the Wi-Fi side never uses it), the LED
+  (I2C only on a change), and the `wifiIrq` check (it only gates the
+  in-game menu now). Now, while a ROM read is under way (nds-bootstrap
+  passes no SD mutex then) and for 30 VBlanks after one was seen
+  (`RPCPROBE_ROM_BUSY_VBLANKS`), the tick skips the checker's turn and the
+  frame-lane sample (counted as not sampled) and drains at most one frame
+  from the Wi-Fi chip. If loads are still slow with that, the next suspects
+  are the ARM7 cardengine's `-Os` build (needed to fit 61 KB) and the ARM9's
+  per-VBlank cache write-back.
+
+- 2026-10-10 (later): **Black and White's slow battles: what the logs and
+  the RAM dump say.** Viv's next session (a new save) played a whole rival
+  battle and five minutes without freezing, but battles still loaded slowly
+  (the first HP change came 96 s after the battle started). The RAM dump
+  Viv sent is from the day before (6:47 playtime, Seen 3, Caught 1: the
+  16:49 session), on the build with the checker at `0x0CFB0000` (its set,
+  "DRSE" IRBO, is there), and not in a battle; it does show the bug fixed
+  just before on hardware: nds-bootstrap's slot table (`0x027D8000`) has
+  751 slots, the last three at `0x0CFF0000`-`0x0CFFC000`. The cache wasn't
+  churning (353 of 751 slots used, no sector twice), and the last ROM read
+  was an ordinary 16 KB fill. Nothing found ties slow loads to DSiRPC's code:
+  Black and White's ROM reads go through the ARM7's IPC interrupt (its
+  swiHalt hook never runs: the checker's `h=0`), in non-blocking steps the
+  ARM9 re-pings every millisecond; the checker's VBlank turn is 34 to 44
+  scanlines in battle and a reply tick about 76; the ARM9's cache write-back
+  is 128 clean-by-index instructions; the IPC doorbell (3) only finishes a
+  card DMA when nds-bootstrap's 'DMA9' marker is set. Next: time a battle
+  with stock nds-bootstrap in DS mode (the mode DSiRPC needs) and with
+  DSiRPC quit on the PC. To read the Wi-Fi side's cost from any log, DSiRPC
+  now logs the hellos' `vb=` (longest and median), and their `rx` and `req`
+  rates, once a minute.
+
 - 2026-10-10: **Fixes from Viv's Mac logs.** Quitting after the DSi had gone
   quiet crashed (`set_watch` with no IP: `_exchange` now raises
   `TimeoutError`, which every caller handles); the per-frame drain crashed on

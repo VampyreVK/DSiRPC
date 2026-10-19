@@ -25,12 +25,12 @@ frames the capture can then see:
 Late reads are the only problem. The counter's rate (60 or 30 a second) just
 says how fast that screen runs.
 
-Builds whose hellos say a9=1 or more have the ARM9 read the values: through
-its own cache (so never late) and at the very start of each VBlank, before
-the game's own VBlank code, so a value the game changes right then is always
-read on the same side of that change. The ARM7 only fills in when there's no
-ARM9 snapshot to record; the report counts both and judges the ARM9's records
-on their own. --arm7-only turns the ARM9 off for a run, to compare.
+Builds whose hellos say a9=2 or more have the ARM9 write its data cache back
+to main RAM whenever the game is idle (the game's OS_Halt is patched for it),
+so a game that idles once its frame is done has every value in main RAM by
+the next VBlank, when the ARM7 reads them. Records taken with no write-back
+since the one before (the game busy all frame, or no patch) are marked; the
+report counts both kinds and says which kind the late reads were.
 
 --save NAME writes every record to logs/NAME.csv and this report to
 logs/NAME.txt (logs/ is at the repo root and git ignores it).
@@ -42,7 +42,7 @@ Usage, from the repo root (only one tool can use UDP port 4244 at a time):
   python tools/frame_check.py --watch 0x021BF6A8:4 0x021BF6B4:4   # extra watches: how often they changed
   python tools/frame_check.py --find-counter 0x021BF000:0x1000    # look for frame counters in a range
   python tools/frame_check.py --save boot              # also save logs/boot.csv and logs/boot.txt
-  python tools/frame_check.py --arm7-only               # the old way (ARM7 reads main RAM), to compare
+  python tools/frame_check.py --arm7-only               # builds before 2026-10-19: no ARM9 snapshots, to compare
 """
 
 import argparse
@@ -166,7 +166,7 @@ def analyse(records):
     Returns a dict: steps, ups (+1), still (0), resets (went down), and
     catchups: [(by, scanline of the late read, scanline of the catch-up)]
     for every step of +2 or more (`by` = how many counts were seen late)."""
-    out = {"steps": 0, "ups": 0, "still": 0, "resets": 0, "increase": 0, "catchups": []}
+    out = {"steps": 0, "ups": 0, "still": 0, "resets": 0, "increase": 0, "catchups": [], "late_unfresh": 0}
     prev = None
     for r in records:
         if r is None:
@@ -184,15 +184,11 @@ def analyse(records):
                 out["ups"] += 1
             else:
                 out["catchups"].append((d - 1, prev[2], r[2]))
+                if prev[4]:
+                    out["late_unfresh"] += 1  # the late read had no write-back before it
             out["increase"] += d
         prev = r
     return out
-
-
-def only(records, by_arm7):
-    """The records read by one CPU, with a break wherever the other one (or
-    a loss) came in between, so steps never mix the two."""
-    return [r if r is not None and r[4] == by_arm7 else None for r in records]
 
 
 def log_paths(name):
@@ -229,13 +225,10 @@ def a9_status(a9):
         return "not in this build (no a9= in the hellos): every value is read by the ARM7"
     n = int(a9) if a9.isdigit() else 0
     if n == 0:
-        return "not found (a9=0): every value will be read by the ARM7"
+        return "not found (a9=0): no write-backs from the ARM9, so values may be a frame late"
     if n == 1:
         return "found (a9=1)"
-    if n == 2:
-        return "found, VBlank hook in (a9=2)"
-    return (f"found, VBlank hook in (a9={n}: the game replaced its VBlank handler "
-            f"{n - 2} time{'s' if n > 3 else ''} and the hook was put back)")
+    return f"found, the game's OS_Halt patched for the write-backs (a9={n}: {n - 1} cop{'ies' if n > 2 else 'y'})"
 
 
 def save_csv(path, watches, records):
@@ -339,14 +332,12 @@ def run(args, csv_path):
         print("Not enough records to say anything.")
         sys.exit(1)
 
-    by9 = [r for r in real if not r[4]]
-    by7 = [r for r in real if r[4]]
-    print(f"Read by the ARM9: {len(by9)}; by the ARM7: {len(by7)}"
-          + (" (it fills in when there's no ARM9 snapshot to record)" if by9 and by7 else ""))
-    for name, group in (("ARM9", by9), ("ARM7", by7)):
-        if group:
-            vc = sorted(r[2] for r in group)
-            print(f"  {name} read at scanline {vc[0]}-{vc[-1]} (median {vc[len(vc) // 2]}; 192 is the start of VBlank)")
+    fresh = [r for r in real if not r[4]]
+    stale = [r for r in real if r[4]]
+    print(f"Right after an ARM9 write-back: {len(fresh)}; without one: {len(stale)}"
+          + (" (the game was busy all frame, or OS_Halt isn't patched)" if stale else ""))
+    vc = sorted(r[2] for r in real)
+    print(f"  read at scanline {vc[0]}-{vc[-1]} (median {vc[len(vc) // 2]}; 192 is the start of VBlank)")
     a9_end = _hello_fields(c.last_hello or "").get("a9")
     if a9 is not None and a9_end != a9:
         print(f"ARM9 half at the end: {a9_status(a9_end)}")
@@ -355,14 +346,10 @@ def run(args, csv_path):
         save_csv(csv_path, watches, records)
         print(f"Saved every record to {shown(csv_path)}")
 
-    # Judge the ARM9's records on their own when there are any: its values are
-    # a VBlank older than the ARM7's, so a step between the two isn't a step
-    # the game took.
-    judged = "ARM9" if by9 else "ARM7"
-    a = analyse(only(records, by_arm7=not by9))
+    # Every record is read at the same point of its frame, so the steps
+    # between them all count.
+    a = analyse(records)
     steps, catchups = a["steps"], a["catchups"]
-    if by9 and by7:
-        print(f"\n(Steps between two {judged} records only.)")
     rate = a["increase"] * 60.0 / max(1, steps)
     print(f"\nVBlank counter at 0x{watches[0][0]:08X}: went up {rate:.1f} times a second "
           f"(60 = every frame, 30 = every other frame). Over {steps} frame-to-frame steps:")
@@ -381,9 +368,10 @@ def run(args, csv_path):
             early = sum(1 for _, before, after in one if before < after)
             print(f"  one-frame lates: the late read was at an earlier scanline than the catch-up in {early} of "
                   f"{len(one)} (a race at the start of VBlank looks like that)")
+        print(f"  late reads with no write-back before them: {a['late_unfresh']} of {len(catchups)}")
 
     for i, (addr, n) in enumerate(watches[1:], start=1):
-        vals = [r[3][i] for r in (by9 or real)]
+        vals = [r[3][i] for r in real]
         changes = sum(1 for x, y in zip(vals, vals[1:]) if x != y)
         print(f"  watch 0x{addr:08X}:{n} changed on {changes} of {len(vals) - 1} frames")
 
@@ -391,9 +379,9 @@ def run(args, csv_path):
     longer = sum(1 for n, _, _ in catchups if n > 1)
     print()
     if steps == 0:
-        print(f"-> Not enough {judged} records in a row to judge.")
+        print("-> Not enough records in a row to judge.")
     elif late == 0:
-        print(f"-> No {judged} read was ever late: the capture matched the game frame for frame.")
+        print("-> No read was ever late: the capture matched the game frame for frame.")
     elif late <= 0.005 * steps:
         print(f"-> {late} late reads in {steps} frames: rare. Fine for most achievements; "
               "worth more runs on other screens before deciding.")

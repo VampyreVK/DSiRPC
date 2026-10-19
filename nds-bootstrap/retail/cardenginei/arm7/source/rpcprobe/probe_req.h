@@ -20,8 +20,10 @@ void ProbeReq_Announce(void);
 
 // Drains part of at most one waiting packet from the chip
 // (RPCPROBE_RX_BYTES_PER_VBLANK bytes), and handles it once it's complete
-// (ARP request for our IP, or a memory request). Call once per VBlank.
+// (ARP request for our IP, or a memory request). Call once per VBlank. With
+// CMD53 it goes on to the next waiting packets, up to maxFrames
+// (RPCPROBE_RX53_FRAMES_PER_VBLANK, or 1 while a ROM read is under way).
 // Returns 1 if it sent something (a reply) this call, else 0.
-int ProbeReq_Service(void);
+int ProbeReq_Service(int maxFrames);
 
 #endif // PROBE_REQ_H

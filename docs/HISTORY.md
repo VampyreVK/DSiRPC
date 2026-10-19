@@ -285,6 +285,29 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (night): **The idle-time write-backs work on hardware; the
+  checker's real limit in Pokémon games.** Viv's timings with that build:
+  Black's battle intro takes 21 seconds offline and 22 online, stock speed
+  both ways. In the log (sitting in a battle, using Leer for a few minutes),
+  the checker's samples taken with no write-back since the VBlank before were
+  904 in the first minute (the game's start, before `OS_Halt` was patched,
+  plus the battle's load), then 82, 18, 6 and 4: the write-backs come almost
+  every frame. So the ROM-read back-off is gone for good
+  (`RPCPROBE_ROM_BUSY_VBLANKS`, its code and its test build). The same log
+  shows the checker can't keep up in Black, though. nds-bootstrap runs every
+  Gen 4 and Gen 5 Pokémon game with its `altReadMethod` ("fixes random
+  freezing", `conf_sd.cpp`), which leaves out its ARM7 swiHalt hook, so
+  rpcprobe's checker gets none of the ARM7's idle time in them, only its
+  VBlank turns (`RPCPROBE_ACH_LINES_PER_VBLANK`, 20 scanlines). Platinum's
+  set (32 of 100 every frame) fits: 62 frames a second checked, 1.9 passes.
+  Black's (89 of 117 every frame, a frame lane sized for idle time) doesn't:
+  31 to 55 frames a second checked (400 to 1,865 a minute not sampled, the
+  most in battle) and no passes at all, so its 28 pass-lane achievements are
+  never checked on the console. Options: give the checker the ARM7's idle
+  time in those games (the swiHalt hook for rpcprobe only, with nds-bootstrap
+  still serving reads from its interrupt), or build a frame lane that fits
+  the VBlank turns for them.
+
 - 2026-10-19 (later): **The ARM9 writes its cache back in the game's idle
   time instead.** Viv's timings of a wild battle's intro: hook-after build
   offline (no ARM9 hook at all) 21 seconds, as with stock nds-bootstrap;

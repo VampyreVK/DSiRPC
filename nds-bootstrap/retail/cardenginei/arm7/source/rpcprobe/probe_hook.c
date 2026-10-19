@@ -87,7 +87,6 @@ static u16 hoSent = 0;
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 176)
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
-static u8 hoRomBusy = 0;       // VBlanks left to keep the tick short after a ROM read (RPCPROBE_ROM_BUSY_VBLANKS)
 #if RPCPROBE_ACH
 static u8 hoAchDue = 0;        // send the checker's report (achSend()) next VBlank
 static u8 hoNoHalt = 0;        // VBlanks since Probe_HaltTick() last ran (stops at 255)
@@ -403,13 +402,6 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// DSi: the lid closing turns the Wi-Fi off (the lid rule at the top)
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
 	if (lidClosed) Probe_LidClosed();
-	// An ARM9 ROM read under way (sdMutex is NULL then), or one lately: this
-	// tick stays short, since the ARM7 serves the read from an interrupt it
-	// holds up (rpcprobe_build.h)
-	if (!sdMutex) hoRomBusy = RPCPROBE_ROM_BUSY_VBLANKS;
-	else if (hoRomBusy) hoRomBusy--;
-	const int romBusy = hoRomBusy != 0;
-	(void)romBusy; // (unused with both RPCPROBE_ACH and RPCPROBE_REQUESTS off)
 #if RPCPROBE_REQUESTS
 	// Did the ARM9 write its cache back since the last VBlank (the samples
 	// below say so), and is OS_Halt patched (if not, ask)
@@ -417,8 +409,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 #endif
 #if RPCPROBE_ACH
 	// The checker's frame lane samples first, at the same point of every frame
-	if (romBusy) ProbeAch_SkipSample();
-	else ProbeAch_Sample();
+	ProbeAch_Sample();
 	// The achievement LED (not on the first tick, which reads the SD card)
 	if (hoStage != HO_LOAD) ProbeLed_Tick((int)probeAchTriggered - (int)hoAchSeen, lidClosed);
 #endif
@@ -426,7 +417,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// Per-frame capture first, so every sample is taken at the same point
 	// in the frame (and before anything else this tick costs time).
 	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
-	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service(romBusy ? 1 : RPCPROBE_RX53_FRAMES_PER_VBLANK);
+	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service(RPCPROBE_RX53_FRAMES_PER_VBLANK);
 #endif
 	if (hoStage == HO_LOAD && hoTimer == 0) {
 		gameLoad((const u8 *)ndsHeader);
@@ -469,7 +460,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// if Probe_HaltTick() hasn't run for a while (nds-bootstrap couldn't
 	// hook this game's swiHalt)
 	if (hoNoHalt < 255) hoNoHalt++;
-	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD, romBusy);
+	ProbeAch_Tick(lineStart, hoNoHalt < RPCPROBE_ACH_IDLE_DEAD);
 #if RPCPROBE_REQUESTS
 	// Looking for OS_Halt here instead, a little at a time, if the
 	// swiHalt hook doesn't run

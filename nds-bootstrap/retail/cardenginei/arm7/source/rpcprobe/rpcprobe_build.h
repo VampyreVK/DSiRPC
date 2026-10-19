@@ -73,18 +73,6 @@
 #define RPCPROBE_ACH_LINES_PER_VBLANK 20
 #define RPCPROBE_ACH_SKIP_AFTER_LINES 40
 
-// While an ARM9 ROM read is under way (nds-bootstrap's readOngoing; a game
-// whose swiHalt couldn't be hooked has the ARM7 serve it from its IPC
-// interrupt, a step each time the ARM9 pings), and for this many VBlanks
-// after one was seen, the VBlank tick stays short so it doesn't hold the
-// reads up: no checker turn, no frame-lane sample, and at most one frame
-// from the Wi-Fi chip. 0 = off, now: Pokemon Black and White's slow battle
-// loads, which this was for, turned out to come from the ARM9's VBlank hook,
-// and the checker missed every frame it didn't sample.
-#ifndef RPCPROBE_ROM_BUSY_VBLANKS // (a test build can set it with DSIRPC_CFLAGS)
-#define RPCPROBE_ROM_BUSY_VBLANKS 0
-#endif
-
 // Unlocks are saved to sd:/RPCUNLK.BIN from nds-bootstrap's swiHalt hook
 // (outside interrupts). If that hook hasn't run for this many VBlanks (a
 // game whose swiHalt nds-bootstrap couldn't hook), the VBlank saves them

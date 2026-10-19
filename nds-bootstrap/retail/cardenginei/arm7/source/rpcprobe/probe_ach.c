@@ -476,10 +476,6 @@ void ProbeAch_Sample(void) {
 	if (lines > stats.maxLines) stats.maxLines = lines;
 }
 
-void ProbeAch_SkipSample(void) {
-	if (stage == STAGE_RUNNING && frameMem) stats.dropped++;
-}
-
 int ProbeAch_Push(u32 id, u32 when) {
 	u8 head = pushHead, next = (head + 1) & (ACH_PUSHED - 1);
 	if (stage == STAGE_OFF || next == pushTail) return 0;
@@ -532,7 +528,7 @@ static void checkTurn(int (*more)(void *ud), void *ud) {
 	} while (more(ud));
 }
 
-void ProbeAch_Tick(u16 tickStart, int idleAlive, int romBusy) {
+void ProbeAch_Tick(u16 tickStart, int idleAlive) {
 	ProbeAch_MenuClosed(); // the VBlank ticks only run while the menu is closed
 	clockTried = 0;
 	idleLines = 0;
@@ -546,9 +542,6 @@ void ProbeAch_Tick(u16 tickStart, int idleAlive, int romBusy) {
 	// The idle side checks; this is only for a game whose swiHalt
 	// nds-bootstrap couldn't hook (and never in the middle of an idle turn).
 	if (stage == STAGE_RUNNING && (idleAlive || busy)) return;
-	// No turn while a ROM read is under way: the ARM7 serves it from an
-	// interrupt this one holds up (RPCPROBE_ROM_BUSY_VBLANKS)
-	if (romBusy) return;
 	// Whatever else this tick did comes first; skip a turn if it took long.
 	if (linesSince(tickStart) > RPCPROBE_ACH_SKIP_AFTER_LINES) return;
 

@@ -285,6 +285,32 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (very late night): **A freeze on leaving nds-bootstrap's
+  in-game menu.** Viv hit one, once, in Black with the build below. What fits:
+  in a game with `altReadMethod`, nds-bootstrap serves the ARM9's ROM reads
+  from the ARM7's IPC interrupt in chunks (`fileReadNonBLocking()`, then
+  `resumeFileRead()` each time the ARM9 answers a `'PING'`), and nothing
+  holds `saveMutex` meanwhile, unlike a read served from the swiHalt hook,
+  which holds it throughout. The menu only opens on `tryLockMutex(&saveMutex)`,
+  so elsewhere it never opens mid-read, but in these games it can: then it
+  reads and writes the SD card itself (the game's RAM out to the page file and
+  the menu in, the reverse on the way out) in the middle of the SD card's read,
+  and takes over `sharedAddr[4]` and `[5]` (where the read's `'DMA9'` and
+  `'PING'` go) and `[1]` and `[2]` (a waiting command's length and source; it
+  restores only `[0]`). Once it closes, the read may never finish, and the
+  game waits for it forever. That's upstream's (an `altReadMethod` game had
+  it before the build below too, which leaves the reads alone), and one
+  freeze proves nothing, but nothing else found fits. Now the ARM7
+  cardengine's `ipcReadBusy()` holds the menu hotkey back, in a `b_ipcReads`
+  game, while `readOngoing`, while a ROM read command waits in `sharedAddr[3]`,
+  or while a `'DMA9'` hasn't reached the ARM9 yet; the hotkey is checked every
+  VBlank, so the menu opens as soon as the read is done. (Not a `'PING'` on its
+  own: one the ARM9 still needs always comes with the command waiting, and a
+  multi-chunk DMA read leaves one behind until it ends.) Built (all variants);
+  ARM7 cardengine 720 bytes free. To check on hardware: open and close the menu
+  often, during loads too (battle intros, doors), with no freezes and the menu
+  still opening at once.
+
 - 2026-10-19 (late night): **The checker gets the ARM7's idle time in Pokémon
   games too.** (Branch `bw-checker-idle-time`, off the known-good
   `bw-dsi-load-debug`.) nds-bootstrap gives a game with `altReadMethod` no

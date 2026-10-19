@@ -1859,6 +1859,21 @@ void myIrqHandlerFIFO(void) {
 }
 
 
+// DSiRPC: an ARM9 ROM read served from the IPC interrupt (ipcReads) is under
+// way: its command is waiting, or the SD card is partway through it (read in
+// chunks, with nothing holding saveMutex, unlike a read served from the
+// swiHalt hook), or its last chunk's 'DMA9' hasn't reached the ARM9 yet. The
+// in-game menu would use the SD card in the middle of it and take over the
+// sharedAddr words its handshake uses, so once the menu closed, the game
+// could wait forever for a read that never finishes. The menu opens a moment
+// later instead. (A 'PING' the ARM9 still needs always comes with the command
+// waiting; one left over from a DMA read means nothing.)
+static bool ipcReadBusy(void) {
+	if (!(valueBits & ipcReads)) return false;
+	const u32 cmd = sharedAddr[3];
+	return readOngoing || (cmd >= (vu32)0x025FFB08 && cmd <= (vu32)0x025FFB0A) || sharedAddr[4] == 0x39414D44; // 'DMA9'
+}
+
 void myIrqHandlerVBlank(void) {
   while (1) {
 	#ifdef DEBUG		
@@ -1956,7 +1971,7 @@ void myIrqHandlerVBlank(void) {
 	}
 #endif */
 
-	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */) {
+	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq && !ipcReadBusy()) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */) {
 		if (tryLockMutex(&saveMutex)) {
 #ifdef TWLSDK
 		igmText = (struct IgmText *)INGAME_MENU_LOCATION;

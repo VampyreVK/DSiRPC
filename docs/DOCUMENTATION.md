@@ -146,7 +146,9 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
-doesn't already name ([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
+doesn't already name, and sets a DSi-enhanced game to DS mode (`DSI_MODE =
+0`) every time, since DSiRPC's part of nds-bootstrap only runs in DS mode
+([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
 Apart from that there's no config file: the Wi-Fi settings come from the DSi's
 own saved connections, and the in-game side broadcasts its hellos, so it
 never needs the PC's IP. Replies to memory requests go back to whichever PC
@@ -230,8 +232,10 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    sets `NDS_PATH` and `SAV_PATH` (the game's existing save, in whichever of
    TWiLight's save places it is, with its per-game save slot), resets the
    last game's manual, donor-SDK and MPU-patch values, and deletes the last
-   game's cheat files. A game with no save yet has to be started from
-   TWiLight once. Then it installs a bootstub and nds-bootloader and exits
+   game's cheat files. A DSi-enhanced game is set to DS mode (`DSI_MODE =
+   0`) even if the ini already names it: in DSi mode, nds-bootstrap runs it
+   with its TWLSDK cardengine, which has none of DSiRPC. A game with no save
+   yet has to be started from TWiLight once. Then it installs a bootstub and nds-bootloader and exits
    into them, which boots our nds-bootstrap with `argv[0]` set to its path,
    without disconnecting ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 3. **Or SELECT / Y.** SELECT disconnects cleanly and exits; use it when

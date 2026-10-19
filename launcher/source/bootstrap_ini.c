@@ -327,6 +327,25 @@ bool find_save(const char *game, const char *prev_nds, const char *prev_sav,
 }
 
 // ---------------------------------------------------------------------------
+// Game files
+
+int nds_unit_code(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+        return -1;
+    int code = -1;
+    if (fseek(f, 0x12, SEEK_SET) == 0)
+    {
+        int c = fgetc(f);
+        if (c != EOF)
+            code = c;
+    }
+    fclose(f);
+    return code;
+}
+
+// ---------------------------------------------------------------------------
 
 int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
 {
@@ -338,8 +357,31 @@ int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
                  BOOTSTRAP_INI_PATH);
         return -1;
     }
+
+    // DSiRPC's part of nds-bootstrap (the memory server, the achievement
+    // checker, the in-game menu's achievements) is only in the cardengine it
+    // runs games with in DS mode, so a DSi-enhanced game has to run in DS
+    // mode: TWiLight may have left DSI_MODE on (nds-bootstrap's default; a
+    // 3DS ran Pokemon Black that way, with none of DSiRPC). A DSi-exclusive
+    // game can only run in DSi mode, and a DS game ignores it.
+    bool ds_mode = nds_unit_code(game) == 2;
+
     if (r == 1 && strcasecmp(prev_nds, game) == 0)
-        return 0;  // already set up for this game
+    {
+        // Already set up for this game, but TWiLight may have switched DSi
+        // mode on since
+        char dsi[16] = "";
+        if (!ds_mode || (ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "DSI_MODE", dsi, sizeof(dsi)) == 1
+                         && strcmp(dsi, "0") == 0))
+            return 0;
+        const char *key[] = { "DSI_MODE" }, *value[] = { "0" };
+        if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, key, value, 1) != 0)
+        {
+            snprintf(msg, msgsz, "Can't write %s.", BOOTSTRAP_INI_PATH);
+            return -1;
+        }
+        return 0;
+    }
 
     ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "SAV_PATH", prev_sav, sizeof(prev_sav));
 
@@ -353,12 +395,14 @@ int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
     const char *keys[] = {
         "NDS_PATH", "SAV_PATH", "HOMEBREW_ARG", "MANUAL_PATH",
         "DONOR_SDK_VER", "PATCH_MPU_REGION", "PATCH_MPU_SIZE",
+        "DSI_MODE",
     };
     const char *values[] = {
         game, sav, "", "",
         "0", "0", "0",
+        "0",
     };
-    if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, keys, values, 7) != 0)
+    if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, keys, values, ds_mode ? 8 : 7) != 0)
     {
         snprintf(msg, msgsz, "Can't write %s.", BOOTSTRAP_INI_PATH);
         return -1;

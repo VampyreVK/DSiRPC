@@ -40,8 +40,8 @@ def overworld_sprite(species_id, shiny=False):
 
 
 def trainer_sprite(character, facing):
-    # Trainer-Overworld/<Lucas|Dawn>-<Down|Left|Right|Up>.gif, made by process_trainer.py
-    return f"{SPRITES}/Trainer-Overworld/{character}-{facing.capitalize()}.gif?raw=true"
+    # Sinnoh-Trainer-Overworld/<Lucas|Dawn>-<Down|Left|Right|Up>.gif, made by process_trainer.py
+    return f"{SPRITES}/Sinnoh-Trainer-Overworld/{character}-{facing.capitalize()}.gif?raw=true"
 
 
 def player_facing(d):

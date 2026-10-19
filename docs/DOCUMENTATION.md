@@ -588,7 +588,7 @@ table), so HP and moves show up quickly.
   only while you're challenging them, the Elite Four (their faces, a check
   on the ones beaten, the one whose room you're in glowing, then Alder).
   The footer has your trainer (Hilbert or Hilda, from
-  `Assets/Trainer-Overworld`) facing your way and standing, walking,
+  `Assets/Sinnoh-Trainer-Overworld`) facing your way and standing, walking,
   running or riding the bike as you are (the run and bike sheets; on the
   bike, standing still puts a foot down), name, money, the eight Unova badges (the
   trainer card's art at 2/5 size, dimmed when not earned; earned ones show
@@ -817,7 +817,7 @@ presence appears and when it's taken down.
 | Line 1 | `Exploring <location>` | Exploring Route 209 |
 | Line 2 | Badges and Pokédex caught | Badges: 3 \| Pokédex: 18 |
 | Party | Non-fainted / party size (eggs excluded) | (6 of 6) |
-| Large image | Your trainer (Dawn or Lucas, from the save) walking, facing the way you face | `Trainer-Overworld/Dawn-Right.gif` |
+| Large image | Your trainer (Dawn or Lucas, from the save) walking, facing the way you face | `Sinnoh-Trainer-Overworld/Dawn-Right.gif` |
 | Large hover | `<name> in <specific map>` | Vivia in Route 209 Gate To Hearthome City |
 | Small image | Lead Pokémon's overworld sprite, shiny-aware | `Shiny-Pokemon-Overworld/77.gif` |
 | Small hover | Lead's name, species, level, HP | Lead: Blucifer (Ponyta), Lv 36, 84/84 HP |
@@ -875,7 +875,7 @@ game (below).
 |---|---|---|
 | Line 1 | `Exploring <place>` (`Running through`, `Biking through`, `Surfing through` as you go about); `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
 | Line 2 | `4/5 PKMN \| 3 Badges \| Seen: 58 \| Caught: 31`: the party fraction first (non-fainted / party size, eggs excluded, in place of Discord's own "(5 of 6)"; left out before you have a Pokémon); after it, in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
-| Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
+| Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer-Overworld/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
 | Large hover | Discord shows it as a third line: `Achievements: 4/9` and `Trainers beaten: 3/5 \| Items found: 4/4` taking turns every 30 s (`ROTATE_S`), with `Repel: 82 steps` alone in place of the trainers and items while a Repel's active, and just the achievements when the place has none of those; without achievements, `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4)` (or `(Repel: 82 steps)`) | Owner, species, level, HP, and "(caught before)" for a wild one you own |
 | Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
 
@@ -1856,10 +1856,10 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Shiny-Battle-BackSmall` | Your shiny battler | same |
 | `Pokemon-Overworld` | Lead Pokémon (small, overworld) | `process_sprites.py` (margin 4) |
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
-| `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
+| `Sinnoh-Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
 | `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file), and downloads a sheet missing from `Assets/` (a release download has none) from GitHub Pages in the background, as `sprites.py` does for the sprites |
 | `Unova-Battle`, `Unova-Battle-Shiny` | Pokémon Black and White's foe in battle (large): `<turf>/<id>.gif` for Unova's Pokémon (494-649) on each battle platform (grass, sand, snow, water, cave, indoor) | `Unova-Battle/process_unova.py`, below |
-| `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
+| `Unova-Trainer-Overworld` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg`, and `Pixel.gif` ("Pixel DSi": the overlay's pixel DSi looking for a connection, animated, in the middle of a clear 512x512 square so it fits Discord's round picture) | Added by hand, except `Pixel.gif` (`tools/make_pixel_dsi.py`); any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
@@ -1877,7 +1877,7 @@ The overlay reads the sheets themselves (`NPC_198_Lucas.png`,
 `NPC_201_Dawn.png`, and Black and White's `BW_196_Hilbert.png` and
 `BW_197_Hilda.png`, same layout), halved and split by direction in memory;
 `TRAINER_SHEETS` in `overlay/sprites.py` maps names to files. For Discord,
-`Trainer-Overworld/process_trainer.py` turns `NPC_198_Lucas.png` and
+`Sinnoh-Trainer-Overworld/process_trainer.py` turns `NPC_198_Lucas.png` and
 `NPC_201_Dawn.png` into `Lucas-Down/Left/Right/Up.gif` and the Dawn versions.
 The sheets are 256x256 grids of 64x64 cells: **rows** are directions (down,
 left, right, up) and **columns** are the 4 walk frames. Each frame is pasted

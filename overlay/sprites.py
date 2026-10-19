@@ -14,7 +14,7 @@ The GIFs in Assets/ were made for Discord, so each kind needs undoing first:
                                                 GIF palette quantization shifts the
                                                 grass colours for some sprites, so
                                                 cutting the diorama out isn't exact.
-    Trainer-Overworld/NPC_*.png                  4x4 sheet of 64x64 cells, drawn at
+    Sinnoh-Trainer-Overworld/NPC_*.png                  4x4 sheet of 64x64 cells, drawn at
                                                 2x (rows Down, Left, Right, Up)
                                                 -> halved
 
@@ -45,7 +45,7 @@ DIORAMA_BOTTOM = 126
 
 ASSETS_URL = "https://vampyrevk.github.io/DSiRPC/Assets"
 
-# Overworld walking sheets in Assets/Trainer-Overworld: 4x4 cells (rows
+# Overworld walking sheets in Assets/Sinnoh-Trainer-Overworld: 4x4 cells (rows
 # down, left, right, up; columns the walk cycle), drawn at 2x.
 TRAINER_SHEETS = {'Lucas': 'NPC_198_Lucas.png', 'Dawn': 'NPC_201_Dawn.png',
                   'Hilbert': 'BW_196_Hilbert.png', 'Hilda': 'BW_197_Hilda.png'}
@@ -280,7 +280,7 @@ class SpriteBank:
             name = TRAINER_SHEETS.get(character, 'NPC_201_Dawn.png')
             if style in TRAINER_STYLES and name.startswith('BW_'):
                 name = name.replace('.png', TRAINER_STYLES[style] + '.png')
-            sheet = Image.open(self._path('Trainer-Overworld', name)).convert('RGBA')
+            sheet = Image.open(self._path('Sinnoh-Trainer-Overworld', name)).convert('RGBA')
             row = ['down', 'left', 'right', 'up'].index(direction)
             cell = sheet.width // 4
             frames = [sheet.crop((c * cell, row * cell, (c + 1) * cell, (row + 1) * cell)) for c in range(4)]

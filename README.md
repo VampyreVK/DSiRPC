@@ -1,6 +1,6 @@
 # DSiRPC
 
-Discord Rich Presence for games played on a real, modded Nintendo DSi or 3DS.
+#### Discord Rich Presence for games played on a real, modded Nintendo DSi or 3DS.
 While you play, the console reads the game's memory and sends it over Wi-Fi
 to your PC, which shows what you're doing as your Discord status.
 

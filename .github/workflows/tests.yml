@@ -1,0 +1,101 @@
+# Runs DSiRPC's tests (tests/README.md) whenever the code they cover changes:
+#   - the console's code, built for the PC with the sanitizers on: offline
+#     play's achievement checker against rcheevos frame by frame, the
+#     per-frame capture, and the idle-time write-back (rpcprobe and the ARM9
+#     half)
+#   - the PC side: the offline formats, the launcher sync, the protocol
+#     client, the Black/White parser and the hub against a fake DSi on the
+#     loopback network
+# rcheevos (with DSiRPC's dsirpc_offline.c) is built here from its tag, as
+# the macOS build does, and cached.
+
+name: Tests
+
+on:
+  push:
+    paths:
+      - "core/**"
+      - "tools/**"
+      - "tests/**"
+      - "third_party/**"
+      - "nds-bootstrap/retail/**"
+      - "pytest.ini"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - "tools/**"
+      - "tests/**"
+      - "third_party/**"
+      - "nds-bootstrap/retail/**"
+      - "pytest.ini"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RCHEEVOS_TAG: v12.5.0       # third_party/rcheevos/README.md's version: dsirpc_offline.c needs the same
+  RCHEEVOS_COMMIT: "1433173"
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Only what the tests use (the repository's art is most of its size)
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            core
+            tools
+            tests
+            third_party/rcheevos
+            nds-bootstrap/retail/common/include
+            nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe
+            nds-bootstrap/retail/cardenginei/arm9/source
+          filter: blob:none
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pytest
+        run: python -m pip install -r tests/requirements.txt
+
+      - name: Restore rcheevos
+        id: rcheevos
+        uses: actions/cache@v4
+        with:
+          path: third_party/rcheevos/librcheevos.so
+          key: rcheevos-${{ env.RCHEEVOS_TAG }}-${{ runner.os }}-${{ hashFiles('third_party/rcheevos/dsirpc_offline.c') }}
+
+      - name: Build rcheevos
+        if: steps.rcheevos.outputs.cache-hit != 'true'
+        run: |
+          git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$RCHEEVOS_TAG" https://github.com/RetroAchievements/rcheevos.git "$RUNNER_TEMP/rcheevos"
+          test "$(git -C "$RUNNER_TEMP/rcheevos" rev-parse --short=7 HEAD)" = "$RCHEEVOS_COMMIT"
+          cd "$RUNNER_TEMP/rcheevos"
+          gcc -O2 -shared -fPIC -DRC_SHARED -Iinclude -Isrc -Isrc/rcheevos src/rcheevos/*.c src/rhash/md5.c src/rc_compat.c src/rc_util.c src/rc_version.c "$GITHUB_WORKSPACE/third_party/rcheevos/dsirpc_offline.c" -o "$GITHUB_WORKSPACE/third_party/rcheevos/librcheevos.so"
+
+      # Everything, with UBSan in the C code and ASan in the C programs.
+      # DSIRPC_TESTS_REQUIRE_ALL: a missing compiler or library fails the run
+      # instead of skipping tests.
+      - name: Run the tests
+        env:
+          DSIRPC_TESTS_REQUIRE_ALL: "1"
+        run: python -m pytest -ra
+
+      # The checker's library again with ASan too: it's loaded into Python,
+      # so ASan's runtime has to be there first.
+      - name: Run the checker library's tests with ASan
+        env:
+          DSIRPC_TESTS_REQUIRE_ALL: "1"
+          ASAN_OPTIONS: detect_leaks=0
+        run: LD_PRELOAD="$(gcc -print-file-name=libasan.so)" python -m pytest -ra -p no:cacheprovider tests/test_checker_vm.py

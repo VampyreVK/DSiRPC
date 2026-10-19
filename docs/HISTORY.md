@@ -285,6 +285,31 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (even later): **The tests are a suite GitHub runs.** The
+  harnesses run by hand through the Black/White work are now `tests/`
+  (pytest, [tests/README.md](../tests/README.md)), run by
+  `.github/workflows/tests.yml` whenever `core/`, `tools/`, `tests/`,
+  `third_party/` or `nds-bootstrap/retail/` change: rcheevos v12.5.0 with
+  `dsirpc_offline.c` is built from its tag (the commit checked, the library
+  cached), then everything runs, then the checker library's tests again with
+  AddressSanitizer's runtime preloaded. The console's code is built with gcc
+  for the PC, with stand-ins for its hardware and ASan and UBSan on:
+  `probe_ach_vm.c` against rcheevos every frame (with and without the
+  skipping, the frame lane's ring, budgeted passes, fuzzed conditions,
+  pushed unlocks, cut-short programs); `probe_ach.c` with real sets (idle
+  visits, VBlank-only, starved, ROM reads waiting, no ROM-read callback as in
+  `altReadMethod` games, missed write-backs, and its `RPCUNLK.BIN` slots read
+  back by `core/offline.py` and not checked again the next session); the
+  idle-time write-back's two halves (`probe_watch.c`, and `dsirpc_watch.c`
+  with its assembly swapped for a stand-in) in ten cases, the capture ring's
+  `'W'`/`'F'` and the ARM9 refusing anything but a real `OS_Halt` in main RAM
+  among them. The PC side: `core/offline.py`'s formats, `console_sync.py`
+  against a stand-in launcher, `dsirpc_client.py` and `hub.py` against a fake
+  DSi on the loopback network (127.0.0.2), the Black/White parser and its
+  quick reads, `tools/frame_check.py`. 107 tests, about 80 seconds plus 15
+  for the ASan step; breaking rpcprobe's re-ask interval or the unlock
+  slots' check on purpose fails them. Nothing in the current code failed.
+
 - 2026-10-19 (very late night): **A freeze on leaving nds-bootstrap's
   in-game menu.** Viv hit one, once, in Black with the build below. What fits:
   in a game with `altReadMethod`, nds-bootstrap serves the ARM9's ROM reads

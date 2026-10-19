@@ -16,6 +16,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 7. [Command line](#7-command-line)
 8. [Tools](#8-tools)
 9. [Builds and releases](#9-builds-and-releases)
+10. [Tests](#10-tests)
 
 ## 1. Repository layout
 
@@ -30,6 +31,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](../ra/README.md)) |
 | `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64, with DSiRPC's offline set compiler (`dsirpc_offline.c`) built in; how to rebuild it is in its README |
 | `tools/` | Developer and testing tools (see [Tools](#8-tools)), and the charmap table generator (`tools/charmap/`) |
+| `tests/`, `pytest.ini` | The tests: the console's checker, capture and idle-time write-back built for the PC against rcheevos, and the PC side against a fake DSi (see [Tests](#10-tests)) |
 | `Assets/` | Sprites served by GitHub Pages for Discord and the overlay, plus the scripts that made them |
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
@@ -38,6 +40,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
+| `.github/workflows/tests.yml` | The GitHub Action that runs the tests (see [Tests](#10-tests)) |
 
 ## 2. Requirements
 
@@ -295,3 +298,27 @@ How the app differs from the Windows download:
 - It has no Developer ID signature (PyInstaller signs it ad hoc), so the first
   launch needs right-click > Open, and macOS may ask for Local Network access
   again after each update. HTTPS uses `certifi`'s certificates.
+
+## 10. Tests
+
+[`tests/`](../tests/README.md) checks what decides whether an achievement is
+missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
+write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
+against rcheevos frame by frame, and DSiRPC's side (the offline formats, the
+launcher's sync, the protocol client, the Black/White parser, the hub)
+against a fake DSi on the loopback network. From the repo root:
+
+```
+python -m pip install -r tests/requirements.txt
+```
+```
+python -m pytest
+```
+
+The C parts need Linux (or WSL) and gcc, and the checker tests need the
+rcheevos library; [tests/README.md](../tests/README.md) has the details.
+[`.github/workflows/tests.yml`](../.github/workflows/tests.yml) runs them
+all on GitHub whenever a push or pull request changes `core/`, `tools/`,
+`tests/`, `third_party/` or `nds-bootstrap/retail/`, building rcheevos from
+its tag first (cached), and once more for the checker library with
+AddressSanitizer's runtime preloaded.

@@ -243,7 +243,10 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    game's cheat files. A DSi-enhanced game is set to DS mode (`DSI_MODE =
    0`) even if the ini already names it: in DSi mode, nds-bootstrap runs it
    with its TWLSDK cardengine, which has none of DSiRPC. A game with no save
-   yet has to be started from TWiLight once. Then it installs a bootstub and nds-bootloader and exits
+   yet has to be started from TWiLight once, and a DSi-enhanced game needs
+   one start there in DS mode before the launcher's first (and again after
+   a TWiLight or nds-bootstrap update), or DSiRPC won't work in it. Then it
+   installs a bootstub and nds-bootloader and exits
    into them, which boots our nds-bootstrap with `argv[0]` set to its path,
    without disconnecting ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 3. **Or SELECT / Y.** SELECT disconnects cleanly and exits; use it when
@@ -1938,7 +1941,7 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Symptom | Likely cause / fix |
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
-| The launcher syncs (DSiRPC says it's starting the game), but the game never says hello and the in-game menu has no achievements | The game ran in DSi mode, where nds-bootstrap uses its TWLSDK cardengine, which has none of DSiRPC. The launcher sets DSi-enhanced games to DS mode (section 4); an older launcher kept TWiLight's `DSI_MODE`, which a 3DS had on. A RAM dump from the in-game menu shows it: the TWLSDK ARM9 cardengine at `0x02FD8800` and nothing at `0x027FC000` (the DS-mode one's place) |
+| The launcher syncs (DSiRPC says it's starting the game), but the game never says hello and the in-game menu has no achievements | The game ran in DSi mode, where nds-bootstrap uses its TWLSDK cardengine, which has none of DSiRPC. The launcher sets DSi-enhanced games to DS mode (section 4); an older launcher kept TWiLight's `DSI_MODE`, which a 3DS had on. A RAM dump from the in-game menu shows it: the TWLSDK ARM9 cardengine at `0x02FD8800` and nothing at `0x027FC000` (the DS-mode one's place). With a current launcher, start the game once in DS mode from TWiLight Menu++ (its per-game **Run in** setting), then from the launcher again (the README's Playing section) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
 | Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's Wi-Fi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
@@ -1982,8 +1985,10 @@ section 8).
   loads for games running in DS mode (`cardenginei_arm7`). A DSi-enhanced
   game (Pokémon Black and White, and later) running in DSi mode loads
   `cardenginei_arm7_twlsdk` instead, a 33 KB region without rpcprobe, and its
-  own ARM7 code drives the DSi Wi-Fi chip there. Set those games to DS mode
-  in TWiLight Menu++'s per-game settings.
+  own ARM7 code drives the DSi Wi-Fi chip there. The launcher starts those
+  games in DS mode itself; they also need one start in DS mode from
+  TWiLight Menu++ first, and again after TWiLight Menu++ or nds-bootstrap is
+  updated (the README's Playing section).
 - **Not every achievement is checked every frame.** The console checks a
   set's frame lane every frame (small sets whole; a big one gets a few
   hundred conditions' worth), the rest in passes, and DSiRPC checks every

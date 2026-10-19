@@ -79,7 +79,11 @@ last wrote it.
 
 A game that has never been started from TWiLight has no save file yet, and
 the launcher won't make one (the right size depends on the game), so it
-says so and goes back: start that game once from TWiLight first.
+says so and goes back: start that game once from TWiLight first. A
+DSi-enhanced game also needs one start in DS mode from TWiLight (its
+per-game **Run in** setting), with TWiLight's normal nds-bootstrap, before
+the launcher's first, and again after TWiLight or nds-bootstrap is updated,
+or DSiRPC won't work in it.
 
 ## Offline play
 

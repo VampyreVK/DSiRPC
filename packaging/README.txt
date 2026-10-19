@@ -19,9 +19,9 @@ WHAT YOU NEED
   a WPA2 network has to be in Connection 4, 5 or 6: System Settings >
   Internet > Connection Settings > Advanced Setup.)
 - A 64-bit Windows 10 or 11 PC with the Discord app.
-- Your games as .nds files on the SD card. The launcher starts
-  DSi-enhanced games (Pokemon Black and White, and later) in DS mode by
-  itself, since DSiRPC only runs there.
+- Your games as .nds files on the SD card. DSi-enhanced games (Pokemon
+  Black and White, and later) need one start in DS mode from TWiLight
+  Menu++ before the launcher (see STEP 3).
 
 Nothing needs installing on the PC: this folder has everything.
 
@@ -93,6 +93,14 @@ Achievements item), earned ones first.
 A game you've never started from TWiLight Menu++ has no save file yet,
 and the launcher says so: start it once from TWiLight Menu++ first.
 
+DSi-enhanced games (Pokemon Black and White, and later): before you play
+one from the launcher for the first time, and again after updating
+TWiLight Menu++ or nds-bootstrap, start it once in DS mode from TWiLight
+Menu++ itself, with its normal nds-bootstrap, or DSiRPC won't work in it.
+Select the game, press Y, set "Run in" to "DS mode", and start it. Then
+quit and start it from the launcher, which always runs these games in DS
+mode.
+
 
 IF SOMETHING DOESN'T WORK
 ---------------------------------------------------------------------
@@ -107,11 +115,12 @@ IF SOMETHING DOESN'T WORK
   running, or setup has no Discord application yet (run Setup.bat).
 - The launcher can't connect: check the console's Wi-Fi settings.
 - The game starts but never shows up, and nds-bootstrap's in-game menu
-  (L + Down + SELECT) has no achievements: copy both SD card files from
-  this download (the launcher and nds-bootstrap go together). The menu
-  should say nds-bootstrap-DSiRPC at the bottom; if it says just
-  nds-bootstrap, the game was started from TWiLight Menu++ instead of the
-  DSiRPC launcher.
+  (L + Down + SELECT) has no achievements: if it's a DSi-enhanced game,
+  start it once in DS mode from TWiLight Menu++ (STEP 3), then from the
+  launcher again. Also copy both SD card files from this download (the
+  launcher and nds-bootstrap go together). The menu should say
+  nds-bootstrap-DSiRPC at the bottom; if it says just nds-bootstrap, the
+  game was started from TWiLight Menu++ instead of the DSiRPC launcher.
 - Discord stopped after closing a DSi's lid: that's on purpose (a DSi
   that sleeps while connected switches itself off). Achievements are
   still checked and saved; start the game from the launcher again to

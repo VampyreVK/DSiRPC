@@ -97,6 +97,14 @@ achievement sets are in `~/Library/Application Support/DSiRPC`. The zip's
 A game you've never started from TWiLight Menu++ has no save file yet; the
 launcher says so. Start it once from TWiLight Menu++, then use the launcher.
 
+**DSi-enhanced games** (Pokémon Black and White, and later) need one start
+in **DS mode** from TWiLight Menu++, with its normal nds-bootstrap, before
+you play them from the launcher, or DSiRPC won't work in them. Do it again
+after you update TWiLight Menu++ or nds-bootstrap. Select the game in
+TWiLight Menu++, press **Y**, set **Run in** to **DS mode**, and start it.
+Then quit and start it from the launcher, which always runs these games in
+DS mode itself.
+
 When you close the game, DSiRPC clears the presence after about 30 seconds and
 waits for the console again, so switching games or restarting needs nothing
 on the PC.
@@ -270,7 +278,7 @@ they're needed, then kept.
 | Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
 | The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
 | The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
-| DSiRPC says "Starting" the game, but it never connects, and the in-game menu has no achievements | Use the launcher from the same release as `nds-bootstrap-dsirpc.nds`: older launchers left DSi-enhanced games (like Pokémon Black and White) in DSi mode, where DSiRPC doesn't run. The in-game menu should say **nds-bootstrap-DSiRPC**. |
+| DSiRPC says "Starting" the game, but it never connects, and the in-game menu has no achievements | For a DSi-enhanced game (like Pokémon Black and White): start it once in DS mode from TWiLight Menu++ ([Playing](#playing)), then from the launcher again. Also use the launcher from the same release as `nds-bootstrap-dsirpc.nds`: older launchers left those games in DSi mode, where DSiRPC doesn't run. The in-game menu should say **nds-bootstrap-DSiRPC**. |
 | The in-game menu says just "nds-bootstrap" | That's TWiLight Menu++'s own nds-bootstrap: start the game from the DSiRPC launcher. |
 | Discord stopped after the DSi's lid was closed | That's on purpose: the console turns its Wi-Fi off when the lid closes, because a DSi that sleeps while connected switches itself off. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |
 | The launcher says "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (the same fix as "Nothing on Discord"; the sync uses port 4245). The game still starts; unlocks wait on the SD card until the next sync. |
@@ -296,7 +304,9 @@ DSiRPC, turn off **Start with Windows**, quit it, and delete its folder.
   console's Wi-Fi is DSiRPC's while you play).
 - DSi-enhanced games (Pokémon Black and White, and later) run in DS mode
   when started from the launcher, so their DSi-only extras are off
-  ([why](#ds-mode-and-the-wi-fi)).
+  ([why](#ds-mode-and-the-wi-fi)). They need one start in DS mode from
+  TWiLight Menu++ first, and again after you update TWiLight Menu++ or
+  nds-bootstrap ([Playing](#playing)).
 - On a DSi, closing the lid turns the console's Wi-Fi off until a game is
   started from the launcher again (a DSi that sleeps while connected
   switches itself off). Achievements are still checked and saved for the

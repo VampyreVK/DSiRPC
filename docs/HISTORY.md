@@ -285,6 +285,29 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-19 (the 3DS, part two): **The 3DS works; DSi-enhanced games need a
+  DS-mode start from TWiLight first.** Viv confirmed DSi mode was the 3DS's
+  problem, and found that a DSi-enhanced game also has to be started once in
+  DS mode from TWiLight Menu++ with its normal nds-bootstrap, the first time
+  and after a TWiLight or nds-bootstrap update, for DSiRPC to work in it. The
+  README (Playing, Troubleshooting, Known issues), the download READMEs, the
+  launcher's README and DOCUMENTATION.md now say so. The only per-game thing
+  stock nds-bootstrap leaves behind that ours read is its patch offset cache
+  (`patchOffsetCache/<game code>-<header CRC>.bin`): the same name, the same
+  version (121, upstream's too) and type, and no note of DS or DSi mode. So
+  ours took one made in a DSi-mode run as it was, and once the versions
+  differ, each would rebuild the other's at every switch. Our build now keeps
+  its own (`<game code>-<header CRC>-DSiRPC.bin`, `conf_sd.cpp`). No cached
+  offset was found that would break DSiRPC in DS mode (the ARM7 hooks are
+  found the same way in both modes, and stock never caches the swiHalt
+  offset for `altReadMethod` games), so: to check on hardware whether the
+  DS-mode start from TWiLight is still needed with it. Also on GitHub: the
+  tests workflow's sparse checkout had no `launcher/source`, so
+  `test_launcher_ini.py` couldn't build `bootstrap_ini.c`; and the hub's
+  console-checker test failed now and then, because the console ran the
+  whole set, leaving DSiRPC nothing of its own to unlock unless it beat the
+  first report. Now the console runs half the set.
+
 - 2026-10-19 (the 3DS): **Why DSiRPC never started on a 3DS, and the menu
   says whose nds-bootstrap it is.** (Branch `3ds-fix-and-docs`, off
   `bw-checker-idle-time`.) On Viv's 3DS the launcher connected and synced

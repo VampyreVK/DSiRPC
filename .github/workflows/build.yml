@@ -113,10 +113,11 @@ jobs:
         include:
           # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0;
           # no-wifi-side, -DDSIRPC_NO_WIFI; no-checker, -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK;
-          # no-arm9-hook, -DDSIRPC_NO_ARM9_HOOK; and, with the ARM9's work before the game's
-          # VBlank handler: arm9-no-clean, arm9-clean-idle, arm9-clean-lines, arm9-delay)
-          - name: writeback-after  # the checker's whole-cache write-back again, after the game's VBlank handler
-            cflags: -DRPCPROBE_ACH_WRITEBACK=1
+          # with the ARM9's work before the game's VBlank handler: arm9-no-clean,
+          # arm9-clean-idle, arm9-clean-lines, arm9-delay; after it: writeback-after,
+          # -DRPCPROBE_ACH_WRITEBACK=1)
+          - name: no-arm9-hook  # the ARM7 reads every captured value itself, so the ARM9 never takes a snapshot (to time online)
+            cflags: -DDSIRPC_NO_ARM9_HOOK
     steps:
       - uses: actions/checkout@v4
         with:

@@ -223,8 +223,10 @@ things on GitHub:
 
 It runs when a push to `main` changes DSiRPC's files, on pull requests, and on
 demand (Actions tab > **Build DSiRPC** > **Run workflow**). Each run keeps the
-outputs as artifacts (`nds-bootstrap-dsirpc`, `dsirpc-launcher`,
-`DSiRPC-windows`, `DSiRPC-macos`), which GitHub downloads as zips.
+outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
+GitHub downloads as zips, and the two downloads' own zips
+(`DSiRPC-<version>-windows.zip`, `DSiRPC-<version>-macos.zip`), uploaded as
+they are (`archive: false`), so they download as one zip, not a zip in a zip.
 
 To publish a release, push a tag that starts with `v`:
 

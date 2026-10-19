@@ -159,10 +159,11 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
           python packaging/build_release.py --version "$version" --nds-dir nds --require-nds --check
 
-      - uses: actions/upload-artifact@v4
+      # The zip itself (named after it), not a zip in GitHub's own zip
+      - uses: actions/upload-artifact@v7
         with:
-          name: DSiRPC-windows
           path: dist/*.zip
+          archive: false
           if-no-files-found: error
 
   macos:
@@ -205,10 +206,11 @@ jobs:
           python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller certifi
           python packaging/macos/build_app.py --version "$version" --nds-dir nds --require-nds
 
-      - uses: actions/upload-artifact@v4
+      # The zip itself (named after it), not a zip in GitHub's own zip
+      - uses: actions/upload-artifact@v7
         with:
-          name: DSiRPC-macos
           path: dist/*.zip
+          archive: false
           if-no-files-found: error
 
   release:
@@ -224,7 +226,8 @@ jobs:
           sparse-checkout: packaging
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      # v8: the downloads' zips were uploaded unzipped (archive: false)
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

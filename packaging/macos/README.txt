@@ -20,9 +20,9 @@ WHAT YOU NEED
   Internet > Connection Settings > Advanced Setup.)
 - A Mac with Apple silicon (M1 or later) on macOS 12 or newer, with the
   Discord app.
-- Your games as .nds files on the SD card. DSi-enhanced games (Pokemon
-  Black and White, and later) have to be set to DS mode in TWiLight
-  Menu++'s per-game settings.
+- Your games as .nds files on the SD card. The launcher starts
+  DSi-enhanced games (Pokemon Black and White, and later) in DS mode by
+  itself, since DSiRPC only runs there.
 
 
 STEP 1: THE MAC
@@ -98,6 +98,12 @@ IF SOMETHING DOESN'T WORK
   Rich Presence plugins, like Vencord's CustomRPC.
 - Discord shows nothing while the icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (menu > Setup...).
+- The game starts but never shows up, and nds-bootstrap's in-game menu
+  (L + Down + SELECT) has no achievements: copy both SD card files from
+  this download (the launcher and nds-bootstrap go together). The menu
+  should say nds-bootstrap-DSiRPC at the bottom; if it says just
+  nds-bootstrap, the game was started from TWiLight Menu++ instead of the
+  DSiRPC launcher.
 - DSiRPC's settings, log and achievement sets are in
   ~/Library/Application Support/DSiRPC (menu > Open DSiRPC folder, or
   Open log).

@@ -16,8 +16,8 @@ nds-bootstrap then boots the game and keeps using that connection to answer
 the game state (trainer, party, location, facing, battle), decrypts and
 parses it, and pushes it to Discord as Rich Presence with animated sprites,
 and to an optional overlay window for streaming. Pokémon Platinum (USA,
-Rev 1) gets the full presence; any other DS game shows its name, box art and
-RetroAchievements rich presence. Every game's RetroAchievements achievements
+Rev 1) and Pokémon Black and White (USA) get the full presence; any other DS
+game shows its name, box art and RetroAchievements rich presence. Every game's RetroAchievements achievements
 are checked while you play (softcore unlocks sent only if you choose to).
 Offline, the console checks them itself and saves its unlocks to the SD
 card for DSiRPC to send at the next sync, and nds-bootstrap's in-game menu
@@ -64,7 +64,9 @@ one-time `Setup.bat`.
      then every VBlank: drain received packets (up to 8 with CMD53)
        ARP request for our IP  -> ARP reply
        'R' memory request      -> 'D' reply with bytes
-     and run a slice of the achievement checker (offline play)
+     and sample the achievement checker's frame lane (offline play)
+   ARM7 swiHalt hook (the game's ARM7 idle time): the checking itself
+   ARM9 half: the game's OS_Halt writes its data cache back first
      once a second: "DSiRPC hello" broadcast   ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
@@ -97,7 +99,13 @@ Adding a new field to the presence is a Python change, not a new DSi build.
   patch turns that search into a no-op.
 - **The ARM7 VBlank hook is the only place code can live alongside a retail
   game.** The DS has no multitasking, and nds-bootstrap's cardengine already
-  runs on ARM7 every VBlank for the whole game session.
+  runs on ARM7 every VBlank for the whole game session. The achievement
+  checking goes in the game's ARM7 idle time instead (nds-bootstrap's swiHalt
+  hook), and the ARM9's part is one patch to the game's `OS_Halt`, so
+  neither takes time the game wants (section 8).
+- **DS mode only.** rpcprobe is in nds-bootstrap's DS-mode cardengines, not
+  the TWLSDK ones it runs games with in DSi mode, so the launcher starts
+  DSi-enhanced games in DS mode (section 4).
 
 ---
 
@@ -117,7 +125,7 @@ console files Docker ([DEVELOPMENT.md](DEVELOPMENT.md#2-requirements)).
 Installing from a release is in the README's [Install](../README.md#install);
 running from the source code and the build commands are in
 [DEVELOPMENT.md](DEVELOPMENT.md). This section covers the details. Release
-downloads (the Windows zip and both `.nds` files) come from the GitHub Action
+downloads (the Windows zip, the macOS app and both `.nds` files) come from the GitHub Action
 in `.github/workflows/build.yml` (see
 [DEVELOPMENT.md, section 9](DEVELOPMENT.md#9-builds-and-releases)).
 
@@ -1929,6 +1937,7 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Symptom | Likely cause / fix |
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
+| The launcher syncs (DSiRPC says it's starting the game), but the game never says hello and the in-game menu has no achievements | The game ran in DSi mode, where nds-bootstrap uses its TWLSDK cardengine, which has none of DSiRPC. The launcher sets DSi-enhanced games to DS mode (section 4); an older launcher kept TWiLight's `DSI_MODE`, which a 3DS had on. A RAM dump from the in-game menu shows it: the TWLSDK ARM9 cardengine at `0x02FD8800` and nothing at `0x027FC000` (the DS-mode one's place) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
 | Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's Wi-Fi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
@@ -1936,7 +1945,7 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
-| Loading is slow (battles, sprites), at full frame rate | Anything DSiRPC runs in the game's ARM9 interrupts can do this: Pokémon Black and White's battle intro took up to a minute instead of 21 seconds with a VBlank hook, even a few microseconds of work, before or after the game's own VBlank handler (2026-10-19; now nothing runs there, and the ARM9 only writes its cache back in the game's idle time). Compare with stock nds-bootstrap, check the once-a-minute "VBlank tick" line in `dsirpc.log` for the ARM7 side, and try a build with `-DDSIRPC_NO_ARM9_HOOK` (no ARM9 half; a test build in `build.yml`) to tell the halves apart. (`RPCPROBE_ROM_BUSY_VBLANKS`, which kept the ARM7's VBlank tick short during ROM reads, didn't help, as hardware showed, and is gone.) |
+| Loading is slow (battles, sprites), at full frame rate | Anything DSiRPC runs in the game's ARM9 interrupts can do this: Pokémon Black and White's battle intro took up to a minute instead of 21 seconds with a VBlank hook, even a few microseconds of work, before or after the game's own VBlank handler (2026-10-19; now nothing runs there, and the ARM9 only writes its cache back in the game's idle time). Compare with stock nds-bootstrap, check the once-a-minute "VBlank tick" line in `dsirpc.log` for the ARM7 side, and try a build with `-DDSIRPC_NO_ARM9_HOOK` (no ARM9 half: `-e DSIRPC_CFLAGS=-DDSIRPC_NO_ARM9_HOOK` on the build command, [DEVELOPMENT.md, section 4](DEVELOPMENT.md#4-building-the-console-files)) to tell the halves apart. (`RPCPROBE_ROM_BUSY_VBLANKS`, which kept the ARM7's VBlank tick short during ROM reads, didn't help, as hardware showed, and is gone.) |
 | The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives: with CMD53 (`rxm=53`, the default) one SDIO command per frame, up to 8 frames a VBlank; with CMD52 one per byte, 128 bytes a VBlank. With a set loaded, the achievement checker adds up to 20 scanlines. Check `vb=` in the hellos and `l=` in the checker's report (section 7), and compare with DSiRPC stopped (if the stutter only happens while it polls, the replies are the cost) and with `RPCSET.BIN` renamed (the checker). The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | Started our nds-bootstrap from the menu (launcher's Y): it boots what `sd:/_nds/nds-bootstrap.ini` names, the last game TWiLight or the launcher set up. Use START in the launcher |
 | The launcher shows IP `0.0.0.0` | An older launcher (DHCP hadn't answered yet); the current one waits for an IPv4 address and retries |
@@ -1997,16 +2006,20 @@ section 8).
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
 - **TWiLight's per-game settings aren't applied** to a game picked in the
-  launcher, other than the save slot (the ini keeps the last launch's). If
+  launcher, other than the save slot (the ini keeps the last launch's), and
+  DSi-enhanced games always run in DS mode from it (DSiRPC's part of
+  nds-bootstrap only runs there), so their DSi-only extras are off. If
   starting nds-bootstrap directly ever fails on a console, Y still exits
   connected the two-step way ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 - **Offline play is new, with few games tried.** On hardware: the launcher's
   sync (2026-10-07), the in-game checker (Platinum's 101 achievements at
-  about 1.4 passes a second, before the frame lane and the idle time; it
-  matched rcheevos exactly on PC tests), saving to `RPCUNLK.BIN` (Tetris
-  DS) and the in-game menu's achievements (DSi and 3DS). Unlock times from
-  the console's clock (section 8) are host-tested only, not yet tried on
-  hardware. The pass lane reads main RAM from the ARM7 at the start of a
+  about 1.4 passes a second before the frame lane and the idle time; with
+  them, Platinum's frame lane at 62 frames a second, and Black's checked in
+  the ARM7's idle time since 2026-10-19), saving to `RPCUNLK.BIN` (Tetris
+  DS) and the in-game menu's achievements (DSi and 3DS). The checker matches
+  rcheevos frame for frame in the tests (`tests/`, run on GitHub). Unlock
+  times from the console's clock (section 8) are tested on the PC only
+  (`tests/test_offline_checker.py` reads them back), not yet on hardware. The pass lane reads main RAM from the ARM7 at the start of a
   pass, which can be a frame or more behind the game's writes, and a hit
   count there counts passes, not frames.
 - **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
@@ -2068,7 +2081,7 @@ section 8).
 
 | Path | What |
 |---|---|
-| `README.md` | Installing and using DSiRPC |
+| `README.md` | Using DSiRPC, a developer's quick start, and how it works |
 | `docs/DEVELOPMENT.md` | Running from the source code, building, the command line and tools, releases |
 | `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes; `packaging/macos/`: the macOS app (`build_app.py`, `DSiRPC.spec`, the entry point `dsirpc_app.py`, its `README.txt`) |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
@@ -2089,7 +2102,8 @@ section 8).
 | `spikes/` | Stages 1-3, the early experiments |
 | `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
 | `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
-| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files and the Windows download, publishes a release for `v*` tags |
+| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, the Windows download and the macOS app, publishes a release for `v*` tags |
+| `tests/`, `pytest.ini`, `.github/workflows/tests.yml` | The tests ([tests/README.md](../tests/README.md)): the console's checker, capture and idle-time write-back built for the PC against rcheevos, the launcher's ini handling, and DSiRPC's side against a fake DSi; GitHub runs them whenever that code changes |
 
 ---
 

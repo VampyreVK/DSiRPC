@@ -99,6 +99,15 @@ Menu++'s own copy, so you always know which one you are launching. The build
 prints a few harmless `fatal: not a git repository` lines; that's
 nds-bootstrap looking for its version tag.
 
+A test build with one of DSiRPC's pieces switched off, to find what slows a
+game down on hardware, takes the switches in `DSIRPC_CFLAGS` (listed in
+[nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md): no
+ARM9 half, no rpcprobe, no Wi-Fi side, no checker, stock DS-mode Wi-Fi):
+add `-e DSIRPC_CFLAGS="-DDSIRPC_NO_ARM9_HOOK"` (for example) after
+`docker run --rm`, and rename the output so it isn't mistaken for a normal
+build. Make doesn't notice flag changes, so clean first
+([DOCUMENTATION.md, section 3.1](DOCUMENTATION.md#31-build-gotcha-make-doesnt-notice-flag-changes)).
+
 ### Launcher
 
 ```

@@ -209,4 +209,8 @@ logs/
 # RetroAchievements set files (dsirpc.py setup, tools/ra_tool.py add): RA's game data, kept local
 /ra/*
 !/ra/README.md
+# Operating systems' own files (Finder's, Explorer's shortcuts and thumbnails)
 .DS_Store
+*.lnk
+Thumbs.db
+desktop.ini

@@ -19,9 +19,9 @@ WHAT YOU NEED
   a WPA2 network has to be in Connection 4, 5 or 6: System Settings >
   Internet > Connection Settings > Advanced Setup.)
 - A 64-bit Windows 10 or 11 PC with the Discord app.
-- Your games as .nds files on the SD card. DSi-enhanced games (Pokemon
-  Black and White, and later) have to be set to DS mode in TWiLight
-  Menu++'s per-game settings.
+- Your games as .nds files on the SD card. The launcher starts
+  DSi-enhanced games (Pokemon Black and White, and later) in DS mode by
+  itself, since DSiRPC only runs there.
 
 Nothing needs installing on the PC: this folder has everything.
 
@@ -106,6 +106,12 @@ IF SOMETHING DOESN'T WORK
 - Discord shows nothing while the tray icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (run Setup.bat).
 - The launcher can't connect: check the console's Wi-Fi settings.
+- The game starts but never shows up, and nds-bootstrap's in-game menu
+  (L + Down + SELECT) has no achievements: copy both SD card files from
+  this download (the launcher and nds-bootstrap go together). The menu
+  should say nds-bootstrap-DSiRPC at the bottom; if it says just
+  nds-bootstrap, the game was started from TWiLight Menu++ instead of the
+  DSiRPC launcher.
 - Discord stopped after closing a DSi's lid: that's on purpose (a DSi
   that sleeps while connected switches itself off). Achievements are
   still checked and saved; start the game from the launcher again to

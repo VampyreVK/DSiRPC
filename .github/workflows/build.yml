@@ -99,53 +99,6 @@ jobs:
             LICENSE-nds-bootstrap.txt
           if-no-files-found: error
 
-  # Test builds of nds-bootstrap with one of DSiRPC's pieces switched off, to
-  # find what slows a game down on hardware (only for runs started by hand).
-  # Never packaged: each has its own file name; rename it to
-  # nds-bootstrap-dsirpc.nds on the SD card to try it.
-  nds-bootstrap-variants:
-    name: nds-bootstrap test build (${{ matrix.name }})
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # (earlier: no-rpcprobe, -DDSIRPC_NO_RPCPROBE; ds-mode-wifi, -DDSIRPC_KEEP_DSI_WIFI=0;
-          # no-wifi-side, -DDSIRPC_NO_WIFI; no-checker, -DRPCPROBE_ACH=0 -DDSIRPC_NO_ARM9_HOOK;
-          # with the old VBlank hook's work before the game's VBlank handler: arm9-no-clean,
-          # arm9-clean-idle, arm9-clean-lines, arm9-delay; after it: writeback-after;
-          # rom-busy-backoff, -DRPCPROBE_ROM_BUSY_VBLANKS=30, before that switch went)
-          - name: no-arm9-hook  # no ARM9 half: no write-backs in the game's idle time
-            cflags: -DDSIRPC_NO_ARM9_HOOK
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: nds-bootstrap
-          filter: blob:none
-
-      - name: Build lzss
-        run: gcc -O2 -static nds-bootstrap/lzss.c -o lzss
-
-      - name: Build nds-bootstrap
-        run: docker run --rm -e DSIRPC_CFLAGS="${{ matrix.cflags }}" -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
-
-      # How much of each card engine's region is used (ARM7 61 KB, ARM9 0x2FA0
-      # bytes in DS mode): the binaries, and where the ARM9 one's .bss ends
-      - name: Card engine sizes
-        run: |
-          ls -l nds-bootstrap/retail/nitrofiles_dec/cardenginei_arm7.bin nds-bootstrap/retail/nitrofiles_dec/cardenginei_arm9.bin || true
-          grep -h -E "^ +0x[0-9a-f]+ +(__bss_end|__end__) " nds-bootstrap/retail/cardenginei/arm7/build/*.map nds-bootstrap/retail/cardenginei/arm9/build/*.map || true
-
-      - name: Name the output
-        run: cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc-${{ matrix.name }}.nds
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nds-bootstrap-test-${{ matrix.name }}
-          path: nds-bootstrap-dsirpc-${{ matrix.name }}.nds
-          if-no-files-found: error
-
   launcher:
     name: launcher
     runs-on: ubuntu-latest

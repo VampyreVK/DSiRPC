@@ -46,6 +46,44 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    `RPCSET.BIN`, so the console's achievement checker and the in-game
    menu's list only work then if the last game started with START was the
    same one.
+   **X:** the [save sync](#the-save-sync). **L+R:** the
+   [settings](#settings).
+
+### The save sync
+
+X lists every game in `sd:/roms/nds` (subfolders too; the whole SD card if
+there's no such folder) with its saves, found the way TWiLight Menu++ keeps
+them: in a `saves` folder next to the game, in `sd:/roms/nds/saves`, next to
+the game, or in `sd:/_nds/TWiLightMenu/saves`, as `.sav` and `.sav1` to
+`.sav9`. Each save is named to DSiRPC by the game's code and its ROM header's
+CRC, so the same game shares its saves between consoles whatever its file is
+called there.
+
+`saves.idx` in the launcher's folder has each save's size, time and CRC32
+as last seen, and its CRC at its last sync. Only a save whose size or time
+differs is read again (for its CRC); that also tells a save nds-bootstrap
+only touched (it updates a save's time whenever it starts the game) from one
+that changed. The main screen counts the changed ones at startup.
+
+DSiRPC (`core/saves.py`) compares each save three ways (the console's now,
+the PC's, and the CRC at the last sync) and answers with a plan: back up,
+take the PC's, ask (changed on both), or nothing. The launcher shows it and
+carries out what you pick, one request per connection
+(`core/save_session.py` describes the exchange). A download goes to a
+`.tmp` file, is checked against its CRC, then swapped in, with the old save
+kept as `.bak` until that's done (a scan puts a `.bak` back if the console
+went off in between). A console's save always goes to the PC before
+anything replaces it.
+
+### Settings
+
+L+R opens them; they're kept in `launcher.ini` next to the launcher:
+
+- `DSIRPC_IP`: DSiRPC's address, or empty to ask for it with a broadcast (as
+  before). The syncs then ask at that address only.
+- `SAVE_MODE`: `sync` (back up, and take newer saves from the PC) or
+  `backup` (only back up; DSiRPC keeps those in history and never offers
+  them to the other consoles).
 
 ### The game, the ini and your save
 
@@ -155,7 +193,10 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/main.c` | Connecting (with the retries), the results screen and the keys |
 | `source/browser.c` | The file browser |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
-| `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file |
+| `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file; finding DSiRPC (broadcast or the address in the settings) |
+| `source/savesync.c` | The save sync's work: finding the saves, `saves.idx`, the exchange with DSiRPC, safe downloads (tested on a PC against DSiRPC: `tests/test_save_sync.py`) |
+| `source/saveui.c` | The save sync's screens: the list, conflicts, older versions, progress |
+| `source/settings.c` | `launcher.ini` and the settings screen |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |

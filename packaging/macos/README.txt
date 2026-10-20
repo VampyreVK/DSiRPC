@@ -83,6 +83,11 @@ The menu's "Overlay window" opens the overlay for streaming (capture it
 in OBS with a macOS Screen Capture or Window Capture source).
 
 In the launcher, SELECT disconnects and goes back without starting a game.
+X backs up your games' saves to DSiRPC (and takes newer ones from it, like
+the ones from your other console); the PC keeps the last 10 versions of
+each in the saves folder (the menu's "Open save backups"). L+R opens the
+launcher's settings: DSiRPC's address (if the launcher doesn't find it by
+itself) and whether saves sync or only back up.
 No Wi-Fi? Press B while the launcher connects (or START when it says it
 couldn't) to play offline: games start the same way, without Discord, and
 achievements unlocked offline are sent the next time the launcher syncs
@@ -96,6 +101,8 @@ IF SOMETHING DOESN'T WORK
 - Nothing on Discord: the Mac and the console have to be on the same
   network, and DSiRPC needs Local Network access (above). Turn off other
   Rich Presence plugins, like Vencord's CustomRPC.
+- The launcher connects but never finds DSiRPC: give it the Mac's address
+  in the launcher's settings (L+R).
 - Discord shows nothing while the icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (menu > Setup...).
 - The game starts but never shows up, and nds-bootstrap's in-game menu

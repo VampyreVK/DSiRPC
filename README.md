@@ -21,6 +21,7 @@ for streaming.
 **Using DSiRPC:** [What you need](#what-you-need) ·
 [Install](#install) · [Playing](#playing) · [The tray icon](#the-tray-icon) ·
 [RetroAchievements](#retroachievements) · [Playing offline](#playing-offline) ·
+[Save backups](#save-backups) · [The launcher's settings](#the-launchers-settings) ·
 [Stream overlay window](#stream-overlay-window) ·
 [Troubleshooting](#troubleshooting) ·
 [Updating and removing](#updating-and-removing) · [Known issues](#known-issues)\
@@ -219,6 +220,53 @@ flashes for ROM reads; set the setting to None to turn the achievement LED
 off. A 3DS has no LED for this (TWiLight Menu++ has no LED setting there);
 the in-game menu shows the new unlocks instead.
 
+### Save backups
+
+Press **X** in the launcher (while it's connected and DSiRPC is running) to
+back up your games' saves to the PC and bring newer ones over from it, from
+your other console for example. The launcher finds every game in `roms/nds`
+(subfolders too) and its saves, wherever TWiLight Menu++ keeps them, every
+save slot included. The PC keeps the latest save of each game plus its last
+**10 versions** (setup asks; Enter keeps 10), in `saves` in DSiRPC's folder
+(setup can put it elsewhere, like a cloud drive's folder for an off-site
+copy; the tray's **Open save backups** opens it). Nothing on either side is
+ever replaced without its old version going into that history first.
+
+The list shows **Sync all** on top, then each save:
+
+| Mark | Means | What syncing it does |
+|---|---|---|
+| green `^` | Changed on this console | Backs it up (and it becomes the save your other consoles get) |
+| cyan `v` | Newer on the PC, or only on the PC (the game is here, its save isn't) | Takes the PC's |
+| yellow `!` | Changed on both since the last sync | Asks: **L** keeps this console's, **R** takes the PC's, **B** decides later |
+| grey `x` | Left out | Nothing, until it's back in |
+| (none) | In sync | Nothing |
+
+**A** syncs the save picked (or everything, on Sync all), **START** syncs
+everything, **Y** leaves a save out of the syncs (or back in), **X** shows
+the older versions the PC keeps and puts the one you pick on the console,
+and **B** goes back. Sync all asks about each `!` first, shows how it's
+going, then a summary, then you're back on the launcher's main screen.
+
+The launcher only reads a save when it may have changed: it remembers each
+one's size and time from the last sync (`saves.idx` in its folder), so only
+the games played since are checked. Its main screen says how many changed
+(next to **X**).
+
+### The launcher's settings
+
+Hold **L** and **R** on the launcher's main screen:
+
+- **Find DSiRPC:** automatically (it asks the whole network) or at an
+  address. Use an address if the launcher never finds DSiRPC: some routers
+  don't pass the question along. The launcher shows the address when it
+  does find it ("Found DSiRPC at ...").
+- **Saves:** back up and sync (newer saves from the PC come here too), or
+  back up only (saves only go to the PC, so each console can keep its own
+  and still have them backed up).
+
+They're kept in `launcher.ini` next to the launcher.
+
 ### Stream overlay window
 
 The overlay window (tray menu > **Overlay window**) shows your party, and
@@ -271,6 +319,7 @@ they're needed, then kept.
 | Nothing on Discord | Right-click the tray icon: its first lines say what DSiRPC sees. The PC and the console must be on the same network, and the firewall must allow DSiRPC on private networks (Windows Security > Firewall > Allow an app: `python.exe` and `pythonw.exe` in DSiRPC's `python` folder). |
 | The tray dot is red | Discord isn't running, or there's no Discord application yet: run setup. |
 | The launcher can't connect | Check the console's Wi-Fi settings (on a DSi, WPA2 needs connection 4, 5 or 6). |
+| The launcher connects but never finds DSiRPC | Give it the PC's address in [the launcher's settings](#the-launchers-settings) (L+R). |
 | DSiRPC says "Starting" the game, but it never connects, and the in-game menu has no achievements | Use the launcher from the same release as `nds-bootstrap-dsirpc.nds`: older launchers left DSi-enhanced games (like Pokémon Black and White) in DSi mode, where DSiRPC doesn't run. The in-game menu should say **nds-bootstrap-DSiRPC**. |
 | The in-game menu says just "nds-bootstrap" | That's TWiLight Menu++'s own nds-bootstrap: start the game from the DSiRPC launcher. |
 | Discord stopped after the DSi's lid was closed | That's on purpose: the console turns its Wi-Fi off when the lid closes, because a DSi that sleeps while connected switches itself off. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |

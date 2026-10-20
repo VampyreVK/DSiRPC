@@ -285,6 +285,31 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-20: **Save backups and sync, through the launcher.** (Branch
+  `mac-fix-and-save-sync`.) X in the launcher lists every game in
+  `roms/nds` (subfolders too) and its saves, wherever TWiLight Menu++ keeps
+  them, every slot included, with Sync all on top: green `^` changed here
+  (back it up), cyan `v` newer on the PC or only there, yellow `!` changed
+  on both (L keeps the console's, R takes the PC's, B decides later), grey
+  `x` left out (Y). X on a save lists the versions the PC keeps and puts
+  one back. The PC (`core/saves.py`) keeps a folder per game, keyed by its
+  code and ROM header CRC so a DSi and a 3DS share saves whatever the files
+  are called: the latest save the sync-mode consoles share, and the last 10
+  versions (setup asks; `[saves]` in `dsirpc.cfg`). Whether a save changed
+  is three-way (the console's CRC now, the PC's, and the console's at its
+  last sync, from `saves.idx`), so no clocks are trusted. The launcher only
+  reads saves whose size or time changed since the last sync (two stages:
+  nds-bootstrap touches a save's time whenever it starts the game), and its
+  main screen counts the changed ones. Downloads go through a `.tmp` file
+  checked against its CRC, with the old save kept as `.bak` until the swap
+  is done; a console's save always goes to the PC before anything replaces
+  it. The exchange (`core/save_session.py`) is one request per connection on
+  the offline sync's port. L+R opens the launcher's settings
+  (`launcher.ini`): DSiRPC's address (empty: broadcast) and the save mode
+  (back up and sync, or back up only). `tests/test_save_sync.py` runs the
+  launcher's code built for the PC against DSiRPC on loopback; 24 new tests
+  in all. To try on hardware: the whole flow on the DSi and the 3DS.
+
 - 2026-10-19 (release cleanups): The screen-swap hotkey's delayed save to
   the SD card waits out IPC-served ROM reads like the in-game menu does
   (`ipcReadBusy()`); the launcher's game picker opens in `sd:/roms/nds` when

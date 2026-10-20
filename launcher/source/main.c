@@ -30,6 +30,10 @@
 //      Y: exit without disconnecting (the old way: back to the menu, then
 //      start our nds-bootstrap build from there). Not B, which the file
 //      browser uses to go up a folder and back out.
+//      X: the save sync (source/saveui.c, source/savesync.c): back the
+//      games' saves up to DSiRPC, take newer ones from it.
+//      L+R: the launcher's settings (source/settings.c): DSiRPC's address,
+//      the save sync's mode.
 //
 // Offline play: B while connecting, or START when it can't connect, skips
 // the Wi-Fi. Games start the same way, without the syncs, and RPCHAND.TXT
@@ -54,6 +58,9 @@
 #include "bootstrap_ini.h"
 #include "browser.h"
 #include "chainload.h"
+#include "saveui.h"
+#include "savesync.h"
+#include "settings.h"
 #include "sync.h"
 
 #define LISTENER_PORT     4242
@@ -74,8 +81,12 @@
 #define UNIX_TIME_2000    946684800   // 2000-01-01 00:00 as a Unix time
 
 static char ip_str[20], gw_str[20], mask_str[20], mac_str[20];
+static u8 mac_bytes[6];
 static bool online;                   // false: offline play, no Wi-Fi
 static char sets_dir[PATH_LEN];       // the achievement sets (sync.c)
+static char settings_path[PATH_LEN];  // launcher.ini (settings.c)
+static LauncherSettings settings;
+static int saves_changed = -2;        // saves changed since the last save sync (-1: never synced)
 
 static void wait_frames(int frames)
 {
@@ -89,7 +100,7 @@ static void wait_for_key_release(void)
     {
         cothread_yield_irq(IRQ_VBLANK);
         scanKeys();
-        if ((keysHeld() & (KEY_START | KEY_SELECT | KEY_A | KEY_B | KEY_Y)) == 0)
+        if ((keysHeld() & (KEY_START | KEY_SELECT | KEY_A | KEY_B | KEY_X | KEY_Y | KEY_L | KEY_R)) == 0)
             break;
     }
 }
@@ -274,6 +285,7 @@ static bool run_sync(const char *game)
         .sets_dir = sets_dir,
         .unlocks_path = UNLOCKS_PATH,
         .console_model = console_model(),
+        .server_addr = settings_server_addr(&settings),
         .say = say_line,
         .cancelled = b_pressed,
     };
@@ -440,18 +452,70 @@ static void print_connection(void)
     printf("MAC:  %s\n", mac_str);
 }
 
+// Where the save sync looks for games: TWiLight's usual folder, or the whole
+// SD card without one
+static const char *games_dir(void)
+{
+    return dir_exists(GAMES_DIR) ? GAMES_DIR : "sd:/";
+}
+
 static void print_keys(void)
 {
     printf("\nSTART:  pick a game, start it\n");
     printf("        with nds-bootstrap\n");
     if (online)
     {
+        printf("X:      sync saves");
+        if (saves_changed > 0)
+            printf(" \x1b[32;1m(%d changed)\x1b[39;0m", saves_changed);
+        else if (saves_changed == -1)
+            printf(" (not synced)");
+        printf("\n");
         printf("SELECT: disconnect, then exit\n");
         printf("Y:      exit, stay connected\n");
     }
     else
     {
         printf("SELECT: exit\n");
+    }
+    printf("L+R:    settings\n");
+}
+
+// The main screen, after coming back from a game that didn't start, the save
+// sync or the settings
+static void draw_main(void)
+{
+    consoleClear();
+    printf("DSiRPC launcher\n");
+    printf("---------------\n");
+    if (online)
+    {
+        printf("Connected.\n");
+        print_connection();
+    }
+    else
+    {
+        printf("Playing offline (no Wi-Fi).\n");
+    }
+    print_keys();
+}
+
+// START, SELECT, X or Y (the lowest pressed of `keys`), or KEY_L | KEY_R
+// when both shoulder buttons are held
+static u32 wait_main_keys(u32 keys)
+{
+    while (1)
+    {
+        cothread_yield_irq(IRQ_VBLANK);
+        scanKeys();
+        u32 held = keysHeld(), down = keysDown();
+        if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (down & (KEY_L | KEY_R)))
+            return KEY_L | KEY_R;
+        down &= keys;
+        if (down & KEY_START)
+            return KEY_START;
+        if (down)
+            return down & -down;
     }
 }
 
@@ -482,6 +546,10 @@ int main(int argc, char *argv[])
     char dir[PATH_LEN];
     launcher_dir(argc, argv, dir, sizeof(dir));
     join_path(sets_dir, sizeof(sets_dir), dir, SETS_FOLDER);
+    join_path(settings_path, sizeof(settings_path), dir, SETTINGS_FILE);
+    settings_load(settings_path, &settings);
+    if (have_fat)
+        saves_changed = saves_quick_check(games_dir(), dir);
 
     printf("\nConnecting with saved\nsettings (slots 1-6)...\n");
     printf("B: skip, play offline\n");
@@ -523,8 +591,8 @@ int main(int argc, char *argv[])
         snprintf(gw_str, sizeof(gw_str), "%s", inet_ntoa(gateway));
         snprintf(mask_str, sizeof(mask_str), "%s", inet_ntoa(mask));
 
-        u8 mac[6] = { 0 };
-        Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(mac), mac);
+        u8 *mac = mac_bytes;
+        Wifi_GetData(WIFIGETDATA_MACADDRESS, sizeof(mac_bytes), mac);
         snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
@@ -546,8 +614,8 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        u32 keys = online ? (KEY_START | KEY_SELECT | KEY_Y) : (KEY_START | KEY_SELECT);
-        u32 key = wait_for_keys(keys);
+        u32 keys = online ? (KEY_START | KEY_SELECT | KEY_X | KEY_Y) : (KEY_START | KEY_SELECT);
+        u32 key = wait_main_keys(keys);
 
         if (key == KEY_START)
         {
@@ -556,19 +624,38 @@ int main(int argc, char *argv[])
             else
                 show_message("The SD card can't be read,\nso no game can be started.");
             // Back here: the game wasn't started
-            consoleClear();
-            printf("DSiRPC launcher\n");
-            printf("---------------\n");
-            if (online)
+            draw_main();
+            wait_for_key_release();
+            continue;
+        }
+
+        if (key == KEY_X)
+        {
+            if (have_fat)
             {
-                printf("Connected.\n");
-                print_connection();
+                SaveUi ui = {
+                    .games_dir = games_dir(),
+                    .index_dir = dir,
+                    .settings = &settings,
+                    .mac = mac_bytes,
+                    .console_model = console_model(),
+                };
+                save_sync_screen(&ui);
+                saves_changed = saves_quick_check(games_dir(), dir);
             }
             else
             {
-                printf("Playing offline (no Wi-Fi).\n");
+                show_message("The SD card can't be read,\nso there are no saves to sync.");
             }
-            print_keys();
+            draw_main();
+            wait_for_key_release();
+            continue;
+        }
+
+        if (key == (KEY_L | KEY_R))
+        {
+            settings_screen(settings_path, &settings, online ? ip_str : "192.168.1.2");
+            draw_main();
             wait_for_key_release();
             continue;
         }

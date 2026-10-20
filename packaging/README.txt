@@ -77,6 +77,11 @@ STEP 3: PLAYING
 4. Within about 15 seconds, Discord shows what you're playing.
 
 In the launcher, SELECT disconnects and goes back without starting a game.
+X backs up your games' saves to DSiRPC (and takes newer ones from it, like
+the ones from your other console); the PC keeps the last 10 versions of
+each in the saves folder (the menu's "Open save backups"). L+R opens the
+launcher's settings: DSiRPC's address (if the launcher doesn't find it by
+itself) and whether saves sync or only back up.
 
 No Wi-Fi? Press B while the launcher connects (or START when it says it
 couldn't) to play offline: games start the same way, without Discord.
@@ -106,6 +111,8 @@ IF SOMETHING DOESN'T WORK
 - Discord shows nothing while the tray icon's dot is red: Discord isn't
   running, or setup has no Discord application yet (run Setup.bat).
 - The launcher can't connect: check the console's Wi-Fi settings.
+- The launcher connects but never finds DSiRPC: give it the PC's address
+  in the launcher's settings (L+R).
 - The game starts but never shows up, and nds-bootstrap's in-game menu
   (L + Down + SELECT) has no achievements: copy both SD card files from
   this download (the launcher and nds-bootstrap go together). The menu

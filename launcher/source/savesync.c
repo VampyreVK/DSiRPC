@@ -430,8 +430,10 @@ static bool already_listed(const SaveList *list, const char code[4], uint16_t hc
 // A save left as .bak by a swap that didn't finish: put it back.
 static void recover(DirCache *d, const char *name)
 {
-    char bak[72], path[SAVE_PATH_LEN], bak_path[SAVE_PATH_LEN];
-    snprintf(bak, sizeof(bak), "%s.bak", name);
+    if (strlen(name) >= 60)
+        return;     // too long to be listed with ".bak" on it
+    char bak[64], path[SAVE_PATH_LEN], bak_path[SAVE_PATH_LEN];
+    snprintf(bak, sizeof(bak), "%.59s.bak", name);
     if (dir_has(d, name) || !dir_has(d, bak))
         return;
     join_path(path, sizeof(path), d->dir, name);
@@ -443,7 +445,7 @@ static void recover(DirCache *d, const char *name)
         {
             if (strcasecmp(d->names[i], bak) == 0)
             {
-                snprintf(d->names[i], 64, "%s", name);
+                snprintf(d->names[i], 64, "%.63s", name);
                 break;
             }
         }
@@ -845,7 +847,7 @@ int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
         it->pc_crc = get32(p + 12);
         it->pc_time = get32(p + 16);
         it->versions = p[20];
-        snprintf(it->pc_source, sizeof(it->pc_source), "%s", source);
+        snprintf(it->pc_source, sizeof(it->pc_source), "%.32s", source);
         it->choice = SC_ASK;
         it->done = it->failed = false;
     }
@@ -1156,7 +1158,7 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
             v->time = get32(p + 1);
             v->size = get32(p + 5);
             v->crc = get32(p + 9);
-            snprintf(v->source, sizeof(v->source), "%s", source);
+            snprintf(v->source, sizeof(v->source), "%.32s", source);
         }
     }
     sync_close(sock);

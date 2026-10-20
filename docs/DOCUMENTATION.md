@@ -150,6 +150,8 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
+| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast) and the save sync's mode |
+| `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
 | `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
@@ -799,7 +801,9 @@ numbers mean.
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
-| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game |
+| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py` |
+| `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
+| `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
 | `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
@@ -1315,6 +1319,46 @@ plain, anything else `?`). The launcher only reads the code and the stamp,
 which are in the same place in every version. (Version 1 had the MemAddr
 text instead of a program; version 2 had no list; version 3 had no frame
 lane. The console still checks versions 2 and 3.)
+
+### The save sync (TCP 4245)
+
+X in the launcher backs the games' saves up to DSiRPC and takes newer ones
+from it. `core/saves.py` (the PC's copy), `core/save_session.py` (the
+exchange, with every message's layout) and `launcher/source/savesync.c`
+(the console's side) are the three parts; `core/console_sync.py` hands
+any connection on its port that starts with `DRSV` (not `DRSQ`) to
+`save_session.py`. Each TCP connection is one request and its answer, so
+nothing waits while the list is on the console's screen:
+
+| Request | What |
+|---|---|
+| plan | Every save on the console (game code, ROM header CRC, slot, CRC now, CRC at its last sync, excluded) and every game without one; the answer has what to do with each, the PC's side, and the saves the PC has for those games in slots the console lacks |
+| upload | One save: to sync (it becomes the latest the consoles share; the old latest goes to history), to back up (history only), or before it's replaced (history only) |
+| download | The latest, or a version from history, newest first; optionally made the latest too (a restore in sync mode) |
+| history | The versions kept (the latest first) |
+| done | What the sync did, for the tray's notification |
+
+Each request starts with the console's MAC, its model and the save mode
+(back up and sync, or back up only). The plan is three-way, with no clocks
+involved: the console's CRC now, the PC's latest's, and the console's CRC
+at its last sync (from `saves.idx`). The same CRC means in sync; the PC's
+still matching the last sync means only the console changed (upload); the
+console's still matching it means only the PC's changed (download);
+anything else is a conflict, and the console asks. Back-up-only consoles
+only ever upload to history, and their saves are never offered to anyone.
+
+**On the console**, `saves.idx` (next to the launcher, one tab-separated
+line per save: code, header CRC, slot, size, time, CRC, CRC at the last
+sync, flags, path) lets the launcher skip reading saves whose size and time
+haven't changed; a download goes through a `.tmp` file, checked against its
+CRC, and swaps in with the old save kept as `.bak` until it's done (the
+next scan puts a `.bak` back). **On the PC**, each game has a folder in the
+backups folder (`[saves]` in `dsirpc.cfg`, by default `saves/` in DSiRPC's
+folder), named after the game and its key (`Pokemon Black [IRBO-1A2B]`): the
+latest save of each slot, and `history/` with the last N versions
+(`versions`, 10 by default). `saves.json` lists it all with CRCs, sizes,
+times and sources. A save copied over the latest by hand becomes the PC's
+version (offered to the consoles); one deleted by hand is backed up again.
 
 ### The checker's report (DSi -> broadcast, after each hello)
 

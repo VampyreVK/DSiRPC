@@ -48,7 +48,7 @@ static bool valid_ip(const char *text)
 void settings_load(const char *path, LauncherSettings *s)
 {
     memset(s, 0, sizeof(*s));
-    char value[32];
+    char value[16];
     if (ini_get(path, SECTION, "DSIRPC_IP", value, sizeof(value)) == 1 && valid_ip(value))
         snprintf(s->dsirpc_ip, sizeof(s->dsirpc_ip), "%s", value);
     if (ini_get(path, SECTION, "SAVE_MODE", value, sizeof(value)) == 1)
@@ -99,7 +99,7 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
 {
     consoleClear();
     printf("Settings\n");
-    printf("--------------------------------\n");
+    printf("-------------------------------\n");
     printf("%c Find DSiRPC: %s\n", row == ROW_FIND ? '>' : ' ', manual ? "at this address" : "automatically");
     if (manual)
     {
@@ -120,18 +120,19 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
         printf("\x1b[30;1m%c Address:     (looked for)\x1b[39;0m\n", row == ROW_ADDRESS ? '>' : ' ');
     }
     printf("%c Saves:       %s\n", row == ROW_SAVES ? '>' : ' ', s->backup_only ? "back up only" : "back up and sync");
-    printf("--------------------------------\n");
+    printf("-------------------------------\n");
     if (row == ROW_FIND)
         printf("How the launcher finds DSiRPC.\nAutomatically works on most\nnetworks; use an address if it\nisn't found.\n");
     else if (row == ROW_ADDRESS)
-        printf("The PC's IPv4 address (DSiRPC\nshows it in its menu).\n");
+        printf("The PC's IPv4 address: the\nlauncher shows it when it finds\nDSiRPC (Found DSiRPC at ...).\n");
     else
         printf("Back up and sync: newer saves\nfrom the PC come here too.\nBack up only: saves only go to\nthe PC, so each console can\nkeep its own.\n");
-    printf("\x1b[21;0H--------------------------------\n");
+    printf("\x1b[21;0H-------------------------------\n");
+    // (no newline after the last row: it would scroll the screen)
     if (editing >= 0)
-        printf("Left/Right: part  Up/Down: +1\nA or B: done\n");
+        printf("Left/Right: part  Up/Down: +1\nA or B: done");
     else
-        printf("Up/Down: choose  A: change\nB: save and go back\n");
+        printf("Up/Down: choose  A: change\nB: save and go back");
 }
 
 void settings_screen(const char *path, LauncherSettings *s, const char *current_ip)

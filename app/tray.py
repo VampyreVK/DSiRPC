@@ -205,7 +205,7 @@ def run_tray(cfg, **engine_args):
             icon.update_menu()
             for e in events:
                 if e['type'] == 'online':
-                    notify(engine.headline(), "DSiRPC: DSi connected")
+                    notify(engine.headline(), f"DSiRPC: {e.get('console', 'DSi')} connected")
                 elif e['type'] == 'offline':
                     notify("No data from the DSi for 30 s. DSiRPC waits for it to come back.", "DSiRPC")
                 elif e['type'] == 'game_changed':

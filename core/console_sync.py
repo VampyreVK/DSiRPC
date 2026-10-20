@@ -12,7 +12,7 @@ yet, so they're on the SD card for the next time it plays without DSiRPC.
 sets_for(game, stamps, unlocks) -> [(code, .DRS bytes)] and
 on_unlocks([unlock]) are the engine's (app/engine.py). on_unlocks returns
 False to leave the unlocks on the console (a dry run), anything else lets the
-launcher clear them. on_console(ip, game), if given, hears about each sync as
+launcher clear them. on_console(ip, game, console), if given, hears about each sync as
 it starts: the launcher syncs once it's connected (game None) and again as it
 starts a game (its code), so DSiRPC knows the DSi is there before the game
 says hello. Everything here runs on this module's thread; the console waits
@@ -115,7 +115,9 @@ class ConsoleSync:
             return bytes(buf)
 
         try:
-            game, stamps, unlock_bytes = offline.parse_request(read(offline.REQUEST.size), read)
+            header = read(offline.REQUEST.size)
+            game, stamps, unlock_bytes = offline.parse_request(header, read)
+            console = offline.request_console(header)
             unlocks = offline.read_unlocks(unlock_bytes)
         except offline.FormatError as e:
             logging.warning(f"Offline sync from {addr[0]}: {e}")
@@ -124,7 +126,7 @@ class ConsoleSync:
             return
         if self.on_console:
             try:
-                self.on_console(addr[0], game)
+                self.on_console(addr[0], game, console)
             except Exception:
                 logging.exception("Offline sync: on_console failed")
         # The sets first (that may download the game's), so the unlocks are

@@ -345,6 +345,15 @@ int nds_unit_code(const char *path)
     return code;
 }
 
+int console_model(void)
+{
+    char value[16] = "";
+    if (ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "CONSOLE_MODEL", value, sizeof(value)) != 1)
+        return 0;
+    int model = atoi(value);
+    return model >= 0 && model <= 3 ? model : 0;
+}
+
 // ---------------------------------------------------------------------------
 
 int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)

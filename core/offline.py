@@ -93,7 +93,7 @@ The sync exchange (one per game started while DSiRPC can be found):
        DSiRPC answers b"DSiRPC sync!" + u8 version + u16 TCP port.
     2. Over TCP, the launcher sends a request:
          "DRSQ", u16 version, u16 n cached sets, 4 game code being started,
-         u32 unlock bytes, u32 reserved; then n x (4 code, u32 stamp); then
+         u32 unlock bytes, u32 console model; then n x (4 code, u32 stamp); then
          RPCUNLK.BIN as it is
        and DSiRPC answers:
          "DRSA", u16 version, u16 status (0 ok), u16 unlocks taken,
@@ -585,10 +585,17 @@ def parse_request(header, rest_reader):
     return (game.decode() if valid_code(game) else None), stamps, unlocks
 
 
-def build_request(game, stamps, unlocks):
+def request_console(header):
+    """The console a request came from: "3DS" or "DSi". Its last word is
+    TWiLight Menu++'s CONSOLE_MODEL (0 DSi, 1 DSi devkit, 2 3DS, 3 New 3DS);
+    launchers from before it was sent leave 0 there."""
+    return "3DS" if REQUEST.unpack(header)[5] & 0xFF in (2, 3) else "DSi"
+
+
+def build_request(game, stamps, unlocks, console_model=0):
     """A request as the launcher sends it (for tests)."""
     head = REQUEST.pack(b"DRSQ", VERSION, len(stamps), (game or "").encode().ljust(4, b"\0")[:4],
-                        len(unlocks), 0)
+                        len(unlocks), console_model)
     return head + b"".join(struct.pack("<4sI", c.encode(), s) for c, s in stamps.items()) + unlocks
 
 

@@ -244,7 +244,7 @@ class Engine:
 
     # -- offline play (core/console_sync.py's thread) --------------------------
 
-    def _console_seen(self, ip, game):
+    def _console_seen(self, ip, game, console="DSi"):
         """The launcher synced: the DSi is connected, in the launcher (game
         None) or starting a game, before the game says hello (the overlay's
         waiting screen and the tray show it)."""
@@ -259,7 +259,7 @@ class Engine:
             except (ra_set.SetFileError, OSError, ValueError):
                 title = None
         title = (title or game or '').replace("Pokemon", "Pokémon")
-        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'at': time.time()}
+        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'console': console, 'at': time.time()}
 
     def _offline_sets(self, game, stamps, unlocks=()):
         """[(code, .DRS bytes)] for the console: the game it's starting

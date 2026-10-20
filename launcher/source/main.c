@@ -273,6 +273,7 @@ static bool run_sync(const char *game)
     SyncJob job = {
         .sets_dir = sets_dir,
         .unlocks_path = UNLOCKS_PATH,
+        .console_model = console_model(),
         .say = say_line,
         .cancelled = b_pressed,
     };

@@ -67,8 +67,8 @@ class Engine:
         self.unlocks.append([u["id"] for u in unlocks])
         return False if self.keep else None
 
-    def on_console(self, ip, game):
-        self.consoles.append((ip, game))
+    def on_console(self, ip, game, console):
+        self.consoles.append((ip, game, console))
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_unlocks_handed_over_and_sets_taken(start):
     assert last["game"] == "IRBO" and last["taken"] == 3 and last["sets"] == ["IRBO", "CPUE"]
     assert engine.asked == [("IRBO", {"CPUE": 7}, [11, 12, 13])]
     assert engine.unlocks == [[11, 12, 13]]
-    assert engine.consoles == [(HOST, "IRBO")]
+    assert engine.consoles == [(HOST, "IRBO", "DSi")]
 
 
 def test_dry_run_leaves_the_unlocks(start):
@@ -132,7 +132,7 @@ def test_connected_without_a_game(start):
     sync = start(engine)
     assert exchange(sync.port, offline.build_request(None, {}, b"")) == (0, 0, [])
     assert _wait_last(sync)["game"] is None
-    assert engine.consoles == [(HOST, None)] and engine.unlocks == []   # nothing to hand over
+    assert engine.consoles == [(HOST, None, "DSi")] and engine.unlocks == []   # nothing to hand over
 
 
 def test_a_bad_request_gets_status_1(start):
@@ -159,3 +159,16 @@ def test_port_taken_then_free_again(start):
     assert not first._thread.is_alive()
     again = start(Engine(), port=port)
     assert discover(port) == offline.ANSWER + struct.pack("<BH", offline.VERSION, again.port)
+
+
+def test_a_3ds_says_so(start):
+    """The request's last word is TWiLight's CONSOLE_MODEL: 2 and 3 are a 3DS
+    and a New 3DS, 0 a DSi (and what older launchers send)."""
+    engine = Engine()
+    sync = start(engine)
+    for model, console in ((2, "3DS"), (3, "3DS"), (0, "DSi"), (1, "DSi")):
+        assert exchange(sync.port, offline.build_request("", {}, b"", console_model=model))[0] == 0
+    end = time.monotonic() + 8
+    while len(engine.consoles) < 4 and time.monotonic() < end:
+        time.sleep(0.02)
+    assert [c for _, _, c in engine.consoles] == ["3DS", "3DS", "DSi", "DSi"]

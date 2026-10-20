@@ -1236,12 +1236,15 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
 2. The launcher connects over TCP and sends:
 
    ```
-   "DRSQ" | version u16 | n u16 | game code[4] | unlock bytes u32 | reserved u32
+   "DRSQ" | version u16 | n u16 | game code[4] | unlock bytes u32 | console model u32
    n x ( code[4] | stamp u32 )        the sets it has
    RPCUNLK.BIN as it is               (or nothing, if it isn't valid)
    ```
 
-   The game code is the one being started, or four zero bytes.
+   The game code is the one being started, or four zero bytes. The console
+   model is TWiLight Menu++'s `CONSOLE_MODEL` from `nds-bootstrap.ini` (0 DSi,
+   1 DSi devkit, 2 3DS, 3 New 3DS; older launchers send 0), so DSiRPC says
+   "3DS connected!" on a 3DS.
 3. DSiRPC answers:
 
    ```

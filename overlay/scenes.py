@@ -174,7 +174,7 @@ class Overlay:
         for e in events:
             kind = e['type']
             if kind == 'online':
-                self.toast("DSi connected!")
+                self.toast(f"{e.get('console', 'DSi')} connected!")
             elif kind == 'offline':
                 self.toast("Lost the DSi...")
             elif kind == 'shiny_encounter':
@@ -1145,9 +1145,9 @@ class Overlay:
         dots = '.' * (1 + (t_ms // 400) % 3)
         if launcher and launcher.get('game'):
             title = self.font.fit(f"Starting {launcher.get('title') or launcher['game']}", tw - 12) + dots
-            status, done = [f"Loading it on the DSi at {launcher['ip']}"], 2
+            status, done = [f"Loading it on the {launcher.get('console', 'DSi')} at {launcher['ip']}"], 2
         elif launcher:
-            title, status, done = "DSi connected!", [f"In the launcher at {launcher['ip']}"], 1
+            title, status, done = f"{launcher.get('console', 'DSi')} connected!", [f"In the launcher at {launcher['ip']}"], 1
         else:
             title, status, done = "Waiting for the DSi" + dots, self.font.wrap(snap.status or '', tw, 2), 0
         steps = ["Start the DSiRPC launcher.", "Press START and pick a game.", "It shows up here as you play."]

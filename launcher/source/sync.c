@@ -600,7 +600,7 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     if (valid_code(job->game))
         memcpy(head + 8, job->game, 4);
     put32(head + 12, unlock_len);
-    put32(head + 16, 0);
+    put32(head + 16, (uint32_t)job->console_model);
 
     if ((r = send_all(job, sock, head, sizeof(head), msg, msgsz)) <= 0 ||
         (r = send_all(job, sock, stamp_buf, n_cached * 8, msg, msgsz)) <= 0 ||

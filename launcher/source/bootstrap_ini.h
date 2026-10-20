@@ -34,6 +34,10 @@ bool find_save(const char *game, const char *prev_nds, const char *prev_sav,
 // DSi-enhanced, 3 for DSi-exclusive. -1 if the file can't be read.
 int nds_unit_code(const char *path);
 
+// TWiLight Menu++'s CONSOLE_MODEL from nds-bootstrap.ini (0 DSi, 1 DSi
+// devkit, 2 3DS, 3 New 3DS), 0 if it's not there.
+int console_model(void);
+
 // Makes nds-bootstrap boot `game`: NDS_PATH and SAV_PATH are set, the last
 // game's per-game values (manual, donor SDK, MPU patch) are reset, and its
 // cheat files are removed (TWiLight writes new ones for each game it

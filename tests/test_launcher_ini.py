@@ -96,6 +96,19 @@ def test_unit_code(lib, sd):
     assert lib.nds_unit_code(b"sd:/missing.nds") == -1
 
 
+def test_console_model(lib, sd):
+    """TWiLight's CONSOLE_MODEL, sent in the sync so DSiRPC can say "3DS";
+    0 (a DSi) when it's missing or not a model."""
+    assert lib.console_model() == 0                      # no ini at all
+    sd(INI, TWILIGHT_INI)
+    assert lib.console_model() == 0
+    for model in (0, 2, 3):
+        sd(INI, TWILIGHT_INI + f"CONSOLE_MODEL = {model}\r\n")
+        assert lib.console_model() == model
+    sd(INI, TWILIGHT_INI + "CONSOLE_MODEL = 9\r\n")
+    assert lib.console_model() == 0
+
+
 def test_a_dsi_enhanced_game_runs_in_ds_mode(lib, sd):
     sd(INI, TWILIGHT_INI)
     game = sd("sd:/roms/nds/Pokemon Black.nds", nds(2))

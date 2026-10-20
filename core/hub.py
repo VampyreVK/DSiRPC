@@ -161,19 +161,24 @@ class DsiSource:
         return seen
 
     @property
+    def console(self):
+        """"3DS" or "DSi", as the launcher's latest sync said ("DSi" without one)."""
+        return (self.launcher or {}).get('console') or "DSi"
+
+    @property
     def status(self):
         seen = self.launcher_state
         if seen:
             if seen['game']:
-                return f"DSi at {seen['ip']}: starting {seen['title']}"
-            return f"DSi at {seen['ip']}: in the launcher"
+                return f"{self.console} at {seen['ip']}: starting {seen['title']}"
+            return f"{self.console} at {seen['ip']}: in the launcher"
         if self.client.dsi_ip is None:
             return f"Waiting for the DSi on UDP {self.port}"
         if self.failed:
-            return f"DSi at {self.client.dsi_ip} isn't answering"
+            return f"{self.console} at {self.client.dsi_ip} isn't answering"
         if self.other:
-            return f"DSi at {self.client.dsi_ip}: {self.other.title}"
-        return f"DSi at {self.client.dsi_ip}"
+            return f"{self.console} at {self.client.dsi_ip}: {self.other.title}"
+        return f"{self.console} at {self.client.dsi_ip}"
 
     @property
     def game(self):
@@ -639,7 +644,7 @@ class StateHub:
                                     getattr(self.source, 'launcher_state', None))
                 elif data:
                     if not snap.online:
-                        events.append({'type': 'online'})
+                        events.append({'type': 'online', 'console': getattr(self.source, 'console', 'DSi')})
                     events += diff_events(prev, data)
                     prev = data
                     last_ok = time.time()

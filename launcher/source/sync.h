@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define SYNC_PORT        4245
 #define UNLOCKS_PATH     "sd:/RPCUNLK.BIN"   // unlocks waiting for DSiRPC
@@ -21,6 +22,9 @@ typedef struct
     const char *unlocks_path;   // UNLOCKS_PATH
     char game[5];               // the game being started ("CPUE"), or ""
     int console_model;          // console_model(), so DSiRPC can say "3DS"
+    uint32_t server_addr;       // DSiRPC's IPv4 address (network order), or 0
+                                // to look for it with a broadcast
+    uint16_t port;              // DSiRPC's port, 0 for SYNC_PORT (tests use another)
     void (*say)(const char *text);   // progress for the screen (may be NULL)
     bool (*cancelled)(void);         // true to stop waiting (may be NULL)
 } SyncJob;
@@ -51,5 +55,14 @@ bool stage_set(const char *sets_dir, const char *game, const char *dest);
 
 // The 4-letter game code from an .nds file's header ("" if unreadable).
 void read_game_code(const char *nds_path, char code[5]);
+
+// The network side, shared with the save sync (savesync.c). Each returns 1
+// when done, 0 if the job was cancelled (B), -1 if it failed (msg says why).
+struct sockaddr_in;
+int sync_find(const SyncJob *job, struct sockaddr_in *server, char *msg, size_t msgsz);
+int sync_open(const SyncJob *job, const struct sockaddr_in *server, int *sock, char *msg, size_t msgsz);
+int sync_send(const SyncJob *job, int sock, const void *data, size_t len, char *msg, size_t msgsz);
+int sync_recv(const SyncJob *job, int sock, void *data, size_t len, char *msg, size_t msgsz);
+void sync_close(int sock);
 
 #endif // SYNC_H__

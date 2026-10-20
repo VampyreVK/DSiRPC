@@ -337,8 +337,8 @@ static bool would_block(void)
     return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS;
 }
 
-// Asks for DSiRPC with a broadcast. 1: found (server set), 0: no answer or
-// skipped, -1: failed (msg).
+// Asks for DSiRPC with a broadcast, or at the address set in the launcher's
+// settings. 1: found (server set), 0: no answer or skipped, -1: failed (msg).
 static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, size_t msgsz)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -354,15 +354,18 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
     struct sockaddr_in to;
     memset(&to, 0, sizeof(to));
     to.sin_family = AF_INET;
-    to.sin_port = htons(SYNC_PORT);
-    to.sin_addr.s_addr = htonl(SYNC_DISCOVER_ADDR);
+    to.sin_port = htons(job->port != 0 ? job->port : SYNC_PORT);
+    to.sin_addr.s_addr = job->server_addr != 0 ? job->server_addr : htonl(SYNC_DISCOVER_ADDR);
 
     uint8_t ask[sizeof(DISCOVER) + 1];
     memcpy(ask, DISCOVER, sizeof(DISCOVER));
     ask[sizeof(DISCOVER)] = SYNC_VERSION;
 
     int result = 0;
-    snprintf(msg, msgsz, "DSiRPC wasn't found");
+    if (job->server_addr != 0)
+        snprintf(msg, msgsz, "DSiRPC wasn't found at\n%s (settings: L+R)", inet_ntoa(to.sin_addr));
+    else
+        snprintf(msg, msgsz, "DSiRPC wasn't found");
     for (int frame = 0; frame < DISCOVER_FRAMES && result == 0; frame++)
     {
         if (frame % RESEND_FRAMES == 0)
@@ -554,6 +557,50 @@ static int receive_set(const SyncJob *job, int sock, const uint8_t code[4], uint
     }
     return 1;
 }
+
+// ---------------------------------------------------------------------------
+// Shared with the save sync
+
+int sync_find(const SyncJob *job, struct sockaddr_in *server, char *msg, size_t msgsz)
+{
+    return discover(job, server, msg, msgsz);
+}
+
+int sync_open(const SyncJob *job, const struct sockaddr_in *server, int *sock, char *msg, size_t msgsz)
+{
+    *sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (*sock < 0)
+    {
+        snprintf(msg, msgsz, "Can't open a TCP socket");
+        return -1;
+    }
+    set_nonblocking(*sock);
+    int r = connect_to(job, *sock, server, msg, msgsz);
+    if (r <= 0)
+    {
+        close_socket(*sock);
+        *sock = -1;
+    }
+    return r;
+}
+
+int sync_send(const SyncJob *job, int sock, const void *data, size_t len, char *msg, size_t msgsz)
+{
+    return send_all(job, sock, data, len, msg, msgsz);
+}
+
+int sync_recv(const SyncJob *job, int sock, void *data, size_t len, char *msg, size_t msgsz)
+{
+    return recv_all(job, sock, data, len, msg, msgsz);
+}
+
+void sync_close(int sock)
+{
+    if (sock >= 0)
+        close_socket(sock);
+}
+
+// ---------------------------------------------------------------------------
 
 int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t msgsz)
 {

@@ -41,6 +41,8 @@ CFLAGS	:=	-g -Wall -Os\
 
 # ADD -DDEBUG here for logging/debug
 CFLAGS	+=	$(INCLUDE) -DARM7 -DTWOCARD
+# DSiRPC: extra switches for test builds (the CI's variant job), empty normally
+CFLAGS	+=	$(DSIRPC_CFLAGS)
 CXXFLAGS	:=	$(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)

@@ -70,6 +70,7 @@
 #define PATH_LEN          512
 
 #define HANDOFF_PATH      "sd:/RPCHAND.TXT"
+#define GAMES_DIR         "sd:/roms/nds"   // where the game picker opens, if it exists
 #define UNIX_TIME_2000    946684800   // 2000-01-01 00:00 as a Unix time
 
 static char ip_str[20], gw_str[20], mask_str[20], mac_str[20];
@@ -337,6 +338,12 @@ static bool file_exists(const char *path)
     return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+static bool dir_exists(const char *path)
+{
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 // Our nds-bootstrap build in `dir`: nds-bootstrap-dsirpc.nds, or the only
 // nds-bootstrap*.nds there.
 static bool find_bootstrap(const char *dir, char *out, size_t outsz)
@@ -377,7 +384,8 @@ static void start_game(const char *dir)
 {
     char game[PATH_LEN], bootstrap[PATH_LEN], msg[256];
 
-    if (!browse_for_file("Pick a game", dir, ".nds", game, sizeof(game)))
+    // TWiLight's usual games folder, or the launcher's own
+    if (!browse_for_file("Pick a game", dir_exists(GAMES_DIR) ? GAMES_DIR : dir, ".nds", game, sizeof(game)))
         return;
 
     if (!find_bootstrap(dir, bootstrap, sizeof(bootstrap)))

@@ -11,7 +11,7 @@ Writes (next to the other Assets folders, served by GitHub Pages):
 
     Assets/Unova-Battle/<turf>/<id>.gif         a foe on that turf
     Assets/Unova-Battle-Shiny/<turf>/<id>.gif   the same, shiny
-    Assets/Unova-Trainer/<turf>/<Hilbert|Hilda>-<Down|Left|Right|Up>.gif   walking
+    Assets/Unova-Trainer-Overworld/<turf>/<Hilbert|Hilda>-<Down|Left|Right|Up>.gif   walking
         ... -Run.gif, -Bike.gif (riding), -BikeStop.gif and -Stand.gif (still)
 
 <turf> is one of the battle platforms core/bw_data.terrain() picks (grass,
@@ -23,7 +23,7 @@ Pokemon come from Assets/Pokemon-Overworld and Shiny-Pokemon-Overworld (the
 animated front sprites, drawn at 2x and facing right): halved to their real
 pixels and, facing right like Platinum's dioramas, stood on the turf with
 their feet at y=126 of a 160x160 canvas, like Platinum's dioramas. The
-trainers come from Assets/Trainer-Overworld's sheets (walking, running, on
+trainers come from Assets/Sinnoh-Trainer-Overworld's sheets (walking, running, on
 the bike), drawn bigger (TRAINER_SCALE) to fill Discord's round picture.
 
 The GIFs are kept small, and written by save_gif() itself: one palette for
@@ -244,7 +244,7 @@ def make_trainers():
     n = 0
     for name, sheet_name in (('Hilbert', 'BW_196_Hilbert.png'), ('Hilda', 'BW_197_Hilda.png')):
         for sheet_suffix, suffix, ms in GAITS:
-            sheet = Image.open(os.path.join(ASSETS, 'Trainer-Overworld',
+            sheet = Image.open(os.path.join(ASSETS, 'Sinnoh-Trainer-Overworld',
                                             sheet_name.replace('.png', sheet_suffix + '.png'))).convert('RGBA')
             cell = sheet.width // 4
             for row, direction in enumerate(DIRECTIONS):
@@ -255,7 +255,7 @@ def make_trainers():
                     frames = frames[:1]
                 for kind in TURFS:
                     save_gif(compose(frames, turf(kind), TRAINER_FEET_Y), [ms or 1000] * len(frames),
-                             os.path.join(ASSETS, 'Unova-Trainer', kind, f'{name}-{direction}{suffix}.gif'))
+                             os.path.join(ASSETS, 'Unova-Trainer-Overworld', kind, f'{name}-{direction}{suffix}.gif'))
                     n += 1
     return n
 

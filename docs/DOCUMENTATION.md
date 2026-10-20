@@ -16,8 +16,8 @@ nds-bootstrap then boots the game and keeps using that connection to answer
 the game state (trainer, party, location, facing, battle), decrypts and
 parses it, and pushes it to Discord as Rich Presence with animated sprites,
 and to an optional overlay window for streaming. Pokémon Platinum (USA,
-Rev 1) gets the full presence; any other DS game shows its name, box art and
-RetroAchievements rich presence. Every game's RetroAchievements achievements
+Rev 1) and Pokémon Black and White (USA) get the full presence; any other DS
+game shows its name, box art and RetroAchievements rich presence. Every game's RetroAchievements achievements
 are checked while you play (softcore unlocks sent only if you choose to).
 Offline, the console checks them itself and saves its unlocks to the SD
 card for DSiRPC to send at the next sync, and nds-bootstrap's in-game menu
@@ -64,7 +64,9 @@ one-time `Setup.bat`.
      then every VBlank: drain received packets (up to 8 with CMD53)
        ARP request for our IP  -> ARP reply
        'R' memory request      -> 'D' reply with bytes
-     and run a slice of the achievement checker (offline play)
+     and sample the achievement checker's frame lane (offline play)
+   ARM7 swiHalt hook (the game's ARM7 idle time): the checking itself
+   ARM9 half: the game's OS_Halt writes its data cache back first
      once a second: "DSiRPC hello" broadcast   ---UDP 4244--->  core/dsirpc_client.py (DSiClient)
                                               <--'R' request--  core/dsi_memory.py (DsiRam)
                                               ---'D' reply---->  core/parser.py (PlatinumParser)
@@ -97,7 +99,13 @@ Adding a new field to the presence is a Python change, not a new DSi build.
   patch turns that search into a no-op.
 - **The ARM7 VBlank hook is the only place code can live alongside a retail
   game.** The DS has no multitasking, and nds-bootstrap's cardengine already
-  runs on ARM7 every VBlank for the whole game session.
+  runs on ARM7 every VBlank for the whole game session. The achievement
+  checking goes in the game's ARM7 idle time instead (nds-bootstrap's swiHalt
+  hook), and the ARM9's part is one patch to the game's `OS_Halt`, so
+  neither takes time the game wants (section 8).
+- **DS mode only.** rpcprobe is in nds-bootstrap's DS-mode cardengines, not
+  the TWLSDK ones it runs games with in DSi mode, so the launcher starts
+  DSi-enhanced games in DS mode (section 4).
 
 ---
 
@@ -117,7 +125,7 @@ console files Docker ([DEVELOPMENT.md](DEVELOPMENT.md#2-requirements)).
 Installing from a release is in the README's [Install](../README.md#install);
 running from the source code and the build commands are in
 [DEVELOPMENT.md](DEVELOPMENT.md). This section covers the details. Release
-downloads (the Windows zip and both `.nds` files) come from the GitHub Action
+downloads (the Windows zip, the macOS app and both `.nds` files) come from the GitHub Action
 in `.github/workflows/build.yml` (see
 [DEVELOPMENT.md, section 9](DEVELOPMENT.md#9-builds-and-releases)).
 
@@ -146,7 +154,9 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
-doesn't already name ([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
+doesn't already name, and sets a DSi-enhanced game to DS mode (`DSI_MODE =
+0`) every time, since DSiRPC's part of nds-bootstrap only runs in DS mode
+([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
 Apart from that there's no config file: the Wi-Fi settings come from the DSi's
 own saved connections, and the in-game side broadcasts its hellos, so it
 never needs the PC's IP. Replies to memory requests go back to whichever PC
@@ -223,15 +233,17 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    test packets are broadcast on UDP 4242, which
    `spikes/stage1-listen/pc/listener.py` can pick up. The launcher writes
    `RPCHAND.TXT`.
-2. **START: pick the game.** A file browser opens in the launcher's folder
-   (A opens or picks, B goes up a folder, START goes back). The launcher
+2. **START: pick the game.** A file browser opens in `sd:/roms/nds`, or in the
+   launcher's folder if there's none (A opens or picks, B goes up a folder, START goes back). The launcher
    finds our nds-bootstrap next to itself, or asks for it with the same
    browser. Unless `sd:/_nds/nds-bootstrap.ini` already names the game, it
    sets `NDS_PATH` and `SAV_PATH` (the game's existing save, in whichever of
    TWiLight's save places it is, with its per-game save slot), resets the
    last game's manual, donor-SDK and MPU-patch values, and deletes the last
-   game's cheat files. A game with no save yet has to be started from
-   TWiLight once. Then it installs a bootstub and nds-bootloader and exits
+   game's cheat files. A DSi-enhanced game is set to DS mode (`DSI_MODE =
+   0`) even if the ini already names it: in DSi mode, nds-bootstrap runs it
+   with its TWLSDK cardengine, which has none of DSiRPC. A game with no save
+   yet has to be started from TWiLight once. Then it installs a bootstub and nds-bootloader and exits
    into them, which boots our nds-bootstrap with `argv[0]` set to its path,
    without disconnecting ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 3. **Or SELECT / Y.** SELECT disconnects cleanly and exits; use it when
@@ -576,7 +588,7 @@ table), so HP and moves show up quickly.
   only while you're challenging them, the Elite Four (their faces, a check
   on the ones beaten, the one whose room you're in glowing, then Alder).
   The footer has your trainer (Hilbert or Hilda, from
-  `Assets/Trainer-Overworld`) facing your way and standing, walking,
+  `Assets/Sinnoh-Trainer-Overworld`) facing your way and standing, walking,
   running or riding the bike as you are (the run and bike sheets; on the
   bike, standing still puts a foot down), name, money, the eight Unova badges (the
   trainer card's art at 2/5 size, dimmed when not earned; earned ones show
@@ -702,9 +714,9 @@ the others show what everything else costs.
 
 Step 1 of RetroAchievements support: checks whether the per-frame capture
 (see [section 7](#7-wire-protocol)) sees every frame. It says whether the
-ARM9 half is there and its VBlank hook is in (`a9=` in the hellos), how many
-records the ARM9 and the ARM7 read, and judges the ARM9's records on their
-own; `--arm7-only` turns the ARM9 off for a run, to compare. On Platinum it watches
+ARM9 half is there and the game's `OS_Halt` patched (`a9=` in the hellos),
+how many records came right after one of the ARM9's cache write-backs and
+how many without one, and judges the first kind on their own. On Platinum it watches
 the game's own VBlank counter (`gSystem.vblankCounter`, `0x021BF6A8`) for
 20 s. The game adds one to it after waiting for a VBlank, so it can go up by
 at most one per frame: +1 (counted) and 0 (not counted: a 30 fps screen like
@@ -805,7 +817,7 @@ presence appears and when it's taken down.
 | Line 1 | `Exploring <location>` | Exploring Route 209 |
 | Line 2 | Badges and Pokédex caught | Badges: 3 \| Pokédex: 18 |
 | Party | Non-fainted / party size (eggs excluded) | (6 of 6) |
-| Large image | Your trainer (Dawn or Lucas, from the save) walking, facing the way you face | `Trainer-Overworld/Dawn-Right.gif` |
+| Large image | Your trainer (Dawn or Lucas, from the save) walking, facing the way you face | `Sinnoh-Trainer-Overworld/Dawn-Right.gif` |
 | Large hover | `<name> in <specific map>` | Vivia in Route 209 Gate To Hearthome City |
 | Small image | Lead Pokémon's overworld sprite, shiny-aware | `Shiny-Pokemon-Overworld/77.gif` |
 | Small hover | Lead's name, species, level, HP | Lead: Blucifer (Ponyta), Lv 36, 84/84 HP |
@@ -863,7 +875,7 @@ game (below).
 |---|---|---|
 | Line 1 | `Exploring <place>` (`Running through`, `Biking through`, `Surfing through` as you go about); `Riding the Super Single Train` in the Battle Subway, `At the Battle Institute`, `Challenging the Pokémon League` | `Encountering a wild Pokémon` (`a shiny Pokémon!`), `Battling Gym Leader Burgh`, `Battling Elite Four Grimsley`, `Battling Champion Alder`, `Battle Subway: Super Single Train, battle 25`, `Battle Institute test (Hyper rank)`, `In a trainer battle` |
 | Line 2 | `4/5 PKMN \| 3 Badges \| Seen: 58 \| Caught: 31`: the party fraction first (non-fainted / party size, eggs excluded, in place of Discord's own "(5 of 6)"; left out before you have a Pokémon); after it, in the Subway the streak, record and BP, in the Institute the rank and points, in the League the Elite Four beaten | `<your mon> is fighting <foe>` (both of each in doubles) |
-| Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
+| Large image | Your trainer the way you face, on the turf the battle view uses here, standing, walking, running or on the bike as you are (held on the last way you moved through stops shorter than 6 s, since Discord updates every 5 s): `Unova-Trainer-Overworld/<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, with `-Run`, `-Bike`, `-BikeStop` or `-Stand` before `.gif` | The foe on the same turf, shiny-aware: `Unova-Battle(-Shiny)/<turf>/<id>.gif` for Unova's Pokémon (494-649), Platinum's diorama for older ones |
 | Large hover | Discord shows it as a third line: `Achievements: 4/9` and `Trainers beaten: 3/5 \| Items found: 4/4` taking turns every 30 s (`ROTATE_S`), with `Repel: 82 steps` alone in place of the trainers and items while a Repel's active, and just the achievements when the place has none of those; without achievements, `Hilda in Castelia City (trainers beaten: 3/5, items found: 4/4)` (or `(Repel: 82 steps)`) | Owner, species, level, HP, and "(caught before)" for a wild one you own |
 | Small image | Your lead's overworld sprite, hovering its name, level and HP | Your Pokémon's back sprite, hovering trainer name, mon, level, HP |
 
@@ -1070,8 +1082,10 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N 
 | `txm` | How frames are sent: `53` = CMD53 block writes (replies, ARP replies and 9 hellos in 10; every 10th hello always goes out with CMD52 so the PC keeps hearing from the DSi), `52` = CMD52 for everything (`RPCPROBE_TX_CMD53` off, CMD53 writes failed three times, or the PC had to re-send the same request twice in a row, which means CMD53 replies weren't arriving). |
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
-| `a9` | The ARM9 half of the per-frame capture. `1`: rpcprobe found it in the ARM9 cardengine, so captured values are read by the ARM9 (through its cache). `2`: found, and its VBlank hook is in (it goes in when a capture starts). `3` to `5`: the game replaced its VBlank handler and the hook was put back (`a9` is 1 + hooks put in; after four, the ARM7 reads by itself). `0`: an ARM9 cardengine without it (DLDI or GSDD variant, or an older build), so the ARM7 reads main RAM itself. Older builds don't send `a9`. |
+| `a9` | DSiRPC's ARM9 half, which writes the ARM9's data cache back to main RAM in the game's idle time so rpcprobe's reads are up to date. `1`: rpcprobe found it in the ARM9 cardengine. `2` or more: found, and the game's `OS_Halt` patched for the write-backs (`a9` is 1 + the copies patched; rpcprobe looks for `OS_Halt` in the first few seconds of a game and asks again after a soft reset). `0`: an ARM9 cardengine without it (DLDI, GSDD or TWLSDK variant, or an older build), so values the game just wrote can be read a frame late. In builds before 2026-10-19, `2` to `5` meant a VBlank hook for the per-frame capture's snapshots. Older builds don't send `a9`. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
+
+DSiRPC logs these once a minute: "Console: its VBlank tick (rpcprobe) took up to N scanlines over the last minute (M typical; a frame has 263), R network frames and Q requests a second" (the longest and median `vb=`, and how fast `rx` and `req` went up), so a log shows what the Wi-Fi side cost the console while something was slow.
 
 ### Memory request (PC -> DSi)
 
@@ -1124,53 +1138,46 @@ the PC drains the ring:
 Both are answered with the same `'D'` header as a memory request (`count`,
 `status`; data only when `status` is 0). A watch is 1, 2 or 4 bytes inside
 main RAM, at most 8 of them; `count` 0 stops the capture. Adding `0x80` to
-`count` has the ARM7 read every value itself even when the ARM9 half is there
-(for comparing, `tools/frame_check.py --arm7-only`). Any `'W'` empties the ring and
-starts the record numbering again at 0.
+`count` had older builds read every value from the ARM7 even with the ARM9
+half there (for comparing); rpcprobe always reads them itself now, so it
+changes nothing. Any `'W'` empties the ring and starts the record numbering
+again at 0.
 
-Who reads the values: the game's writes sit in the ARM9's data cache for a
-while before they reach main RAM (measured on Platinum: a frame late on about
-a third of frames in menus and battles, several frames during loading), so
-the ARM7 reading main RAM sees them late. The ARM9 reads through its cache.
-When it reads matters too: a game can change a value right as VBlank starts
-(Platinum's VBlank counter is one), and a read made a little later lands
-sometimes before that change and sometimes after it. So the ARM9 takes a
-snapshot at the very start of every VBlank interrupt, from a hook in front of
-the game's own VBlank handler (entry 0 of the game's interrupt table, the
-table nds-bootstrap already hooks for IPC sync), before that handler runs.
-The hook goes in only when a capture starts: rpcprobe writes the list into a
-288-byte block in the ARM9 cardengine (`common/include/dsirpc_watch_block.h`)
-and rings the ARM9 with IPC sync value 3, nds-bootstrap's own do-nothing
-doorbell. It only rings when its last sync value was 0 or 3, so it never
-replaces one of nds-bootstrap's commands (screen swap, colour LUT, reset,
-in-game menu) that the ARM9 hasn't read yet; the ARM9 checks its hook on any
-IPC sync interrupt. Each snapshot goes into one of four numbered slots, and
-rpcprobe records them in order, one per VBlank, starting one snapshot behind
-the newest (the ARM9's VBlank and its own start at almost the same moment, so
-the newest may not be there yet). ARM9 values are therefore from the start of
-that VBlank or the one before, never one twice or one skipped. When there's no snapshot to record (the hook isn't in yet, or the game
-had interrupts off for a while), rpcprobe reads main RAM itself and marks the
-record; if that lasts, it rings again, since the game may have replaced its
-VBlank handler. Each re-hook is a fresh hook that keeps calling the handler
-it was put in front of, so a game that puts back a handler it saved earlier
-still gets the right one; after four, rpcprobe reads by itself. Right after
-nds-bootstrap's in-game menu, its last sync value stays 9 (the menu's), so
-rpcprobe can't ring until nds-bootstrap's next card read sets it back to 3;
-until then a hook that's missing stays missing and rpcprobe reads by itself. A soft reset
-(nds-bootstrap's `reset()`) makes all four available again, since the reloaded
-game can't be holding any of them.
+Who reads the values: rpcprobe, from main RAM, at the start of every
+VBlank. The game's writes sit in the ARM9's data cache for a while before
+they reach main RAM (measured on Platinum: a frame late on about a third of
+frames in menus and battles, several frames during loading; a value set for
+just one frame may never get there), so on their own those reads come late.
+So the ARM9 half (`cardenginei/arm9/source/dsirpc_watch.c`) writes the ARM9's
+whole data cache back to main RAM (a clean, by index: the cache keeps its
+contents) whenever the game has nothing to do. The game's idle thread calls
+the SDK's `OS_Halt` to wait for the next interrupt. rpcprobe looks for its
+three instructions in the game's ARM9 binary (the static code, which ends
+where the module params say the autoload blocks start), in the ARM7's own
+idle time a few scanlines at a time (`RPCPROBE_WATCH_SCAN_LINES`), lists every
+copy in a 64-byte block in the ARM9 cardengine
+(`common/include/dsirpc_watch_block.h`) and rings the ARM9 with IPC sync
+value 3, nds-bootstrap's own do-nothing doorbell. It only rings when its last
+sync value was 0 or 3, so it never replaces one of nds-bootstrap's commands
+(screen swap, colour LUT, reset, in-game menu) that the ARM9 hasn't read yet;
+the ARM9 checks the block on any IPC sync interrupt. There it checks that each
+address still holds `OS_Halt` and makes its first two instructions jump to
+its own routine, which writes the cache back, counts it in the block's
+`cleaned` and then halts, as `OS_Halt` would have. Interrupts stay on, so the
+game's own come first, and a game busy all frame (Pokémon Black and White
+loading a battle) never gets there: the write-backs only use time the ARM9
+would have spent halted. A game that idles once its frame is done, as most
+do, has that frame's values in main RAM by the next VBlank. Until the patch
+is in, and again after a soft reset (nds-bootstrap's `reset()` tells the
+ARM9 half the game was loaded again), rpcprobe asks once a second. This
+replaced a hook on the game's VBlank interrupt that read the values (and
+wrote the cache back for the checker) in every VBlank: even a few
+microseconds there, before or after the game's own VBlank handler, slowed
+Pokémon Black and White's battle intro from 21 seconds to up to a minute.
 
-The same hook serves offline play's checker (section 8): its frame lane
-samples main RAM from the ARM7 at the start of every VBlank, and a value the
-game wrote may still be in the ARM9's data cache then (one set for just a
-frame may never reach main RAM at all). While a set with a frame lane runs,
-rpcprobe sets the block's `clean` byte and rings, and the hook then also
-writes the ARM9's whole data cache back to main RAM (a clean, by index: the
-cache keeps its contents; about 5,000 ARM9 cycles, under 1% of a frame) at
-the start of every VBlank and counts it in `cleaned`. The checker waits up
-to 3 scanlines for the count to change before it samples; samples taken
-without it are counted (`fc=` in its report), and after a while without
-any it rings again.
+The same write-backs serve offline play's checker (section 8), whose frame
+lane samples main RAM at the start of every VBlank too; it counts the samples
+taken with no write-back since the VBlank before (`fc=` in its report).
 
 `from` is the number (mod 65536) of the first record wanted: 0 after a `'W'`,
 then the one after the last record received. The reply's `count` is the
@@ -1184,7 +1191,8 @@ first u16 | lost u16 | recSize u8 | count x ( tick u16 | vcount u16 | values )
 `first + count` next), and `lost` is how many records from `from` on had
 already been overwritten. In a record, `tick` is the DSi's own sample number,
 `vcount` the scanline the values were read on (bits 0-8; 192 is the start of
-VBlank) with bit 15 set when the ARM7 read them rather than the ARM9, and
+VBlank) with bit 15 set when the ARM9 hadn't written its data cache back
+since the record before (so a value may be a frame late), and
 `values` each watch's bytes as they are in memory (little endian), in list
 order. The ring holds `2048 / recSize` records: 256 frames (about 4 s) with
 one 4-byte watch, 56 (about a second) with eight. Nothing is written to the
@@ -1327,8 +1335,9 @@ couldn't hook, so the VBlank does all the checking) the sampling and its
 turn of checking. `f` is how many of the `n` are checked every frame, `fr`
 how many frames they were checked for since the last report (about 60),
 `fd` how many frames couldn't be sampled because the checking had fallen 8
-behind, and `fc` how many samples were taken without the ARM9's cache
-write-back. `st` is the set's stamp (8 hex digits), which tells DSiRPC
+behind, and `fc` how many samples were taken with no write-back of the
+ARM9's data cache since the VBlank before (the game busy all frame, or its
+`OS_Halt` not patched: no ARM9 half, or not yet). `st` is the set's stamp (8 hex digits), which tells DSiRPC
 which achievements the console checks. `s` is how many of its unlocks it saved to
 `RPCUNLK.BIN`, `x` how many it couldn't (no file, file full, too many at
 once, a failed write) and `w` how many of the game's unlocks were already
@@ -1354,13 +1363,15 @@ All paths below are under `nds-bootstrap/retail/`.
 
 | File | Change |
 |---|---|
-| `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/misc.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | The ARM9 half of the per-frame capture: a hook in front of the game's VBlank handler snapshots the watched values at the start of every VBlank, and `myIrqHandlerIPC` calls `dsirpcWatchService()`, which puts the hook in when rpcprobe rings (see [section 7](#7-wire-protocol)); `reset()` (`misc.c`) frees the hooks for the reloaded game on a soft reset. With the block's `clean` set (a set with a frame lane runs), the same hook writes the ARM9's data cache back to main RAM at the start of every VBlank, for the checker's samples. Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. 1,048 bytes; 792 bytes of that cardengine are still free. |
-| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running), and `Probe_HaltTick(&saveMutex, haltRequestWaiting)` at the end of `runCardEngineCheckHalt()`, the swiHalt hook, where the checker's unlocks are saved and its checking runs; when it stops because an ARM9 ROM read (or NAND command) is waiting (`haltRequestWaiting()`), the hook serves it and calls it again (not in the `ALTERNATIVE`/`TWLSDK` variants). Also four fixes to upstream's debug-only code. |
+| `cardenginei/arm9/source/cardengine.c`, `cardenginei/arm9/source/misc.c`, `cardenginei/arm9/source/dsirpc_watch.c`, `common/include/dsirpc_watch_block.h` | DSiRPC's ARM9 half: once rpcprobe has found the game's `OS_Halt` and rings, `myIrqHandlerIPC`'s call to `dsirpcWatchService()` makes `OS_Halt` jump to `dsirpcIdle`, which writes the ARM9's whole data cache back to main RAM and then halts, so whenever the game is idle its latest writes reach main RAM for rpcprobe (see [section 7](#7-wire-protocol)); `reset()` (`misc.c`) tells it the game was loaded again, unpatched. Nothing runs in the game's interrupts: the VBlank hook this replaced, before or after the game's own handler, slowed Pokémon Black and White's battle loads to a crawl. Only in the plain `cardenginei_arm9`; the DLDI, GSDD and TWLSDK variants compile it out. That cardengine has 1,416 bytes free. |
+| `cardenginei/arm7/source/cardengine.c` | Includes `rpcprobe/probe_hook.h` and calls `Probe_VBlankTick(ndsHeader, readOngoing ? NULL : &saveMutex)` from `myIrqHandlerVBlank` (the header tells the hellos which game is running), and `Probe_HaltTick(&saveMutex, haltRequestWaiting)` at the end of `runCardEngineCheckHalt()`, the swiHalt hook, where the checker's unlocks are saved and its checking runs; when it stops because an ARM9 ROM read (or NAND command) is waiting (`haltRequestWaiting()`), the hook serves it and calls it again (not in the `ALTERNATIVE`/`TWLSDK` variants). In a game with `altReadMethod` (`ipcReads`, from the bootloader) the hook only calls `Probe_HaltTick(NULL, NULL)`: no SD card there and no stopping, since those ROM reads stay on the IPC interrupt. In those games the in-game menu also waits for such a read to finish before it opens (`ipcReadBusy()`), since it uses the SD card and the read's `sharedAddr` handshake words itself, and so does the screen-swap hotkey's save of its setting. Also four fixes to upstream's debug-only code. |
 | `cardenginei/arm9_igm/source/inGameMenu.c`, `inGameMenu.h`, `dsirpc_ach.c`, `dsirpc_ach.h`, `common/include/dsirpc_ach_menu.h`, `cardenginei/arm7/source/inGameMenu.c` | nds-bootstrap's in-game menu shows the game's achievements: new unlocks and how many are earned on its main screen, and an "Achievements" item with the whole list (below, "The in-game menu"). Its ARM7 side tells rpcprobe when the menu opens (`Probe_MenuOpened()`), when the lid closes in it (`Probe_LidClosed()`) and when it resets or quits the game (`Probe_MenuClosed()`). Not in the flashcard (B4DS) builds. The menu binary is 33,880 of its 39,936 bytes. |
 | `cardenginei/arm7/Makefile` | `source/rpcprobe` added to `SOURCES`; `-Os` to fit the ARM7 region. `-DDEBUG` is **off**. |
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
+| `bootloaderi/source/arm7/hook_arm7.c`, `bootloaderi/source/arm7/patch_arm7.c` | The swiHalt hook for rpcprobe in a game with `altReadMethod` (the Gen 4 and Gen 5 Pokémon games, among others): `patchSwiHalt()` puts it in for an ARM7 in ARM code but leaves `newSwiHaltAddr` at 0, so the ARM9 keeps pinging the ARM7 for its ROM reads, and `b_ipcReads` (`ce7->valueBits` bit 26) tells the ARM7 cardengine to serve nothing in that hook, just call `Probe_HaltTick(NULL, NULL)`. |
 | `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory (and, for a DSi-enhanced game, out of the 128 KB right after it, as upstream does), and the ROM-in-RAM size limit is 256 KB smaller to match |
+| `arm9/source/conf_sd.cpp` | The patch offset cache is `patchOffsetCache/<game code>-<header CRC>-DSiRPC.bin`, a file of its own, never the one TWiLight Menu++'s nds-bootstrap keeps for the same game. That file has the same version and no note of DS or DSi mode, so it may come from a DSi-mode run, and once the versions differ, the two builds would rebuild each other's at every switch |
 | `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFA0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area near the top of the DSi's 16 MB (the middle of the 3DS's 32 MB), ending at `0x0CFE0000`, where a DSi-enhanced game's own top 128 KB starts (`0x02FE0000`, the same RAM: it used to overlap it by 64 KB, which corrupted Pokémon Black and White); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
 
@@ -1372,12 +1383,12 @@ All paths below are under `nds-bootstrap/retail/`.
 | `twl_wifi.c/.h` | Minimal Atheros SDIO access: chip probe with CMD52, sending and receiving a packet with one CMD53 block transfer each (or CMD52 byte by byte if CMD53 is off or has failed for that direction), and `TwlWifi_Shutdown()` for when the lid closes (leave the access point, interrupts off) |
 | `probe_led.c/.h` | The DSi's LEDs through the BPTWL chip (I2C): the achievement LED, and the Wi-Fi chip's SDIO power cut when the lid closes |
 | `probe_req.c/.h` | Parses Ethernet/ARP/IPv4/UDP, answers `'R'` requests and ARP (and hands `'W'`/`'F'` to `probe_watch.c`, `'U'` to `probe_ach.c`), counts EAPOL |
-| `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring (in main RAM), and the `'W'`/`'F'` handlers. Finds the ARM9 half's block (by its magic, in the ARM9 cardengine's region), records the ARM9's snapshot each VBlank, and reads main RAM itself when there's none. For the checker, `ProbeWatch_Clean()` has the ARM9 write its data cache back every VBlank and `ProbeWatch_Cleaned()` counts the write-backs. |
+| `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring (in main RAM), and the `'W'`/`'F'` handlers. Also the ARM7 side of the ARM9 half: finds its block (by its magic, in the ARM9 cardengine's region), looks for the game's `OS_Halt` in its ARM9 binary in the ARM7's idle time (`ProbeWatch_Game()`, `ProbeWatch_Idle()`), and every VBlank (`ProbeWatch_Tick()`) asks the ARM9 to patch it while it isn't and notes whether a write-back came since the last VBlank (`ProbeWatch_Fresh()`: the capture marks its records by it, the checker counts `fc=`). |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT` (`time=` is the fallback for dating unlocks); defines the UDP port (4244) |
 | `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, samples the frame lane at the start of every VBlank, checks both lanes in the game's idle time (or in the VBlank when that can't be used), dates each unlock by the console's clock, saves it into `RPCUNLK.BIN` and keeps the latest for the report (below), marks the console's unlocks (and DSiRPC's, `'U'`) in the set's list for the in-game menu |
 | `probe_ach_vm.c/.h` | The checker's interpreter: a port of rcheevos 12.5's evaluation, without floating point, for the program DSiRPC builds, that skips an achievement whose memory values and hits didn't change (with the same results). `AchVm_Sample()` and `AchVm_RunSampled()` split a pass into sampling and checking for the frame lane. Plain C; the same file is tested against rcheevos on a PC |
-| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_IDLE_LINES_PER_VISIT` and `RPCPROBE_ACH_IDLE_LINES_PER_FRAME` (its idle-time budget), `RPCPROBE_ACH_IDLE_DEAD`, `RPCPROBE_ACH_LINES_PER_VBLANK` and `RPCPROBE_ACH_SKIP_AFTER_LINES` (its VBlank budget when the idle time can't be used) and `RPCPROBE_ACH_SAVE_FALLBACK` |
+| `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_IDLE_LINES_PER_VISIT` and `RPCPROBE_ACH_IDLE_LINES_PER_FRAME` (its idle-time budget), `RPCPROBE_ACH_IDLE_DEAD`, `RPCPROBE_ACH_LINES_PER_VBLANK` and `RPCPROBE_ACH_SKIP_AFTER_LINES` (its VBlank budget when the idle time can't be used), `RPCPROBE_ACH_SAVE_FALLBACK`, and `RPCPROBE_WATCH_SCAN_LINES` (4: scanlines a visit to the game's idle time may spend looking for `OS_Halt`) |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
 
 ### The achievement checker (`probe_ach.c`)
@@ -1409,8 +1420,9 @@ the console only runs the result:
   at its start, so whatever happens in between is missed. The frame lane
   (the achievements DSiRPC picked as needing every frame, few enough to
   afford it; section 6) is split in two: at the start of every VBlank,
-  right after the ARM9's cache write-back, `ProbeAch_Sample()` reads every
-  memory value it uses, all at once, into the next slot of a ring
+  `ProbeAch_Sample()` reads every memory value it uses (from main RAM, where
+  the ARM9 writes its data cache back whenever the game is idle; section 7),
+  all at once, into the next slot of a ring
   (`AchVm_Sample()`, its own copy of the memory values); later, the
   checking takes the samples in order (`AchVm_RunSampled()`, a pass with
   those values as its memory, prior values and changes included). So every
@@ -1436,8 +1448,18 @@ the console only runs the result:
   when nds-bootstrap has an ARM9 ROM read to serve there (the hook serves
   it and calls back). The frame lane's samples come first, then the pass
   lane, which can stop after any 8 memory values or conditions and carry
-  on next time. The VBlank only samples (`l=` in the report). For a game
-  whose swiHalt nds-bootstrap couldn't hook (the hook hasn't run for
+  on next time. The VBlank only samples (`l=` in the report). A game that
+  nds-bootstrap runs with `altReadMethod` (the Gen 4 and Gen 5 Pokémon games,
+  among others: it serves their ROM reads from the IPC interrupt, against
+  random freezes) used to have no swiHalt hook at all; DSiRPC's bootloader
+  puts it in anyway, for rpcprobe alone (`b_ipcReads`: the hook serves
+  nothing of nds-bootstrap's there, rpcprobe doesn't wait for those reads,
+  which interrupt it by themselves, and the VBlank still saves), so the
+  checking gets the ARM7's idle time there too (2026-10-19; before, Black
+  and White's 89-achievement frame lane fell behind in the VBlank and its
+  pass lane never ran). For a game whose swiHalt nds-bootstrap couldn't hook
+  (an ARM7 in Thumb code with `altReadMethod`, or no swiHalt found; the hook
+  hasn't run for
   `RPCPROBE_ACH_IDLE_DEAD`, 30, VBlanks), the VBlank does the checking as
   before: `RPCPROBE_ACH_LINES_PER_VBLANK` (20) scanlines, about 1.3 ms,
   after the rest of the tick, skipped if the tick already took
@@ -1477,7 +1499,9 @@ the console only runs the result:
   `saveMutex`. `Probe_HaltTick()` takes the same lock with `tryLockMutex()`
   (so never while a save or ROM read is under way) and writes one 16-byte slot
   (section 7). For a game whose swiHalt nds-bootstrap couldn't hook, the
-  VBlank does it after two seconds without a halt, under the same lock and
+  VBlank does it after two seconds without a halt, and for an `altReadMethod`
+  game (whose ROM reads use the SD card from the IPC interrupt, which can
+  come in the middle of the hook) every VBlank, both under the same lock and
   only while no non-blocking ROM read is in flight (`readOngoing`). Without
   `RPCUNLK.BIN` (the game wasn't started from the launcher), or with 255
   unlocks already waiting, unlocks are counted (`x` in the report) but not
@@ -1832,10 +1856,10 @@ for alternate forms, which DSiRPC doesn't use yet).
 | `Shiny-Battle-BackSmall` | Your shiny battler | same |
 | `Pokemon-Overworld` | Lead Pokémon (small, overworld) | `process_sprites.py` (margin 4) |
 | `Shiny-Pokemon-Overworld` | Shiny lead | same |
-| `Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
+| `Sinnoh-Trainer-Overworld` | Your trainer (large, overworld) | `process_trainer.py`, below |
 | `PokemonBlackUI` | Pokémon Black and White's own art for the Unova view: the party screen (grid and panels), miscellaneous icons (type labels, status tags, shiny star), the trainer card (badges, Hilbert and Hilda), the trainers' battle sprites, battle backgrounds, the game's animated icon | Sprite sheets added as they are; `overlay/unova_art.py` cuts what it needs at runtime (rectangles and see-through colours in that file), and downloads a sheet missing from `Assets/` (a release download has none) from GitHub Pages in the background, as `sprites.py` does for the sprites |
 | `Unova-Battle`, `Unova-Battle-Shiny` | Pokémon Black and White's foe in battle (large): `<turf>/<id>.gif` for Unova's Pokémon (494-649) on each battle platform (grass, sand, snow, water, cave, indoor) | `Unova-Battle/process_unova.py`, below |
-| `Unova-Trainer` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
+| `Unova-Trainer-Overworld` | Black and White's trainer (large, overworld): `<turf>/<Hilbert\|Hilda>-<Down\|Left\|Right\|Up>.gif` walking, `...-Run.gif`, `...-Bike.gif`, and still `...-BikeStop.gif` and `...-Stand.gif` | same |
 | `Consoles` | Discord's small image for games without their own presence (the tray's **Console icon**): `DSiXL.png`, `New-Nintendo-3ds.jpg`, and `Pixel.gif` ("Pixel DSi": the overlay's pixel DSi looking for a connection, animated, in the middle of a clear 512x512 square so it fits Discord's round picture) | Added by hand, except `Pixel.gif` (`tools/make_pixel_dsi.py`); any picture added here (and pushed) shows up in the menu, named by `CONSOLE_NAMES` in `rpc/generic_presence.py` or its file name |
 
 All scripts work on the current folder. `process_sprites.py` writes to
@@ -1853,7 +1877,7 @@ The overlay reads the sheets themselves (`NPC_198_Lucas.png`,
 `NPC_201_Dawn.png`, and Black and White's `BW_196_Hilbert.png` and
 `BW_197_Hilda.png`, same layout), halved and split by direction in memory;
 `TRAINER_SHEETS` in `overlay/sprites.py` maps names to files. For Discord,
-`Trainer-Overworld/process_trainer.py` turns `NPC_198_Lucas.png` and
+`Sinnoh-Trainer-Overworld/process_trainer.py` turns `NPC_198_Lucas.png` and
 `NPC_201_Dawn.png` into `Lucas-Down/Left/Right/Up.gif` and the Dawn versions.
 The sheets are 256x256 grids of 64x64 cells: **rows** are directions (down,
 left, right, up) and **columns** are the 4 walk frames. Each frame is pasted
@@ -1917,6 +1941,7 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Symptom | Likely cause / fix |
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
+| The launcher syncs (DSiRPC says it's starting the game), but the game never says hello and the in-game menu has no achievements | The game ran in DSi mode, where nds-bootstrap uses its TWLSDK cardengine, which has none of DSiRPC. The launcher sets DSi-enhanced games to DS mode (section 4); an older launcher kept TWiLight's `DSI_MODE`, which a 3DS had on. A RAM dump from the in-game menu shows it: the TWLSDK ARM9 cardengine at `0x02FD8800` and nothing at `0x027FC000` (the DS-mode one's place) |
 | Hellos arrive but reads time out | Look at the counters. `rx=0`: nothing is being received. `rx` rises but `req=0`: requests aren't recognised. `arp=0`: check `arp -a` for the DSi's IP. Also make sure no other tool holds port 4244. |
 | Reads take several seconds, `Read failed: no reply` now and then, the overlay lags | Run the link check (`core\dsirpc_client.py --stats 60`, section 5). If requests "never reached the game side", the DSi's Wi-Fi chip is dropping frames because the in-game side drains it too slowly for the network's broadcast traffic. Each dropped request costs the PC a one-second timeout, and a full read is about 20 requests. Check `rxm=` in the hellos (section 7): `53` drains many frames per VBlank, `52` only one frame and 128 bytes. If it's `52` with `e53=` above 0, CMD53 failed on this console and switched itself off. If the link check says replies "never arrived" instead, look at `txm=`, `t53=` and `rep=` (sending); `RPCPROBE_TX_CMD53 0` in `rpcprobe_build.h` goes back to CMD52 sending. In battles the overlay's hub reads only the battlers either way. |
 | Hellos stop at regular intervals | WPA group-key renewal. If `eap` rises right before, check the router's group-key interval. |
@@ -1924,6 +1949,7 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | White screen when booting the game | SD access from VBlank (a debug build, or new code touching the SD card after the first VBlank) |
 | Black screen or crash when opening the party menu | A debug build is still active, often through stale object files (section 3.1) |
 | First pause-menu open has graphical glitches | Known issue, still to be fixed |
+| Loading is slow (battles, sprites), at full frame rate | Anything DSiRPC runs in the game's ARM9 interrupts can do this: Pokémon Black and White's battle intro took up to a minute instead of 21 seconds with a VBlank hook, even a few microseconds of work, before or after the game's own VBlank handler (2026-10-19; now nothing runs there, and the ARM9 only writes its cache back in the game's idle time). Compare with stock nds-bootstrap, check the once-a-minute "VBlank tick" line in `dsirpc.log` for the ARM7 side, and try a build with `-DDSIRPC_NO_ARM9_HOOK` (no ARM9 half: `-e DSIRPC_CFLAGS=-DDSIRPC_NO_ARM9_HOOK` on the build command, [DEVELOPMENT.md, section 4](DEVELOPMENT.md#4-building-the-console-files)) to tell the halves apart. (`RPCPROBE_ROM_BUSY_VBLANKS`, which kept the ARM7's VBlank tick short during ROM reads, didn't help, as hardware showed, and is gone.) |
 | The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives: with CMD53 (`rxm=53`, the default) one SDIO command per frame, up to 8 frames a VBlank; with CMD52 one per byte, 128 bytes a VBlank. With a set loaded, the achievement checker adds up to 20 scanlines. Check `vb=` in the hellos and `l=` in the checker's report (section 7), and compare with DSiRPC stopped (if the stutter only happens while it polls, the replies are the cost) and with `RPCSET.BIN` renamed (the checker). The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | Started our nds-bootstrap from the menu (launcher's Y): it boots what `sd:/_nds/nds-bootstrap.ini` names, the last game TWiLight or the launcher set up. Use START in the launcher |
 | The launcher shows IP `0.0.0.0` | An older launcher (DHCP hadn't answered yet); the current one waits for an IPv4 address and retries |
@@ -1959,18 +1985,20 @@ section 8).
   loads for games running in DS mode (`cardenginei_arm7`). A DSi-enhanced
   game (Pokémon Black and White, and later) running in DSi mode loads
   `cardenginei_arm7_twlsdk` instead, a 33 KB region without rpcprobe, and its
-  own ARM7 code drives the DSi Wi-Fi chip there. Set those games to DS mode
-  in TWiLight Menu++'s per-game settings.
+  own ARM7 code drives the DSi Wi-Fi chip there. The launcher starts those
+  games in DS mode itself, whatever TWiLight Menu++'s setting (section 4).
 - **Not every achievement is checked every frame.** The console checks a
   set's frame lane every frame (small sets whole; a big one gets a few
   hundred conditions' worth), the rest in passes, and DSiRPC checks every
   frame what fits in the per-frame capture's 8 watched values (section 6,
   "RetroAchievements"). The rest (and everything, for a game not started
   from the launcher, beyond those 8 values) can miss a moment. The frame
-  lane, the idle-time checking, the skipping and the ARM9's cache
-  write-back (2026-10-09) are tested on a PC only (against rcheevos, frame
-  for frame), not yet on hardware: the report's `fr=` (about 60), `fd=`
-  (0), `fc=` (0) and `h=` (1) say whether they work there. The frame lane's
+  lane, the idle-time checking and the skipping (2026-10-09) are tested on a
+  PC only (against rcheevos, frame for frame), and the ARM9's write-backs in
+  the game's idle time (2026-10-19) on a PC and in the build, not yet on
+  hardware: the report's `fr=` (about 60), `fd=` (0), `fc=` (near 0 outside
+  loading) and `h=` (1), and `a9=` (2 or more) in the hellos, say whether they
+  work there. The frame lane's
   budgets (`offline.FRAME_SAMPLE_CYCLES` and `FRAME_CHECK_CYCLES`,
   `RPCPROBE_ACH_IDLE_LINES_PER_FRAME`) are estimates from the ARM7 model;
   hardware numbers may move them. The skipping (the checker's and the
@@ -1982,16 +2010,20 @@ section 8).
 - **Graphical glitches in Platinum** (for example, the first pause-menu open)
   still need fixing.
 - **TWiLight's per-game settings aren't applied** to a game picked in the
-  launcher, other than the save slot (the ini keeps the last launch's). If
+  launcher, other than the save slot (the ini keeps the last launch's), and
+  DSi-enhanced games always run in DS mode from it (DSiRPC's part of
+  nds-bootstrap only runs there), so their DSi-only extras are off. If
   starting nds-bootstrap directly ever fails on a console, Y still exits
   connected the two-step way ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 - **Offline play is new, with few games tried.** On hardware: the launcher's
   sync (2026-10-07), the in-game checker (Platinum's 101 achievements at
-  about 1.4 passes a second, before the frame lane and the idle time; it
-  matched rcheevos exactly on PC tests), saving to `RPCUNLK.BIN` (Tetris
-  DS) and the in-game menu's achievements (DSi and 3DS). Unlock times from
-  the console's clock (section 8) are host-tested only, not yet tried on
-  hardware. The pass lane reads main RAM from the ARM7 at the start of a
+  about 1.4 passes a second before the frame lane and the idle time; with
+  them, Platinum's frame lane at 62 frames a second, and Black's checked in
+  the ARM7's idle time since 2026-10-19), saving to `RPCUNLK.BIN` (Tetris
+  DS) and the in-game menu's achievements (DSi and 3DS). The checker matches
+  rcheevos frame for frame in the tests (`tests/`, run on GitHub). Unlock
+  times from the console's clock (section 8) are tested on the PC only
+  (`tests/test_offline_checker.py` reads them back), not yet on hardware. The pass lane reads main RAM from the ARM7 at the start of a
   pass, which can be a frame or more behind the game's writes, and a hit
   count there counts passes, not frames.
 - **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
@@ -2053,7 +2085,7 @@ section 8).
 
 | Path | What |
 |---|---|
-| `README.md` | Installing and using DSiRPC |
+| `README.md` | Using DSiRPC, a developer's quick start, and how it works |
 | `docs/DEVELOPMENT.md` | Running from the source code, building, the command line and tools, releases |
 | `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes; `packaging/macos/`: the macOS app (`build_app.py`, `DSiRPC.spec`, the entry point `dsirpc_app.py`, its `README.txt`) |
 | `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
@@ -2074,7 +2106,8 @@ section 8).
 | `spikes/` | Stages 1-3, the early experiments |
 | `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
 | `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
-| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files and the Windows download, publishes a release for `v*` tags |
+| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, the Windows download and the macOS app, publishes a release for `v*` tags |
+| `tests/`, `pytest.ini`, `.github/workflows/tests.yml` | The tests ([tests/README.md](../tests/README.md)): the console's checker, capture and idle-time write-back built for the PC against rcheevos, the launcher's ini handling, and DSiRPC's side against a fake DSi; GitHub runs them whenever that code changes |
 
 ---
 

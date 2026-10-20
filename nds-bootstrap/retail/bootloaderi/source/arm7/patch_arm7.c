@@ -157,9 +157,15 @@ u32 newSwiHaltAddr = 0;
 bool saveRelocationApplied = false;
 
 static void patchSwiHalt(const cardengineArm7* ce7, const tNDSHeader* ndsHeader, const module_params_t* moduleParams) {
+	// DSiRPC: a game with altReadMethod still gets the (ARM) swiHalt hook, so
+	// rpcprobe's achievement checker can use the ARM7's idle time. Its ROM
+	// reads stay where altReadMethod puts them: the ARM7 cardengine serves
+	// nothing in the hook for it (b_ipcReads, hook_arm7.c), and the ARM9
+	// keeps pinging the ARM7, since newSwiHaltAddr ends up 0 (the save
+	// patches may have set it, for the Thumb hook's code).
 	if (altReadMethod) {
 		newSwiHaltAddr = 0; // Ensure this is set to 0 in case a THUMB ROM is used as a donor ROM
-		return;
+		if (patchOffsetCache.a7IsThumb) return;
 	}
 
 	u32* swiHaltOffset = patchOffsetCache.swiHaltOffset;
@@ -187,7 +193,9 @@ static void patchSwiHalt(const cardengineArm7* ce7, const tNDSHeader* ndsHeader,
 		} else {
 			u32* swiHaltPatch = ce7->patches->j_newSwiHalt;
 			tonccpy(swiHaltOffset, swiHaltPatch, 0xC);
-			newSwiHaltAddr = 1; // Let ce9 know not to ping arm7 IPC
+			if (!altReadMethod) {
+				newSwiHaltAddr = 1; // Let ce9 know not to ping arm7 IPC
+			}
 		}
 		// swiHaltPatched = true;
 		dbg_printf("swiHalt hooked\n");

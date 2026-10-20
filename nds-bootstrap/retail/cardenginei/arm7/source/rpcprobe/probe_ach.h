@@ -52,7 +52,7 @@ void ProbeAch_Tick(u16 tickStart, int idleAlive);
 // Outside interrupts, whenever the game's ARM7 idles (cardengine.c's swiHalt
 // hook): the checking, for a while. romWaiting() says nds-bootstrap has an
 // ARM9 ROM read to serve; the checking stops for it. Returns 1 if it stopped
-// for that (serve it, then call again).
+// for that (serve it, then call again). NULL: no such reads to stop for.
 int ProbeAch_Idle(int (*romWaiting)(void));
 
 // Saving unlocks. Outside interrupts (cardengine.c's swiHalt hook), with
@@ -73,7 +73,7 @@ typedef struct {
 	u16 maxLines;  // the longest the checker took in one VBlank, in scanlines
 	u16 frames;    // frame lane samples checked
 	u16 dropped;   // frames the frame lane couldn't sample (its checking fell behind)
-	u16 unclean;   // samples taken without the ARM9 writing its cache back first
+	u16 unclean;   // samples taken with no write-back from the ARM9 since the VBlank before
 	u8  idle;      // 1 if the checking ran in the idle time, 0 in the VBlank
 } ProbeAchStats;
 void ProbeAch_TakeStats(ProbeAchStats *s);

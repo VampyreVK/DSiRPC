@@ -1625,7 +1625,7 @@ void myIrqHandlerIPC(void) {
 	const int ipcGetSync = IPC_GetSync();
 
 	#if !defined(TWLSDK) && !defined(DLDI)
-	// DSiRPC: put the per-frame capture's VBlank hook in if it's needed (dsirpc_watch.c).
+	// DSiRPC: patch the game's OS_Halt for the idle-time cache write-back when rpcprobe asks (dsirpc_watch.c).
 	extern void dsirpcWatchService(void);
 	dsirpcWatchService();
 	#endif

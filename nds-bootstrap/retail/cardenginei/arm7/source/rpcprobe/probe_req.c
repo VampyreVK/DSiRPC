@@ -303,7 +303,7 @@ static void handleFrame(int n) {
 	}
 }
 
-int ProbeReq_Service(void) {
+int ProbeReq_Service(int maxFrames) {
 	sentThisTick = 0;
 	int frames = 0, bytes = 0;
 	while (1) {
@@ -315,7 +315,7 @@ int ProbeReq_Service(void) {
 		// CMD52: one frame per VBlank, as the byte budget allows. CMD53:
 		// keep going while it's cheap, but only one send per VBlank.
 		if (TwlWifi_RxMode() != 53 || sentThisTick) break;
-		if (frames >= RPCPROBE_RX53_FRAMES_PER_VBLANK || bytes >= RPCPROBE_RX53_BYTES_PER_VBLANK) break;
+		if (frames >= maxFrames || bytes >= RPCPROBE_RX53_BYTES_PER_VBLANK) break;
 	}
 	return sentThisTick;
 }

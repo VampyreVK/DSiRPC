@@ -1,0 +1,4 @@
+# What the tests need beyond Python itself (and gcc, and the rcheevos library:
+# see tests/README.md). DSiRPC's own requirements.txt isn't needed: the tested
+# code is core/ and tools/, which use only the standard library.
+pytest>=8

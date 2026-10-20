@@ -22,7 +22,7 @@ parsed game state (core/bw_parser.py):
                 rank, Elite Four beaten)
 
 The big images come from Assets/Unova-Battle (and -Shiny) and
-Assets/Unova-Trainer, made by Assets/Unova-Battle/process_unova.py. Only
+Assets/Unova-Trainer-Overworld, made by Assets/Unova-Battle/process_unova.py. Only
 Unova's own Pokemon (494-649) have Unova turfs; older ones use Platinum's
 dioramas. The timer counts the save's playtime.
 """
@@ -36,7 +36,7 @@ from rpc import platinum_presence as platinum
 
 SPRITES = platinum.SPRITES
 UNOVA_DEX = range(494, 650)
-# The trainer GIFs for each gait (Unova-Trainer/<turf>/<name>-<Dir><suffix>.gif);
+# The trainer GIFs for each gait (Unova-Trainer-Overworld/<turf>/<name>-<Dir><suffix>.gif);
 # no surfing sheet, so standing.
 GAIT_SUFFIX = {'walk': '', 'run': '-Run', 'bike': '-Bike', 'bike_stop': '-BikeStop', 'stand': '-Stand', 'surf': '-Stand'}
 GAIT_VERB = {'run': 'Running through', 'bike': 'Biking through', 'bike_stop': 'Biking through',
@@ -74,7 +74,7 @@ def trainer_image(d, how=None):
     facing = (d.get('location') or {}).get('facing')
     facing = facing if facing in ('up', 'down', 'left', 'right') else 'down'
     suffix = GAIT_SUFFIX.get(how or gait(d), '')
-    return f"{SPRITES}/Unova-Trainer/{turf(d)}/{character}-{facing.capitalize()}{suffix}.gif?raw=true"
+    return f"{SPRITES}/Unova-Trainer-Overworld/{turf(d)}/{character}-{facing.capitalize()}{suffix}.gif?raw=true"
 
 
 def game_name(d):

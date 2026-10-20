@@ -4,23 +4,21 @@
 // as often as a request gets answered, so a value that changes for a single
 // frame can be missed; the ring keeps every frame.
 //
-// Who reads the values: the ARM9, when the ARM9 cardengine carries DSiRPC's
-// half (cardenginei/arm9/source/dsirpc_watch.c). The game's writes sit in
-// the ARM9's data cache for a while, so reading main RAM from the ARM7 can
-// see them a frame or more late; the ARM9 reads through its cache, at the
-// very start of every VBlank, before the game's own VBlank code runs. The
-// ARM7 records the ARM9's snapshots in order, one per VBlank (common/include/
-// dsirpc_watch_block.h). When there's none to record (the ARM9's
-// hook isn't in yet, the game had interrupts off, or the cardengine has no
-// ARM9 half), the ARM7 reads main RAM itself and marks the record
-// (WATCH_REC_ARM7).
+// The ARM7 reads the values from main RAM at the start of every VBlank. The
+// game's writes sit in the ARM9's data cache for a while, so on their own
+// those reads can be a frame or more late; when the ARM9 cardengine carries
+// DSiRPC's half (cardenginei/arm9/source/dsirpc_watch.c), the ARM9 writes its
+// data cache back to main RAM whenever the game is idle, and a game that
+// idles once its frame is done has every value there by the next VBlank
+// (common/include/dsirpc_watch_block.h). A record taken with no write-back
+// since the last one is marked (WATCH_REC_ARM7). This file also finds the
+// game's OS_Halt for that, and asks the ARM9 to patch it.
 //
 // Nothing here writes to the game's memory: the watch list lives in
 // rpcprobe's own memory, the ring in the main RAM nds-bootstrap sets aside
 // for DSiRPC (locations.h's DSIRPC_WATCH_RING_LOCATION), and the hand-over
-// block in the ARM9 cardengine's. The ARM9's hook is put in front of the game's VBlank
-// interrupt handler (in the game's interrupt table, like nds-bootstrap's own
-// hooks) and calls that handler unchanged.
+// block in the ARM9 cardengine's. (The ARM9 patches the game's OS_Halt
+// itself.)
 //
 // Wire format (big endian, like 'R'; see probe_req.c for the transport):
 //
@@ -42,12 +40,11 @@
 //   record: tick u16 | vcount u16 | values...
 //       tick = rpcprobe's VBlank count (one record per frame); vcount = the
 //       scanline the values were read on (bits 0-8; 192 is the start of
-//       VBlank), plus WATCH_REC_ARM7 (bit 15) when the ARM7 read them from
-//       main RAM instead of the ARM9; values = each watch's bytes as they
-//       are in memory (little endian), in list order. ARM9 values are from
-//       the start of this VBlank or the one before (one snapshot after
-//       another, none twice or skipped), so they can be a frame older than
-//       the ARM7's would be.
+//       VBlank), plus WATCH_REC_ARM7 (bit 15) when the ARM9 hadn't written
+//       its data cache back since the record before (no ARM9 half, its patch
+//       not in yet, or the game busy the whole frame), so a value may be a
+//       frame late; values = each watch's bytes as they are in memory
+//       (little endian), in list order.
 //
 // Status: 0 OK, 1 malformed, 2 address outside main RAM, 3 no watch list.
 
@@ -59,25 +56,34 @@
 #define WATCH_MAX        8
 #define WATCH_RING_BYTES 2048 // locations.h's DSIRPC_WATCH_RING_SIZE
 
-#define WATCH_ARM7_ONLY  0x80   // in the 'W' count
+#define WATCH_ARM7_ONLY  0x80   // in the 'W' count (older PCs: ignored now, the ARM7 reads everything)
 #define WATCH_REC_ARM7   0x8000 // in a record's vcount
 #define WATCH_REC_VCOUNT 0x01FF
 
 // The hellos report it as a9=: 0 = no ARM9 half, 1 = found, 2 or more =
-// found and its VBlank hook in (1 + the number of hooks it has put in, so
-// more than 2 means the game replaced its VBlank handler along the way).
+// found and the game's OS_Halt patched (1 + the copies patched), so the
+// write-backs in the game's idle time are on.
 extern u8 probeWatchArm9;
 
 // Looks for the ARM9 half's block. Call on the first VBlank (offline play
 // needs it too) and when the connection is up.
 void ProbeWatch_Init(void);
 
-// For offline play's achievement checker (probe_ach.c): has the ARM9 write
-// its data cache back to main RAM at the start of every VBlank from now on
-// (rings it to put its VBlank hook in; call again if the write-backs don't
-// come). ProbeWatch_Cleaned() counts them (0 if there's no ARM9 half).
-void ProbeWatch_Clean(void);
-u32 ProbeWatch_Cleaned(void);
+// The game's ARM9 binary, from its NDS header: where to look for OS_Halt.
+// Call on the first VBlank.
+void ProbeWatch_Game(const void *ndsHeader);
+
+// Looks for OS_Halt, a part at a time: at most about `maxLines` scanlines,
+// and none while romWaiting() says the ARM9 waits for a ROM read (NULL: no
+// such check). Call from the ARM7's idle time (nds-bootstrap's swiHalt hook).
+// Returns 1 if it stopped for that ROM read.
+int ProbeWatch_Idle(u16 maxLines, int (*romWaiting)(void));
+
+// Call first thing every VBlank: notes whether a write-back came since the
+// last VBlank (ProbeWatch_Fresh(): 1 if one did, 0 if not or there's no
+// ARM9 half), and asks the ARM9 for the patch while it isn't in.
+void ProbeWatch_Tick(void);
+int ProbeWatch_Fresh(void);
 
 // Called once per VBlank (while connected) with the scanline the tick
 // started on.

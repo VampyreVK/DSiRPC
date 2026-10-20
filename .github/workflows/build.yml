@@ -159,10 +159,11 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
           python packaging/build_release.py --version "$version" --nds-dir nds --require-nds --check
 
-      - uses: actions/upload-artifact@v4
+      # The zip itself (named after it), not a zip in GitHub's own zip
+      - uses: actions/upload-artifact@v7
         with:
-          name: DSiRPC-windows
           path: dist/*.zip
+          archive: false
           if-no-files-found: error
 
   macos:
@@ -205,10 +206,11 @@ jobs:
           python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller certifi
           python packaging/macos/build_app.py --version "$version" --nds-dir nds --require-nds
 
-      - uses: actions/upload-artifact@v4
+      # The zip itself (named after it), not a zip in GitHub's own zip
+      - uses: actions/upload-artifact@v7
         with:
-          name: DSiRPC-macos
           path: dist/*.zip
+          archive: false
           if-no-files-found: error
 
   release:
@@ -224,10 +226,34 @@ jobs:
           sparse-checkout: packaging
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      # The two .nds files (zipped artifacts, extracted into dist/)
+      - uses: actions/download-artifact@v8
         with:
+          name: nds-bootstrap-dsirpc
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: dsirpc-launcher
+          path: dist
+
+      # The downloads' zips, uploaded as they are (archive: false), kept as
+      # zips: v8 would otherwise unzip them
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: DSiRPC-*
           path: dist
           merge-multiple: true
+          skip-decompress: true
+
+      # Whatever layout the downloads came in: every .zip and .nds at the top
+      # of dist/, a doubled .zip extension trimmed, and a check that both
+      # zips and both .nds files are there
+      - name: Gather the release files
+        run: |
+          find dist -mindepth 2 -type f \( -name '*.zip' -o -name '*.nds' \) -exec mv -n {} dist/ \;
+          for f in dist/*.zip.zip; do if [ -e "$f" ]; then mv "$f" "${f%.zip}"; fi; done
+          ls -la dist
+          test "$(ls dist/*.zip | wc -l)" -eq 2 && test "$(ls dist/*.nds | wc -l)" -eq 2
 
       # Creates the release for this tag (install steps first, then notes
       # generated from the commits), or adds the files to it if a release

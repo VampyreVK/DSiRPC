@@ -27,8 +27,8 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    the clock itself to date unlocks, and only falls back to `time=` plus the
    VBlanks since when it can't.
 5. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
-6. **START:** pick a game. A file browser opens in the launcher's own folder
-   (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
+6. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
+   launcher's own folder if there's no such folder (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
    **START** goes back). The launcher then:
    - finds our nds-bootstrap build next to itself: `nds-bootstrap-dsirpc.nds`,
      or the only `nds-bootstrap*.nds` in that folder. If there's neither, it
@@ -64,8 +64,18 @@ game you picked, the launcher leaves it alone. Otherwise it sets:
 
 and it deletes `sd:/_nds/nds-bootstrap/cheatData.bin` and `wideCheatData.bin`,
 the last game's cheats and 3DS widescreen patch, which TWiLight rewrites (or
-deletes) for every game it launches anyway. Everything else in the ini
-(language, DSi mode, CPU boost and so on) stays as TWiLight last wrote it.
+deletes) for every game it launches anyway.
+
+A DSi-enhanced game (Pokémon Black and White, and later) is also set to run
+in DS mode (`DSI_MODE = 0`), every time, even when the ini already names it:
+DSiRPC's part of nds-bootstrap (the memory server, the achievement checker,
+the in-game menu's achievements) only runs in DS mode, and TWiLight may have
+left DSi mode on, which is also nds-bootstrap's default when the key is
+missing. A 3DS that did ran Pokémon Black with none of DSiRPC: no connection,
+and no achievements in the in-game menu. A DSi-exclusive game can only run in
+DSi mode, and a DS game ignores the setting, so theirs stays as it is.
+Everything else in the ini (language, CPU boost and so on) stays as TWiLight
+last wrote it.
 
 A game that has never been started from TWiLight has no save file yet, and
 the launcher won't make one (the right size depends on the game), so it
@@ -144,7 +154,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 |---|---|
 | `source/main.c` | Connecting (with the retries), the results screen and the keys |
 | `source/browser.c` | The file browser |
-| `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save |
+| `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
 | `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |

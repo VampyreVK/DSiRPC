@@ -32,7 +32,7 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIREMENTS = os.path.join(ROOT, "requirements.txt")
-STEPS = 6
+STEPS = 7
 
 # (pip name, import name, minimum version)
 PACKAGES = [
@@ -572,10 +572,43 @@ def step_sets(cfg):
 
 # -- 6. startup --------------------------------------------------------------
 
+def step_saves(cfg):
+    heading(6, "Save backups")
+    say("The launcher can back up your games' saves to this PC (X in the launcher), keep older "
+        "versions of each, and carry them between your consoles.")
+    default = cfg.saves_path if cfg.saves_folder else "saves in DSiRPC's folder"
+    while True:
+        path = ask("Folder for the save backups (Enter to keep it, - for the default)", default).strip().strip('"')
+        if path == "-":
+            cfg.saves_folder = ""
+            break
+        if path in ("", default):
+            break
+        path = os.path.expanduser(path)
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            say(f"Can't use {path}: {e}")
+            continue
+        cfg.saves_folder = path
+        break
+    while True:
+        answer = ask("How many older versions of each save to keep", str(cfg.save_versions))
+        try:
+            n = int(answer)
+        except ValueError:
+            say("A number, please (or Enter for the one in brackets).")
+            continue
+        if 1 <= n <= 999:
+            cfg.save_versions = n
+            break
+        say("Between 1 and 999.")
+
+
 def step_startup():
     from . import startup
     mac = sys.platform == "darwin"
-    heading(6, startup.label())
+    heading(7, startup.label())
     if not startup.supported():
         say("Only on Windows and macOS; skipped.")
         return
@@ -610,6 +643,7 @@ def run_setup():
     step_ra(cfg)
     step_roms(cfg)
     step_sets(cfg)
+    step_saves(cfg)
     step_startup()
     try:
         cfg.save()

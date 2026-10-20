@@ -82,6 +82,11 @@ class Config:
         self.ra_achievements = True    # check achievements
         self.ra_submit = False         # send unlocks to RetroAchievements (softcore)
         self.ra_interval = 1.0         # seconds between achievement checks
+        # [saves]: the launcher's save sync: where the PC keeps the console's
+        # saves ('' for saves/ in DSiRPC's folder) and how many older
+        # versions of each it keeps
+        self.saves_folder = ""
+        self.save_versions = 10
 
         # The Discord applications a release comes with (defaults.cfg), if any
         self.release_client_id = ""
@@ -168,6 +173,18 @@ class Config:
                 self.ra_interval = max(0.25, min(10.0, float(_clean(r.get("interval", "")) or self.ra_interval)))
             except ValueError:
                 pass
+        if "saves" in parser:
+            v = parser["saves"]
+            self.saves_folder = _clean(v.get("folder", ""))
+            try:
+                self.save_versions = max(1, min(999, int(_clean(v.get("versions", "")) or self.save_versions)))
+            except ValueError:
+                pass
+
+    @property
+    def saves_path(self):
+        """Where the launcher's save sync keeps the console's saves."""
+        return os.path.expanduser(self.saves_folder) if self.saves_folder else os.path.join(DATA, "saves")
 
     @property
     def ra_signed_in(self):
@@ -237,6 +254,14 @@ interval: {self.ra_interval:g}
 # matches (auto_import).
 racache: {self.racache}
 auto_import: {yn(self.ra_auto_import)}
+
+[saves]
+# The launcher's save sync (X in the launcher): the folder the PC keeps the
+# console's saves in (empty: saves/ in DSiRPC's folder; put it in a cloud
+# drive's folder for an off-site copy too), and how many older versions of
+# each save it keeps
+folder: {self.saves_folder}
+versions: {self.save_versions}
 """
         tmp = self.path + ".tmp"
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)   # the macOS app's data folder, the first time

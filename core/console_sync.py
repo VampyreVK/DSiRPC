@@ -17,6 +17,10 @@ it starts: the launcher syncs once it's connected (game None) and again as it
 starts a game (its code), so DSiRPC knows the DSi is there before the game
 says hello. Everything here runs on this module's thread; the console waits
 while it works.
+
+The launcher's save sync uses the same port: a connection that starts with
+"DRSV" instead of "DRSQ" goes to core/save_session.py, with the SaveStore
+saves() returns (None: save backups are off) and on_saves(event).
 """
 
 import logging
@@ -26,17 +30,20 @@ import struct
 import threading
 import time
 
-from . import offline
+from . import offline, save_session
 
 ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
 
 
 class ConsoleSync:
-    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host=""):
+    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
+                 saves=None, on_saves=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
+        self.saves = saves
+        self.on_saves = on_saves
         self.port = port
         self.host = host
         self.udp = None
@@ -114,8 +121,14 @@ class ConsoleSync:
                 buf += chunk
             return bytes(buf)
 
+        magic = read(4)
+        if magic == save_session.MAGIC:
+            store = self.saves() if self.saves else None
+            save_session.handle(magic, read, conn.sendall, store, self.on_saves)
+            self._await_hangup(conn)
+            return
         try:
-            header = read(offline.REQUEST.size)
+            header = magic + read(offline.REQUEST.size - 4)
             game, stamps, unlock_bytes = offline.parse_request(header, read)
             console = offline.request_console(header)
             unlocks = offline.read_unlocks(unlock_bytes)

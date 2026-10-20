@@ -15,6 +15,7 @@ Right-click the icon for the menu:
     ---
     Setup...                           'dsirpc.py setup' in a console window (Terminal on a Mac)
     Open log / Open DSiRPC folder      (on a Mac, the folder with your settings)
+    Open save backups                  the launcher's save sync folder
     ---
     Quit
 
@@ -93,6 +94,17 @@ def _open(path):
         os.startfile(path)
     else:
         subprocess.Popen(["open" if MAC else "xdg-open", path])
+
+
+def _open_saves(engine):
+    """The launcher's save sync folder (made if there isn't one yet)."""
+    path = engine.cfg.saves_path
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        logging.warning(f"Can't make {path}: {e}")
+        return
+    _open(path)
 
 
 def on_main(fn):
@@ -218,6 +230,11 @@ def run_tray(cfg, **engine_args):
                     if not e['sent']:
                         body += "\n(not sent to RetroAchievements)"
                     notify(body[:255], "Achievement unlocked!")
+                elif e['type'] == 'saves_synced':
+                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "synced up"), ('backed_up', "backed up"),
+                                                             ('downloaded', "taken from the PC"),
+                                                             ('failed', "failed")) if e[k]]
+                    notify(", ".join(parts) or "Everything was in sync", f"DSiRPC: saves from the {e['console']}")
                 elif e['type'] == 'offline_unlocks':
                     n = e['count']
                     body = ", ".join(e['titles'][:3]) + (f" and {n - 3} more" if n > 3 else "")
@@ -280,6 +297,7 @@ def run_tray(cfg, **engine_args):
         Item("Setup...", lambda i, it: open_setup()),
         Item("Open log", lambda i, it: _open(LOG_FILE)),
         Item("Open DSiRPC folder", lambda i, it: _open(DATA)),
+        Item("Open save backups", lambda i, it: _open_saves(engine)),
         Menu.SEPARATOR,
         Item("Quit", quit_),
     )

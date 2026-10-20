@@ -127,7 +127,9 @@ class Engine:
         self.console_sync = None
         if not demo and not file:
             from core.console_sync import ConsoleSync
-            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen)
+            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
+                                            saves=self._save_store, on_saves=self._on_saves)
+        self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
 
     # -- settings ----------------------------------------------------------
 
@@ -369,6 +371,24 @@ class Engine:
                 logging.exception("on_change failed")
         return len(rows)
 
+    def _save_store(self):
+        """The SaveStore for the launcher's save sync, in dsirpc.cfg's [saves]
+        folder (made again when the folder or the number of versions changes)."""
+        from core.saves import SaveStore
+        path, keep = self.cfg.saves_path, self.cfg.save_versions
+        if self._saves is None or self._saves.root != path or self._saves.keep != keep:
+            self._saves = SaveStore(path, keep)
+        return self._saves
+
+    def _on_saves(self, event):
+        """The save sync's events: the tray hears the summary at the end."""
+        if event['type'] != 'saves_synced' or not self.on_change:
+            return
+        try:
+            self.on_change([event])
+        except Exception:
+            logging.exception("on_change failed")
+
     def _on_update(self, snap, events):
         self._check_config()
         self._log_achievements(events)
@@ -434,7 +454,8 @@ class Engine:
             return
         old.stop()
         from core.console_sync import ConsoleSync
-        new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host)
+        new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
+                          saves=old.saves, on_saves=old.on_saves)
         try:
             new.start()
         except OSError as e:

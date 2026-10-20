@@ -53,3 +53,11 @@ interval: 1
 # matches (auto_import).
 racache:
 auto_import: yes
+
+[saves]
+# The launcher's save sync (X in the launcher): the folder the PC keeps the
+# console's saves in (empty: saves/ in DSiRPC's folder; put it in a cloud
+# drive's folder for an off-site copy too), and how many older versions of
+# each save it keeps
+folder:
+versions: 10

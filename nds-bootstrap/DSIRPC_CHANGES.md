@@ -56,7 +56,7 @@ Also added, outside `rpcprobe/`:
 
 Copy `rpcprobe/` and the other added files (`dsirpc_watch.c`,
 `dsirpc_watch_block.h`, `dsirpc_ach.c/.h`, `dsirpc_ach_menu.h`) over, then
-re-apply the changes to the twelve modified files by hand. They're small; to see them exactly, diff each file
+re-apply the changes to the modified files above by hand. They're small; to see them exactly, diff each file
 against upstream commit `f5f9ea48`. Before trusting a new upstream version, check that
 the Platinum patch's instruction check still matches, that
 `cardenginei_arm7` still links (it has a fixed-size region), and that

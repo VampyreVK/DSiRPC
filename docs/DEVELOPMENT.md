@@ -26,7 +26,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Command line](#7-command-line)) |
 | `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
 | `overlay/` | The stream overlay window (pygame-ce) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), demo data (`demo.py`) |
+| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), save backups (`saves.py`, `save_session.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
 | `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](../ra/README.md)) |
 | `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64, with DSiRPC's offline set compiler (`dsirpc_offline.c`) built in; how to rebuild it is in its README |
@@ -50,7 +50,8 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) to build
   the two console files. (Or take them from a release, or from the Action's
   artifacts.)
-- For the full presence: Pokémon Platinum (USA, Rev 1).
+- For the full presence: Pokémon Platinum (USA, Rev 1) or Black and White
+  (USA).
 
 ## 3. Running from the source code
 
@@ -69,10 +70,12 @@ overlay window, pystray for the tray icon), then runs the setup wizard
    your RA profile, and whether to send your unlocks.
 4. **Your game files** (optional): a folder of `.nds` files, so
    RetroAchievements knows exactly which game you play.
-5. **Achievement sets**: RALibretro's folder, and a set for the game the DSi
-   is running right now or any game code you type, from RetroAchievements or
-   RALibretro's cache.
-6. **Start with Windows**: starts DSiRPC in the tray when you sign in.
+5. **Achievement sets**: RALibretro's folder, and a set for the game the
+   console is running right now or any game code you type, from
+   RetroAchievements or RALibretro's cache.
+6. **Save backups**: the folder for the launcher's save backups, and how
+   many older versions of each save to keep.
+7. **Start with Windows**: starts DSiRPC in the tray when you sign in.
 
 Everything goes in `dsirpc.cfg` (gitignored, and with RetroAchievements
 signed in it holds your login token, so keep it to yourself;
@@ -125,8 +128,10 @@ Nothing else needs setting up on the SD card. The launcher writes its own
 console's saved settings, and the console broadcasts its hello packets, so it
 never needs to know your PC's IP. For offline play it also makes
 `RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
-itself, and finds DSiRPC with a broadcast on port 4245
+itself, and finds DSiRPC with a broadcast on port 4245, or at the address
+in its settings (`launcher.ini`)
 ([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
+The save sync keeps `saves.idx` next to it.
 
 ## 5. Discord applications
 
@@ -186,6 +191,12 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--name Vivi` | With `--demo`: the trainer name to show |
 | `--scale 4` | Overlay size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`) |
 | `--chroma 00FF00` | Fill the overlay's background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
+
+To test achievements without your real progress getting in the way, quit
+DSiRPC in the tray, then run it with `--blank-ra` while you collect test
+unlocks (add `tray` to run it in the tray), and with `--clear-ra` once
+afterwards to put the console back to your real state (add `--blank-ra` to
+give it whole sets instead). The flags combine.
 
 The log is `logs\dsirpc.log`. Only one DSiRPC can run at a time, and the
 tools below can't run next to it: they all need UDP port 4244. The overlay's

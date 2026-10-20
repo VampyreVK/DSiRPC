@@ -285,6 +285,17 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-20 (cleanups): The launcher no longer broadcasts the stage 1
+  spike's three UDP test packets on port 4242 (about 3 s at every start),
+  shows each connection try's progress on one line in words (DSWiFi's
+  `ASSOCSTATUS_STRINGS` are the enum's own names), and drops the gateway,
+  mask, `Mode: DSi` and `Wrote sd:/RPCHAND.TXT` lines (it only says so if
+  that file can't be written). The README is about half as long: one place
+  per topic, the developer and how-it-works parts in `docs/`, and a roadmap
+  of what's still open. Setup's warning about sending unlocks no longer says
+  DSiRPC looks at the game once a second, and the other docs lost what the
+  releases since made outdated.
+
 - 2026-10-20: **Save backups and sync, through the launcher.** (Branch
   `mac-fix-and-save-sync`.) X in the launcher lists every game in
   `roms/nds` (subfolders too) and its saves, wherever TWiLight Menu++ keeps

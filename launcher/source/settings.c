@@ -124,13 +124,13 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
     if (row == ROW_FIND)
         printf("How the launcher finds DSiRPC.\nAutomatically works on most\nnetworks; use an address if it\nisn't found.\n");
     else if (row == ROW_ADDRESS)
-        printf("The PC's IPv4 address: the\nlauncher shows it when it finds\nDSiRPC (Found DSiRPC at ...).\n");
+        printf("The PC's IP address. The\nlauncher shows it when it\nfinds DSiRPC.\n");
     else
         printf("Back up and sync: newer saves\nfrom the PC come here too.\nBack up only: saves only go to\nthe PC, so each console can\nkeep its own.\n");
     printf("\x1b[21;0H-------------------------------\n");
     // (no newline after the last row: it would scroll the screen)
     if (editing >= 0)
-        printf("Left/Right: part  Up/Down: +1\nA or B: done");
+        printf("Left/Right: move  Up/Down: +/-\nA or B: done");
     else
         printf("Up/Down: choose  A: change\nB: save and go back");
 }

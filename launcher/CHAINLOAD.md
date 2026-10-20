@@ -43,8 +43,8 @@ the protocol on both sides matches.
    - Set `bootsize` to cover `load.bin` **plus** argv. hbmenu sets it to the
      loader's size alone, which would drop argv when the stub copies the
      loader.
-   - `DC_FlushAll()`, then `exit(0)`. Like the old START, nothing
-     disconnects the Wi-Fi.
+   - `DC_FlushAll()`, then `exit(0)`. As with Y, nothing disconnects the
+     Wi-Fi.
 4. Both .bin files are embedded with `.incbin` (`source/loader_blobs.s`).
    The Makefile builds `loader/` first, so it's still one `make` (and one
    Docker command) for everything.

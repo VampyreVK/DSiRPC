@@ -10,9 +10,11 @@ answer in [brackets]; Enter keeps it.
                           login token), your profile, sending unlocks
   4. Your game files      a folder of .nds files, to tell RetroAchievements
                           exactly which game you play (optional)
-  5. Achievement sets     for the game the DSi runs now, or any game code:
-                          from RetroAchievements or RALibretro's cache
-  6. Start with Windows   ("Open at Login" in the macOS app)
+  5. Achievement sets     for the game the console runs now, or any game
+                          code: from RetroAchievements or RALibretro's cache
+  6. Save backups         where the launcher's save backups go, and how many
+                          older versions of each save to keep
+  7. Start with Windows   ("Open at Login" in the macOS app)
 
 The macOS app (packaging/macos/) runs this in Terminal from its menu bar
 menu, and by itself the first time; its packages come with it, so step 1
@@ -165,9 +167,9 @@ def step_discord(cfg):
            "  3. Copy its \"Application ID\" (a long number).")
     if cfg.release_client_id:
         say("DSiRPC shows your game on Discord through a \"Discord application\". This copy of "
-            "DSiRPC comes with one, so just press Enter at both questions below to use it.")
+            "DSiRPC comes with one: press Enter at both questions below to use it.")
         say("To use your own instead (to choose the name Discord shows after \"Playing\"), make "
-            "one, which is free and takes a minute, then paste its Application ID below:")
+            "one (it's free and takes a minute) and paste its Application ID below:")
         say(how)
         say()
     else:
@@ -217,7 +219,7 @@ def _sign_in(cfg):
             say(f"RetroAchievements said: {e}")
             continue
         cfg.ra_username, cfg.ra_token = user, token
-        say(f"Signed in as {user}. (Only the login token is saved, not your password.)")
+        say(f"Signed in as {user}.")
         return True
 
 
@@ -260,20 +262,20 @@ def step_ra(cfg):
     else:
         _sign_in(cfg)
     if not cfg.ra_signed_in:
-        say("Not signed in: achievements are only checked on this PC, with the sets you add "
-            "yourself (step 5).")
+        say("Not signed in: achievements are still checked, with the sets you add yourself "
+            "(step 5), but nothing is sent to RetroAchievements.")
         return
     say()
     cfg.ra_profile = yes("Show what you're playing on your RetroAchievements profile?", cfg.ra_profile)
     say()
     say("Sending unlocks. DSiRPC can add the achievements you unlock to your RetroAchievements "
         "account, as softcore unlocks. Please know before you turn this on:")
-    say("  - DSiRPC looks at the game about once a second, not 60 times a second like an "
-        "emulator. Most achievements don't mind, but ones about split-second moments can "
-        "unlock late, not at all or, rarely, when they shouldn't.\n"
-        "  - RetroAchievements doesn't officially support playing on a real DSi.")
-    say("With this off, unlocks still pop up here (and are listed in logs\\achievements.log); "
-        "they just aren't sent. You can change your mind any time by running setup again.")
+    say("  - Not every achievement can be checked every frame like on an emulator. Most don't "
+        "mind, but ones about split-second moments can unlock late, not at all or, rarely, "
+        "when they shouldn't.\n"
+        "  - RetroAchievements doesn't officially support playing on original hardware.")
+    say("With this off, you still get the notifications and achievements.log; the unlocks just "
+        "aren't sent.")
     cfg.ra_submit = yes("Send your unlocks to RetroAchievements?", cfg.ra_submit)
 
 
@@ -286,7 +288,7 @@ def step_roms(cfg):
         say("Skipped: this is only used with a RetroAchievements account (step 3).")
         return
     say("RetroAchievements tells games apart by their files. If this PC has copies of the "
-        "games you play on the DSi (say, the ones you play in RALibretro), DSiRPC can use "
+        "games you play on the console (say, the ones you play in RALibretro), DSiRPC can use "
         "them to tell RetroAchievements exactly which game and version you're playing. "
         "Without them, it goes by the game's title.")
     say("Subfolders are looked through too. Type - to forget a folder that's saved.")
@@ -334,8 +336,8 @@ def _sets_in_ra():
 
 
 def detect_game(port=4244, wait=10.0):
-    """(game dict, header title, how) for the game the DSi runs now, or None.
-    If DSiRPC is running (it holds the port), what it last saw."""
+    """(game dict, header title, how) for the game the console runs now, or
+    None. If DSiRPC is running (it holds the port), what it last saw."""
     from core.dsirpc_client import DSiClient
     try:
         client = DSiClient(port=port)
@@ -346,7 +348,7 @@ def detect_game(port=4244, wait=10.0):
             with open(state_file, encoding="utf-8") as f:
                 state = json.load(f)
         except (OSError, ValueError):
-            say("Another DSiRPC tool is using the DSi's network port, so setup can't listen "
+            say("Another DSiRPC tool is using the console's network port, so setup can't listen "
                 "for it. Close that tool and try again.")
             return None
         if time.time() - state.get("time", 0) < 90 and state.get("online") and state.get("game"):
@@ -354,8 +356,8 @@ def detect_game(port=4244, wait=10.0):
         say("DSiRPC is running in the tray, but it doesn't see a game right now.")
         return None
     try:
-        say(f"Listening for the DSi for {wait:.0f} seconds... (if the game isn't running "
-            "yet, start it now)")
+        say(f"Listening for the console for {wait:.0f} seconds... (start the game now if it "
+            "isn't running yet)")
         if not client.wait_for_dsi(wait):
             return None
         client.listen(1.5)
@@ -367,7 +369,7 @@ def detect_game(port=4244, wait=10.0):
             title, code = ra_cache.read_header(DsiRam(client))
         except (TimeoutError, RuntimeError):
             title, code = "", ""
-        return client.game, (title if code == client.game["code"] else ""), "The DSi"
+        return client.game, (title if code == client.game["code"] else ""), "The console"
     finally:
         client.sock.close()
 
@@ -540,10 +542,10 @@ def step_sets(cfg):
     try:
         have = _sets_in_ra()
         say()
-        if yes("Is a game running on the DSi right now? Look up its set?"):
+        if yes("Is a game running on the console right now? Look up its set?"):
             found = detect_game()
             if not found:
-                say("The DSi didn't answer. (Is the game running after the launcher's handoff?)")
+                say("The console didn't answer. (Was the game started from the launcher?)")
             else:
                 game, header_title, how = found
                 code = game["code"]
@@ -570,7 +572,7 @@ def step_sets(cfg):
         picker.close()
 
 
-# -- 6. startup --------------------------------------------------------------
+# -- 6. save backups ---------------------------------------------------------
 
 def step_saves(cfg):
     heading(6, "Save backups")
@@ -605,6 +607,8 @@ def step_saves(cfg):
         say("Between 1 and 999.")
 
 
+# -- 7. startup --------------------------------------------------------------
+
 def step_startup():
     from . import startup
     mac = sys.platform == "darwin"
@@ -633,9 +637,9 @@ def run_setup():
     from utils.config import Config, OLD_CONFIG_NAME
     print("DSiRPC setup")
     print("============")
-    say("This gets DSiRPC ready on this PC. For each question, the answer in [brackets] is what's "
-        "saved now: press Enter to keep it. " + ("Choose Setup... in DSiRPC's menu bar menu"
-        if getattr(sys, "frozen", False) else "Run Setup.bat") + " again any time to change an answer.")
+    say("This gets DSiRPC ready on this PC. Press Enter to keep the answer in [brackets]. "
+        + ("Choose Setup... in DSiRPC's menu bar menu" if getattr(sys, "frozen", False)
+           else "Run Setup.bat") + " again any time to change one.")
     step_packages()
     cfg = Config()
     migrated = cfg.loaded_from and os.path.basename(cfg.loaded_from) == OLD_CONFIG_NAME
@@ -659,14 +663,14 @@ def run_setup():
     say()
     if sys.platform == "darwin":
         say("You're all set! DSiRPC is in the menu bar (the little DSi by the clock): click it for "
-            "the menu. If it never finds the DSi, allow it in System Settings > Privacy & Security > "
-            "Local Network.")
+            "the menu. If it never hears from the console, allow it in System Settings > Privacy & "
+            "Security > Local Network.")
         if sys.stdin and sys.stdin.isatty():
             ask("Press Enter to close")
         return 0
     say("You're all set! Double-click DSiRPC.bat to start DSiRPC: it sits in the tray, by the "
-        "clock (right-click its icon for the menu). If it never finds the DSi, allow Python "
-        "through the Windows firewall for private networks.")
+        "clock (right-click its icon for the menu). If it never hears from the console, allow "
+        "Python through the Windows firewall for private networks.")
     if sys.stdin and sys.stdin.isatty():
         ask("Press Enter to close")
     return 0

@@ -12,20 +12,18 @@
 //      Up to 3 tries: a try fails if it can't connect, or if no IPv4 address
 //      comes from DHCP (DSWiFi also reports "Associated" once an IPv6
 //      address is ready, which can be before DHCP has answered).
-//   2. Show IP, gateway, mask and the DSi's MAC address.
-//   3. Broadcast a few UDP test packets on port 4242
-//      (spikes/stage1-listen/pc/listener.py shows them). Broadcast, so no
-//      PC address has to be configured anywhere.
-//   4. Write the connection info to sd:/RPCHAND.TXT, which the in-game side
+//   2. Show the console's IP and MAC addresses.
+//   3. Write the connection info to sd:/RPCHAND.TXT, which the in-game side
 //      of nds-bootstrap reads to address its packets.
-//   5. Sync with DSiRPC if it's on the network (source/sync.c): hand over
+//   4. Sync with DSiRPC if it's on the network (source/sync.c): hand over
 //      the unlocks from offline play, take the achievement sets.
-//   6. START: pick a game (.nds) in a file browser that opens in the
-//      launcher's folder. The launcher points sd:/_nds/nds-bootstrap.ini at
-//      it (source/bootstrap_ini.c), syncs again (so DSiRPC can send that
-//      game's set), puts the game's set in sd:/RPCSET.BIN and starts our
-//      nds-bootstrap build, found next to the launcher (or picked in the
-//      browser), still connected (source/chainload.c).
+//   5. START: pick a game (.nds) in a file browser that opens in
+//      sd:/roms/nds (or the launcher's folder without one). The launcher
+//      points sd:/_nds/nds-bootstrap.ini at it (source/bootstrap_ini.c),
+//      syncs again (so DSiRPC can send that game's set), puts the game's
+//      set in sd:/RPCSET.BIN and starts our nds-bootstrap build, found next
+//      to the launcher (or picked in the browser), still connected
+//      (source/chainload.c).
 //      SELECT: disconnect cleanly, then exit.
 //      Y: exit without disconnecting (the old way: back to the menu, then
 //      start our nds-bootstrap build from there). Not B, which the file
@@ -48,7 +46,6 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 
 #include <fat.h>
@@ -63,14 +60,12 @@
 #include "settings.h"
 #include "sync.h"
 
-#define LISTENER_PORT     4242
 #define CONNECT_TRIES     3
 #define CONNECT_TIMEOUT_S 30   // per try, until associated
 #define DHCP_TIMEOUT_S    10   // per try, then for an IPv4 address
-#define HELLO_PACKETS     3
 
-// Our nds-bootstrap build, looked for next to the launcher (the README
-// suggests sd:/_nds/dsirpc/ for both)
+// Our nds-bootstrap build, looked for next to the launcher (both go in
+// sd:/DSiRPC/)
 #define BOOTSTRAP_NAME    "nds-bootstrap-dsirpc.nds"
 #define BOOTSTRAP_PREFIX  "nds-bootstrap"
 
@@ -124,41 +119,6 @@ static int wait_for_start_or_select(void)
     return wait_for_keys(KEY_START | KEY_SELECT);
 }
 
-static void send_hello_packets(const char *dsi_ip)
-{
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)
-    {
-        printf("socket() failed\n");
-        return;
-    }
-
-    // lwIP refuses broadcast sends unless the socket allows them.
-    int allow_broadcast = 1;
-    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &allow_broadcast, sizeof(allow_broadcast));
-
-    struct sockaddr_in to;
-    memset(&to, 0, sizeof(to));
-    to.sin_family = AF_INET;
-    to.sin_port = htons(LISTENER_PORT);
-    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-
-    for (int i = 0; i < HELLO_PACKETS; i++)
-    {
-        char msg[96];
-        int len = snprintf(msg, sizeof(msg),
-                           "DSiRPC spike: hello %d/%d from %s (DSi-mode WPA2)",
-                           i + 1, HELLO_PACKETS, dsi_ip);
-        if (sendto(sock, msg, len, 0, (struct sockaddr *)&to, sizeof(to)) < 0)
-            printf("sendto() failed (packet %d)\n", i + 1);
-
-        // ~1 second between packets
-        wait_frames(60);
-    }
-
-    closesocket(sock);
-}
-
 // ---------------------------------------------------------------------------
 // Connecting
 
@@ -181,6 +141,28 @@ static bool b_pressed(void)
     return (keysDown() & KEY_B) != 0;
 }
 
+// Wifi_AssocStatus() in words (DSWiFi's ASSOCSTATUS_STRINGS are the enum's
+// own names)
+static const char *status_text(int status)
+{
+    switch (status)
+    {
+        case ASSOCSTATUS_SEARCHING:      return "Looking for the network";
+        case ASSOCSTATUS_AUTHENTICATING: return "Signing in";
+        case ASSOCSTATUS_ASSOCIATING:    return "Joining the network";
+        case ASSOCSTATUS_ACQUIRINGDHCP:  return "Getting an IP address";
+        case ASSOCSTATUS_ASSOCIATED:     return "Connected";
+        case ASSOCSTATUS_CANNOTCONNECT:  return "Can't connect";
+        default:                         return "Connecting";
+    }
+}
+
+// A try's progress, on one line that's rewritten in place
+static void say_status(const char *text)
+{
+    printf("\x1b[2K  %s", text);
+}
+
 // One try: waits until associated (or not), then for an IPv4 address.
 static ConnectResult connect_once(void)
 {
@@ -198,7 +180,7 @@ static ConnectResult connect_once(void)
         status = Wifi_AssocStatus();
         if (status != old_status)
         {
-            printf("  %s\n", ASSOCSTATUS_STRINGS[status]);
+            say_status(status_text(status));
             old_status = status;
         }
 
@@ -209,7 +191,7 @@ static ConnectResult connect_once(void)
         frames++;
         if (frames > CONNECT_TIMEOUT_S * 60)
         {
-            printf("  Timed out\n");
+            say_status("Timed out");
             break;
         }
     }
@@ -219,16 +201,19 @@ static ConnectResult connect_once(void)
     if (have_ipv4())
         return CONNECTED;
 
-    printf("  Waiting for an IPv4 address\n");
+    say_status("Waiting for an IP address");
     for (frames = 0; frames < DHCP_TIMEOUT_S * 60; frames++)
     {
         cothread_yield_irq(IRQ_VBLANK);
         if (b_pressed())
             return SKIPPED;
         if (have_ipv4())
+        {
+            say_status("Connected");
             return CONNECTED;
+        }
     }
-    printf("  No IPv4 address (DHCP)\n");
+    say_status("No IP address (DHCP)");
     return NOT_CONNECTED;
 }
 
@@ -243,6 +228,7 @@ static ConnectResult connect_with_retries(void)
             wait_frames(60);
         }
         ConnectResult result = connect_once();
+        printf("\n");   // ends the try's status line
         if (result != NOT_CONNECTED)
             return result;
     }
@@ -403,7 +389,7 @@ static void start_game(const char *dir)
 
     if (!find_bootstrap(dir, bootstrap, sizeof(bootstrap)))
     {
-        if (!browse_for_file("Where is our nds-bootstrap?", dir, ".nds", bootstrap, sizeof(bootstrap)))
+        if (!browse_for_file("Pick " BOOTSTRAP_NAME, dir, ".nds", bootstrap, sizeof(bootstrap)))
             return;
     }
 
@@ -424,9 +410,7 @@ static void start_game(const char *dir)
     write_handoff();
 
     const char *name = strrchr(game, '/');
-    const char *loader = strrchr(bootstrap, '/');
-    printf("%sStarting\n%s\nwith %s\n", online ? "\n" : "", name ? name + 1 : game,
-           loader ? loader + 1 : bootstrap);
+    printf("%sStarting\n%s\n", online ? "\n" : "", name ? name + 1 : game);
     if (code[0] != '\0')
     {
         if (have_set)
@@ -447,8 +431,6 @@ static void start_game(const char *dir)
 static void print_connection(void)
 {
     printf("\nIP:   %s\n", ip_str);
-    printf("GW:   %s\n", gw_str);
-    printf("Mask: %s\n", mask_str);
     printf("MAC:  %s\n", mac_str);
 }
 
@@ -461,8 +443,7 @@ static const char *games_dir(void)
 
 static void print_keys(void)
 {
-    printf("\nSTART:  pick a game, start it\n");
-    printf("        with nds-bootstrap\n");
+    printf("\nSTART:  pick a game\n");
     if (online)
     {
         printf("X:      sync saves");
@@ -528,20 +509,18 @@ int main(int argc, char *argv[])
 
     if (!isDSiMode())
     {
-        printf("\nRunning in DS mode!\n");
-        printf("Slots 4-6 and WPA2 need DSi\n");
-        printf("mode. Relaunch this app in\n");
-        printf("DSi mode.\n\n");
-        printf("Press START to exit\n");
+        printf("\nThe launcher needs DSi mode\n");
+        printf("(for WPA2). Set it in TWiLight\n");
+        printf("Menu++'s per-game settings.\n\n");
+        printf("START: exit\n");
         while (wait_for_start_or_select() != KEY_START)
             ;
         return 0;
     }
-    printf("Mode: DSi\n");
 
     bool have_fat = fatInitDefault();
     if (!have_fat)
-        printf("SD init failed (can't write\nRPCHAND.TXT)\n");
+        printf("Can't read the SD card\n");
 
     char dir[PATH_LEN];
     launcher_dir(argc, argv, dir, sizeof(dir));
@@ -551,7 +530,7 @@ int main(int argc, char *argv[])
     if (have_fat)
         saves_changed = saves_quick_check(games_dir(), dir);
 
-    printf("\nConnecting with saved\nsettings (slots 1-6)...\n");
+    printf("Connecting to Wi-Fi...\n");
     printf("B: skip, play offline\n");
 
     bool wifi_ready = Wifi_InitDefault(INIT_ONLY | WIFI_ATTEMPT_DSI_MODE);
@@ -559,14 +538,14 @@ int main(int argc, char *argv[])
     if (wifi_ready)
         connected = connect_with_retries();
     else
-        printf("Wifi_InitDefault() failed\n");
+        printf("The Wi-Fi didn't start\n");
 
     if (connected == NOT_CONNECTED)
     {
         if (wifi_ready)
         {
-            printf("\nCould not connect.\n");
-            printf("Check slot 4-6 settings in\nSystem Settings > Internet.\n");
+            printf("\nCouldn't connect. Check\n");
+            printf("connection 4, 5 or 6 in\nSystem Settings > Internet.\n");
         }
         printf("\nSTART:  play offline\n");
         printf("SELECT: exit\n");
@@ -598,12 +577,8 @@ int main(int argc, char *argv[])
 
         print_connection();
 
-        if (have_fat && write_handoff())
-            printf("Wrote sd:/RPCHAND.TXT\n");
-
-        printf("\nBroadcasting %d UDP packets\n(port %d)...\n", HELLO_PACKETS, LISTENER_PORT);
-        send_hello_packets(ip_str);
-        printf("Done.\n");
+        if (have_fat && !write_handoff())
+            printf("Can't write sd:/RPCHAND.TXT\n");
 
         if (have_fat)
             run_sync("");

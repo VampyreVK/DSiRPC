@@ -2,8 +2,7 @@
 
 A small BlocksDS app that connects the DSi to Wi-Fi in **DSi mode**, then
 starts our nds-bootstrap build with the game you pick, without
-disconnecting, so the game side can keep using the connection. It grew out
-of stage 4 of the project (the "handoff spike").
+disconnecting, so the game side can keep using the connection.
 
 It connects with the WPA2 settings saved in DSi connection slots 4-6 using
 BlocksDS + DSWiFi (MIT licensed), and no Wi-Fi password is stored in any file.
@@ -13,23 +12,21 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
 1. Connects with the saved Wi-Fi settings in DSi mode. It tries up to 3
    times: a try fails if it can't connect within 30 s, or if no IPv4 address
-   comes from DHCP within 10 s after that. (DSWiFi also says "Associated"
-   once an IPv6 address is ready, which can come before DHCP has answered;
-   that was the `0.0.0.0` on the first try.) **B** skips it, and **START**
-   when it can't connect, for [offline play](#offline-play).
-2. Shows the IP, gateway, mask and the DSi's MAC.
-3. Broadcasts 3 UDP test packets on port 4242, so no PC address is needed.
-   `spikes/stage1-listen/pc/listener.py` can show them.
-4. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
+   comes from DHCP within 10 s after that (DSWiFi can say "Associated"
+   before DHCP has answered). **B** skips it, and **START** when it can't
+   connect, for [offline play](#offline-play).
+2. Shows the console's IP and MAC addresses.
+3. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
    `time=`, then `end`) for the in-game side. The name has to be 8.3, because
    nds-bootstrap's ARM7 file lookup only matches short names. `time=` is the
    console's clock in seconds since 2000 (local time); the in-game side reads
    the clock itself to date unlocks, and only falls back to `time=` plus the
    VBlanks since when it can't.
-5. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
-6. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
-   launcher's own folder if there's no such folder (**A** opens a folder or picks the `.nds`, **B** goes up a folder,
-   **START** goes back). The launcher then:
+4. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
+5. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
+   launcher's own folder if there's no such folder (**A** opens a folder or
+   picks the `.nds`, **B** goes up a folder, **START** goes back). The
+   launcher then:
    - finds our nds-bootstrap build next to itself: `nds-bootstrap-dsirpc.nds`,
      or the only `nds-bootstrap*.nds` in that folder. If there's neither, it
      asks you to pick it with the same browser;
@@ -79,8 +76,8 @@ anything replaces it.
 
 L+R opens them; they're kept in `launcher.ini` next to the launcher:
 
-- `DSIRPC_IP`: DSiRPC's address, or empty to ask for it with a broadcast (as
-  before). The syncs then ask at that address only.
+- `DSIRPC_IP`: DSiRPC's address, or empty to ask for it with a broadcast.
+  With an address, the syncs ask there only.
 - `SAVE_MODE`: `sync` (back up, and take newer saves from the PC) or
   `backup` (only back up; DSiRPC keeps those in history and never offers
   them to the other consoles).
@@ -109,9 +106,8 @@ in DS mode (`DSI_MODE = 0`), every time, even when the ini already names it:
 DSiRPC's part of nds-bootstrap (the memory server, the achievement checker,
 the in-game menu's achievements) only runs in DS mode, and TWiLight may have
 left DSi mode on, which is also nds-bootstrap's default when the key is
-missing. A 3DS that did ran Pokémon Black with none of DSiRPC: no connection,
-and no achievements in the in-game menu. A DSi-exclusive game can only run in
-DSi mode, and a DS game ignores the setting, so theirs stays as it is.
+missing. A DSi-exclusive game can only run in DSi mode, and a DS game
+ignores the setting, so theirs stays as it is.
 Everything else in the ini (language, CPU boost and so on) stays as TWiLight
 last wrote it.
 
@@ -144,7 +140,8 @@ them.
 ### The sync with DSiRPC
 
 `source/sync.c`. The launcher broadcasts `DSiRPC sync?` on UDP 4245 for
-1.5 s. If DSiRPC answers, the launcher connects to it over TCP (the same
+1.5 s (or sends it to the address in its settings). If DSiRPC answers, the
+launcher connects to it over TCP (the same
 port) and sends the game being started (if any), the stamp of every set it
 has, and `RPCUNLK.BIN` as it is. DSiRPC answers with how many unlocks it
 took and the sets that are new or changed. When DSiRPC took as many unlocks
@@ -214,11 +211,8 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
   exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.
-- **Saving offline unlocks is new.** The whole loop worked on hardware on
-  2026-10-08 (a Tetris DS unlock made offline reached RetroAchievements at
-  the next sync, and nds-bootstrap's in-game menu lists the achievements on
-  a DSi and a 3DS), with only a few games tried so far. 255 unlocks fit
-  before the launcher has to hand them to DSiRPC.
+- **255 offline unlocks fit** in `RPCUNLK.BIN` before the launcher has to
+  hand them to DSiRPC.
 - **Group-key renewals aren't handled after the launcher exits.** DSWiFi's
   driver does them in software, and once the launcher exits nothing is
   running that driver. If hello packets stop at a suspiciously regular

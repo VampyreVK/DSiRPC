@@ -2,27 +2,25 @@ DSiRPC {version} for macOS
 =====================================================================
 
 DSiRPC shows the game you're playing on a modded Nintendo DSi or 3DS as
-your Discord status. Pokemon Platinum (USA, Rev 1) and Black and White get
-the full treatment: where you are, your party, your badges and who you're
-battling, with sprites. Any other DS game shows its name, box art and, if
-it has a RetroAchievements set, what you're doing in it. Achievements are
-checked while you play, even offline, and there's an optional overlay
-window for streaming.
+your Discord status. Pokemon Platinum (USA, Rev 1) and Black and White
+(USA) get the full treatment: where you are, your party, your badges and
+who you're battling, with sprites. Any other DS game shows its name, box
+art and, if it has a RetroAchievements set, what you're doing in it.
+Achievements are checked while you play, even offline, the launcher backs
+up your saves, and there's an optional overlay window for streaming.
 
 More help, and the source code: https://github.com/VampyreVK/DSiRPC
 
 
 WHAT YOU NEED
 ---------------------------------------------------------------------
-- A DSi or 3DS with TWiLight Menu++ installed.
+- A DSi or 3DS with TWiLight Menu++ installed, and your games as .nds
+  files on its SD card.
 - The console's Wi-Fi set up for the same network as your Mac. (On a DSi,
   a WPA2 network has to be in Connection 4, 5 or 6: System Settings >
   Internet > Connection Settings > Advanced Setup.)
 - A Mac with Apple silicon (M1 or later) on macOS 12 or newer, with the
   Discord app.
-- Your games as .nds files on the SD card. The launcher starts
-  DSi-enhanced games (Pokemon Black and White, and later) in DS mode by
-  itself, since DSiRPC only runs there.
 
 
 STEP 1: THE MAC
@@ -39,12 +37,8 @@ STEP 1: THE MAC
 3. DSiRPC's icon, a little DSi, appears in the menu bar by the clock, and
    the first time setup opens in Terminal. Answer its questions; press
    Return to take the suggested answer (the one in [brackets]).
-   - Discord: if this download comes with a Discord application, just
-     press Return. Otherwise setup explains how to make one (it's free
-     and takes a minute).
-   - RetroAchievements is optional: skip it by pressing Return.
-   Close the Terminal window when it's done. To change anything later,
-   click the menu bar icon > Setup...
+   RetroAchievements is optional. Close the Terminal window when it's
+   done. To change anything later, click the menu bar icon > Setup...
 
    When macOS asks whether DSiRPC may find devices on your local network,
    click Allow. Without that, DSiRPC never hears from the console. (It's
@@ -69,29 +63,26 @@ STEP 3: PLAYING
    it's always there.
 
 2. On the console, open DSiRPC/dsirpc-launcher.nds from TWiLight Menu++.
-   It connects to Wi-Fi (it tries up to 3 times) and shows the IP
-   address. It has to run in DSi mode; if it says it's in DS mode, change
-   that in TWiLight Menu++'s per-game settings for it.
+   It connects to Wi-Fi and shows the console's IP address.
 
-3. Press START and pick your game: A opens a folder or picks the game,
-   B goes up a folder (the browser opens in roms/nds, or in the DSiRPC
-   folder if there's no roms/nds). The game starts, still connected.
+3. Press START and pick your game (it opens in roms/nds): A opens a
+   folder or picks the game, B goes up. The game starts, still connected.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 
 The menu's "Overlay window" opens the overlay for streaming (capture it
 in OBS with a macOS Screen Capture or Window Capture source).
 
-In the launcher, SELECT disconnects and goes back without starting a game.
-X backs up your games' saves to DSiRPC (and takes newer ones from it, like
-the ones from your other console); the PC keeps the last 10 versions of
-each in the saves folder (the menu's "Open save backups"). L+R opens the
-launcher's settings: DSiRPC's address (if the launcher doesn't find it by
-itself) and whether saves sync or only back up.
+Save backups: X in the launcher backs up your games' saves to the Mac and
+takes newer ones from it (from your other console, say). The Mac keeps
+each save's last 10 versions (menu > Open save backups). L+R opens the
+launcher's settings: how it finds DSiRPC, and whether saves sync or only
+back up.
+
 No Wi-Fi? Press B while the launcher connects (or START when it says it
-couldn't) to play offline: games start the same way, without Discord, and
-achievements unlocked offline are sent the next time the launcher syncs
-with DSiRPC. README.md on GitHub has the details.
+couldn't) to play offline: games start the same way, without Discord,
+and achievements unlocked offline are sent the next time the launcher
+syncs with DSiRPC. README.md on GitHub has the details.
 
 
 IF SOMETHING DOESN'T WORK
@@ -101,17 +92,21 @@ IF SOMETHING DOESN'T WORK
 - Nothing on Discord: the Mac and the console have to be on the same
   network, and DSiRPC needs Local Network access (above). Turn off other
   Rich Presence plugins, like Vencord's CustomRPC.
-- The launcher connects but never finds DSiRPC: give it the Mac's address
-  in the launcher's settings (L+R).
-- Discord shows nothing while the icon's dot is red: Discord isn't
-  running, or setup has no Discord application yet (menu > Setup...).
-- The game starts but never shows up, and nds-bootstrap's in-game menu
-  (L + Down + SELECT) has no achievements: copy both SD card files from
-  this download (the launcher and nds-bootstrap go together). The menu
-  should say nds-bootstrap-DSiRPC at the bottom; if it says just
+- The icon's dot is red: Discord isn't running, or setup has no Discord
+  application yet (menu > Setup...).
+- The launcher says it needs DSi mode: set it to DSi mode in TWiLight
+  Menu++'s per-game settings.
+- The launcher says "DSiRPC wasn't found": DSiRPC isn't running, or has
+  no Local Network access. If it's running, give the launcher the Mac's
+  address in its settings (L+R).
+- The game starts but never shows up: the in-game menu (L + Down +
+  SELECT) should say nds-bootstrap-DSiRPC at the bottom. If it says just
   nds-bootstrap, the game was started from TWiLight Menu++ instead of the
-  DSiRPC launcher.
-- DSiRPC's settings, log and achievement sets are in
+  launcher. Copy both SD card files from the same download: they go
+  together.
+- "This game has no save file yet": start the game once from TWiLight
+  Menu++, then use the launcher.
+- DSiRPC's settings, log, achievement sets and save backups are in
   ~/Library/Application Support/DSiRPC (menu > Open DSiRPC folder, or
   Open log).
 
@@ -119,12 +114,13 @@ IF SOMETHING DOESN'T WORK
 UPDATING AND REMOVING
 ---------------------------------------------------------------------
 To update, quit DSiRPC and replace DSiRPC.app with the new one. Your
-settings and achievement sets stay. Copy the new SD card files over the
-old ones too. macOS may ask for Local Network access again after an
-update.
+settings, achievement sets and save backups stay. Copy the new SD card
+files over the old ones too. macOS may ask for Local Network access
+again after an update.
 
 To remove DSiRPC, turn off "Open at Login" in its menu, quit it, and
-delete DSiRPC.app and ~/Library/Application Support/DSiRPC.
+delete DSiRPC.app and ~/Library/Application Support/DSiRPC (move its
+saves folder out first to keep your save backups).
 
 DSiRPC is an unofficial fan project, not affiliated with Nintendo, The
 Pokemon Company or RetroAchievements. Licenses: see the licenses folder.

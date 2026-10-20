@@ -1,10 +1,12 @@
 # DSiRPC's tests
 
 Unit and integration tests for the parts that decide whether an achievement
-is missed: the console's own code (offline play's checker, the per-frame
-capture, the ARM9's idle-time write-back), checked against rcheevos frame
-by frame, and the PC side (the offline formats, the launcher's sync, the
-protocol client, the Black/White parser, the hub) against a fake DSi.
+is missed or a save is lost: the console's own code (offline play's
+checker, the per-frame capture, the ARM9's idle-time write-back), checked
+against rcheevos frame by frame; the launcher's ini handling and save sync,
+built for the PC; and DSiRPC's side (the offline formats, the launcher's
+sync, the save store, the protocol client, the Black/White parser, the hub)
+against stand-ins and a fake DSi.
 GitHub runs them all on every change to the code they cover
 ([`.github/workflows/tests.yml`](../.github/workflows/tests.yml)).
 
@@ -24,7 +26,7 @@ GitHub runs them all on every change to the code they cover
 | `test_bw_parser.py` | `core/bw_parser.py` on a made-up Black/White RAM image: trainer, encrypted party, field, battles, the Continue menu, the quick battle and field reads, the gait |
 | `test_hub.py` | `core/hub.py` against the fake DSi in real time: Black/White end to end, the gait in the field, and the RetroAchievements side with and without the console's checker |
 | `test_frame_check.py` | `tools/frame_check.py`: its analysis, arguments, logs, capture and counter search |
-| `test_launcher_ini.py` | The launcher's `nds-bootstrap.ini` handling (`launcher/source/bootstrap_ini.c`): the game, its save (TWiLight's save places and slots), the rest of TWiLight's ini kept as it was, and DS mode for DSi-enhanced games every time (without it, a 3DS ran Pokémon Black with none of DSiRPC) |
+| `test_launcher_ini.py` | The launcher's `nds-bootstrap.ini` handling (`launcher/source/bootstrap_ini.c`): the game, its save (TWiLight's save places and slots), the rest of TWiLight's ini kept as it was, and DS mode for DSi-enhanced games every time |
 
 `helpers/` has the shared pieces: the simulated puzzle game and its sets
 (`puzzle_game.py`, `gen_set.py`), the Black/White RAM image (`bw_fake.py`),

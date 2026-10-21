@@ -175,7 +175,7 @@ static const char *status_text(int status)
 // A try's progress, on one line that's rewritten in place
 static void say_status(const char *text)
 {
-    printf("\x1b[2K  %s", text);
+    printf("\r\x1b[2K  %s", text);
 }
 
 // One try: waits until associated (or not), then for an IPv4 address.

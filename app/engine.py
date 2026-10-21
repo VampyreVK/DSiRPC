@@ -128,7 +128,8 @@ class Engine:
         if not demo and not file:
             from core.console_sync import ConsoleSync
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
-                                            saves=self._save_store, on_saves=self._on_saves)
+                                            saves=self._save_store, on_saves=self._on_saves,
+                                            on_here=self._launcher_here)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
 
     # -- settings ----------------------------------------------------------
@@ -261,7 +262,25 @@ class Engine:
             except (ra_set.SetFileError, OSError, ValueError):
                 title = None
         title = (title or game or '').replace("Pokemon", "Pokémon")
-        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'console': console, 'at': time.time()}
+        seen = self.source.launcher or {}
+        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'console': console, 'at': time.time(),
+                                'here': seen.get('here', False) and seen.get('ip') == ip}
+
+    def _launcher_here(self, ip, here, console="DSi"):
+        """The launcher's "still here" (every 5 s while it waits for a key:
+        it's in the launcher) or its "bye" (it's exiting), so the waiting
+        screen and the tray stop saying the DSi's connected once it's gone
+        (core/hub.py's launcher_state times the rest out)."""
+        if not hasattr(self.source, 'launcher'):
+            return
+        seen = self.source.launcher or {}
+        if not here:
+            if seen.get('ip') == ip:
+                self.source.launcher = None
+            return
+        same = seen.get('ip') == ip
+        self.source.launcher = {'ip': ip, 'game': None, 'title': '', 'at': time.time(), 'here': True,
+                                'console': seen.get('console', console) if same else console}
 
     def _offline_sets(self, game, stamps, unlocks=()):
         """[(code, .DRS bytes)] for the console: the game it's starting
@@ -455,7 +474,7 @@ class Engine:
         old.stop()
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
-                          saves=old.saves, on_saves=old.on_saves)
+                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here)
         try:
             new.start()
         except OSError as e:

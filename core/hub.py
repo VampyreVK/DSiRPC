@@ -141,19 +141,27 @@ class DsiSource:
         self.other = None       # OtherGame while the DSi runs something other than Platinum
         self.bw_started = None  # when Black/White started being read (for Discord's timer)
         self.bw_failed = False  # True: the last Black/White parse didn't look like the game; 'menu': not in the field yet
-        # The launcher's latest sync ({'ip', 'game', 'title', 'at'}), set by
-        # the engine (core/console_sync.py's on_console); see launcher_state.
+        # The launcher's latest sync or "still here" ({'ip', 'game', 'title',
+        # 'console', 'at', 'here'}), set by the engine (core/console_sync.py's
+        # on_console and on_here); see launcher_state.
         self.launcher = None
 
-    LAUNCHER_FRESH_S = 15 * 60   # the launcher doesn't sync again while you pick, so it counts this long
+    LAUNCHER_HERE_S = 20         # a launcher that says it's still there (every 5 s): gone once it stops
+    LAUNCHER_FRESH_S = 15 * 60   # an older one, which doesn't: it doesn't sync again while you pick
+    LAUNCHER_STARTING_S = 120    # starting a game: it says hello well before this
 
     @property
     def launcher_state(self):
-        """The launcher's latest sync while the DSi is in the launcher (or
-        starting the game picked there): None once the game says hello, or
-        when it's old."""
+        """The launcher's latest sync (or "still here") while the DSi is in
+        the launcher, or starting the game picked there: None once the game
+        says hello, once the launcher's gone (it said bye, or stopped saying
+        it's still there), or when the game never said hello."""
         seen = self.launcher
-        if not seen or time.time() - seen['at'] > self.LAUNCHER_FRESH_S:
+        if not seen:
+            return None
+        limit = (self.LAUNCHER_STARTING_S if seen.get('game') else
+                 self.LAUNCHER_HERE_S if seen.get('here') else self.LAUNCHER_FRESH_S)
+        if time.time() - seen['at'] > limit:
             return None
         hellos = self.client.hellos
         if hellos and hellos[-1][0] >= seen['at']:

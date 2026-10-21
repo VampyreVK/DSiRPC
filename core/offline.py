@@ -100,6 +100,11 @@ The sync exchange (one per game started while DSiRPC can be found):
          u16 n sets, u32 reserved; then n x (4 code, u32 size, the .DRS)
        DSiRPC sends every set it has that the console doesn't have (or has an
        older copy of), the game being started first.
+
+While the launcher waits for a key, it sends UDP b"DSiRPC here" + u8 console
+model to the port DSiRPC answered from, every 5 seconds, and b"DSiRPC bye"
+when it exits (SELECT, or exiting connected), so DSiRPC knows when it's in
+the launcher and when it's gone.
 """
 
 import datetime
@@ -114,6 +119,8 @@ SYNC_PORT = 4245
 VERSION = 1
 DISCOVER = b"DSiRPC sync?"
 ANSWER = b"DSiRPC sync!"
+HERE = b"DSiRPC here"
+BYE = b"DSiRPC bye"
 
 UNLOCK_MAGIC = b"DRUL"
 UNLOCK_SLOT = 16
@@ -585,11 +592,17 @@ def parse_request(header, rest_reader):
     return (game.decode() if valid_code(game) else None), stamps, unlocks
 
 
+def console_name(model):
+    """TWiLight Menu++'s CONSOLE_MODEL (0 DSi, 1 DSi devkit, 2 3DS, 3 New
+    3DS) as "3DS" or "DSi"."""
+    return "3DS" if model in (2, 3) else "DSi"
+
+
 def request_console(header):
     """The console a request came from: "3DS" or "DSi". Its last word is
-    TWiLight Menu++'s CONSOLE_MODEL (0 DSi, 1 DSi devkit, 2 3DS, 3 New 3DS);
-    launchers from before it was sent leave 0 there."""
-    return "3DS" if REQUEST.unpack(header)[5] & 0xFF in (2, 3) else "DSi"
+    TWiLight Menu++'s CONSOLE_MODEL; launchers from before it was sent leave
+    0 there."""
+    return console_name(REQUEST.unpack(header)[5] & 0xFF)
 
 
 def build_request(game, stamps, unlocks, console_model=0):

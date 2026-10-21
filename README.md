@@ -69,17 +69,20 @@ Its settings, log, achievement sets and save backups are in
 1. **PC:** start DSiRPC, or turn on **Start with Windows** in its menu so
    it's always there.
 2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
-   connects to Wi-Fi and shows the console's IP address. (Away from your PC?
-   Press **B** to [play offline](#playing-offline).)
+   connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign green)
+   and shows the console's IP address. (Away from your PC? Press **B** to
+   [play offline](#playing-offline).)
 3. Press **START** and pick your game: **A** opens a folder or picks the
-   game, **B** goes up (it opens in `roms/nds`). The launcher starts it,
-   still connected.
+   game, **B** goes up (it opens in `roms/nds`). **START** there starts the
+   game you last started from the launcher, and **SELECT** goes back. The
+   launcher starts it, still connected.
 4. Within about 15 seconds, Discord shows what you're playing and the tray
    icon's dot turns green.
 
 When you close the game, the presence clears after about 30 seconds and
 DSiRPC waits for the console again, so switching games needs nothing on the
-PC.
+PC. Leaving the launcher without starting a game (**SELECT**, or **X** to
+exit connected) clears DSiRPC's "connected" right away.
 
 ## The tray icon
 
@@ -162,14 +165,16 @@ for ROM reads; set the setting to None to turn the achievement LED off. A
 
 ## Save backups
 
-Press **X** in the launcher (while it's connected and DSiRPC is running) to
+Press **Y** in the launcher (while it's connected and DSiRPC is running) to
 back up your saves to the PC and bring newer ones over from it, from your
 other console for example. The launcher finds every game in `roms/nds`
 (subfolders too) and its saves, wherever TWiLight Menu++ keeps them, every
-save slot included. The PC keeps each game's latest save and its last **10
-versions** in a `saves` folder (setup can change the number, and move the
-folder to a cloud drive for an off-site copy). Nothing on either side is
-replaced without its old version going into that history first.
+save slot included (a save no game is named after, like a renamed backup,
+is left alone). The PC keeps each game's latest save and its last **10
+versions** in a `saves` folder, each dated when the console last wrote it
+(setup can change the number, and move the folder to a cloud drive for an
+off-site copy). Nothing on either side is replaced without its old version
+going into that history first.
 
 The list has **Sync all** on top, then each save:
 
@@ -188,7 +193,8 @@ Syncing everything asks about each `!` first, shows how it's going, then a
 summary.
 
 The launcher only reads the saves whose size or time changed since the last
-sync, so checking is quick, and its main screen says how many changed.
+sync, so checking is quick, and its main screen says how many changed on
+the console (newer saves on the PC show up in the list).
 
 ## The launcher's settings
 
@@ -197,7 +203,7 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
 
 - **Find DSiRPC:** automatically (it asks the whole network) or at an
   address, for networks that don't pass the question along. When the
-  launcher finds DSiRPC, it shows its address.
+  launcher finds DSiRPC, its main screen shows the address.
 - **Saves:** back up and sync, or back up only (saves only go to the PC, so
   each console keeps its own).
 
@@ -231,7 +237,7 @@ screen (all six Pokémon with their moves, PP, nature and held item) and back.
 | "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (as in "Nothing on Discord"; the launcher uses port 4245). If it is running, give the launcher the PC's address in [its settings](#the-launchers-settings). Games still start; offline unlocks wait on the SD card. |
 | The game starts but never shows on Discord | nds-bootstrap's in-game menu should say **nds-bootstrap-DSiRPC**: if it says just "nds-bootstrap", the game wasn't started from the launcher. The launcher and `nds-bootstrap-dsirpc.nds` must be from the same release. |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
-| The in-game menu says "no set loaded" or "another game's" | Start the game with **START** in the launcher (not **Y**, and not from TWiLight Menu++): that's what puts its set on the SD card. |
+| The in-game menu says "no set loaded" or "another game's" | Start the game with **START** in the launcher (not **X**, and not from TWiLight Menu++): that's what puts its set on the SD card. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
 | Discord stopped after the DSi's lid was closed | On purpose: a DSi that sleeps while connected switches itself off, so its Wi-Fi goes off with the lid. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |

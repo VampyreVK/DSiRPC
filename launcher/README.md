@@ -8,6 +8,11 @@ It connects with the WPA2 settings saved in DSi connection slots 4-6 using
 BlocksDS + DSWiFi (MIT licensed), and no Wi-Fi password is stored in any file.
 Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
+The text is on the bottom screen. The top screen shows DSiRPC's pixel DSi,
+as on the desktop app's waiting screen (`source/topscreen.c`): its Wi-Fi
+sign lights up arc by arc while the launcher connects, green once it's
+connected, red if it can't, dark offline.
+
 ## What it does
 
 1. Connects with the saved Wi-Fi settings in DSi mode. It tries up to 3
@@ -15,7 +20,8 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    comes from DHCP within 10 s after that (DSWiFi can say "Associated"
    before DHCP has answered). **B** skips it, and **START** when it can't
    connect, for [offline play](#offline-play).
-2. Shows the console's IP and MAC addresses.
+2. Shows the console's IP, gateway and MAC addresses (and DSiRPC's, once
+   it's found, when the main screen is drawn again).
 3. Writes `/RPCHAND.TXT` (`mode=dsi`, `ip=`, `gateway=`, `mask=`, `mac=`,
    `time=`, then `end`) for the in-game side. The name has to be 8.3, because
    nds-bootstrap's ARM7 file lookup only matches short names. `time=` is the
@@ -25,12 +31,13 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 4. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
 5. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
    launcher's own folder if there's no such folder (**A** opens a folder or
-   picks the `.nds`, **B** goes up a folder, **START** goes back). The
-   launcher then:
+   picks the `.nds`, **B** goes up a folder, **START** picks the game last
+   started from the launcher, **SELECT** goes back). The launcher then:
    - finds our nds-bootstrap build next to itself: `nds-bootstrap-dsirpc.nds`,
      or the only `nds-bootstrap*.nds` in that folder. If there's neither, it
      asks you to pick it with the same browser;
-   - points `sd:/_nds/nds-bootstrap.ini` at the game (below);
+   - points `sd:/_nds/nds-bootstrap.ini` at the game (below), and remembers
+     it for **START** in the browser (`LAST_GAME` in `launcher.ini`);
    - syncs with DSiRPC again, naming the game, so DSiRPC can send its set;
    - copies the game's set to `sd:/RPCSET.BIN` (or deletes that file if
      there's no set), makes sure `sd:/RPCUNLK.BIN` is there, and rewrites
@@ -38,35 +45,38 @@ Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
    - starts nds-bootstrap directly, still connected ([CHAINLOAD.md](CHAINLOAD.md)).
 
    **SELECT:** disconnect cleanly, then exit.
-   **Y:** exit without disconnecting, back to your menu (the old way: then
-   start our nds-bootstrap build from there). Y doesn't put a set in
+   **X:** exit without disconnecting, back to your menu (the old way: then
+   start our nds-bootstrap build from there). X doesn't put a set in
    `RPCSET.BIN`, so the console's achievement checker and the in-game
    menu's list only work then if the last game started with START was the
    same one.
-   **X:** the [save sync](#the-save-sync). **L+R:** the
+   **Y:** the [save sync](#the-save-sync). **L+R:** the
    [settings](#settings).
 
 ### The save sync
 
-X lists every game in `sd:/roms/nds` (subfolders too; the whole SD card if
+Y lists every game in `sd:/roms/nds` (subfolders too; the whole SD card if
 there's no such folder) with its saves, found the way TWiLight Menu++ keeps
 them: in a `saves` folder next to the game, in `sd:/roms/nds/saves`, next to
 the game, or in `sd:/_nds/TWiLightMenu/saves`, as `.sav` and `.sav1` to
-`.sav9`. Each save is named to DSiRPC by the game's code and its ROM header's
+`.sav9`. A save no game is named after (a renamed backup, say) is left
+alone. Each save is named to DSiRPC by the game's code and its ROM header's
 CRC, so the same game shares its saves between consoles whatever its file is
 called there.
 
 `saves.idx` in the launcher's folder has each save's size, time and CRC32
-as last seen, and its CRC at its last sync. Only a save whose size or time
-differs is read again (for its CRC); that also tells a save nds-bootstrap
-only touched (it updates a save's time whenever it starts the game) from one
-that changed. The main screen counts the changed ones at startup.
+as last seen, and its CRC at its last sync (or at the last plan that found
+it in sync with the PC). Only a save whose size or time differs is read
+again (for its CRC); that also tells a save nds-bootstrap only touched (it
+updates a save's time whenever it starts the game) from one that changed.
+The main screen counts the changed ones at startup.
 
 DSiRPC (`core/saves.py`) compares each save three ways (the console's now,
 the PC's, and the CRC at the last sync) and answers with a plan: back up,
 take the PC's, ask (changed on both), or nothing. The launcher shows it and
 carries out what you pick, one request per connection
-(`core/save_session.py` describes the exchange). A download goes to a
+(`core/save_session.py` describes the exchange). An upload carries the
+save's time, which dates DSiRPC's copy. A download goes to a
 `.tmp` file, is checked against its CRC, then swapped in, with the old save
 kept as `.bak` until that's done (a scan puts a `.bak` back if the console
 went off in between). A console's save always goes to the PC before
@@ -81,6 +91,8 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
 - `SAVE_MODE`: `sync` (back up, and take newer saves from the PC) or
   `backup` (only back up; DSiRPC keeps those in history and never offers
   them to the other consoles).
+- `LAST_GAME`: the game last started from the launcher, for **START** in
+  the game browser (not on the settings screen).
 
 ### The game, the ini and your save
 
@@ -141,8 +153,8 @@ them.
 
 `source/sync.c`. The launcher broadcasts `DSiRPC sync?` on UDP 4245 for
 1.5 s (or sends it to the address in its settings). If DSiRPC answers, the
-launcher connects to it over TCP (the same
-port) and sends the game being started (if any), the stamp of every set it
+launcher connects to it over TCP (the same port) and sends the game being
+started (if any), the stamp of every set it
 has, and `RPCUNLK.BIN` as it is. DSiRPC answers with how many unlocks it
 took and the sets that are new or changed. When DSiRPC took as many unlocks
 as the launcher counted, the launcher zeroes them in the file; otherwise it
@@ -151,6 +163,11 @@ renamed, so a set that doesn't arrive whole never replaces the old one.
 
 **B** skips the sync at any point. Nothing is lost: unlocks stay on the SD
 card until DSiRPC has them.
+
+Once it has found DSiRPC, the launcher sends it `DSiRPC here` (and the
+console model) every 5 seconds while it waits for a key, and `DSiRPC bye`
+when it exits with **SELECT** or **X**, so DSiRPC stops showing the console
+as connected once the launcher's gone (`sync_frame()`, `sync_bye()`).
 
 ## Build
 
@@ -188,12 +205,13 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | File | What it is |
 |---|---|
 | `source/main.c` | Connecting (with the retries), the results screen and the keys |
-| `source/browser.c` | The file browser |
+| `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread |
+| `source/browser.c` | The file browser (START: the last game) |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
 | `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file; finding DSiRPC (broadcast or the address in the settings) |
 | `source/savesync.c` | The save sync's work: finding the saves, `saves.idx`, the exchange with DSiRPC, safe downloads (tested on a PC against DSiRPC: `tests/test_save_sync.py`) |
 | `source/saveui.c` | The save sync's screens: the list, conflicts, older versions, progress |
-| `source/settings.c` | `launcher.ini` and the settings screen |
+| `source/settings.c` | `launcher.ini` (and the last game) and the settings screen |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
@@ -207,7 +225,7 @@ nds-bootloader and NDS Homebrew Menu's bootstub), and the built
 
 ## Known limits
 
-- If starting nds-bootstrap directly ever fails on a console, **Y** still
+- If starting nds-bootstrap directly ever fails on a console, **X** still
   exits connected the old way.
 - **TWiLight's per-game settings other than the save slot aren't applied**
   to a game picked here; the ini keeps the last launch's.

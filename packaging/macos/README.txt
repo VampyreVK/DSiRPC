@@ -63,17 +63,21 @@ STEP 3: PLAYING
    it's always there.
 
 2. On the console, open DSiRPC/dsirpc-launcher.nds from TWiLight Menu++.
-   It connects to Wi-Fi and shows the console's IP address.
+   It connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign
+   green) and shows the console's IP address. X exits and stays connected,
+   SELECT disconnects and exits.
 
 3. Press START and pick your game (it opens in roms/nds): A opens a
-   folder or picks the game, B goes up. The game starts, still connected.
+   folder or picks the game, B goes up, START picks the game you last
+   started from the launcher, SELECT goes back. The game starts, still
+   connected.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 
 The menu's "Overlay window" opens the overlay for streaming (capture it
 in OBS with a macOS Screen Capture or Window Capture source).
 
-Save backups: X in the launcher backs up your games' saves to the Mac and
+Save backups: Y in the launcher backs up your games' saves to the Mac and
 takes newer ones from it (from your other console, say). The Mac keeps
 each save's last 10 versions (menu > Open save backups). L+R opens the
 launcher's settings: how it finds DSiRPC, and whether saves sync or only

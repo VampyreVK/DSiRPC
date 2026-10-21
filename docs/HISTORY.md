@@ -285,6 +285,35 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-21: **Viv's first round on the save sync, and the launcher's top
+  screen.** The main screen's "(N changed)" didn't match the list: a save
+  the plan found already in sync with the PC (the very save the other
+  console had uploaded, say) kept its old base in `saves.idx`, so the
+  startup check went on counting it, and that check also counted any `.sav`
+  in `roms/nds/saves` it hadn't seen, renamed backups like "(Backup) Pokemon
+  - Platinum Version (USA) (Rev 1).sav" included. Now a save in sync counts
+  as synced as soon as the plan says so, and a new save only counts if a
+  game is named after it (the scan already left the others out); save file
+  names may be up to 127 characters (63 before). An upload carries the
+  save's time (the exchange is version 2; a launcher from another release
+  is told so), and the PC's copy, latest and history alike, is dated by it,
+  not by when it arrived; a restore keeps the version's own time. The main
+  screen's keys are START, SELECT, X (exit connected), Y (the save sync),
+  L+R, it shows the gateway again (not the mask) and DSiRPC's address once
+  it's found, and the save list says X:restore. In the game picker, START
+  starts the game last started from the launcher (`LAST_GAME` in
+  `launcher.ini`) and SELECT backs out. The top screen shows the desktop
+  app's pixel DSi (`topscreen.c`: drawn 4x into an 8-bit bitmap over a
+  tiled, drifting diamond layer, animated by palette entries from a
+  cothread): its Wi-Fi sign lights up arc by arc while connecting, green
+  once connected, red if it can't, dark offline. And DSiRPC no longer shows
+  the console as in the launcher for 15 minutes after it's gone: the
+  launcher says "DSiRPC here" every 5 s while it waits for a key and
+  "DSiRPC bye" on SELECT or X, and the state ends 20 s after the last one
+  (2 minutes for a game being started that never says hello). The build
+  only runs by itself on `main`, pull requests and tags, which is why the
+  branch's pushes only ran the tests. To try on hardware: all of it.
+
 - 2026-10-20 (cleanups): The launcher no longer broadcasts the stage 1
   spike's three UDP test packets on port 4242 (about 3 s at every start),
   shows each connection try's progress on one line in words (DSWiFi's

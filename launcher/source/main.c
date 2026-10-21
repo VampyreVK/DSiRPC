@@ -18,20 +18,27 @@
 //   4. Sync with DSiRPC if it's on the network (source/sync.c): hand over
 //      the unlocks from offline play, take the achievement sets.
 //   5. START: pick a game (.nds) in a file browser that opens in
-//      sd:/roms/nds (or the launcher's folder without one). The launcher
-//      points sd:/_nds/nds-bootstrap.ini at it (source/bootstrap_ini.c),
-//      syncs again (so DSiRPC can send that game's set), puts the game's
-//      set in sd:/RPCSET.BIN and starts our nds-bootstrap build, found next
-//      to the launcher (or picked in the browser), still connected
-//      (source/chainload.c).
+//      sd:/roms/nds (or the launcher's folder without one); START there
+//      picks the game last started from here (launcher.ini's LAST_GAME).
+//      The launcher points sd:/_nds/nds-bootstrap.ini at it
+//      (source/bootstrap_ini.c), syncs again (so DSiRPC can send that
+//      game's set), puts the game's set in sd:/RPCSET.BIN and starts our
+//      nds-bootstrap build, found next to the launcher (or picked in the
+//      browser), still connected (source/chainload.c).
 //      SELECT: disconnect cleanly, then exit.
-//      Y: exit without disconnecting (the old way: back to the menu, then
+//      X: exit without disconnecting (the old way: back to the menu, then
 //      start our nds-bootstrap build from there). Not B, which the file
-//      browser uses to go up a folder and back out.
-//      X: the save sync (source/saveui.c, source/savesync.c): back the
+//      browser uses to go up a folder.
+//      Y: the save sync (source/saveui.c, source/savesync.c): back the
 //      games' saves up to DSiRPC, take newer ones from it.
 //      L+R: the launcher's settings (source/settings.c): DSiRPC's address,
 //      the save sync's mode.
+//
+// The top screen shows DSiRPC's pixel DSi, its Wi-Fi sign lighting up while
+// it connects (source/topscreen.c). While the launcher waits for a key, it
+// tells DSiRPC every few seconds that it's still there, and that it's
+// leaving on SELECT or X (sync_frame() and sync_bye() in source/sync.c), so
+// DSiRPC doesn't show it as connected after it's gone.
 //
 // Offline play: B while connecting, or START when it can't connect, skips
 // the Wi-Fi. Games start the same way, without the syncs, and RPCHAND.TXT
@@ -59,6 +66,7 @@
 #include "savesync.h"
 #include "settings.h"
 #include "sync.h"
+#include "topscreen.h"
 
 #define CONNECT_TRIES     3
 #define CONNECT_TIMEOUT_S 30   // per try, until associated
@@ -93,7 +101,7 @@ static void wait_for_key_release(void)
 {
     while (1)
     {
-        cothread_yield_irq(IRQ_VBLANK);
+        sync_frame();
         scanKeys();
         if ((keysHeld() & (KEY_START | KEY_SELECT | KEY_A | KEY_B | KEY_X | KEY_Y | KEY_L | KEY_R)) == 0)
             break;
@@ -104,7 +112,7 @@ static u32 wait_for_keys(u32 keys)
 {
     while (1)
     {
-        cothread_yield_irq(IRQ_VBLANK);
+        sync_frame();
         scanKeys();
         u32 down = keysDown() & keys;
         if (down & KEY_START)
@@ -293,6 +301,7 @@ static bool run_sync(const char *game)
 static void go_offline(bool wifi_ready, bool have_fat)
 {
     online = false;
+    top_set(TOP_OFFLINE);
     if (wifi_ready)
     {
         Wifi_DisconnectAP();
@@ -383,13 +392,15 @@ static void start_game(const char *dir)
 {
     char game[PATH_LEN], bootstrap[PATH_LEN], msg[256];
 
-    // TWiLight's usual games folder, or the launcher's own
-    if (!browse_for_file("Pick a game", dir_exists(GAMES_DIR) ? GAMES_DIR : dir, ".nds", game, sizeof(game)))
+    // TWiLight's usual games folder, or the launcher's own; START there
+    // picks the game last started from here, if it's still there
+    const char *last = settings.last_game[0] != '\0' && file_exists(settings.last_game) ? settings.last_game : NULL;
+    if (!browse_for_file("Pick a game", dir_exists(GAMES_DIR) ? GAMES_DIR : dir, ".nds", last, game, sizeof(game)))
         return;
 
     if (!find_bootstrap(dir, bootstrap, sizeof(bootstrap)))
     {
-        if (!browse_for_file("Pick " BOOTSTRAP_NAME, dir, ".nds", bootstrap, sizeof(bootstrap)))
+        if (!browse_for_file("Pick " BOOTSTRAP_NAME, dir, ".nds", NULL, bootstrap, sizeof(bootstrap)))
             return;
     }
 
@@ -397,6 +408,11 @@ static void start_game(const char *dir)
     {
         show_message(msg);
         return;
+    }
+    if (strcmp(settings.last_game, game) != 0)
+    {
+        snprintf(settings.last_game, sizeof(settings.last_game), "%s", game);
+        settings_save(settings_path, &settings);
     }
 
     consoleClear();
@@ -430,8 +446,14 @@ static void start_game(const char *dir)
 
 static void print_connection(void)
 {
-    printf("\nIP:   %s\n", ip_str);
-    printf("MAC:  %s\n", mac_str);
+    printf("\nIP:     %s\n", ip_str);
+    printf("GW:     %s\n", gw_str);
+    printf("MAC:    %s\n", mac_str);
+    if (sync_found_addr != 0)
+    {
+        struct in_addr dsirpc = { .s_addr = sync_found_addr };
+        printf("DSiRPC: %s\n", inet_ntoa(dsirpc));
+    }
 }
 
 // Where the save sync looks for games: TWiLight's usual folder, or the whole
@@ -446,14 +468,14 @@ static void print_keys(void)
     printf("\nSTART:  pick a game\n");
     if (online)
     {
-        printf("X:      sync saves");
+        printf("SELECT: disconnect, then exit\n");
+        printf("X:      exit, stay connected\n");
+        printf("Y:      sync saves");
         if (saves_changed > 0)
             printf(" \x1b[32;1m(%d changed)\x1b[39;0m", saves_changed);
         else if (saves_changed == -1)
             printf(" (not synced)");
         printf("\n");
-        printf("SELECT: disconnect, then exit\n");
-        printf("Y:      exit, stay connected\n");
     }
     else
     {
@@ -487,7 +509,7 @@ static u32 wait_main_keys(u32 keys)
 {
     while (1)
     {
-        cothread_yield_irq(IRQ_VBLANK);
+        sync_frame();
         scanKeys();
         u32 held = keysHeld(), down = keysDown();
         if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (down & (KEY_L | KEY_R)))
@@ -503,12 +525,14 @@ static u32 wait_main_keys(u32 keys)
 int main(int argc, char *argv[])
 {
     consoleDemoInit();
+    top_init();
 
     printf("DSiRPC launcher\n");
     printf("---------------\n");
 
     if (!isDSiMode())
     {
+        top_set(TOP_FAILED);
         printf("\nThe launcher needs DSi mode\n");
         printf("(for WPA2). Set it in TWiLight\n");
         printf("Menu++'s per-game settings.\n\n");
@@ -542,6 +566,7 @@ int main(int argc, char *argv[])
 
     if (connected == NOT_CONNECTED)
     {
+        top_set(TOP_FAILED);
         if (wifi_ready)
         {
             printf("\nCouldn't connect. Check\n");
@@ -560,6 +585,7 @@ int main(int argc, char *argv[])
     else
     {
         online = true;
+        top_set(TOP_CONNECTED);
 
         struct in_addr gateway = { 0 }, mask = { 0 }, dns1 = { 0 }, dns2 = { 0 };
         struct in_addr ip = Wifi_GetIPInfo(&gateway, &mask, &dns1, &dns2);
@@ -604,7 +630,7 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        if (key == KEY_X)
+        if (key == KEY_Y)
         {
             if (have_fat)
             {
@@ -635,6 +661,8 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        // SELECT or X: leaving
+        sync_bye();
         if (key == KEY_SELECT && online)
         {
             printf("Disconnecting...\n");
@@ -645,7 +673,7 @@ int main(int argc, char *argv[])
         break;
     }
 
-    // No Wifi_DisconnectAP()/Wifi_DisableWifi() on the Y path, on purpose:
+    // No Wifi_DisconnectAP()/Wifi_DisableWifi() on the X path, on purpose:
     // the chip is left associated when control returns to the loader.
     return 0;
 }

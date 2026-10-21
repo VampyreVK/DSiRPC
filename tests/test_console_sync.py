@@ -107,6 +107,26 @@ def test_discovery(start):
     assert discover(sync.port, b"something else") is None
 
 
+def test_the_launchers_still_here_and_bye():
+    heard = []
+    engine = Engine()
+    sync = ConsoleSync(engine.sets_for, engine.on_unlocks, engine.on_console, port=0, host=HOST,
+                       on_here=lambda ip, here, console: heard.append((ip, here, console)))
+    sync.start()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(offline.HERE + bytes([2]), (HOST, sync.port))     # a 3DS, still in the launcher
+        s.sendto(offline.BYE, (HOST, sync.port))                   # leaving it
+        s.close()
+        end = time.monotonic() + 5
+        while len(heard) < 2 and time.monotonic() < end:
+            time.sleep(0.02)
+        assert heard == [(HOST, True, "3DS"), (HOST, False, "DSi")]
+        assert discover(sync.port) is not None                     # and the door still works
+    finally:
+        sync.stop()
+
+
 def test_unlocks_handed_over_and_sets_taken(start):
     engine = Engine(sets=[("IRBO", b"black's set"), ("CPUE", b"platinum's")])
     sync = start(engine)

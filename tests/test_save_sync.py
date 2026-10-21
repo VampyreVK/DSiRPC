@@ -1,9 +1,10 @@
 """The launcher's save sync end to end: launcher/source/savesync.c (with
 sync.c and settings.c) built for the PC, talking to DSiRPC's ConsoleSync and
 SaveStore on loopback, on SD cards in temporary folders. A DSi and a 3DS
-(different file names for the same game) share saves, the two-stage check,
-conflicts both ways, restores, back-up-only mode, exclusions, a swap that
-didn't finish, and the launcher's settings."""
+(different file names for the same game) share saves, the two-stage check
+(stray saves left out, saves already in sync not counted), the PC's copies
+dated by the console's clock, conflicts both ways, restores, back-up-only
+mode, exclusions, a swap that didn't finish, and the launcher's settings."""
 
 import os
 import subprocess
@@ -144,10 +145,36 @@ def test_the_two_stage_check(host, pc, tmp_path):
     os.utime(save, (1_900_000_000, 1_900_000_000))
     assert dsi.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
     assert not items(dsi.run())[("Pokemon Black", 0)]["changed"]
-    # Played and saved, and a new game's first save
+    # Played and saved, and a new game's first save; a save no game is named
+    # after (a renamed backup) doesn't count
     dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"save 2" * 50)
+    dsi.put("sd:/roms/nds/Puzzles/Picross.nds", rom("APKE", 0x0042))
     dsi.put("sd:/roms/nds/saves/Picross.sav", b"new")
+    dsi.put("sd:/roms/nds/saves/(Backup) Pokemon Black.sav", b"an old copy")
     assert dsi.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 2"
+    assert ("(Backup) Pokemon Black", 0) not in items(dsi.run())
+
+
+def test_dated_copies_and_saves_already_in_sync(host, pc, tmp_path):
+    port, store = pc
+    key = saves.game_key("IRBO", 0x1A2B)
+    dsi = Console(host, port, str(tmp_path / "dsi"))
+    dsi.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+    dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"black")
+    os.utime(os.path.join(dsi.root, "sd:/roms/nds/saves/Pokemon Black.sav"), (1_760_000_000, 1_760_000_000))
+    dsi.run("plan", "sync *")
+    # The PC's copy is dated when the DSi wrote the save (its clock's time), not when it arrived
+    written = int(saves.from_console_time(1_760_000_000 - 946_684_800))
+    rec = store.latest(key, 0)
+    assert int(rec["time"]) == written
+    assert int(os.stat(os.path.join(store.root, store.data["games"][key]["folder"], rec["file"])).st_mtime) == written
+    # A 3DS that already has the very same save (copied over by hand): in sync, and from its
+    # first look at the list on, not counted as changed at startup
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    three.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+    three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"black")
+    assert actions(three.run("plan")) == {("Pokemon Black", 0): saves.IN_SYNC}
+    assert three.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
 
 
 def test_conflicts_both_ways(host, pc, tmp_path):
@@ -260,8 +287,8 @@ def test_the_launchers_settings(host, pc, tmp_path):
     port, _ = pc
     dsi = Console(host, port, str(tmp_path / "dsi"))
     out = dsi.run("settings sd:/DSiRPC/launcher.ini|192.168.1.20|backup", scan=False)
-    assert out[-1] == "settings 1 192.168.1.20 1 C0A80114"
-    out = dsi.run("settings sd:/DSiRPC/launcher.ini|-|sync", scan=False)
-    assert out[-1] == "settings 1 - 0 00000000"
+    assert out[-1] == "settings 1 192.168.1.20 1 C0A80114 -"
+    out = dsi.run("settings sd:/DSiRPC/launcher.ini|-|sync|sd:/roms/nds/Pokemon Black (USA).nds", scan=False)
+    assert out[-1] == "settings 1 - 0 00000000 sd:/roms/nds/Pokemon Black (USA).nds"    # START in the picker
     out = dsi.run("settings sd:/DSiRPC/check.ini|10.0.0.256|sync", scan=False)
-    assert out[-1] == "settings 1 - 0 00000000"                       # not an address: looked for instead
+    assert out[-1] == "settings 1 - 0 00000000 -"                     # not an address: looked for instead

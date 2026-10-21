@@ -15,8 +15,10 @@ False to leave the unlocks on the console (a dry run), anything else lets the
 launcher clear them. on_console(ip, game, console), if given, hears about each sync as
 it starts: the launcher syncs once it's connected (game None) and again as it
 starts a game (its code), so DSiRPC knows the DSi is there before the game
-says hello. Everything here runs on this module's thread; the console waits
-while it works.
+says hello. on_here(ip, here, console), if given, hears the launcher's
+"still here" (here True, every 5 s while it waits for a key) and its "bye"
+(False, as it exits). Everything here runs on this module's thread; the
+console waits while it works.
 
 The launcher's save sync uses the same port: a connection that starts with
 "DRSV" instead of "DRSQ" goes to core/save_session.py, with the SaveStore
@@ -38,10 +40,11 @@ HANGUP_TIMEOUT = 5.0
 
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
-                 saves=None, on_saves=None):
+                 saves=None, on_saves=None, on_here=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
+        self.on_here = on_here
         self.saves = saves
         self.on_saves = on_saves
         self.port = port
@@ -108,6 +111,13 @@ class ConsoleSync:
         data, addr = self.udp.recvfrom(64)
         if data.startswith(offline.DISCOVER):
             self.udp.sendto(offline.ANSWER + struct.pack("<BH", offline.VERSION, self.port), addr)
+        elif self.on_here and (data.startswith(offline.HERE) or data.startswith(offline.BYE)):
+            here = data.startswith(offline.HERE)
+            model = data[len(offline.HERE)] if here and len(data) > len(offline.HERE) else 0
+            try:
+                self.on_here(addr[0], here, offline.console_name(model))
+            except Exception:
+                logging.exception("Offline sync: on_here failed")
 
     def _exchange(self, conn, addr):
         conn.settimeout(ACCEPT_TIMEOUT)

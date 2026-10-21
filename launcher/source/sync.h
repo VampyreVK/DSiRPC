@@ -56,6 +56,19 @@ bool stage_set(const char *sets_dir, const char *game, const char *dest);
 // The 4-letter game code from an .nds file's header ("" if unreadable).
 void read_game_code(const char *nds_path, char code[5]);
 
+// Where DSiRPC was last found (network order), or 0: set by each search
+// (the syncs, the save sync), cleared when one finds nothing.
+extern uint32_t sync_found_addr;
+
+// Waits for the next frame. Every 5 s, it also tells DSiRPC (if it was
+// found) that the launcher's still there, so DSiRPC can tell when it's gone:
+// the launcher's screens wait with this while they wait for a key.
+void sync_frame(void);
+
+// Tells DSiRPC the launcher's leaving (SELECT, or exiting connected), and
+// stops the "still there"s.
+void sync_bye(void);
+
 // The network side, shared with the save sync (savesync.c). Each returns 1
 // when done, 0 if the job was cancelled (B), -1 if it failed (msg says why).
 struct sockaddr_in;

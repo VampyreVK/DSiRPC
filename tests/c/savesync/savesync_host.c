@@ -6,13 +6,14 @@
 //   console MAC(12 hex)|model|sync or backup
 //   scan games_dir|index_dir        item lines: name|slot|present|changed|excluded|crc|base|path
 //   plan                            action lines: name|slot|action|pc_crc|versions|source
+//                                   (saves.idx written after it, as the screen does)
 //   sync name|slot[|keep or take]   (name "*": every item with something to do)
 //   exclude name|slot
 //   versions name|slot              version lines: version|size|crc|source
 //   restore name|slot|version
 //   quick games_dir|index_dir
 //   done
-//   settings path|ip or -|sync or backup   (writes them, reads them back)
+//   settings path|ip or -|sync or backup[|last game]   (writes them, reads them back)
 //
 // argv[1]: DSiRPC's TCP port (the console looks for it at 127.0.0.1).
 
@@ -120,6 +121,8 @@ int main(int argc, char *argv[])
         else if (strcmp(line, "plan") == 0)
         {
             int r = saves_plan(&job, &console, &list, &server, msg, sizeof(msg));
+            if (r > 0)
+                saves_write_index(&list);
             printf("plan %d %s\n", r, msg);
             for (int i = 0; i < list.count; i++)
             {
@@ -190,18 +193,20 @@ int main(int argc, char *argv[])
             saves_done(&job, &console, &server, &counts);
             printf("done\n");
         }
-        else if (strcmp(line, "settings") == 0 && nf == 3)
+        else if (strcmp(line, "settings") == 0 && nf >= 3)
         {
             LauncherSettings s;
             memset(&s, 0, sizeof(s));
             if (strcmp(f[1], "-") != 0)
                 snprintf(s.dsirpc_ip, sizeof(s.dsirpc_ip), "%s", f[1]);
             s.backup_only = strcmp(f[2], "backup") == 0;
+            if (nf == 4)
+                snprintf(s.last_game, sizeof(s.last_game), "%s", f[3]);
             int saved = settings_save(f[0], &s);
             LauncherSettings back;
             settings_load(f[0], &back);
-            printf("settings %d %s %d %08X\n", saved, back.dsirpc_ip[0] ? back.dsirpc_ip : "-", back.backup_only,
-                   ntohl(settings_server_addr(&back)));
+            printf("settings %d %s %d %08X %s\n", saved, back.dsirpc_ip[0] ? back.dsirpc_ip : "-", back.backup_only,
+                   ntohl(settings_server_addr(&back)), back.last_game[0] ? back.last_game : "-");
         }
         else
         {

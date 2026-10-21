@@ -9,7 +9,8 @@
 // The saves are found through the games: every .nds in the games folder
 // (subfolders too), its save next to it in a "saves" folder, in the games
 // folder's "saves" folder, next to it, or in TWiLight Menu++'s saves folder,
-// as .sav and .sav1 to .sav9 (TWiLight's save slots).
+// as .sav and .sav1 to .sav9 (TWiLight's save slots). A save no game is
+// named after (a renamed backup, say) is left alone.
 //
 // saves.idx (in the launcher's folder) remembers each save as it was at its
 // last sync: size, modified time and CRC32. A save whose size and time match
@@ -121,7 +122,8 @@ void saves_free(SaveList *list);
 
 // At startup: how many saves changed since the last sync (stage 1, and
 // stage 2 for what that flags; new saves in the games folder's "saves"
-// folder count too). -1 if there has never been a sync.
+// folder count too, if a game is named after them). -1 if there has never
+// been a sync.
 int saves_quick_check(const char *games_dir, const char *index_dir);
 
 // Writes saves.idx: every save's state at its last sync, and the exclusions.
@@ -129,7 +131,8 @@ bool saves_write_index(const SaveList *list);
 
 // Sends the list to DSiRPC (found first; *server is filled in) and takes its
 // plan: each item's action and the PC's side. Items for saves DSiRPC has but
-// this console doesn't (for its games) are added. 1: done, 0: cancelled,
+// this console doesn't (for its games) are added, and the saves it says are
+// in sync count as synced (write saves.idx after). 1: done, 0: cancelled,
 // -1: failed (msg).
 int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
                struct sockaddr_in *server, char *msg, size_t msgsz);

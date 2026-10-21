@@ -20,7 +20,8 @@ someone browses the list on the console. Little-endian throughout:
                     source)
     op 2, upload:   code[4] | header CRC u16 | slot u8 | kind u8 (1 sync,
                     2 backup, 3 a save about to be replaced) | size u32 |
-                    CRC u32 | name length u8 | name | the save
+                    CRC u32 | time u32 (when the console last wrote it, 0
+                    if it can't tell) | name length u8 | name | the save
         answer:     "DRSK" | status u16
     op 3, download: code[4] | header CRC u16 | slot u8 | version u8 (0 the
                     latest, 1.. history, newest first) | flags u8 (bit 0:
@@ -32,9 +33,11 @@ someone browses the list on the console. Little-endian throughout:
     op 5, done:     uploaded u16 | downloaded u16 | backed up u16 | failed u16
         answer:     "DRSK" | status u16
 
-Times are seconds since 2000-01-01, local time, as the console counts.
+Times are seconds since 2000-01-01, local time, as the console counts. An
+uploaded save's copies here are dated by its time (the file and its record).
 Status: 0 OK, 1 not found, 2 damaged (CRC mismatch), 3 can't store,
-4 bad request, 5 save backups are off.
+4 bad request, 5 save backups are off, 6 another version of the exchange
+(the launcher and DSiRPC are from different releases).
 """
 
 import logging
@@ -42,19 +45,19 @@ import struct
 
 from . import saves
 
-VERSION = 1
+VERSION = 2
 MAGIC = b"DRSV"
 HEADER = struct.Struct("<4sHH6sBB")
 PLAN_ENTRY = struct.Struct("<4sHBBIIIB")
 PLAN_ITEM = struct.Struct("<4sHBBIIIBB")
-PUT = struct.Struct("<4sHBBIIB")
+PUT = struct.Struct("<4sHBBIIIB")
 GET = struct.Struct("<4sHBBB")
 HIST = struct.Struct("<4sHB")
 HIST_ITEM = struct.Struct("<BIIIB")
 DONE = struct.Struct("<HHHH")
 
 OP_PLAN, OP_PUT, OP_GET, OP_HIST, OP_DONE = 1, 2, 3, 4, 5
-OK, NOT_FOUND, DAMAGED, CANT_STORE, BAD_REQUEST, OFF = range(6)
+OK, NOT_FOUND, DAMAGED, CANT_STORE, BAD_REQUEST, OFF, OTHER_RELEASE = range(7)
 FLAG_BACKUP_ONLY = 1
 STATE_PRESENT, STATE_EXCLUDED = 1, 2
 GET_MAKE_LATEST = 1
@@ -95,7 +98,12 @@ def handle(magic, read, send, store, on_event=None):
     def refuse(status):
         send(answers.get(op, b"DRSK") + struct.pack("<H", status) + tail.get(op, b""))
 
-    if version != VERSION or op not in answers:
+    if version != VERSION:
+        logging.warning(f"Save sync from the {who}: the launcher speaks version {version} of the exchange, "
+                        f"DSiRPC {VERSION} (different releases?)")
+        refuse(OTHER_RELEASE)
+        return
+    if op not in answers:
         refuse(BAD_REQUEST)
         return
     if store is None:
@@ -146,7 +154,7 @@ def _plan(read, send, store, backup_only):
 
 
 def _put(read, send, store, who, on_event):
-    code, hcrc, slot, kind, size, crc, name_len = PUT.unpack(read(PUT.size))
+    code, hcrc, slot, kind, size, crc, when, name_len = PUT.unpack(read(PUT.size))
     name = _text(read, name_len)
     if size > saves.MAX_SAVE_SIZE or slot > saves.MAX_SLOT or kind not in (saves.PUT_SYNC, saves.PUT_BACKUP,
                                                                          saves.PUT_SAFETY):
@@ -155,7 +163,7 @@ def _put(read, send, store, who, on_event):
     data = read(size)
     key = saves.game_key(code, hcrc)
     try:
-        stored = store.put(key, slot, name, data, crc, kind, who)
+        stored = store.put(key, slot, name, data, crc, kind, who, when=saves.from_console_time(when))
     except saves.SaveError as e:
         logging.warning(f"Save sync from the {who}: {name}: {e}")
         send(b"DRSK" + struct.pack("<H", DAMAGED))

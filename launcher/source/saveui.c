@@ -12,12 +12,12 @@
 //     x Picross 3D                 grey: left out (Y)
 //   -------------------------------
 //   Newer on the PC (3DS 3F21)     the selected save
-//   A:sync Y:leave out X:older
+//   A:sync Y:leave out X:restore
 //   START:sync all  B:back
 //
 //   Up/Down: move   L/R or Left/Right: a page   A: sync the one picked
 //   (or all, on Sync all)   START: sync all   Y: leave out / include
-//   X: older versions (restore one)   B: back to the launcher
+//   X: the versions the PC keeps (restore one)   B: back to the launcher
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,7 +56,7 @@ static int n_shown;
 
 static void next_frame(void)
 {
-    cothread_yield_irq(IRQ_VBLANK);
+    sync_frame();
     scanKeys();
 }
 
@@ -318,7 +318,7 @@ static void draw_list(int sel, int top)
     {
         printf("\x1b[21;0H%-31.31s", n_shown ? "Sync everything that changed" : "No saves to sync");
     }
-    printf("\x1b[22;0HA:sync Y:leave out X:older");
+    printf("\x1b[22;0HA:sync Y:leave out X:restore");
     printf("\x1b[23;0HSTART:sync all  B:back");
 }
 
@@ -540,7 +540,7 @@ void save_sync_screen(const SaveUi *ui)
         saves_free(&list);
         return;
     }
-    saves_write_index(&list);   // what stage 2 found, so it isn't read again
+    saves_write_index(&list);   // what stage 2 found, so it isn't read again, and what's in sync
     build_shown();
 
     int sel = 0, top = 0;
@@ -597,7 +597,10 @@ void save_sync_screen(const SaveUi *ui)
                 consoleClear();
                 printf("Asking DSiRPC...\n");
                 if (saves_plan(&job, &console, &list, &server, msg, sizeof(msg)) > 0)
+                {
+                    saves_write_index(&list);
                     build_shown();
+                }
                 else
                     message("Save sync", msg[0] ? msg : "DSiRPC wasn't found");
                 if (sel > n_shown)

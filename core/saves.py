@@ -24,7 +24,9 @@ last `keep` versions of each save (dsirpc.cfg's versions, 10 by default),
 and nothing is ever replaced without its old version going there first.
 
 saves.json in the backups folder lists it all, with each version's CRC32
-(zlib's), size, time and where it came from.
+(zlib's), size, time and where it came from. A save's time, and its file's
+date, is when the console last wrote it (as its clock says), not when it
+was copied here.
 
 Whether a save changed is decided three ways, the way RetroAchievements'
 cloud sync and Syncthing do: the console sends each save's CRC now and its
@@ -44,6 +46,7 @@ import logging
 import os
 import re
 import threading
+import time
 import zlib
 
 # What the plan says to do with each save (the same numbers in savesync.h)
@@ -91,6 +94,21 @@ def to_console_time(t):
         return max(0, int((datetime.datetime.fromtimestamp(t) - EPOCH_2000).total_seconds()))
     except (OverflowError, OSError, ValueError):
         return 0
+
+
+def from_console_time(t):
+    """The other way round: a console's time (seconds since 2000-01-01, its
+    local time) as a PC time, or None if it didn't say (0) or its clock
+    can't be right (before 2005, or days ahead of this PC's)."""
+    if not t:
+        return None
+    try:
+        when = (EPOCH_2000 + datetime.timedelta(seconds=t)).timestamp()
+    except (OverflowError, OSError, ValueError):
+        return None
+    if when < datetime.datetime(2005, 1, 1).timestamp() or when > time.time() + 2 * 86400:
+        return None
+    return when
 
 
 def safe_name(name, fallback):
@@ -202,14 +220,20 @@ class SaveStore:
 
     # -- writing -----------------------------------------------------------
 
-    def _write(self, key, rel, data):
-        """Writes a file in the game's folder; returns its modified time."""
+    def _write(self, key, rel, data, when=None):
+        """Writes a file in the game's folder, dated `when` (a PC time) if
+        given; returns its modified time."""
         path = os.path.join(self._folder(key), rel)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
+        if when is not None:
+            try:
+                os.utime(path, (when, when))
+            except (OSError, OverflowError, ValueError) as e:
+                logging.info(f"Save backups: can't date {path} ({e})")
         return int(os.stat(path).st_mtime)
 
     def _refresh_latest(self, key, slot):
@@ -275,7 +299,7 @@ class SaveStore:
         if any(r and r["crc"] == crc for r in [s["latest"]] + s["history"]):
             return False                        # already kept
         rel = self._history_name(key, slot, when, source)
-        self._write(key, rel, data)
+        self._write(key, rel, data, when)
         s["history"].append({"file": rel, "crc": crc, "size": len(data), "time": when,
                              "source": source, "reason": reason})
         return True
@@ -295,8 +319,10 @@ class SaveStore:
     def put(self, key, slot, name, data, crc, kind, source, when=None):
         """Keeps an uploaded save. kind PUT_SYNC makes it the latest (the old
         latest goes into history); PUT_BACKUP and PUT_SAFETY (a console's save
-        about to be replaced) only add it to history. Raises SaveError if the
-        data doesn't match its CRC. Returns True if anything was stored."""
+        about to be replaced) only add it to history. when: when the console
+        last wrote the save (a PC time; now if None), its time here and its
+        file's date. Raises SaveError if the data doesn't match its CRC.
+        Returns True if anything was stored."""
         if not 0 <= slot <= MAX_SLOT or len(data) > MAX_SAVE_SIZE:
             raise SaveError("bad slot or size")
         if crc32(data) != crc:
@@ -311,7 +337,7 @@ class SaveStore:
                 rel = self.data["games"][key]["name"] + slot_ext(slot)
                 if old:
                     self._to_history(key, slot, old)
-                mtime = self._write(key, rel, data)
+                mtime = self._write(key, rel, data, when)
                 s["latest"] = {"file": rel, "crc": crc, "size": len(data), "time": when,
                                "source": source, "reason": "sync", "mtime": mtime}
                 stored = True
@@ -324,12 +350,13 @@ class SaveStore:
 
     def restore(self, key, slot, version, source):
         """Makes history version `version` the latest (sync mode's restore:
-        the other consoles are offered it too). Returns (bytes, record)."""
+        the other consoles are offered it too), keeping its time. Returns
+        (bytes, record)."""
         data, rec = self.read(key, slot, version)
         if version == 0:
             return data, rec
         name = self.data["games"][key]["name"]
-        self.put(key, slot, name, data, rec["crc"], PUT_SYNC, f"{source}, restored")
+        self.put(key, slot, name, data, rec["crc"], PUT_SYNC, f"{source}, restored", when=rec.get("time"))
         return data, self.latest(key, slot)
 
     # -- the plan ----------------------------------------------------------

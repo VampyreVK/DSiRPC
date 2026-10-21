@@ -105,6 +105,23 @@ def test_restore(store):
     assert actions(store, [entry(data=new, base=crc32(new))]) == [(0, DOWNLOAD)]
 
 
+def test_dated_by_the_consoles_time(store, tmp_path):
+    folder = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]"
+    store.put(KEY, 0, "Pokemon Black", b"one", crc32(b"one"), PUT_SYNC, "DSi 0001", when=1_700_000_000)
+    assert int((folder / "Pokemon Black.sav").stat().st_mtime) == 1_700_000_000
+    store.put(KEY, 0, "Pokemon Black", b"kept", crc32(b"kept"), PUT_SAFETY, "3DS 0002", when=1_700_003_600)
+    kept = store.history(KEY, 0)[1]
+    assert int((folder / kept["file"]).stat().st_mtime) == 1_700_003_600 == int(kept["time"])
+    store.put(KEY, 0, "Pokemon Black", b"two", crc32(b"two"), PUT_SYNC, "DSi 0001", when=1_700_007_200)
+    # A restore keeps the version's own time (file and record)
+    one = next(v for v in store.history(KEY, 0) if v["crc"] == crc32(b"one"))
+    store.restore(KEY, 0, one["version"], "DSi 0001")
+    assert int(store.latest(KEY, 0)["time"]) == 1_700_000_000
+    assert int((folder / "Pokemon Black.sav").stat().st_mtime) == 1_700_000_000
+    assert saves.from_console_time(saves.to_console_time(1_700_000_000)) == 1_700_000_000
+    assert saves.from_console_time(0) is None and saves.from_console_time(60) is None   # unknown, 2000
+
+
 def test_damaged_uploads_and_files(store, tmp_path):
     with pytest.raises(saves.SaveError):
         store.put(KEY, 0, "Pokemon Black", b"save", 1234, PUT_SYNC, "DSi 0001")

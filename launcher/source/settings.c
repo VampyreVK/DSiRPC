@@ -6,6 +6,7 @@
 //   [LAUNCHER]
 //   DSIRPC_IP = 192.168.1.20      (empty: look for DSiRPC with a broadcast)
 //   SAVE_MODE = sync              (or backup: never take a save from the PC)
+//   LAST_GAME = sd:/roms/nds/Pokemon Black.nds   (START in the game picker)
 
 #include <stdio.h>
 #include <string.h>
@@ -53,6 +54,7 @@ void settings_load(const char *path, LauncherSettings *s)
         snprintf(s->dsirpc_ip, sizeof(s->dsirpc_ip), "%s", value);
     if (ini_get(path, SECTION, "SAVE_MODE", value, sizeof(value)) == 1)
         s->backup_only = strcasecmp(value, "backup") == 0;
+    ini_get(path, SECTION, "LAST_GAME", s->last_game, sizeof(s->last_game));
 }
 
 bool settings_save(const char *path, const LauncherSettings *s)
@@ -66,8 +68,10 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "DSIRPC_IP = %s\r\n"
                "; The save sync: sync (back up and take newer saves from the PC)\r\n"
                "; or backup (only back up)\r\n"
-               "SAVE_MODE = %s\r\n",
-            s->dsirpc_ip, s->backup_only ? "backup" : "sync");
+               "SAVE_MODE = %s\r\n"
+               "; The game last started from the launcher (START in the game picker)\r\n"
+               "LAST_GAME = %s\r\n",
+            s->dsirpc_ip, s->backup_only ? "backup" : "sync", s->last_game);
     return fclose(f) == 0;
 }
 
@@ -81,6 +85,8 @@ uint32_t settings_server_addr(const LauncherSettings *s)
 
 #ifdef __NDS__
 #include <nds.h>
+
+#include "sync.h"
 
 enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROWS };
 
@@ -124,7 +130,7 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
     if (row == ROW_FIND)
         printf("How the launcher finds DSiRPC.\nAutomatically works on most\nnetworks; use an address if it\nisn't found.\n");
     else if (row == ROW_ADDRESS)
-        printf("The PC's IP address. The\nlauncher shows it when it\nfinds DSiRPC.\n");
+        printf("The PC's IP address. The\nlauncher shows it when it\nfinds DSiRPC (DSiRPC: ...).\n");
     else
         printf("Back up and sync: newer saves\nfrom the PC come here too.\nBack up only: saves only go to\nthe PC, so each console can\nkeep its own.\n");
     printf("\x1b[21;0H-------------------------------\n");
@@ -152,7 +158,7 @@ void settings_screen(const char *path, LauncherSettings *s, const char *current_
         u32 down;
         do
         {
-            cothread_yield_irq(IRQ_VBLANK);
+            sync_frame();
             scanKeys();
             down = keysDownRepeat();
         } while (down == 0);

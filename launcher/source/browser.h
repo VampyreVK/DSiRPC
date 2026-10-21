@@ -10,9 +10,10 @@
 
 // Lets the user pick a file whose name ends in `extension` (e.g. ".nds"),
 // starting in `start_dir` ("sd:/..."; the SD root if it can't be opened).
-// `title` is shown at the top. Returns true with the full path in out, or
-// false if the user backed out.
+// `title` is shown at the top. START picks `quick` (shown above the keys)
+// if it isn't NULL. Returns true with the full path in out, or false if the
+// user backed out.
 bool browse_for_file(const char *title, const char *start_dir, const char *extension,
-                     char *out, size_t outsz);
+                     const char *quick, char *out, size_t outsz);
 
 #endif // BROWSER_H__

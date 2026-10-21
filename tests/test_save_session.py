@@ -1,8 +1,10 @@
 """core/save_session.py through core/console_sync.py over loopback TCP, with a
 stand-in for the launcher (launcher/source/savesync.c): the plan, uploads in
-each kind, downloads, history, a restore, the summary event, damaged and bad
-requests, and save backups turned off."""
+each kind (dated by the console's time), downloads, history, a restore, the
+summary event, damaged and bad requests, a launcher from another release,
+and save backups turned off."""
 
+import os
 import socket
 import struct
 
@@ -47,9 +49,9 @@ def plan(port, entries, backup_only=False, model=0):
     return talk(port, ss.request(ss.OP_PLAN, ss.plan_body(entries), MAC, model, backup_only), answer)
 
 
-def put(port, data, kind, slot=0, crc=None, model=0, name=b"Pokemon Black"):
+def put(port, data, kind, slot=0, crc=None, model=0, name=b"Pokemon Black", when=0):
     body = ss.PUT.pack(CODE.encode(), HCRC, slot, kind, len(data), crc32(data) if crc is None else crc,
-                       len(name)) + name + data
+                       when, len(name)) + name + data
     return talk(port, ss.request(ss.OP_PUT, body, MAC, model), lambda read: struct.unpack("<4sH", read(6)))
 
 
@@ -67,7 +69,7 @@ def history(port, slot=0):
         out = []
         for _ in range(n):
             version, when, size, crc, src_len = ss.HIST_ITEM.unpack(read(ss.HIST_ITEM.size))
-            out.append((version, size, crc, read(src_len).decode()))
+            out.append((version, size, crc, read(src_len).decode(), when))
         return magic, status, out
     return talk(port, ss.request(ss.OP_HIST, ss.HIST.pack(CODE.encode(), HCRC, slot), MAC), answer)
 
@@ -124,7 +126,7 @@ def test_history_and_restore(server):
         assert put(port, v, saves.PUT_SYNC)[1] == ss.OK
     magic, status, h = history(port)
     assert (magic, status) == (b"DRSL", ss.OK)
-    assert [(v, c) for v, _, c, _ in h] == [(0, crc32(versions[2])), (1, crc32(versions[1])), (2, crc32(versions[0]))]
+    assert [(v, c) for v, _, c, _, _ in h] == [(0, crc32(versions[2])), (1, crc32(versions[1])), (2, crc32(versions[0]))]
     # Backup only: version 2 comes down, nothing changes here
     _, status, data, _ = get(port, version=2)
     assert status == ss.OK and data == versions[0] and store.latest("IRBO-1A2B", 0)["crc"] == crc32(versions[2])
@@ -148,13 +150,38 @@ def test_damaged_and_bad_requests(server):
     port, store, _ = server()
     assert put(port, b"save", saves.PUT_SYNC, crc=1234) == (b"DRSK", ss.DAMAGED)
     assert store.latest("IRBO-1A2B", 0) is None
-    bad = ss.request(ss.OP_PUT, ss.PUT.pack(b"ir!o", HCRC, 0, 1, 0, 0, 0), MAC)
+    bad = ss.request(ss.OP_PUT, ss.PUT.pack(b"ir!o", HCRC, 0, 1, 0, 0, 0, 0), MAC)
     assert talk(port, bad, lambda read: struct.unpack("<4sH", read(6))) == (b"DRSK", ss.BAD_REQUEST)
-    wrong_version = ss.HEADER.pack(ss.MAGIC, 99, 0, MAC, 0, ss.OP_PLAN) + b"\0\0"
-    assert talk(port, wrong_version, lambda read: struct.unpack("<4sHH", read(8))) == (b"DRSP", ss.BAD_REQUEST, 0)
+    # A launcher from another release (another version of the exchange) is told so
+    wrong_version = ss.HEADER.pack(ss.MAGIC, 1, 0, MAC, 0, ss.OP_PLAN) + b"\0\0"
+    assert talk(port, wrong_version, lambda read: struct.unpack("<4sHH", read(8))) == (b"DRSP", ss.OTHER_RELEASE, 0)
 
 
 def test_save_backups_off(server):
     port, _, _ = server(enabled=False)
     assert plan(port, [entry(b"save")])[1] == ss.OFF
     assert put(port, b"save", saves.PUT_SYNC) == (b"DRSK", ss.OFF)
+
+
+def test_uploads_keep_the_consoles_time(server):
+    port, store, _ = server()
+    written = 1_760_000_000                         # when the console wrote the save (a PC time)
+    t1 = saves.to_console_time(written)             # as the console counts
+    v1, v2 = b"\x07" * 256, b"\x08" * 256
+    assert put(port, v1, saves.PUT_SYNC, when=t1)[1] == ss.OK
+    folder = os.path.join(store.root, store.data["games"]["IRBO-1A2B"]["folder"])
+    rec = store.latest("IRBO-1A2B", 0)
+    assert int(rec["time"]) == written and int(os.stat(os.path.join(folder, rec["file"])).st_mtime) == written
+    # The next one pushes it into history, which keeps its date (in the name too)
+    assert put(port, v2, saves.PUT_SYNC, when=t1 + 3600)[1] == ss.OK
+    _, _, h = history(port)
+    assert [when for *_, when in h] == [t1 + 3600, t1]
+    old = store.history("IRBO-1A2B", 0)[1]
+    assert int(os.stat(os.path.join(folder, old["file"])).st_mtime) == written
+    assert saves.datetime.datetime.fromtimestamp(written).strftime("%Y-%m-%d %H-%M-%S") in old["file"]
+    # A console that can't tell (0), or whose clock can't be right: the time it arrived
+    for when in (0, 60):
+        v = bytes([when + 1]) * 64
+        assert put(port, v, saves.PUT_BACKUP, when=when)[1] == ss.OK
+        kept = next(r for r in store.history("IRBO-1A2B", 0) if r["crc"] == crc32(v))
+        assert abs(kept["time"] - saves.time.time()) < 60

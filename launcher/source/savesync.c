@@ -22,7 +22,7 @@
 
 #include "savesync.h"
 
-#define PROTO_VERSION    1
+#define PROTO_VERSION    2
 #define OP_PLAN          1
 #define OP_PUT           2
 #define OP_GET           3
@@ -35,6 +35,7 @@
 #define STATE_PRESENT    1
 #define STATE_EXCLUDED   2
 #define STATUS_OFF       5
+#define STATUS_RELEASE   6
 
 #define HEADER_SIZE      16
 #define PLAN_ENTRY_SIZE  21
@@ -44,8 +45,10 @@
 #define CHUNK            4096
 #define MAX_DEPTH        3
 #define DIR_CACHE_MAX    16
+#define DIR_NAME_LEN     128     // longer file names are left out
 #define INDEX_MAGIC      "DSiRPC saves 1"
 #define TWLM_SAVES       "sd:/_nds/TWiLightMenu/saves"
+#define UNIX_TIME_2000   946684800
 
 static uint8_t chunk[CHUNK];
 
@@ -186,7 +189,7 @@ bool saves_file_crc(const char *path, uint32_t *crc, uint32_t *size)
 typedef struct
 {
     char dir[SAVE_PATH_LEN];
-    char (*names)[64];      // the files with ".sav" in their name, sorted
+    char (*names)[DIR_NAME_LEN];   // the files with ".sav" in their name, sorted
     int count;
     bool exists;
 } DirCache;
@@ -230,29 +233,29 @@ static DirCache *dir_list(const char *dir)
     struct dirent *e;
     while ((e = readdir(h)) != NULL)
     {
-        if (strlen(e->d_name) >= 64 || !has_sav(e->d_name))
+        if (strlen(e->d_name) >= DIR_NAME_LEN || !has_sav(e->d_name))
             continue;
         if (d->count == cap)
         {
             int ncap = cap ? cap * 2 : 64;
-            char (*more)[64] = realloc(d->names, (size_t)ncap * 64);
+            char (*more)[DIR_NAME_LEN] = realloc(d->names, (size_t)ncap * DIR_NAME_LEN);
             if (more == NULL)
                 break;
             d->names = more;
             cap = ncap;
         }
-        snprintf(d->names[d->count++], 64, "%s", e->d_name);
+        snprintf(d->names[d->count++], DIR_NAME_LEN, "%s", e->d_name);
     }
     closedir(h);
     if (d->count > 1)
-        qsort(d->names, d->count, 64, cmp_name);
+        qsort(d->names, d->count, DIR_NAME_LEN, cmp_name);
     return d;
 }
 
 static bool dir_has(const DirCache *d, const char *name)
 {
-    return d != NULL && d->count > 0 && strlen(name) < 64 &&
-           bsearch(name, d->names, d->count, 64, cmp_name) != NULL;
+    return d != NULL && d->count > 0 && strlen(name) < DIR_NAME_LEN &&
+           bsearch(name, d->names, d->count, DIR_NAME_LEN, cmp_name) != NULL;
 }
 
 static void dir_cache_free(void)
@@ -430,10 +433,10 @@ static bool already_listed(const SaveList *list, const char code[4], uint16_t hc
 // A save left as .bak by a swap that didn't finish: put it back.
 static void recover(DirCache *d, const char *name)
 {
-    if (strlen(name) >= 60)
+    if (strlen(name) + 4 >= DIR_NAME_LEN)
         return;     // too long to be listed with ".bak" on it
-    char bak[64], path[SAVE_PATH_LEN], bak_path[SAVE_PATH_LEN];
-    snprintf(bak, sizeof(bak), "%.59s.bak", name);
+    char bak[DIR_NAME_LEN], path[SAVE_PATH_LEN], bak_path[SAVE_PATH_LEN];
+    snprintf(bak, sizeof(bak), "%.*s.bak", DIR_NAME_LEN - 5, name);
     if (dir_has(d, name) || !dir_has(d, bak))
         return;
     join_path(path, sizeof(path), d->dir, name);
@@ -445,11 +448,11 @@ static void recover(DirCache *d, const char *name)
         {
             if (strcasecmp(d->names[i], bak) == 0)
             {
-                snprintf(d->names[i], 64, "%.63s", name);
+                snprintf(d->names[i], DIR_NAME_LEN, "%.*s", DIR_NAME_LEN - 1, name);
                 break;
             }
         }
-        qsort(d->names, d->count, 64, cmp_name);
+        qsort(d->names, d->count, DIR_NAME_LEN, cmp_name);
     }
 }
 
@@ -632,6 +635,50 @@ void saves_free(SaveList *list)
     list->count = 0;
 }
 
+// The games' file names without ".nds", for the startup check: found the
+// way scan_dir() finds the games, without reading them
+typedef struct
+{
+    char (*names)[DIR_NAME_LEN];
+    int count, cap;
+} GameNames;
+
+static void collect_games(GameNames *g, const char *dir, int depth)
+{
+    DIR *d = opendir(dir);
+    if (d == NULL)
+        return;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL)
+    {
+        if (e->d_name[0] == '.')
+            continue;
+        char path[SAVE_PATH_LEN];
+        join_path(path, sizeof(path), dir, e->d_name);
+        bool sub = e->d_type == DT_DIR || (e->d_type == DT_UNKNOWN && is_dir(path));
+        if (sub)
+        {
+            if (depth < MAX_DEPTH && e->d_name[0] != '_' && strcasecmp(e->d_name, "saves") != 0)
+                collect_games(g, path, depth + 1);
+            continue;
+        }
+        size_t n = strlen(e->d_name);
+        if (!ends_with(e->d_name, ".nds") || n - 4 >= DIR_NAME_LEN)
+            continue;
+        if (g->count == g->cap)
+        {
+            int ncap = g->cap ? g->cap * 2 : 64;
+            char (*more)[DIR_NAME_LEN] = realloc(g->names, (size_t)ncap * DIR_NAME_LEN);
+            if (more == NULL)
+                break;
+            g->names = more;
+            g->cap = ncap;
+        }
+        snprintf(g->names[g->count++], DIR_NAME_LEN, "%.*s", (int)(n - 4), e->d_name);
+    }
+    closedir(d);
+}
+
 int saves_quick_check(const char *games_dir, const char *index_dir)
 {
     char index_path[SAVE_PATH_LEN];
@@ -665,24 +712,39 @@ int saves_quick_check(const char *games_dir, const char *index_dir)
             changed++;
     }
 
-    // New saves in the games folder's "saves" folder
+    // New saves in the games folder's "saves" folder, the ones named after
+    // a game (the scan leaves out the rest, like a renamed backup)
     char saves_dir[SAVE_PATH_LEN];
     join_path(saves_dir, sizeof(saves_dir), games_dir, "saves");
-    DIR *d = opendir(saves_dir);
-    if (d != NULL)
+    if (is_dir(saves_dir))
     {
+        GameNames games = { 0 };
+        collect_games(&games, games_dir, 0);
+        if (games.count > 1)
+            qsort(games.names, games.count, DIR_NAME_LEN, cmp_name);
+        DIR *d = games.count > 0 ? opendir(saves_dir) : NULL;
         struct dirent *ent;
-        while ((ent = readdir(d)) != NULL)
+        while (d != NULL && (ent = readdir(d)) != NULL)
         {
             const char *dot = strrchr(ent->d_name, '.');
             if (dot == NULL || strncasecmp(dot, ".sav", 4) != 0 || (dot[4] != '\0' && (dot[4] < '1' || dot[4] > '9' || dot[5] != '\0')))
+                continue;
+            char base[DIR_NAME_LEN];
+            size_t len = (size_t)(dot - ent->d_name);
+            if (len >= sizeof(base))
+                continue;
+            memcpy(base, ent->d_name, len);
+            base[len] = '\0';
+            if (bsearch(base, games.names, games.count, DIR_NAME_LEN, cmp_name) == NULL)
                 continue;
             char path[SAVE_PATH_LEN];
             join_path(path, sizeof(path), saves_dir, ent->d_name);
             if (find_entry(index, n, path) == NULL)
                 changed++;
         }
-        closedir(d);
+        if (d != NULL)
+            closedir(d);
+        free(games.names);
     }
     if (dirty)
         write_entries(index_path, index, n);
@@ -708,6 +770,8 @@ static void status_msg(char *msg, size_t msgsz, int status)
 {
     if (status == STATUS_OFF)
         snprintf(msg, msgsz, "Save backups are off in DSiRPC");
+    else if (status == STATUS_RELEASE)
+        snprintf(msg, msgsz, "DSiRPC and this launcher\nare from different releases");
     else if (status == 1)
         snprintf(msg, msgsz, "DSiRPC doesn't have that save");
     else if (status == 2)
@@ -843,6 +907,13 @@ int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
         if (it == NULL)
             continue;
         it->action = p[7];
+        if (it->action == SA_IN_SYNC && it->present)
+        {
+            // The PC has this very save: synced now, as far as saves.idx
+            // goes (or the startup check would go on counting it)
+            it->base = it->crc;
+            it->changed = false;
+        }
         it->pc_size = get32(p + 8);
         it->pc_crc = get32(p + 12);
         it->pc_time = get32(p + 16);
@@ -869,7 +940,7 @@ static int upload(const SyncJob *job, const SaveConsole *console, const struct s
         snprintf(msg, msgsz, "Can't read the save");
         return -1;
     }
-    uint8_t req[HEADER_SIZE + 17 + SAVE_NAME_LEN];
+    uint8_t req[HEADER_SIZE + 21 + SAVE_NAME_LEN];
     size_t n = request_header(req, console, OP_PUT);
     memcpy(req + n, it->code, 4);
     put16(req + n + 4, it->hcrc);
@@ -877,10 +948,13 @@ static int upload(const SyncJob *job, const SaveConsole *console, const struct s
     req[n + 7] = (uint8_t)kind;
     put32(req + n + 8, it->size);
     put32(req + n + 12, it->crc);
+    // When the save was last written, by the console's clock (seconds since
+    // 2000, its local time): the date DSiRPC gives its copy
+    put32(req + n + 16, it->mtime > UNIX_TIME_2000 ? (uint32_t)(it->mtime - UNIX_TIME_2000) : 0);
     size_t len = strlen(it->name);
-    req[n + 16] = (uint8_t)len;
-    memcpy(req + n + 17, it->name, len);
-    n += 17 + len;
+    req[n + 20] = (uint8_t)len;
+    memcpy(req + n + 21, it->name, len);
+    n += 21 + len;
 
     int sock;
     int r = sync_open(job, server, &sock, msg, msgsz);

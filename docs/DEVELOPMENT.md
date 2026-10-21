@@ -90,6 +90,11 @@ for each; allow both.
 
 ## 4. Building the console files
 
+On Windows, **`BuildConsole.bat`** runs both builds below (Docker Desktop
+running) and puts the files in the checkout's `SD card\DSiRPC`, where DSiRPC
+run from the checkout offers them to the launcher as an update. Give it a
+DSiRPC folder (`BuildConsole.bat "C:\...\DSiRPC"`) to copy them there too.
+
 ### nds-bootstrap (the in-game memory server)
 
 ```

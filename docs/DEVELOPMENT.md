@@ -98,9 +98,11 @@ docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro
 
 The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
 the SD card as `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
-Menu++'s own copy, so you always know which one you are launching. The build
-prints a few harmless `fatal: not a git repository` lines; that's
-nds-bootstrap looking for its version tag.
+Menu++'s own copy, so you always know which one you are launching (or let
+the launcher take it: DSiRPC run from the source code offers its own builds
+as updates). The build prints a few harmless `fatal: not a git repository`
+lines; that's nds-bootstrap looking for its version tag, and the reason a
+build only changes when its code does (the launcher's updates rely on it).
 
 A test build with one of DSiRPC's pieces switched off, to find what slows a
 game down on hardware, takes the switches in `DSIRPC_CFLAGS` (listed in
@@ -131,7 +133,11 @@ never needs to know your PC's IP. For offline play it also makes
 itself, and finds DSiRPC with a broadcast on port 4245, or at the address
 in its settings (`launcher.ini`)
 ([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
-The save sync keeps `saves.idx` next to it.
+The save sync keeps `saves.idx` next to it, and its updates `update.idx`.
+Once a launcher with updates is on the SD card, DSiRPC run from the source
+code offers it the builds above whenever they change
+([DOCUMENTATION.md, section 7](DOCUMENTATION.md#console-updates-tcp-4245)),
+so they don't need copying by hand.
 
 ## 5. Discord applications
 
@@ -232,9 +238,10 @@ things on GitHub:
 | `windows` | `DSiRPC-<version>-windows.zip`, the Windows download (`packaging/build_release.py`, below), on a Windows runner |
 | `macos` | `DSiRPC-<version>-macos.zip`, the macOS app (`packaging/macos/build_app.py`, below), on an Apple silicon runner |
 
-It runs when a push to `main` changes DSiRPC's files, on pull requests, and on
-demand (Actions tab > **Build DSiRPC** > **Run workflow**). Each run keeps the
-outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
+It runs when a push to any branch changes DSiRPC's files, on pull requests,
+and on demand (Actions tab > **Build DSiRPC** > **Run workflow**); a newer
+push to the same branch cancels the build still running for the one before
+(never a tag's). Each run keeps the outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
 GitHub downloads as zips, and the two downloads' own zips
 (`DSiRPC-<version>-windows.zip`, `DSiRPC-<version>-macos.zip`), uploaded as
 they are (`archive: false`), so they download as one zip, not a zip in a zip.
@@ -262,7 +269,8 @@ from the commits, and it has the Windows and macOS zips and both `.nds` files at
   the script), its `._pth` file set up to find `Lib\site-packages` and
   DSiRPC's folder, and the packages from `requirements.txt` installed there as
   Windows wheels;
-- `SD card/DSiRPC/` with both `.nds` files;
+- `SD card/DSiRPC/` with both `.nds` files (for the first copy to the SD
+  card, and the launcher's updates after that);
 - `README.txt` (`packaging/README.txt`, the plain-text steps), `version.txt`,
   `licenses/` (`packaging/THIRD-PARTY.txt` and nds-bootstrap's GPLv3), and
   `defaults.cfg` when Discord application IDs are given.
@@ -286,7 +294,8 @@ older folder updates DSiRPC and keeps the user's `dsirpc.cfg`, `ra\` and
 ### The macOS app
 
 `packaging/macos/build_app.py` makes `DSiRPC.app` with PyInstaller
-(`packaging/macos/DSiRPC.spec`) and zips it with the same `SD card` folder,
+(`packaging/macos/DSiRPC.spec`; the two `.nds` files go inside it too, for
+the launcher's updates) and zips it with the same `SD card` folder,
 `licenses/` (plus `THIRD-PARTY-macOS.txt`) and its own `README.txt`. On a Mac
 with Apple silicon, from the repo root:
 
@@ -326,9 +335,10 @@ How the app differs from the Windows download:
 [`tests/`](../tests/README.md) checks what decides whether an achievement is
 missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
 write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
-against rcheevos frame by frame, and DSiRPC's side (the offline formats, the
-launcher's sync, the protocol client, the Black/White parser, the hub)
-against a fake DSi on the loopback network. From the repo root:
+against rcheevos frame by frame, the launcher's save sync and updates (built
+for the PC), and DSiRPC's side (the offline formats, the launcher's sync,
+the protocol client, the Black/White parser, the hub) against a fake DSi on
+the loopback network. From the repo root:
 
 ```
 python -m pip install -r tests/requirements.txt

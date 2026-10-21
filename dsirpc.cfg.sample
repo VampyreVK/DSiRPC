@@ -29,6 +29,10 @@ chroma:
 # games without their own presence (file name without the extension; empty
 # for none). The tray menu's "Console icon" changes it.
 console_icon: DSiXL
+# When the launcher's files on the SD card (the launcher and nds-bootstrap)
+# differ from the ones that came with this DSiRPC, the launcher offers to
+# update them from here (the tray menu's "Console updates")
+console_updates: yes
 
 [ra]
 # Your RetroAchievements account: setup signs in with your password once and

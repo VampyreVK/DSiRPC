@@ -69,6 +69,9 @@ class Config:
         # The picture in Assets/Consoles shown as Discord's small image for
         # games without their own presence ('' for none)
         self.console_icon = "DSiXL"
+        # Offer the launcher the console's files that came with this DSiRPC
+        # when its own differ (core/console_update.py)
+        self.console_updates = True
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
@@ -159,6 +162,7 @@ class Config:
             self.chroma = _clean(a.get("chroma", ""))
             if "console_icon" in a:
                 self.console_icon = _clean(a.get("console_icon", ""))
+            self.console_updates = _bool(a.get("console_updates"), self.console_updates)
         if "ra" in parser:
             r = parser["ra"]
             self.racache = _clean(r.get("racache", ""))
@@ -230,6 +234,10 @@ chroma: {self.chroma}
 # games without their own presence (file name without the extension; empty
 # for none). The tray menu's "Console icon" changes it.
 console_icon: {self.console_icon}
+# When the launcher's files on the SD card (the launcher and nds-bootstrap)
+# differ from the ones that came with this DSiRPC, the launcher offers to
+# update them from here (the tray menu's "Console updates")
+console_updates: {yn(self.console_updates)}
 
 [ra]
 # Your RetroAchievements account. Setup signs in with your password once and

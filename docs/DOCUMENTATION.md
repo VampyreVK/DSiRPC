@@ -151,8 +151,9 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast) and the save sync's mode; and the game last started from the launcher (START in its game browser) |
+| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode and Auto-update; and the game last started from the launcher (START in its game browser) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
+| `update.idx` | Next to the launcher | The CRC32 of the launcher's file and nds-bootstrap's, with their sizes and times, so the update check only reads a file that changed ([section 7](#console-updates-tcp-4245)) |
 | `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
@@ -325,12 +326,13 @@ Discord shows and the RetroAchievements state (signed in or not, the game's
 progress, or why there's no set), then **Discord presence**, **Console
 icon** (a submenu with every picture in `Assets/Consoles`, plus "None", for
 Discord's small image; section 6), **Overlay window** (also a left click on
-the icon) and **Start with Windows** (`app/startup.py`: a
+the icon), **Console updates** (whether the launcher may update its files
+from here; section 7) and **Start with Windows** (`app/startup.py`: a
 `DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
 then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC
-folder**, **Open save backups** and **Quit**. The Discord and overlay choices
-are saved in `dsirpc.cfg` (`[app]`). The icon is drawn in code
+folder**, **Open save backups** and **Quit**. The Discord, overlay and
+console update choices are saved in `dsirpc.cfg` (`[app]`). The icon is drawn in code
 (`make_icon()`): a little DSi with a dot that's green while the game
 answers, amber while DSiRPC waits, red when Discord can't be reached or
 there's no application ID. Windows notifications say when the console (a DSi
@@ -782,7 +784,7 @@ numbers mean.
 | `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, `repel`, `badge_shine`, `route` (trainers beaten and items found here), `subway`, `institute` and `league` (only in those places, else None), battlers' `pp_max` and `owned` (a wild foe you've caught before), the location's `form` (bike, surf) and the player object's address and position for the hub's quick field reads (`field_ranges()` / `apply_field()`, which work out the `gait` with `motion()`), and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name), and also before you're in the field (`on_menu`: the zone reads 0, Black City's, and there's no player map object, so the Continue menu and the intro don't show as Black City in spring). `read_clock()` reads the in-game clock (two places tried, PC clock otherwise), the field's weather and the music are read too, and `identify()` names a battle's kind and, for a Gym Leader, Elite Four member or the Champion, who. `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads (with the music). `decode_text()` decodes Gen V text (UTF-16) |
 | `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), `terrain()` for the battle backgrounds, `opponent()` (Gym Leader rooms with the leader music, the Elite Four's and Champion's rooms; Striaton's leader by your first partner, Opelucid's by version), `WEATHER` (the field weather byte to the battle view's weather), `time_of_day()` (the season's hours), `ROUTE_FLAGS` / `route_stats()` (each place's trainer and item flags), the Battle Subway's trains, the Battle Institute's ranks, the League's rooms and order, `shine_row()` (badge shine to the trainer card's look), the catch and low-HP music, and `ITEMS` / `item_name()` (held items by the games' numbers, from IronMon Tracker's Gen 5 table: Gen IV's numbering, a few of its slots reused, such as the Drives at 116-119 and the new Mail at 137-148, and Gen V's own items from 468 on) |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
-| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
+| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon, console_updates), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/bw_presence.py` | Black and White's presence (section 6): `build_presence()`, the turf-matched image URLs (`foe_image()`, `trainer_image()`), `game_code()` and `playtime_start()` |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
@@ -804,7 +806,8 @@ numbers mean.
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
-| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py` |
+| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py`, `DRUP` to `console_update.py` |
+| `core/console_update.py` | The launcher's updates (section 7): `ConsoleFiles` (the console's files this DSiRPC came with, their CRCs, `pc_version()`'s label) and `handle()`, the exchange |
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
@@ -1380,6 +1383,62 @@ else in the game's folder is listed as an External backup the consoles can
 restore (never pruned); one deleted by hand is backed up again. The first
 layout (one `history/` folder) is moved into the console folders the first
 time DSiRPC reads it.
+
+### Console updates (TCP 4245)
+
+After its first sync, the launcher asks DSiRPC which console files it has,
+so a new build of the launcher and nds-bootstrap gets onto the SD card
+without taking it out. `core/console_update.py` (the PC's side, with the
+layouts) and `launcher/source/update.c` (the console's) are the two parts;
+`core/console_sync.py` hands connections that start with `DRUP` to it. This
+exchange never changes, so every launcher that can update can update from
+any later DSiRPC; something new would get a new op. Each request is 20
+bytes, as long as the offline sync's, so a DSiRPC from before updates reads
+all of it, sees it isn't a sync request and turns it down at once:
+
+```
+"DRUP" | version u16 (1) | MAC[6] | console model u8 | op u8 | file u8 | 5 bytes 0
+op 1, the list:  "DRUA" | status u16 | n u8 | n x ( file u8 | size u32 | CRC32 u32 )
+                 | label length u8 | label (DSiRPC's version, for the screen)
+op 2, a file:    "DRUF" | status u16 | size u32 | CRC32 u32 | the file
+```
+
+Files: 1 the launcher, 2 nds-bootstrap (the launcher skips numbers it
+doesn't know). Status: 0 OK, 1 no such file, 4 bad request, 5 console
+updates are off (the tray menu's **Console updates**, `console_updates` in
+`dsirpc.cfg`).
+
+**DSiRPC's copies** are the ones it came with: `SD card/DSiRPC/` in the
+Windows download, the same folder inside the macOS app (`DSiRPC.spec` puts
+them there), and in a source checkout its own builds
+(`launcher/dsirpc-launcher.nds`,
+`nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds`). It looks each time
+it's asked, so a newer download unzipped over the old one is offered right
+away, and keeps the CRCs until a file changes. The label is the download's
+version (`version.txt`, or the app's `Info.plist`), or a checkout's commit.
+
+**The launcher** compares them with its own file (`argv[0]`, or
+`dsirpc-launcher.nds` in its folder) and nds-bootstrap's (where it looks
+for it; a missing one counts as different): a different size, else a
+different CRC32, with `update.idx` standing in for reading a file whose size
+and time haven't changed. If one differs it says which (**A** updates, **B**
+not now; **Auto-update** in its settings turns the asking off). Each file
+goes to its name + `.tmp` and is checked (size, CRC32, the `.nds` header's
+CRC-16 at `0x15E`) and read back from the SD card; if DSiRPC's files changed
+since the list, or anything else is off, the `.tmp` files go and nothing
+else changes. Then the launcher says "bye", turns the Wi-Fi off and, with no
+file open, swaps them in: each old file becomes `.bak` and the `.tmp` takes
+its name, every file going back as it was if any step fails, then the `.bak`
+files go. It exits to be started again (its own file can be replaced while
+it runs: all of it is in memory). Discovery keeps DSiRPC's address even when
+its answer has another sync version (the syncs refuse it, the update
+doesn't), which is when the update matters most.
+
+DSiRPC's builds of nds-bootstrap come out the same, byte for byte, until its
+code changes: they're built in Docker with only `nds-bootstrap/` mounted, so
+git isn't there and the version it shows is `-`. (Only the order of its
+NitroFS folders depends on the disk it's built on.) So a launcher only
+offers nds-bootstrap when it really changed.
 
 ### The checker's report (DSi -> broadcast, after each hello)
 

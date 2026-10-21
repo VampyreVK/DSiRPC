@@ -13,6 +13,8 @@ to your PC, which shows what you're doing as your Discord status.
 - **Achievements** are checked while you play, even offline.
 - **Save backups:** the launcher backs your saves up to the PC and can keep
   your consoles in sync.
+- **Updates over Wi-Fi:** a new DSiRPC brings the console's files along, and
+  the launcher offers to update itself, so the SD card stays in.
 - **A stream overlay window** shows your party and battles, or any other
   game's progress.
 
@@ -94,6 +96,7 @@ Right-click it (on a Mac, click it in the menu bar) for the menu:
 | **Discord presence** | Show the game on Discord, or not |
 | **Console icon** | The picture Discord shows for games without their own presence |
 | **Overlay window** | The [stream overlay](#stream-overlay-window) (a left click on the icon toggles it too) |
+| **Console updates** | Let the launcher [update its files](#updating-and-removing) from this DSiRPC |
 | **Start with Windows** | Start DSiRPC when you sign in (**Open at Login** on a Mac) |
 | **Setup...** | Run setup again, to change an answer |
 | **Open log**, **Open DSiRPC folder**, **Open save backups** | The log, the folder with DSiRPC's settings, and the [save backups](#save-backups) |
@@ -218,6 +221,9 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
   launcher finds DSiRPC, its main screen shows the address.
 - **Saves:** back up and sync, or back up only (saves only go to the PC, so
   each console keeps its own).
+- **Auto-update:** on, the launcher asks DSiRPC as it starts whether it has
+  other versions of the launcher or nds-bootstrap, and offers them
+  ([Updating](#updating-and-removing)).
 
 ## Stream overlay window
 
@@ -253,6 +259,7 @@ screen (all six Pokémon with their moves, PP, nature and held item) and back.
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
 | Discord stopped after the DSi's lid was closed | On purpose: a DSi that sleeps while connected switches itself off, so its Wi-Fi goes off with the lid. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
+| The launcher never offers an update | **Auto-update** is off in [its settings](#the-launchers-settings), **Console updates** is off in the tray menu, or the launcher is from v0.8.1 or older: copy the SD card files by hand once. |
 
 More is in [docs/DOCUMENTATION.md, section 11](docs/DOCUMENTATION.md#11-debugging-and-troubleshooting).
 The log is `logs\dsirpc.log` (tray menu > **Open log**).
@@ -260,9 +267,19 @@ The log is `logs\dsirpc.log` (tray menu > **Open log**).
 ## Updating and removing
 
 To update, unzip the new release over your DSiRPC folder (replace the files
-when asked), or on a Mac replace DSiRPC.app. Copy the new SD card files over
-the old ones too: the two go together. Your settings (`dsirpc.cfg`),
+when asked), or on a Mac replace DSiRPC.app. Your settings (`dsirpc.cfg`),
 achievement sets and save backups stay.
+
+The console's files come along. The next time the launcher finds DSiRPC, it
+offers the launcher and nds-bootstrap that came with it, if they differ from
+the SD card's (**A** updates, **B** not now). It downloads them over Wi-Fi
+and checks them before anything on the SD card changes, then turns the
+Wi-Fi off, swaps them in and exits; start it again from TWiLight Menu++.
+Only files that changed are downloaded. **Auto-update** in
+[the launcher's settings](#the-launchers-settings) turns the asking off, and
+**Console updates** in the tray menu the offering. A launcher from v0.8.1 or
+older can't update itself: copy the two SD card files from the zip by hand
+once more.
 
 To remove DSiRPC, turn off **Start with Windows**, quit it, and delete its
 folder (move `saves` out first to keep your save backups).
@@ -281,7 +298,8 @@ folder (move `saves` out first to keep your save backups).
 Console                                          PC
 dsirpc-launcher.nds   <--- sync, port 4245 --->  DSiRPC
   connects to Wi-Fi,                             sends sets, takes offline
-  starts the game                                unlocks, backs up saves
+  starts the game                                unlocks, backs up saves,
+                                                 updates the console's files
         |
         v
 DSiRPC's nds-bootstrap --boots--> the game

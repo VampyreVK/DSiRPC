@@ -54,7 +54,9 @@ your console's SD card. You should end up with:
     sd:/DSiRPC/dsirpc-launcher.nds
     sd:/DSiRPC/nds-bootstrap-dsirpc.nds
 
-Keep those two files together, in the same folder.
+Keep those two files together, in the same folder. This is the only time
+they need copying: after that, the launcher updates them from DSiRPC
+(see UPDATING below).
 
 
 STEP 3: PLAYING
@@ -119,9 +121,14 @@ IF SOMETHING DOESN'T WORK
 UPDATING AND REMOVING
 ---------------------------------------------------------------------
 To update, quit DSiRPC and replace DSiRPC.app with the new one. Your
-settings, achievement sets and save backups stay. Copy the new SD card
-files over the old ones too. macOS may ask for Local Network access
-again after an update.
+settings, achievement sets and save backups stay. macOS may ask for Local
+Network access again after an update.
+
+The next time the launcher finds DSiRPC, it offers the new SD card files
+(A updates, B not now): it downloads and checks them over Wi-Fi, swaps
+them in and exits, and you start it again. Auto-update in the launcher's
+settings (L+R) and Console updates in DSiRPC's menu turn this off. Coming
+from v0.8.1 or older? Copy the SD card files by hand this once.
 
 To remove DSiRPC, turn off "Open at Login" in its menu, quit it, and
 delete DSiRPC.app and ~/Library/Application Support/DSiRPC (move its

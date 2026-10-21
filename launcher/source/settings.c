@@ -6,6 +6,7 @@
 //   [LAUNCHER]
 //   DSIRPC_IP = 192.168.1.20      (empty: look for DSiRPC with a broadcast)
 //   SAVE_MODE = sync              (or backup: never take a save from the PC)
+//   AUTO_UPDATE = on              (or off: never ask DSiRPC for updates)
 //   LAST_GAME = sd:/roms/nds/Pokemon Black.nds   (START in the game picker)
 
 #include <stdio.h>
@@ -54,6 +55,8 @@ void settings_load(const char *path, LauncherSettings *s)
         snprintf(s->dsirpc_ip, sizeof(s->dsirpc_ip), "%s", value);
     if (ini_get(path, SECTION, "SAVE_MODE", value, sizeof(value)) == 1)
         s->backup_only = strcasecmp(value, "backup") == 0;
+    s->auto_update = ini_get(path, SECTION, "AUTO_UPDATE", value, sizeof(value)) != 1 ||
+                     !(strcasecmp(value, "off") == 0 || strcasecmp(value, "no") == 0 || strcmp(value, "0") == 0);
     ini_get(path, SECTION, "LAST_GAME", s->last_game, sizeof(s->last_game));
 }
 
@@ -69,9 +72,12 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "; The save sync: sync (back up and take newer saves from the PC)\r\n"
                "; or backup (only back up)\r\n"
                "SAVE_MODE = %s\r\n"
+               "; When DSiRPC on the PC has other versions of the launcher or\r\n"
+               "; nds-bootstrap, offer them as the launcher starts: on or off\r\n"
+               "AUTO_UPDATE = %s\r\n"
                "; The game last started from the launcher (START in the game picker)\r\n"
                "LAST_GAME = %s\r\n",
-            s->dsirpc_ip, s->backup_only ? "backup" : "sync", s->last_game);
+            s->dsirpc_ip, s->backup_only ? "backup" : "sync", s->auto_update ? "on" : "off", s->last_game);
     return fclose(f) == 0;
 }
 
@@ -88,7 +94,7 @@ uint32_t settings_server_addr(const LauncherSettings *s)
 
 #include "sync.h"
 
-enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROWS };
+enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROW_UPDATES, ROWS };
 
 static void parse_octets(const char *ip, int octet[4])
 {
@@ -126,13 +132,16 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
         printf("\x1b[30;1m%c Address:     (looked for)\x1b[39;0m\n", row == ROW_ADDRESS ? '>' : ' ');
     }
     printf("%c Saves:       %s\n", row == ROW_SAVES ? '>' : ' ', s->backup_only ? "back up only" : "back up and sync");
+    printf("%c Auto-update: %s\n", row == ROW_UPDATES ? '>' : ' ', s->auto_update ? "on" : "off");
     printf("-------------------------------\n");
     if (row == ROW_FIND)
         printf("How the launcher finds DSiRPC.\nAutomatically works on most\nnetworks; use an address if it\nisn't found.\n");
     else if (row == ROW_ADDRESS)
         printf("The PC's IP address. The\nlauncher shows it when it\nfinds DSiRPC (DSiRPC: ...).\n");
-    else
+    else if (row == ROW_SAVES)
         printf("Back up and sync: newer saves\nfrom the PC come here too.\nBack up only: saves only go to\nthe PC, so each console can\nkeep its own.\n");
+    else
+        printf("On: when DSiRPC on the PC has\nother versions of the launcher\nor nds-bootstrap, the launcher\noffers them as it starts\n(A: update, B: not now).\n");
     printf("\x1b[21;0H-------------------------------\n");
     // (no newline after the last row: it would scroll the screen)
     if (editing >= 0)
@@ -189,6 +198,8 @@ void settings_screen(const char *path, LauncherSettings *s, const char *current_
                 editing = 3;
             else if (row == ROW_SAVES)
                 s->backup_only = !s->backup_only;
+            else if (row == ROW_UPDATES)
+                s->auto_update = !s->auto_update;
         }
         if (down & KEY_B)
             break;

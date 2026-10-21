@@ -52,7 +52,9 @@ your console's SD card. You should end up with:
     sd:/DSiRPC/dsirpc-launcher.nds
     sd:/DSiRPC/nds-bootstrap-dsirpc.nds
 
-Keep those two files together, in the same folder.
+Keep those two files together, in the same folder. This is the only time
+they need copying: after that, the launcher updates them from DSiRPC
+(see UPDATING below).
 
 
 STEP 3: PLAYING
@@ -126,7 +128,13 @@ UPDATING AND REMOVING
 ---------------------------------------------------------------------
 To update, unzip the new release over this folder (replace the files
 when asked). Your settings (dsirpc.cfg), achievement sets (ra) and save
-backups (saves) stay. Copy the new SD card files over the old ones too.
+backups (saves) stay.
+
+The next time the launcher finds DSiRPC, it offers the new SD card files
+(A updates, B not now): it downloads and checks them over Wi-Fi, swaps
+them in and exits, and you start it again. Auto-update in the launcher's
+settings (L+R) and Console updates in DSiRPC's menu turn this off. Coming
+from v0.8.1 or older? Copy the SD card files by hand this once.
 
 To remove DSiRPC, turn off "Start with Windows" in its menu, quit it,
 and delete this folder (move the saves folder out first to keep your

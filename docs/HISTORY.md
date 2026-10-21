@@ -285,6 +285,32 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-21 (evening): **Updates over Wi-Fi.** Viv asked for the console
+  to update itself so a new build doesn't need the SD card moved back and
+  forth, with the PC fetching each new build from GitHub. GitHub's build
+  artifacts need a signed-in account to download, even from a public
+  repository, and every download of DSiRPC already carries the matching
+  console files (`SD card/DSiRPC/`), so DSiRPC offers its own: the
+  Windows download's folder, the same files now bundled inside the macOS
+  app, or a source checkout's builds. After its first sync the launcher
+  asks (`DRUP` on port 4245, an exchange that never changes, 20 bytes so a
+  DSiRPC from before updates turns it down at once) and compares sizes,
+  then CRC32s (`update.idx` keeps them, so the 1.7 MB nds-bootstrap isn't
+  read at every start). A differing file is offered (A: update, B: not
+  now), downloaded to `.tmp`, checked (CRC32, the `.nds` header's own CRC)
+  and read back from the SD card; then the launcher says "bye", turns the
+  Wi-Fi off and swaps the files in, old ones kept as `.bak` and put back if
+  any rename fails, and exits to be started again. Discovery keeps DSiRPC's
+  address even when it's from another release, which is when an update
+  matters most. Auto-update in the launcher's settings and Console updates
+  in the tray menu turn it off. Checked that nds-bootstrap's builds don't
+  change until its code does: built in Docker with only its folder mounted,
+  git isn't there and its version is `-` (only the order of its NitroFS
+  folders depends on the disk). The build now runs on pushes to every
+  branch, a newer push cancelling the build before it on that branch. To
+  try on hardware: copy this launcher by hand once, then an update from the
+  next build.
+
 - 2026-10-21 (later): **A backup folder per console, the live save, and
   External saves.** Viv's model for the PC's side: every save a console
   sends is one of that console's backups (`backups/<console>/`, its last N),

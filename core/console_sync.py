@@ -22,7 +22,9 @@ console waits while it works.
 
 The launcher's save sync uses the same port: a connection that starts with
 "DRSV" instead of "DRSQ" goes to core/save_session.py, with the SaveStore
-saves() returns (None: save backups are off) and on_saves(event).
+saves() returns (None: save backups are off) and on_saves(event). So does
+its update check: "DRUP" goes to core/console_update.py, with the
+ConsoleFiles updates() returns (None: console updates are off).
 """
 
 import logging
@@ -32,7 +34,7 @@ import struct
 import threading
 import time
 
-from . import offline, save_session
+from . import console_update, offline, save_session
 
 ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
@@ -40,13 +42,14 @@ HANGUP_TIMEOUT = 5.0
 
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
-                 saves=None, on_saves=None, on_here=None):
+                 saves=None, on_saves=None, on_here=None, updates=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
         self.on_here = on_here
         self.saves = saves
         self.on_saves = on_saves
+        self.updates = updates
         self.port = port
         self.host = host
         self.udp = None
@@ -135,6 +138,11 @@ class ConsoleSync:
         if magic == save_session.MAGIC:
             store = self.saves() if self.saves else None
             save_session.handle(magic, read, conn.sendall, store, self.on_saves)
+            self._await_hangup(conn)
+            return
+        if magic == console_update.MAGIC:
+            files = self.updates() if self.updates else None
+            console_update.handle(magic, read, conn.sendall, files)
             self._await_hangup(conn)
             return
         try:

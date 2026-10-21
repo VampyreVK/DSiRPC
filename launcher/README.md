@@ -28,7 +28,9 @@ connected, red if it can't, dark offline.
    console's clock in seconds since 2000 (local time); the in-game side reads
    the clock itself to date unlocks, and only falls back to `time=` plus the
    VBlanks since when it can't.
-4. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)).
+4. Syncs with DSiRPC, if it's running ([below](#the-sync-with-dsirpc)),
+   then, if DSiRPC has other versions of the launcher or nds-bootstrap,
+   offers them ([Updates](#updates)).
 5. **START:** pick a game. A file browser opens in `sd:/roms/nds`, or in the
    launcher's own folder if there's no such folder (**A** opens a folder or
    picks the `.nds`, **B** goes up a folder, **START** picks the game last
@@ -94,8 +96,39 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
 - `SAVE_MODE`: `sync` (back up, and take newer saves from the PC) or
   `backup` (only back up; DSiRPC keeps those in history and never offers
   them to the other consoles).
+- `AUTO_UPDATE`: `on` (ask DSiRPC for [updates](#updates) as the launcher
+  starts) or `off`.
 - `LAST_GAME`: the game last started from the launcher, for **START** in
   the game browser (not on the settings screen).
+
+### Updates
+
+`source/update.c`, so a new build doesn't need the SD card taken out. After
+the first sync, the launcher asks DSiRPC which console files it has (the
+ones that came with it: `core/console_update.py` describes the exchange)
+and compares them with its own file (`argv[0]`, or `dsirpc-launcher.nds`
+in its folder) and nds-bootstrap's: a different size says so, else the
+CRC32. `update.idx` in the launcher's folder keeps each file's CRC32 with
+its size and time, so a file is only read when it changed (nds-bootstrap is
+about 1.7 MB). A missing nds-bootstrap counts as different, and goes where
+the launcher looks for it.
+
+When one differs, the launcher says which, with DSiRPC's version: **A**
+updates, **B** goes on without. Each file is downloaded to its name +
+`.tmp`, its size and CRC32 and its `.nds` header's own CRC checked, then
+read back from the SD card and checked again; if anything's off (or DSiRPC's
+files changed in the meantime), the `.tmp` files go and nothing else
+changes. With every file there, the launcher tells DSiRPC it's leaving,
+turns the Wi-Fi off and swaps them in with no file open: each old file
+becomes `.bak`, the `.tmp` takes its name, and if any of that fails every
+file goes back as it was. Then the `.bak` files go, and **START** exits, to
+start the new launcher from TWiLight Menu++. (It can replace its own file
+while running: all of it is in memory.)
+
+The exchange never changes, so this launcher can update from any later
+DSiRPC, and it still finds a DSiRPC from another release (the syncs refuse
+it, the update doesn't). DSiRPC offers nothing while **Console updates** is
+off in its tray menu.
 
 ### The game, the ini and your save
 
@@ -215,6 +248,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/savesync.c` | The save sync's work: finding the saves, `saves.idx`, the exchange with DSiRPC, safe downloads (tested on a PC against DSiRPC: `tests/test_save_sync.py`) |
 | `source/saveui.c` | The save sync's screens: the list, conflicts, older versions, progress |
 | `source/settings.c` | `launcher.ini` (and the last game) and the settings screen |
+| `source/update.c` | Updates from DSiRPC: the check, `update.idx`, safe downloads, the swap and its screens (tested on a PC against DSiRPC: `tests/test_console_update.py`) |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |

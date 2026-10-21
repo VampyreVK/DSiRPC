@@ -56,9 +56,11 @@ bool stage_set(const char *sets_dir, const char *game, const char *dest);
 // The 4-letter game code from an .nds file's header ("" if unreadable).
 void read_game_code(const char *nds_path, char code[5]);
 
-// Where DSiRPC was last found (network order), or 0: set by each search
-// (the syncs, the save sync), cleared when one finds nothing.
+// Where DSiRPC was last found (network order), or 0, and its TCP port: set
+// by each search (the syncs, the save sync), even when DSiRPC is from
+// another release, and cleared when one finds nothing.
 extern uint32_t sync_found_addr;
+extern uint16_t sync_found_port;
 
 // Waits for the next frame. Every 5 s, it also tells DSiRPC (if it was
 // found) that the launcher's still there, so DSiRPC can tell when it's gone:

@@ -346,6 +346,7 @@ static bool would_block(void)
 // so DSiRPC stops showing it as connected once it's gone.
 
 uint32_t sync_found_addr;
+uint16_t sync_found_port;
 static uint16_t here_port;
 static uint8_t here_model;
 static int here_countdown;
@@ -439,6 +440,16 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
         {
             if (n >= (int)sizeof(ANSWER) + 3 && memcmp(got, ANSWER, sizeof(ANSWER)) == 0)
             {
+                // Where DSiRPC is, whichever release it's from (the update
+                // check needs it most when they differ), and where the
+                // "still here"s go, starting at the next frame
+                *server = from;
+                server->sin_port = htons(get16(got + sizeof(ANSWER) + 1));
+                sync_found_addr = from.sin_addr.s_addr;
+                sync_found_port = get16(got + sizeof(ANSWER) + 1);
+                here_port = ntohs(from.sin_port);
+                here_model = (uint8_t)job->console_model;
+                here_countdown = 1;
                 if (got[sizeof(ANSWER)] != SYNC_VERSION)
                 {
                     snprintf(msg, msgsz, "DSiRPC and this launcher\nare from different releases\n(sync version %d, not %d)",
@@ -447,15 +458,8 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
                 }
                 else
                 {
-                    *server = from;
-                    server->sin_port = htons(get16(got + sizeof(ANSWER) + 1));
                     msg[0] = '\0';
                     result = 1;
-                    // Where the "still here"s go, starting at the next frame
-                    sync_found_addr = from.sin_addr.s_addr;
-                    here_port = ntohs(from.sin_port);
-                    here_model = (uint8_t)job->console_model;
-                    here_countdown = 1;
                 }
             }
             fromlen = sizeof(from);

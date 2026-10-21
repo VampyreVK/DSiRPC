@@ -129,8 +129,9 @@ class Engine:
             from core.console_sync import ConsoleSync
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
                                             saves=self._save_store, on_saves=self._on_saves,
-                                            on_here=self._launcher_here)
+                                            on_here=self._launcher_here, updates=self._console_files)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
+        self._console_update = None    # the console's files for its updates (core/console_update.py)
 
     # -- settings ----------------------------------------------------------
 
@@ -399,6 +400,17 @@ class Engine:
             self._saves = SaveStore(path, keep)
         return self._saves
 
+    def _console_files(self):
+        """The console's files as they came with this DSiRPC, for the
+        launcher's update check, or None while the tray's "Console updates"
+        is off."""
+        if not self.cfg.console_updates:
+            return None
+        if self._console_update is None:
+            from core.console_update import ConsoleFiles
+            self._console_update = ConsoleFiles()
+        return self._console_update
+
     def _on_saves(self, event):
         """The save sync's events: the tray hears the summary at the end."""
         if event['type'] != 'saves_synced' or not self.on_change:
@@ -474,7 +486,7 @@ class Engine:
         old.stop()
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
-                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here)
+                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates)
         try:
             new.start()
         except OSError as e:

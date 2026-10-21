@@ -11,6 +11,7 @@ Right-click the icon for the menu:
     Discord presence                   on/off
     Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
+    Console updates                    on/off: the launcher may update its files from here
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
     Setup...                           'dsirpc.py setup' in a console window (Terminal on a Mac)
@@ -259,6 +260,10 @@ def run_tray(cfg, **engine_args):
         engine.cfg.overlay = on
         engine.save_config()
 
+    def toggle_console_updates(icon_, item):
+        engine.cfg.console_updates = not engine.cfg.console_updates
+        engine.save_config()
+
     def console_item(key, label):
         def pick(icon_, item):
             engine.set_console_icon(key)
@@ -291,6 +296,7 @@ def run_tray(cfg, **engine_args):
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
+        Item("Console updates", toggle_console_updates, checked=lambda i: engine.cfg.console_updates),
         Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),
         Menu.SEPARATOR,

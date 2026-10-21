@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 //
 // The launcher's own settings (L+R in the launcher), in launcher.ini next to
-// it: where to find DSiRPC, and what the save sync does. It also remembers
-// the game last started from the launcher (START in the game picker).
+// it: where to find DSiRPC, what the save sync does, and whether it offers
+// updates from DSiRPC. It also remembers the game last started from the
+// launcher (START in the game picker).
 
 #ifndef SETTINGS_H__
 #define SETTINGS_H__
@@ -17,11 +18,12 @@ typedef struct
 {
     char dsirpc_ip[16];     // DSiRPC's IPv4 address, or "" to look for it
     bool backup_only;       // the save sync only backs saves up, never takes any
+    bool auto_update;       // offers DSiRPC's launcher and nds-bootstrap when they differ
     char last_game[SETTINGS_PATH_LEN];  // the game last started from here, or ""
 } LauncherSettings;
 
 // Reads the settings (the defaults for anything missing: look for DSiRPC,
-// back up and sync, no last game).
+// back up and sync, auto-updates on, no last game).
 void settings_load(const char *path, LauncherSettings *s);
 
 // Writes them all. Returns false if the file can't be written.

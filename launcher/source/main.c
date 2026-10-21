@@ -16,7 +16,11 @@
 //   3. Write the connection info to sd:/RPCHAND.TXT, which the in-game side
 //      of nds-bootstrap reads to address its packets.
 //   4. Sync with DSiRPC if it's on the network (source/sync.c): hand over
-//      the unlocks from offline play, take the achievement sets.
+//      the unlocks from offline play, take the achievement sets. Then, if
+//      DSiRPC has other versions of the launcher or nds-bootstrap than the
+//      SD card, offer them (source/update.c; Auto-update in the settings):
+//      A downloads and checks them, turns the Wi-Fi off, swaps them in and
+//      exits, to be started again.
 //   5. START: pick a game (.nds) in a file browser that opens in
 //      sd:/roms/nds (or the launcher's folder without one); START there
 //      picks the game last started from here (launcher.ini's LAST_GAME).
@@ -67,6 +71,7 @@
 #include "settings.h"
 #include "sync.h"
 #include "topscreen.h"
+#include "update.h"
 
 #define CONNECT_TRIES     3
 #define CONNECT_TIMEOUT_S 30   // per try, until associated
@@ -76,6 +81,7 @@
 // sd:/DSiRPC/)
 #define BOOTSTRAP_NAME    "nds-bootstrap-dsirpc.nds"
 #define BOOTSTRAP_PREFIX  "nds-bootstrap"
+#define LAUNCHER_NAME     "dsirpc-launcher.nds"
 
 #define PATH_LEN          512
 
@@ -88,6 +94,7 @@ static u8 mac_bytes[6];
 static bool online;                   // false: offline play, no Wi-Fi
 static char sets_dir[PATH_LEN];       // the achievement sets (sync.c)
 static char settings_path[PATH_LEN];  // launcher.ini (settings.c)
+static char launcher_path[PATH_LEN];  // this launcher's own file, or "" (update.c)
 static LauncherSettings settings;
 static int saves_changed = -2;        // saves changed since the last save sync (-1: never synced)
 
@@ -379,6 +386,41 @@ static bool find_bootstrap(const char *dir, char *out, size_t outsz)
     return found == 1;
 }
 
+// This launcher's own file: argv[0] (TWiLight Menu++ passes it), or
+// dsirpc-launcher.nds in its folder; "" if neither is there.
+static void find_self(int argc, char *argv[], const char *dir, char *out, size_t outsz)
+{
+    if (argc > 0 && argv != NULL && argv[0] != NULL && strncasecmp(argv[0], "sd:/", 4) == 0 && file_exists(argv[0]))
+    {
+        snprintf(out, outsz, "%s", argv[0]);
+        return;
+    }
+    join_path(out, outsz, dir, LAUNCHER_NAME);
+    if (!file_exists(out))
+        out[0] = '\0';
+}
+
+// Offers the update if DSiRPC has other versions of the console's files
+// (update.c). false if the launcher should exit now (the Wi-Fi went off).
+static bool offer_update(const char *dir, bool *redraw)
+{
+    char bootstrap[PATH_LEN];
+    if (!find_bootstrap(dir, bootstrap, sizeof(bootstrap)))
+        join_path(bootstrap, sizeof(bootstrap), dir, BOOTSTRAP_NAME);
+    UpdateUi ui = {
+        .launcher_path = launcher_path,
+        .bootstrap_path = bootstrap,
+        .index_dir = dir,
+        .mac = mac_bytes,
+        .console_model = console_model(),
+        .server_addr = sync_found_addr,
+        .server_port = sync_found_port,
+    };
+    UpdateOutcome outcome = update_offer(&ui);
+    *redraw = outcome == UPDATE_SHOWN;
+    return outcome != UPDATE_EXIT;
+}
+
 static void show_message(const char *text)
 {
     consoleClear();
@@ -551,12 +593,14 @@ int main(int argc, char *argv[])
     join_path(sets_dir, sizeof(sets_dir), dir, SETS_FOLDER);
     join_path(settings_path, sizeof(settings_path), dir, SETTINGS_FILE);
     settings_load(settings_path, &settings);
+    find_self(argc, argv, dir, launcher_path, sizeof(launcher_path));
     if (have_fat)
         saves_changed = saves_quick_check(games_dir(), dir);
 
     printf("Connecting to Wi-Fi...\n");
     printf("B: skip, play offline\n");
 
+    bool redraw = false;
     bool wifi_ready = Wifi_InitDefault(INIT_ONLY | WIFI_ATTEMPT_DSI_MODE);
     ConnectResult connected = NOT_CONNECTED;
     if (wifi_ready)
@@ -607,11 +651,18 @@ int main(int argc, char *argv[])
             printf("Can't write sd:/RPCHAND.TXT\n");
 
         if (have_fat)
+        {
             run_sync("");
+            if (settings.auto_update && sync_found_addr != 0 && !offer_update(dir, &redraw))
+                return 0;
+        }
     }
 
     wait_for_key_release();
-    print_keys();
+    if (redraw)
+        draw_main();    // the update's screens were up
+    else
+        print_keys();
 
     while (1)
     {

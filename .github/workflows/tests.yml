@@ -16,6 +16,7 @@ on:
   push:
     paths:
       - "core/**"
+      - "app/engine.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -26,6 +27,7 @@ on:
   pull_request:
     paths:
       - "core/**"
+      - "app/engine.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -57,6 +59,7 @@ jobs:
         with:
           sparse-checkout: |
             core
+            app
             tools
             tests
             third_party/rcheevos

@@ -285,6 +285,24 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-21 (night): **Viv's round on the Mac: a save turned down as
+  damaged, and an unlock the console lost.** Platinum's save went up with
+  the CRC `saves.idx` remembered (it vouches for a save whose size and time
+  haven't changed), which no longer matched the save, so DSiRPC refused it
+  every time; the launcher now reads the CRC from the save as it sends it,
+  and a download the list planned over a save that turns out to have changed
+  stops (that's a conflict now, and the save's on the PC). The lost unlock:
+  the launcher syncs as it connects (handing over the console's unlocks) and
+  again as it starts the game, and DSiRPC only counted an unlock as known
+  once RetroAchievements had answered for it, so the second sync's set
+  didn't have it and replaced the console's; it came back at the next start.
+  DSiRPC now remembers every unlock it sees, on the console or here, sent
+  or not (`core/unlocks.py`), and the sets mark them all earned. Before the
+  started game's set, it checks that game with RetroAchievements (up to 5 s):
+  unlocks earned elsewhere come in, ones RetroAchievements lacks go out when
+  sending is on, and without an answer what DSiRPC remembers stands in. The
+  Mac's Wi-Fi fix works.
+
 - 2026-10-21 (evening): **Updates over Wi-Fi.** Viv asked for the console
   to update itself so a new build doesn't need the SD card moved back and
   forth, with the PC fetching each new build from GitHub. GitHub's build

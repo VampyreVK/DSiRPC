@@ -88,7 +88,7 @@ class RAClient:
     def signed_in(self):
         return bool(self.username and self.token)
 
-    def _post(self, fields, auth=True):
+    def _post(self, fields, auth=True, timeout=None):
         if auth:
             if not self.signed_in:
                 raise RAError("not signed in to RetroAchievements")
@@ -99,7 +99,7 @@ class RAClient:
             "Content-Type": "application/x-www-form-urlencoded",
         })
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
                 status, raw = r.status, r.read()
         except urllib.error.HTTPError as e:
             status, raw = e.code, e.read()
@@ -167,16 +167,17 @@ class RAClient:
 
     # -- playing -----------------------------------------------------------
 
-    def start_session(self, game_id, game_hash=None):
+    def start_session(self, game_id, game_hash=None, timeout=None):
         """Tells RetroAchievements a game started. Returns the achievements
         the user already has (softcore or hardcore): {ID: when it was
-        earned, as a Unix time (the earliest of the two; 0 if not given)}."""
+        earned, as a Unix time (the earliest of the two; 0 if not given)}.
+        timeout: seconds to wait, instead of the client's."""
         fields = {"r": "startsession", "g": str(int(game_id))}
         if game_hash:
             fields["h"] = "0"
             fields["m"] = game_hash
         fields["l"] = RCHEEVOS_VERSION
-        data = self._post(fields)
+        data = self._post(fields, timeout=timeout)
         unlocked = {}
         for key in ("Unlocks", "HardcoreUnlocks"):
             for u in data.get(key) or []:

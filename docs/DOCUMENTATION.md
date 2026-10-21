@@ -807,6 +807,7 @@ numbers mean.
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py`, `DRUP` to `console_update.py` |
+| `core/unlocks.py` | `UnlockLedger`: every unlock DSiRPC has seen, on the console (offline, or its checker while connected) or the PC, sent to RetroAchievements or not (`ra/cache/local_unlocks.json`). The console's sets mark them earned; before the started game's set, the engine checks it with RetroAchievements (`RALink.refresh_unlocks()`, 5 s at most): its unlocks come in, and the ones it lacks are sent if sending is on |
 | `core/console_update.py` | The launcher's updates (section 7): `ConsoleFiles` (the console's files this DSiRPC came with, their CRCs, `pc_version()`'s label) and `handle()`, the exchange |
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
@@ -1370,7 +1371,11 @@ haven't changed (a save the plan finds in sync counts as synced there, so
 the main screen's count only has what changed since); saves no game is
 named after are left out; a download goes through a `.tmp` file, checked against its
 CRC, and swaps in with the old save kept as `.bak` until it's done (the
-next scan puts a `.bak` back). **On the PC**, each game has a folder in the
+next scan puts a `.bak` back); an upload's CRC is read from the save as
+it's sent (`saves.idx` can be out of date: DSiRPC turns down a save that
+doesn't match its CRC), and a download the plan made over a save that turns
+out to have changed stops after the console's save is on the PC, to be
+planned again. **On the PC**, each game has a folder in the
 backups folder (`[saves]` in `dsirpc.cfg`, by default `saves/` in DSiRPC's
 folder), named after the game and its key (`Pokemon Black [IRBO-1A2B]`): the
 live save of each slot, and `backups/<console>/` with each console's last N

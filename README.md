@@ -153,6 +153,14 @@ start a game; **B** skips it), the two sync: DSiRPC sends the
 DSiRPC sends to RetroAchievements if sending is on. This works for games
 started from the launcher, which puts the game's set on the SD card.
 
+DSiRPC remembers every unlock it has seen, on the console or the PC, sent
+or not, and the sets it gives the console mark them all earned, so the
+console never loses one it handed over. Before the launcher starts a game,
+DSiRPC checks that game with RetroAchievements: unlocks you earned elsewhere
+come to the console, and ones RetroAchievements doesn't have yet are sent
+(if sending is on). When RetroAchievements can't be reached, what DSiRPC
+remembers is used instead.
+
 **nds-bootstrap's in-game menu** (**L + Down + SELECT** by default) says how
 many achievements are new since you last looked. Its **Achievements** item
 lists them: the ones you've earned first, newest first with the date and

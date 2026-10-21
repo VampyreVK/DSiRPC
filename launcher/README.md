@@ -85,7 +85,11 @@ console's backups, next to the live save. A download goes to a
 `.tmp` file, is checked against its CRC, then swapped in, with the old save
 kept as `.bak` until that's done (a scan puts a `.bak` back if the console
 went off in between). A console's save always goes to the PC before
-anything replaces it.
+anything replaces it. An upload's CRC is read from the save as it goes,
+since `saves.idx` can be out of date (a save written in place with its time
+unchanged), and if a save the list called unchanged turns out to have
+changed, a download over it stops (it's on the PC by then) for you to look
+again: it's a conflict now.
 
 ### Settings
 

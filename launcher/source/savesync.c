@@ -931,9 +931,25 @@ done:
 
 // Sends the console's save. 1: DSiRPC has it, 0: cancelled, -1: failed.
 static int upload(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                  const SaveItem *it, int kind, const char *what, SaveProgress progress,
+                  SaveItem *it, int kind, const char *what, SaveProgress progress,
                   char *msg, size_t msgsz)
 {
+    // The CRC of what's sent, read now: what saves.idx remembered can be out
+    // of date (and DSiRPC turns down a save that doesn't match its CRC). The
+    // item takes what's there, so saves.idx has it from then on.
+    uint32_t crc, size;
+    if (!saves_file_crc(it->path, &crc, &size))
+    {
+        snprintf(msg, msgsz, "Can't read the save");
+        return -1;
+    }
+    struct stat st;
+    if (stat(it->path, &st) == 0)
+        it->mtime = (int32_t)st.st_mtime;
+    it->size = size;
+    it->crc = crc;
+    it->changed = it->crc != it->base;
+
     FILE *f = fopen(it->path, "rb");
     if (f == NULL)
     {
@@ -1109,16 +1125,24 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
 // The PC's save (version, from: the console it came from) replaces the
 // console's, which goes to the PC first.
 static int take_from_pc(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                        SaveItem *it, uint8_t version, const char *from, uint8_t flags, SaveProgress progress,
-                        char *msg, size_t msgsz)
+                        SaveItem *it, uint8_t version, const char *from, uint8_t flags, bool as_listed,
+                        SaveProgress progress, char *msg, size_t msgsz)
 {
     char what[96];
     if (it->present)
     {
+        uint32_t listed = it->crc;
         snprintf(what, sizeof(what), "Keeping %s's save on the PC first", it->name);
         int r = upload(job, console, server, it, PUT_SAFETY, what, progress, msg, msgsz);
         if (r <= 0)
             return r;
+        // The list said the console's save hadn't changed (so the PC's
+        // newer one comes here): if it has, that's for you to decide
+        if (as_listed && it->crc != listed)
+        {
+            snprintf(msg, msgsz, "This save changed since the\nlist was made. It's kept on\nthe PC; open the list again.");
+            return -1;
+        }
     }
     if (from != NULL && from[0] != '\0')
         snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Taking", it->name, from);
@@ -1138,6 +1162,7 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     int r = 0;
     int *count = NULL;
     SaveAction action = it->action;
+    bool chosen = action == SA_CONFLICT;   // you settled it: no second-guessing
     if (action == SA_CONFLICT)
     {
         if (it->choice == SC_KEEP_CONSOLE)
@@ -1161,7 +1186,7 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     case SA_DOWNLOAD_NEW:
         if (console->backup_only)
             return 0;
-        r = take_from_pc(job, console, server, it, 0, it->pc_source, 0, progress, msg, msgsz);
+        r = take_from_pc(job, console, server, it, 0, it->pc_source, 0, !chosen, progress, msg, msgsz);
         count = &counts->downloaded;
         break;
     default:
@@ -1182,6 +1207,7 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     {
         it->failed = true;
         counts->failed++;
+        saves_write_index(list);   // what it found (a save changed since the list) for next time
     }
     return r;
 }
@@ -1249,7 +1275,7 @@ int saves_restore(const SyncJob *job, const SaveConsole *console, const struct s
 {
     msg[0] = '\0';
     int r = take_from_pc(job, console, server, it, version, from, console->backup_only ? 0 : GET_MAKE_LATEST,
-                         progress, msg, msgsz);
+                         false, progress, msg, msgsz);
     if (r > 0)
     {
         counts->downloaded++;
@@ -1263,6 +1289,7 @@ int saves_restore(const SyncJob *job, const SaveConsole *console, const struct s
     else
     {
         counts->failed++;
+        saves_write_index(list);
     }
     return r > 0 ? 1 : -1;
 }

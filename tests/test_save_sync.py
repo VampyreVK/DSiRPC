@@ -214,6 +214,49 @@ def test_conflicts_both_ways(host, pc, tmp_path):
     assert open(os.path.join(folder, "Pokemon Black.sav"), "rb").read() == b"the 3DS again"
 
 
+def test_a_save_changed_behind_saves_idxs_back(host, pc, tmp_path):
+    """saves.idx vouches for a save whose size and time haven't changed. One
+    rewritten in place with its time put back still goes up with the CRC of
+    what's sent (it was turned down as damaged), and a download the list
+    planned over it stops instead of replacing it."""
+    port, store = pc
+    key = saves.game_key("CPUE", 0x5A5A)
+    path = "sd:/roms/nds/saves/Platinum.sav"
+    dsi = Console(host, port, str(tmp_path / "dsi"))
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    for c in (dsi, three):
+        c.put("sd:/roms/nds/Platinum.nds", rom("CPUE", 0x5A5A))
+    dsi.put(path, b"first!" * 1000)
+    dsi.run("plan", "sync *")
+
+    def in_place(data):
+        full = os.path.join(dsi.root, path)
+        st = os.stat(full)
+        dsi.put(path, data)
+        os.utime(full, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+    # Played (a new time: saves.idx reads it), then written again in place
+    dsi.put(path, b"second" * 1000)
+    later = os.stat(os.path.join(dsi.root, path)).st_mtime + 10
+    os.utime(os.path.join(dsi.root, path), (later, later))
+    dsi.run("plan")
+    in_place(b"third!" * 1000)
+    out = dsi.run("plan", "sync Platinum|0")
+    assert actions(out)[("Platinum", 0)] == UPLOAD and "sync Platinum|0 1 " in out
+    assert store.read(key, 0)[0] == b"third!" * 1000
+
+    # The 3DS's save is the live one now; the DSi's changes in place again
+    three.put(path, b"the 3DS's")
+    three.run("plan", "sync Platinum|0|keep")
+    in_place(b"fourth" * 1000)
+    out = dsi.run("plan", "sync Platinum|0")
+    assert actions(out)[("Platinum", 0)] == DOWNLOAD                  # the list didn't know
+    assert any(ln.startswith("sync Platinum|0 -1 This save changed since the") for ln in out)
+    assert dsi.read(path) == b"fourth" * 1000                          # not replaced
+    assert store.backed_up(key, 0, saves.crc32(b"fourth" * 1000))     # and on the PC
+    assert actions(dsi.run("plan"))[("Platinum", 0)] == CONFLICT       # yours to settle
+
+
 def test_restore_an_older_version(host, pc, tmp_path):
     port, store = pc
     key = saves.game_key("IRBO", 0x1A2B)

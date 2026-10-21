@@ -78,8 +78,9 @@ The menu's "Overlay window" opens the overlay for streaming (capture it
 in OBS with a macOS Screen Capture or Window Capture source).
 
 Save backups: Y in the launcher backs up your games' saves to the Mac and
-takes newer ones from it (from your other console, say). The Mac keeps
-each save's last 10 versions (menu > Open save backups). L+R opens the
+takes newer ones from it (from your other console, say; the launcher
+says whose). The Mac keeps the live save your consoles share and each
+console's last 10 backups (menu > Open save backups). L+R opens the
 launcher's settings: how it finds DSiRPC, and whether saves sync or only
 back up.
 

@@ -256,10 +256,10 @@ racache: {self.racache}
 auto_import: {yn(self.ra_auto_import)}
 
 [saves]
-# The launcher's save sync (X in the launcher): the folder the PC keeps the
+# The launcher's save sync (Y in the launcher): the folder the PC keeps the
 # console's saves in (empty: saves/ in DSiRPC's folder; put it in a cloud
-# drive's folder for an off-site copy too), and how many older versions of
-# each save it keeps
+# drive's folder for an off-site copy too), and how many backups of each
+# save it keeps for each console
 folder: {self.saves_folder}
 versions: {self.save_versions}
 """

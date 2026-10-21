@@ -11,7 +11,7 @@
 //       Mario Kart DS              in sync
 //     x Picross 3D                 grey: left out (Y)
 //   -------------------------------
-//   Newer on the PC (3DS 3F21)     the selected save
+//   From 3DS 3F21, Oct 20 14:02    the selected save (whose the PC's is)
 //   A:sync Y:leave out X:restore
 //   START:sync all  B:back
 //
@@ -163,7 +163,11 @@ static void progress(const char *what, uint32_t done, uint32_t total)
         return;
     last_pct = pct;
     printf("\x1b[0;0H%-31.31s\n-------------------------------\n", progress_title);
-    printf("\x1b[3;0H%-31.31s\n", what);
+    // What it's doing, on up to two lines ("Taking Pokemon Black\nfrom: 3DS 3F21")
+    const char *nl = strchr(what, '\n');
+    int first = nl != NULL ? (int)(nl - what) : (int)strlen(what);
+    printf("\x1b[3;0H%-31.*s\n", first > 31 ? 31 : first, what);
+    printf("\x1b[4;0H%-31.31s\n", nl != NULL ? nl + 1 : "");
     if (total)
     {
         char bar[25];
@@ -263,10 +267,16 @@ static void detail(const SaveItem *it, char *out, size_t outsz)
             snprintf(out, outsz, it->base ? "Changed here: back it up" : "New here: back it up");
             break;
         case SA_DOWNLOAD:
-            snprintf(out, outsz, "Newer on the PC: %s", when);
+            if (it->pc_source[0] != '\0')
+                snprintf(out, outsz, "From %s, %s", it->pc_source, when);
+            else
+                snprintf(out, outsz, "Newer on the PC: %s", when);
             break;
         case SA_DOWNLOAD_NEW:
-            snprintf(out, outsz, "Only on the PC: %s", when);
+            if (it->pc_source[0] != '\0')
+                snprintf(out, outsz, "New from %s, %s", it->pc_source, when);
+            else
+                snprintf(out, outsz, "Only on the PC: %s", when);
             break;
         case SA_CONFLICT:
             snprintf(out, outsz, "Changed here and on the PC");
@@ -310,7 +320,7 @@ static void draw_list(int sel, int top)
     printf("\x1b[20;0H-------------------------------");
     if (sel > 0)
     {
-        char text[64];
+        char text[96];
         detail(&list.items[shown[sel - 1]], text, sizeof(text));
         printf("\x1b[21;0H%-31.31s", text);
     }
@@ -345,8 +355,8 @@ static SaveChoice ask_conflict(const SaveItem *it)
     printf("The PC:   %s\n", there);
     printf("          %s\n", size_there);
     if (it->pc_source[0] != '\0')
-        printf("  (from the %.18s)\n", it->pc_source);
-    printf("\nThe one you don't pick stays\nin the PC's backup history.\n");
+        printf("          from: %.15s\n", it->pc_source);
+    printf("\nThe one you don't pick is kept\nin the PC's backups.\n");
     printf("\x1b[20;0H-------------------------------");
     printf("\x1b[21;0HL: keep this %s's", self);
     printf("\x1b[22;0HR: take the PC's");
@@ -408,13 +418,17 @@ static void versions_screen(SaveItem *it)
         printf("%s\n-------------------------------\n", name);
         for (int i = top; i < n && i < top + LIST_ROWS; i++)
         {
+            // When it was saved, its size, and whose it is (the live save: "live")
             char when[24], size[16];
             format_time(when, sizeof(when), v[i].time);
             format_size(size, sizeof(size), v[i].size);
-            printf("%c %-12s %-7s %s\n", i == sel ? '>' : ' ', when, size, v[i].version == 0 ? "latest" : "");
+            printf("%c %-12s %-7s %-8.8s\n", i == sel ? '>' : ' ', when, size,
+                   v[i].version == 0 ? "live" : v[i].source);
         }
         printf("\x1b[20;0H-------------------------------");
-        printf("\x1b[21;0HFrom the %-23.23s", v[sel].source);
+        char from[48];
+        snprintf(from, sizeof(from), "%sfrom: %s", v[sel].version == 0 ? "Live, " : "", v[sel].source);
+        printf("\x1b[21;0H%-31.31s", from);
         printf("\x1b[22;0HA: put this one on the console");
         printf("\x1b[23;0HB: back");
         u32 k = wait_keys(KEY_UP | KEY_DOWN | KEY_A | KEY_B);
@@ -430,7 +444,7 @@ static void versions_screen(SaveItem *it)
             printf("Put this version on the\nconsole?\n\n%s\n", name);
             char when[24];
             format_time(when, sizeof(when), v[sel].time);
-            printf("%s, from the %.18s\n\n", when, v[sel].source);
+            printf("%s, from: %.18s\n\n", when, v[sel].source);
             if (it->present)
                 printf("The console's save now goes\nto the PC first, so it can be\nput back too.\n");
             if (!console.backup_only)
@@ -441,8 +455,8 @@ static void versions_screen(SaveItem *it)
                 continue;
             consoleClear();
             progress_title = "Restoring a save";
-            int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, &counts, progress, msg,
-                                  sizeof(msg));
+            int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, v[sel].source, &counts,
+                                  progress, msg, sizeof(msg));
             message(r > 0 ? "Restored" : "Didn't restore", r > 0 ? (msg[0] ? msg : "The save is on the console.")
                                                                  : msg);
             return;

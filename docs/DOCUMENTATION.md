@@ -1342,20 +1342,23 @@ nothing waits while the list is on the console's screen:
 | Request | What |
 |---|---|
 | plan | Every save on the console (game code, ROM header CRC, slot, CRC now, CRC at its last sync, excluded) and every game without one; the answer has what to do with each, the PC's side, and the saves the PC has for those games in slots the console lacks |
-| upload | One save, with the time the console last wrote it (its copies here are dated by it): to sync (it becomes the latest the consoles share; the old latest goes to history), to back up (history only), or before it's replaced (history only) |
-| download | The latest, or a version from history, newest first; optionally made the latest too (a restore in sync mode) |
-| history | The versions kept (the latest first) |
+| upload | One save, with the time the console last wrote it (its copies here are dated by it), kept as one of that console's backups: to sync (it also becomes the live save the consoles share), to back up (back-up-only mode), or before it's replaced |
+| download | The live save, or a backup (newest first); optionally made the live save too (a restore in sync mode, still marked as whose it was) |
+| history | The versions kept: the live save, then the backups of every console, newest first, each save once, with whose each is |
 | done | What the sync did, for the tray's notification |
 
 Each request starts with the exchange's version (2; a launcher from another
 release is told so), the console's MAC, its model and the save mode (back up
-and sync, or back up only). The plan is three-way, with no clocks
-involved: the console's CRC now, the PC's latest's, and the console's CRC
-at its last sync (from `saves.idx`). The same CRC means in sync; the PC's
-still matching the last sync means only the console changed (upload); the
-console's still matching it means only the PC's changed (download);
-anything else is a conflict, and the console asks. Back-up-only consoles
-only ever upload to history, and their saves are never offered to anyone.
+and sync, or back up only); the MAC and model name the console ("DSi 3F21",
+"3DS 0002") for its backups. The plan is three-way, with no clocks
+involved: the console's CRC now, the live save's, and what the console had
+at its last sync (the save it sent or took: from `saves.idx`, or, if the
+console sends none, what DSiRPC remembers it had). The same CRC means in
+sync; the live save still matching the last sync means only the console
+changed (upload); the console's still matching it means a newer save from
+another console (download); anything else is a conflict, and the console
+asks. Back-up-only consoles only ever upload backups, and their saves are
+never offered to anyone.
 
 **On the console**, `saves.idx` (next to the launcher, one tab-separated
 line per save: code, header CRC, slot, size, time, CRC, CRC at the last
@@ -1367,10 +1370,16 @@ CRC, and swaps in with the old save kept as `.bak` until it's done (the
 next scan puts a `.bak` back). **On the PC**, each game has a folder in the
 backups folder (`[saves]` in `dsirpc.cfg`, by default `saves/` in DSiRPC's
 folder), named after the game and its key (`Pokemon Black [IRBO-1A2B]`): the
-latest save of each slot, and `history/` with the last N versions
-(`versions`, 10 by default). `saves.json` lists it all with CRCs, sizes,
-times and sources. A save copied over the latest by hand becomes the PC's
-version (offered to the consoles); one deleted by hand is backed up again.
+live save of each slot, and `backups/<console>/` with each console's last N
+saves (`versions`, 10 by default; the newest is the live save over again, on
+purpose). `saves.json` lists it all with CRCs, sizes, times and sources, and
+what each console last had. A save copied over the live one by hand is the
+live save from then on (offered to the consoles), as the backup it is, or
+else kept as an External backup (`backups/External/`) too; one put anywhere
+else in the game's folder is listed as an External backup the consoles can
+restore (never pruned); one deleted by hand is backed up again. The first
+layout (one `history/` folder) is moved into the console folders the first
+time DSiRPC reads it.
 
 ### The checker's report (DSi -> broadcast, after each hello)
 

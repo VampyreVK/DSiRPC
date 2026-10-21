@@ -285,6 +285,27 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-21 (later): **A backup folder per console, the live save, and
+  External saves.** Viv's model for the PC's side: every save a console
+  sends is one of that console's backups (`backups/<console>/`, its last N),
+  and the live save the consoles share sits next to them, the newest backup
+  over again, on purpose. The arrows come from what the console had at its
+  last sync (the save it sent or took): changed since, with nothing newer
+  from the others, is up; unchanged, with a newer save from another console,
+  is down; changed, with a newer save from another console, is a conflict.
+  That's the three-way plan as it was, but DSiRPC now also remembers what
+  each console last had (`consoles` in `saves.json`), which decides when a
+  console sends no base (its `saves.idx` gone). A save copied over the live
+  one by hand is the live save from then on, as the backup it is or as an
+  External one (`backups/External/`); one put anywhere else in the game's
+  folder is listed as an External backup the consoles can restore, and never
+  pruned. A restore keeps whose the save was. The launcher says whose a save
+  is: "From 3DS 3F21, ..." in the list, "from: ..." while taking or
+  restoring one, and each version's console in the restore list. The first
+  layout's `history/` is moved into the console folders when DSiRPC first
+  reads it. To try on hardware: syncing between the DSi and the 3DS, and a
+  save copied in by hand.
+
 - 2026-10-21: **Viv's first round on the save sync, and the launcher's top
   screen.** The main screen's "(N changed)" didn't match the list: a save
   the plan found already in sync with the PC (the very save the other

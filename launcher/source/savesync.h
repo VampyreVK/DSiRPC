@@ -73,9 +73,9 @@ typedef struct
 
     // From DSiRPC's plan
     SaveAction action;
-    uint32_t pc_size, pc_crc, pc_time;   // the PC's latest (pc_time: seconds since 2000)
-    uint8_t versions;           // versions DSiRPC keeps (the latest and history)
-    char pc_source[SAVE_SOURCE_LEN];
+    uint32_t pc_size, pc_crc, pc_time;   // the PC's live save (pc_time: seconds since 2000)
+    uint8_t versions;           // versions DSiRPC keeps (the live save and the backups)
+    char pc_source[SAVE_SOURCE_LEN];     // the console the live save came from, or "External"
     SaveChoice choice;          // a conflict's answer
     bool done;                  // synced in this session
     bool failed;
@@ -99,9 +99,9 @@ typedef struct
 
 typedef struct
 {
-    uint8_t version;            // 0: the latest, 1..: history, newest first
+    uint8_t version;            // 0: the live save, 1..: the backups, newest first
     uint32_t time, size, crc;
-    char source[SAVE_SOURCE_LEN];
+    char source[SAVE_SOURCE_LEN];   // the console it came from, or "External"
 } SaveVersion;
 
 typedef struct
@@ -150,10 +150,11 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
                    const SaveItem *item, SaveVersion *out, int max, char *msg, size_t msgsz);
 
 // Replaces the console's save with a version DSiRPC keeps (the console's
-// goes to the PC first). In sync mode, that version becomes the PC's
-// latest too. 1: done, -1: failed (msg).
+// goes to the PC first); from: the console that version came from, for the
+// screen. In sync mode, that version becomes the PC's live save too.
+// 1: done, -1: failed (msg).
 int saves_restore(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                  SaveList *list, SaveItem *item, uint8_t version, SaveCounts *counts,
+                  SaveList *list, SaveItem *item, uint8_t version, const char *from, SaveCounts *counts,
                   SaveProgress progress, char *msg, size_t msgsz);
 
 // Tells DSiRPC what the sync did (for its notification).

@@ -73,8 +73,9 @@ STEP 3: PLAYING
 4. Within about 15 seconds, Discord shows what you're playing.
 
 Save backups: Y in the launcher backs up your games' saves to the PC and
-takes newer ones from it (from your other console, say). The PC keeps
-each save's last 10 versions in its saves folder (tray menu > Open save
+takes newer ones from it (from your other console, say; the launcher
+says whose). The PC keeps the live save your consoles share and each
+console's last 10 backups in its saves folder (tray menu > Open save
 backups). L+R opens the launcher's settings: how it finds DSiRPC, and
 whether saves sync or only back up.
 

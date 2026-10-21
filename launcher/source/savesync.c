@@ -1106,12 +1106,13 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
     return 1;
 }
 
-// The PC's save (version) replaces the console's, which goes to the PC first.
+// The PC's save (version, from: the console it came from) replaces the
+// console's, which goes to the PC first.
 static int take_from_pc(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                        SaveItem *it, uint8_t version, uint8_t flags, SaveProgress progress,
+                        SaveItem *it, uint8_t version, const char *from, uint8_t flags, SaveProgress progress,
                         char *msg, size_t msgsz)
 {
-    char what[80];
+    char what[96];
     if (it->present)
     {
         snprintf(what, sizeof(what), "Keeping %s's save on the PC first", it->name);
@@ -1119,7 +1120,10 @@ static int take_from_pc(const SyncJob *job, const SaveConsole *console, const st
         if (r <= 0)
             return r;
     }
-    snprintf(what, sizeof(what), version ? "Restoring %s" : "Taking %s from the PC", it->name);
+    if (from != NULL && from[0] != '\0')
+        snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Taking", it->name, from);
+    else
+        snprintf(what, sizeof(what), version ? "Restoring %s" : "Taking %s from the PC", it->name);
     return download(job, console, server, it, version, flags, what, progress, msg, msgsz);
 }
 
@@ -1157,7 +1161,7 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     case SA_DOWNLOAD_NEW:
         if (console->backup_only)
             return 0;
-        r = take_from_pc(job, console, server, it, 0, 0, progress, msg, msgsz);
+        r = take_from_pc(job, console, server, it, 0, it->pc_source, 0, progress, msg, msgsz);
         count = &counts->downloaded;
         break;
     default:
@@ -1240,11 +1244,11 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
 }
 
 int saves_restore(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                  SaveList *list, SaveItem *it, uint8_t version, SaveCounts *counts,
+                  SaveList *list, SaveItem *it, uint8_t version, const char *from, SaveCounts *counts,
                   SaveProgress progress, char *msg, size_t msgsz)
 {
     msg[0] = '\0';
-    int r = take_from_pc(job, console, server, it, version, console->backup_only ? 0 : GET_MAKE_LATEST,
+    int r = take_from_pc(job, console, server, it, version, from, console->backup_only ? 0 : GET_MAKE_LATEST,
                          progress, msg, msgsz);
     if (r > 0)
     {

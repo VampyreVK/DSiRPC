@@ -1,8 +1,11 @@
 """core/saves.py, the PC's copy of the console's saves: the three-way plan
-(sync and backup-only), history (kept, pruned, never lost on a replace),
-restores, damaged uploads, a save changed by hand in the folder, and the
-manifest surviving a restart."""
+(sync and backup-only), each console's backups next to the live save (kept,
+pruned, never lost on a replace), what each console last had, restores,
+dates, damaged uploads, saves put in the folder by hand (External ones and
+copies of backups), the first layout upgraded, and the manifest surviving a
+restart."""
 
+import json
 import os
 
 import pytest
@@ -20,8 +23,8 @@ def entry(slot=0, present=True, data=None, base=0, excluded=False, code=CODE, hc
             "crc": crc32(data) if data is not None else 0, "base": base, "excluded": excluded, "name": name}
 
 
-def actions(store, entries, backup_only=False):
-    return [(i["slot"], i["action"]) for i in store.plan(entries, backup_only)]
+def actions(store, entries, backup_only=False, console=None):
+    return [(i["slot"], i["action"]) for i in store.plan(entries, backup_only, console)]
 
 
 @pytest.fixture
@@ -69,19 +72,55 @@ def test_backup_only(store):
     assert store.latest(KEY, 0) is None and store.history(KEY, 0)[0]["source"] == "3DS 0002"
 
 
-def test_history_is_kept_and_pruned(store, tmp_path):
+def test_backups_are_kept_and_pruned(store, tmp_path):
     versions = [f"version {i}".encode() for i in range(6)]
     for i, v in enumerate(versions):
         store.put(KEY, 0, "Pokemon Black", v, crc32(v), PUT_SYNC, "DSi 0001", when=1_700_000_000 + i * 60)
+    # The live save, then the console's last 3 backups (keep=3), the newest of which is the live save over
+    # again: listed once
     h = store.history(KEY, 0)
-    assert [r["version"] for r in h] == [0, 1, 2, 3]                      # the latest, then 3 kept (keep=3)
-    assert store.read(KEY, 0, 0)[0] == versions[5]
-    assert [store.read(KEY, 0, n)[0] for n in (1, 2, 3)] == [versions[4], versions[3], versions[2]]
+    assert [r["version"] for r in h] == [0, 1, 2]
+    assert [store.read(KEY, 0, n)[0] for n in (0, 1, 2)] == [versions[5], versions[4], versions[3]]
     folder = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]"
     assert (folder / "Pokemon Black.sav").read_bytes() == versions[5]
-    assert len(os.listdir(folder / "history")) == 3                       # the pruned files are gone
+    assert len(os.listdir(folder / "backups" / "DSi 0001")) == 3          # the pruned files are gone
+    assert [b["crc"] for b in store.backups(KEY, 0)] == [crc32(v) for v in versions[3:]]
     # Uploading the same save again changes nothing
     assert not store.put(KEY, 0, "Pokemon Black", versions[5], crc32(versions[5]), PUT_SYNC, "DSi 0001")
+
+
+def test_a_backup_folder_for_each_console(store, tmp_path):
+    dsi, three = b"the DSi's adventure", b"the 3DS's adventure"
+    store.put(KEY, 0, "Pokemon Black", dsi, crc32(dsi), PUT_SYNC, "DSi 0001")
+    store.put(KEY, 0, "Pokemon Black", three, crc32(three), PUT_SYNC, "3DS 0002")
+    backups = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]" / "backups"
+    assert sorted(os.listdir(backups)) == ["3DS 0002", "DSi 0001"]
+    assert store.latest(KEY, 0)["source"] == "3DS 0002"                   # the live save: the newest
+    assert [(b["source"], b["crc"]) for b in store.backups(KEY, 0)] == [("DSi 0001", crc32(dsi)),
+                                                                         ("3DS 0002", crc32(three))]
+    # Each console's backups are pruned on their own
+    for i in range(5):
+        v = f"DSi save {i}".encode()
+        store.put(KEY, 0, "Pokemon Black", v, crc32(v), PUT_BACKUP, "DSi 0001")
+    assert len(store.backups(KEY, 0, "DSi 0001")) == 3 and len(store.backups(KEY, 0, "3DS 0002")) == 1
+    # What each console last had: the save it sent
+    assert store.console_had(KEY, 0, "3DS 0002")["crc"] == crc32(three)
+
+
+def test_what_a_console_had_counts_when_it_forgot(store):
+    """A console whose saves.idx is gone (a new SD card, say) sends no base:
+    what DSiRPC remembers it had decides instead of a conflict."""
+    v1, v2, v3 = b"save one", b"save two", b"save three"
+    store.put(KEY, 0, "Pokemon Black", v1, crc32(v1), PUT_SYNC, "DSi 0001")
+    store.put(KEY, 0, "Pokemon Black", v2, crc32(v2), PUT_SYNC, "3DS 0002")
+    assert actions(store, [entry(data=v1)], console="DSi 0001") == [(0, DOWNLOAD)]   # unchanged since: take v2
+    assert actions(store, [entry(data=v3)], console="DSi 0001") == [(0, CONFLICT)]   # played on both
+    assert actions(store, [entry(data=v3)], console="3DS 0002") == [(0, UPLOAD)]     # only it played since
+    assert actions(store, [entry(data=v3)]) == [(0, CONFLICT)]                       # nobody it knows
+    # A console in sync is noted as having the live save
+    assert actions(store, [entry(data=v2)], console="DSi 0001") == [(0, IN_SYNC)]
+    assert store.console_had(KEY, 0, "DSi 0001") == {"crc": crc32(v2), "from": "3DS 0002",
+                                                      "time": store.console_had(KEY, 0, "DSi 0001")["time"]}
 
 
 def test_a_replaced_console_save_goes_to_history(store):
@@ -100,7 +139,9 @@ def test_restore(store):
     store.put(KEY, 0, "Pokemon Black", new, crc32(new), PUT_SYNC, "DSi 0001")
     data, rec = store.restore(KEY, 0, 1, "3DS 0002")
     assert data == old and rec["crc"] == crc32(old) and store.latest(KEY, 0)["crc"] == crc32(old)
-    assert store.history(KEY, 0)[1]["crc"] == crc32(new)                  # the replaced latest is kept
+    # Still the DSi's save (the 3DS only restored it), and the replaced live save is kept
+    assert rec["source"] == "DSi 0001" and rec["restored_by"] == "3DS 0002"
+    assert store.history(KEY, 0)[1]["crc"] == crc32(new)
     # Every console in sync with `new` is offered the restored save
     assert actions(store, [entry(data=new, base=crc32(new))]) == [(0, DOWNLOAD)]
 
@@ -128,9 +169,9 @@ def test_damaged_uploads_and_files(store, tmp_path):
     with pytest.raises(saves.SaveError):
         store.read(KEY, 0, 0)
     store.put(KEY, 0, "Pokemon Black", b"save", crc32(b"save"), PUT_SYNC, "DSi 0001")
-    hist = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]" / "history"
+    folder = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]"
     store.put(KEY, 0, "Pokemon Black", b"save 2", crc32(b"save 2"), PUT_SYNC, "DSi 0001")
-    (hist / os.listdir(hist)[0]).write_bytes(b"tampered")
+    (folder / store.history(KEY, 0)[1]["file"]).write_bytes(b"tampered")
     with pytest.raises(saves.SaveError):
         store.read(KEY, 0, 1)
 
@@ -142,11 +183,65 @@ def test_a_save_copied_into_the_folder_by_hand(store, tmp_path):
     latest.write_bytes(b"from an emulator")
     os.utime(latest, (1_800_000_000, 1_800_000_000))
     assert actions(store, [entry(data=v1, base=crc32(v1))]) == [(0, DOWNLOAD)]
+    # The live save now, and kept as an External backup too (the live copy stays where it was put)
     rec = store.latest(KEY, 0)
-    assert rec["source"] == "PC" and rec["crc"] == crc32(b"from an emulator")
-    assert store.read(KEY, 0, 0)[0] == b"from an emulator"
+    assert rec["source"] == "External" and rec["crc"] == crc32(b"from an emulator")
+    assert store.read(KEY, 0, 0)[0] == b"from an emulator" and latest.read_bytes() == b"from an emulator"
+    assert [b["source"] for b in store.backups(KEY, 0) if b["crc"] == crc32(b"from an emulator")] == ["External"]
+    # A copy of one of the backups instead: the live save again, as that console's
+    latest.write_bytes(v1)
+    os.utime(latest, (1_800_000_100, 1_800_000_100))
+    assert actions(store, [entry(data=b"x", base=crc32(b"x"))]) == [(0, DOWNLOAD)]
+    assert store.latest(KEY, 0)["source"] == "DSi 0001"
     latest.unlink()                                                       # deleted by hand: the console's goes up again
     assert actions(store, [entry(data=v1, base=crc32(v1))]) == [(0, UPLOAD)]
+
+
+def test_saves_put_anywhere_else_in_the_folder(store, tmp_path):
+    v1 = b"from the DSi"
+    store.put(KEY, 0, "Pokemon Black", v1, crc32(v1), PUT_SYNC, "DSi 0001")
+    folder = tmp_path / "saves" / "Pokemon Black [IRBO-1A2B]"
+    (folder / "from my emulator.sav").write_bytes(b"an emulator's save")
+    (folder / "backups" / "a copy.sav").write_bytes(v1)                   # a copy of the DSi's backup
+    (folder / "notes.txt").write_text("not a save")
+    store.plan([], False)
+    # Listed as an External backup the consoles can restore; the live save stays as it was
+    h = store.history(KEY, 0)
+    assert store.latest(KEY, 0)["crc"] == crc32(v1)
+    assert [(r["source"], r["crc"]) for r in h] == [("DSi 0001", crc32(v1)), ("External", crc32(b"an emulator's save"))]
+    assert store.read(KEY, 0, 1)[0] == b"an emulator's save"
+    # The copy counts as the DSi's backup it is (not listed twice), and nothing put there by hand is pruned
+    assert sum(bool(b.get("by_hand")) for b in store.backups(KEY, 0, "DSi 0001") if b["crc"] == crc32(v1)) == 1
+    for i in range(5):
+        v = f"later {i}".encode()
+        store.put(KEY, 0, "Pokemon Black", v, crc32(v), PUT_SYNC, "DSi 0001")
+    assert (folder / "from my emulator.sav").exists() and (folder / "backups" / "a copy.sav").exists()
+    # A save in a slot's live place, with no live save there yet: the live save of that slot
+    (folder / "Pokemon Black.sav2").write_bytes(b"slot 2, by hand")
+    store.plan([], False)
+    assert store.latest(KEY, 2)["source"] == "External" and store.read(KEY, 2)[0] == b"slot 2, by hand"
+
+
+def test_the_first_layout_is_upgraded(tmp_path):
+    root = tmp_path / "saves"
+    folder = root / "Pokemon Black [IRBO-1A2B]"
+    (folder / "history").mkdir(parents=True)
+    (folder / "Pokemon Black.sav").write_bytes(b"latest")
+    (folder / "history" / "Pokemon Black 2026-10-20 14-02-11 (3DS 0002).sav").write_bytes(b"older")
+    latest = {"file": "Pokemon Black.sav", "crc": crc32(b"latest"), "size": 6, "time": 1_760_000_000,
+              "source": "DSi 0001", "reason": "sync", "mtime": int((folder / "Pokemon Black.sav").stat().st_mtime)}
+    older = {"file": os.path.join("history", "Pokemon Black 2026-10-20 14-02-11 (3DS 0002).sav"),
+             "crc": crc32(b"older"), "size": 5, "time": 1_759_990_000, "source": "3DS 0002", "reason": "sync"}
+    (root / "saves.json").write_text(json.dumps({"version": 1, "games": {KEY: {
+        "name": "Pokemon Black", "folder": "Pokemon Black [IRBO-1A2B]",
+        "slots": {"0": {"latest": latest, "history": [older]}}}}}))
+    store = SaveStore(str(root), keep=3)
+    assert store.latest(KEY, 0)["crc"] == crc32(b"latest")
+    assert [(r["source"], store.read(KEY, 0, r["version"])[0]) for r in store.history(KEY, 0)] == [
+        ("DSi 0001", b"latest"), ("3DS 0002", b"older")]
+    assert not (folder / "history").exists()
+    assert sorted(os.listdir(folder / "backups")) == ["3DS 0002", "DSi 0001"]      # the live save got one too
+    assert json.loads((root / "saves.json").read_text())["version"] == 2
 
 
 def test_the_manifest_survives_a_restart(store, tmp_path):

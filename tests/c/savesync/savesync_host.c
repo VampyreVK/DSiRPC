@@ -179,8 +179,8 @@ int main(int argc, char *argv[])
         else if (strcmp(line, "restore") == 0 && nf == 3)
         {
             SaveItem *it = find(f[0], atoi(f[1]));
-            int r = it ? saves_restore(&job, &console, &server, &list, it, (uint8_t)atoi(f[2]), &counts, NULL, msg,
-                                       sizeof(msg))
+            int r = it ? saves_restore(&job, &console, &server, &list, it, (uint8_t)atoi(f[2]), NULL, &counts, NULL,
+                                       msg, sizeof(msg))
                        : -2;
             printf("restore %d %s\n", r, msg);
         }

@@ -15,9 +15,10 @@ someone browses the list on the console. Little-endian throughout:
                     size u32 | CRC u32 | CRC at the last sync u32 |
                     name length u8 | name)
         answer:     "DRSP" | status u16 | n u16, then n x (code[4] |
-                    header CRC u16 | slot u8 | action u8 | the PC's size u32 |
-                    CRC u32 | time u32 | versions u8 | source length u8 |
-                    source)
+                    header CRC u16 | slot u8 | action u8 | the live save's
+                    size u32 | CRC u32 | time u32 | versions u8 | source
+                    length u8 | source (the console it came from, or
+                    "External"))
     op 2, upload:   code[4] | header CRC u16 | slot u8 | kind u8 (1 sync,
                     2 backup, 3 a save about to be replaced) | size u32 |
                     CRC u32 | time u32 (when the console last wrote it, 0
@@ -30,6 +31,8 @@ someone browses the list on the console. Little-endian throughout:
     op 4, history:  code[4] | header CRC u16 | slot u8
         answer:     "DRSL" | status u16 | n u16, then n x (version u8 |
                     time u32 | size u32 | CRC u32 | source length u8 | source)
+                    (version 0 the live save, then the backups, newest
+                    first, each save once)
     op 5, done:     uploaded u16 | downloaded u16 | backed up u16 | failed u16
         answer:     "DRSK" | status u16
 
@@ -111,7 +114,7 @@ def handle(magic, read, send, store, on_event=None):
         return
     try:
         if op == OP_PLAN:
-            _plan(read, send, store, backup_only)
+            _plan(read, send, store, backup_only, who)
         elif op == OP_PUT:
             _put(read, send, store, who, on_event)
         elif op == OP_GET:
@@ -129,7 +132,7 @@ def handle(magic, read, send, store, on_event=None):
         refuse(BAD_REQUEST)
 
 
-def _plan(read, send, store, backup_only):
+def _plan(read, send, store, backup_only, who):
     (n,) = struct.unpack("<H", read(2))
     if n > MAX_ENTRIES:
         raise RequestError("too many saves")
@@ -142,7 +145,7 @@ def _plan(read, send, store, backup_only):
         entries.append({"code": _code(code), "hcrc": hcrc, "slot": slot, "present": bool(state & STATE_PRESENT),
                         "excluded": bool(state & STATE_EXCLUDED), "size": size, "crc": crc, "base": base,
                         "name": name})
-    items = store.plan(entries, backup_only)
+    items = store.plan(entries, backup_only, console=who)
     out = [b"DRSP" + struct.pack("<HH", OK, len(items))]
     for i in items:
         rec = i["latest"] or {}

@@ -170,27 +170,39 @@ back up your saves to the PC and bring newer ones over from it, from your
 other console for example. The launcher finds every game in `roms/nds`
 (subfolders too) and its saves, wherever TWiLight Menu++ keeps them, every
 save slot included (a save no game is named after, like a renamed backup,
-is left alone). The PC keeps each game's latest save and its last **10
-versions** in a `saves` folder, each dated when the console last wrote it
-(setup can change the number, and move the folder to a cloud drive for an
-off-site copy). Nothing on either side is replaced without its old version
-going into that history first.
+is left alone).
 
-The list has **Sync all** on top, then each save:
+The PC keeps them in a `saves` folder (setup can move it, to a cloud drive
+for an off-site copy), a folder per game:
+
+- the **live** save, the one your consoles share: the newest any of them
+  sent;
+- `backups/<console>/`: every save each console sent, its last **10** (setup
+  can change the number), each dated when the console last wrote it. The
+  newest is the live save over again, on purpose;
+- `backups/External/`: saves that came from somewhere else. Copy a save
+  over the live one by hand (from an emulator, say) and it becomes the live
+  save, kept as an External backup too; put one anywhere else in the
+  game's folder and the consoles can restore it.
+
+Nothing on either side is replaced without being kept as a backup first.
+
+The list has **Sync all** on top, then each save, decided by what the
+console had at its last sync (the save it sent or took):
 
 | Mark | Means | Syncing it |
 |---|---|---|
-| green `^` | Changed on this console | Backs it up (your other consoles get it at their next sync) |
-| cyan `v` | Newer on the PC, or only there (the game is here, its save isn't) | Takes the PC's |
-| yellow `!` | Changed on both since the last sync | Asks: **L** keeps this console's, **R** takes the PC's, **B** decides later |
+| green `^` | Changed on this console since its last sync, and nothing newer from the others | Backs it up (your other consoles get it at their next sync) |
+| cyan `v` | Unchanged here, and a newer save from another console (or only on the PC: the game is here, its save isn't) | Takes it; the list says whose it is |
+| yellow `!` | Changed here, and a newer save from another console | Asks: **L** keeps this console's, **R** takes the other one, **B** decides later |
 | grey `x` | Left out | Nothing, until it's back in |
 | (none) | In sync | Nothing |
 
 **A** syncs the save picked (or everything, on Sync all), **START** syncs
 everything, **Y** leaves a save out (or puts it back in), **X** lists the
-older versions the PC keeps so you can put one back, and **B** goes back.
-Syncing everything asks about each `!` first, shows how it's going, then a
-summary.
+versions the PC keeps, with whose each one is, so you can put one back,
+and **B** goes back. Syncing everything asks about each `!` first, shows how
+it's going, then a summary.
 
 The launcher only reads the saves whose size or time changed since the last
 sync, so checking is quick, and its main screen says how many changed on

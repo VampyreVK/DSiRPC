@@ -13,7 +13,7 @@ answer in [brackets]; Enter keeps it.
   5. Achievement sets     for the game the console runs now, or any game
                           code: from RetroAchievements or RALibretro's cache
   6. Save backups         where the launcher's save backups go, and how many
-                          older versions of each save to keep
+                          of each save to keep for each console
   7. Start with Windows   ("Open at Login" in the macOS app)
 
 The macOS app (packaging/macos/) runs this in Terminal from its menu bar
@@ -576,8 +576,8 @@ def step_sets(cfg):
 
 def step_saves(cfg):
     heading(6, "Save backups")
-    say("The launcher can back up your games' saves to this PC (X in the launcher), keep older "
-        "versions of each, and carry them between your consoles.")
+    say("The launcher can back up your games' saves to this PC (Y in the launcher), keep each "
+        "console's older versions, and carry them between your consoles.")
     default = cfg.saves_path if cfg.saves_folder else "saves in DSiRPC's folder"
     while True:
         path = ask("Folder for the save backups (Enter to keep it, - for the default)", default).strip().strip('"')
@@ -595,7 +595,7 @@ def step_saves(cfg):
         cfg.saves_folder = path
         break
     while True:
-        answer = ask("How many older versions of each save to keep", str(cfg.save_versions))
+        answer = ask("How many backups of each save to keep, for each console", str(cfg.save_versions))
         try:
             n = int(answer)
         except ValueError:

@@ -126,6 +126,7 @@ def test_a_dsi_and_a_3ds_share_their_saves(host, pc, tmp_path):
     three.put("sd:/roms/nds/POKEMON_B.nds", rom("IRBO"))
     out = three.run("plan", "sync *")
     assert actions(out) == {("POKEMON_B", 0): DOWNLOAD_NEW, ("POKEMON_B", 1): DOWNLOAD_NEW}
+    assert any(ln.startswith("action POKEMON_B|0|") and ln.endswith("|DSi 0001") for ln in out)   # whose it is
     assert "counts 0 2 0 0" in out
     assert three.read("sd:/roms/nds/saves/POKEMON_B.sav") == b"black slot 0" * 100
     assert three.read("sd:/roms/nds/saves/POKEMON_B.sav1") == b"black slot 1" * 100
@@ -207,6 +208,10 @@ def test_conflicts_both_ways(host, pc, tmp_path):
     assert "sync Pokemon Black|0 1 " in out
     assert store.read(key, 0)[0] == b"the 3DS again" and store.backed_up(key, 0, saves.crc32(b"the DSi again"))
     assert actions(dsi.run("plan"))[("Pokemon Black", 0)] == DOWNLOAD
+    # Each console's saves in a folder of its own, next to the live save
+    folder = os.path.join(store.root, store.data["games"][key]["folder"])
+    assert sorted(os.listdir(os.path.join(folder, "backups"))) == ["3DS 0002", "DSi 0001"]
+    assert open(os.path.join(folder, "Pokemon Black.sav"), "rb").read() == b"the 3DS again"
 
 
 def test_restore_an_older_version(host, pc, tmp_path):

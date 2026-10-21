@@ -72,11 +72,14 @@ updates a save's time whenever it starts the game) from one that changed.
 The main screen counts the changed ones at startup.
 
 DSiRPC (`core/saves.py`) compares each save three ways (the console's now,
-the PC's, and the CRC at the last sync) and answers with a plan: back up,
-take the PC's, ask (changed on both), or nothing. The launcher shows it and
-carries out what you pick, one request per connection
+the PC's live save, and what the console had at its last sync: its own
+`saves.idx` says, or else what DSiRPC remembers it sent or took) and
+answers with a plan: back up, take the newer one (and whose it is), ask
+(changed on both), or nothing. The launcher shows it, with the console each
+save came from, and carries out what you pick, one request per connection
 (`core/save_session.py` describes the exchange). An upload carries the
-save's time, which dates DSiRPC's copy. A download goes to a
+save's time, which dates DSiRPC's copy; DSiRPC keeps it as one of that
+console's backups, next to the live save. A download goes to a
 `.tmp` file, is checked against its CRC, then swapped in, with the old save
 kept as `.bak` until that's done (a scan puts a `.bak` back if the console
 went off in between). A console's save always goes to the PC before

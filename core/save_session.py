@@ -112,24 +112,40 @@ def handle(magic, read, send, store, on_event=None):
     if store is None:
         refuse(OFF)
         return
+    answered = []
+
+    def answer(data):
+        answered.append(True)
+        send(data)
     try:
         if op == OP_PLAN:
-            _plan(read, send, store, backup_only, who)
+            _plan(read, answer, store, backup_only, who)
         elif op == OP_PUT:
-            _put(read, send, store, who, on_event)
+            _put(read, answer, store, who, on_event)
         elif op == OP_GET:
-            _get(read, send, store, who, on_event)
+            _get(read, answer, store, who, on_event)
         elif op == OP_HIST:
-            _history(read, send, store)
+            _history(read, answer, store)
         else:
             uploaded, downloaded, backed_up, failed = DONE.unpack(read(DONE.size))
-            send(b"DRSK" + struct.pack("<H", OK))
+            answer(b"DRSK" + struct.pack("<H", OK))
             if on_event:
                 on_event({"type": "saves_synced", "console": who, "uploaded": uploaded,
                           "downloaded": downloaded, "backed_up": backed_up, "failed": failed})
     except RequestError as e:
         logging.warning(f"Save sync from the {who}: {e}")
         refuse(BAD_REQUEST)
+    except (ConnectionError, TimeoutError) as e:
+        logging.warning(f"Save sync from the {who}: lost the console ({e or type(e).__name__})")
+    except Exception as e:
+        # Whatever went wrong here (a file another program holds, say), the
+        # launcher hears so, and tries again, instead of losing the connection
+        if isinstance(e, OSError):
+            logging.warning(f"Save sync from the {who}: {e}")
+        else:
+            logging.exception(f"Save sync from the {who}: unexpected error")
+        if not answered:
+            refuse(CANT_STORE)
 
 
 def _plan(read, send, store, backup_only, who):

@@ -285,6 +285,22 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-22: **Saves that failed to sync.** Viv's log from the 3DS: the
+  small saves always arrived, the 256 KB ones (Mario Kart, Animal Crossing)
+  some of the time, and the 512 KB ones (Black once, Platinum twenty times
+  in a row) hardly ever, all turned down as damaged: random damage, a few
+  4 KB blocks in a hundred, not a wrong CRC. The CRC pass read the save with
+  the Wi-Fi idle; the upload read it while the Wi-Fi sent, so the guess is
+  the SD card and the Wi-Fi busy at once. A save now goes through memory
+  both ways: read whole, twice until the reads agree, before anything's sent;
+  received whole, then written and read back (the updates over Wi-Fi too).
+  An exchange that fails on the way (the network, DSiRPC finding the save
+  damaged or unable to store it, the SD card not keeping a download) is
+  tried again, up to 3 times, and the screen says so. On the PC, a file
+  another program holds for a moment is tried again, and the launcher always
+  gets an answer instead of a dropped connection. To try on hardware:
+  Platinum's save from the 3DS.
+
 - 2026-10-21 (night): **Viv's round on the Mac: a save turned down as
   damaged, and an unlock the console lost.** Platinum's save went up with
   the CRC `saves.idx` remembered (it vouches for a save whose size and time

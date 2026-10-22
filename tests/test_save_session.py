@@ -185,3 +185,31 @@ def test_uploads_keep_the_consoles_time(server):
         assert put(port, v, saves.PUT_BACKUP, when=when)[1] == ss.OK
         kept = next(r for r in store.history("IRBO-1A2B", 0) if r["crc"] == crc32(v))
         assert abs(kept["time"] - saves.time.time()) < 60
+
+
+def test_a_file_held_for_a_moment(server, monkeypatch):
+    """Windows won't replace a file another program has open (a cloud drive's
+    client, an antivirus): the store tries again for a moment, and when it
+    can't, the launcher hears so instead of losing the connection."""
+    port, store, _ = server()
+    real = saves.os.replace
+    held = {"left": 2}
+
+    def replace(src, dst):
+        if held["left"]:
+            held["left"] -= 1
+            raise PermissionError(13, "in use by another program")
+        return real(src, dst)
+    monkeypatch.setattr(saves.os, "replace", replace)
+    monkeypatch.setattr(saves.time, "sleep", lambda s: None)
+    assert put(port, b"held a moment", saves.PUT_SYNC) == (b"DRSK", ss.OK)
+    assert store.read(saves.game_key(CODE, HCRC), 0)[0] == b"held a moment" and held["left"] == 0
+
+    held["left"] = 99                            # held for good: the save isn't stored
+    assert put(port, b"held for good", saves.PUT_SYNC) == (b"DRSK", ss.CANT_STORE)
+
+    def stuck(*a, **k):                          # saves.json held while planning
+        raise PermissionError(13, "in use by another program")
+    monkeypatch.setattr(store, "plan", stuck)
+    answer = talk(port, ss.request(ss.OP_PLAN, ss.plan_body([]), MAC), lambda read: struct.unpack("<4sHH", read(8)))
+    assert answer == (b"DRSP", ss.CANT_STORE, 0)  # answered, so the launcher tries again

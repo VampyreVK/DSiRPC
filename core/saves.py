@@ -94,6 +94,23 @@ def crc32(data):
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
+REPLACE_TRIES = 6
+
+
+def _replace(src, dst):
+    """os.replace, tried again for a moment while another program has the
+    file open (Windows won't replace it then: a cloud drive's client or an
+    antivirus, say), about 1.5 s in all."""
+    for attempt in range(REPLACE_TRIES):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_TRIES - 1:
+                raise
+            time.sleep(0.05 * 2 ** attempt)
+
+
 def console_label(model, mac):
     """'DSi 3F21' / '3DS 3F21': the console and the end of its MAC address,
     so two of the same kind can be told apart."""
@@ -207,7 +224,7 @@ class SaveStore:
         tmp = self._manifest() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f, indent=1, sort_keys=True)
-        os.replace(tmp, self._manifest())
+        _replace(tmp, self._manifest())
 
     def _game(self, key, name=None, create=False):
         g = self.data["games"].get(key)
@@ -310,7 +327,7 @@ class SaveStore:
         tmp = path + ".tmp"
         with open(tmp, "wb") as f:
             f.write(data)
-        os.replace(tmp, path)
+        _replace(tmp, path)
         if when is not None:
             try:
                 os.utime(path, (when, when))
@@ -321,7 +338,7 @@ class SaveStore:
     def _move(self, key, rel, dest):
         folder = self._folder(key)
         os.makedirs(os.path.dirname(os.path.join(folder, dest)), exist_ok=True)
-        os.replace(os.path.join(folder, rel), os.path.join(folder, dest))
+        _replace(os.path.join(folder, rel), os.path.join(folder, dest))
 
     def _remove(self, key, rel):
         try:
@@ -414,7 +431,8 @@ class SaveStore:
         if not 0 <= slot <= MAX_SLOT or len(data) > MAX_SAVE_SIZE:
             raise SaveError("bad slot or size")
         if crc32(data) != crc:
-            raise SaveError("the save arrived damaged (CRC mismatch)")
+            raise SaveError(f"the save arrived damaged ({len(data)} bytes with CRC {crc32(data):08X}, "
+                            f"not {crc:08X})")
         when = when if when is not None else datetime.datetime.now().timestamp()
         with self.lock:
             s = self._slot(key, slot, create=True, name=name)

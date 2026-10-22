@@ -6,8 +6,11 @@
 // any later DSiRPC.
 //
 // Nothing on the SD card changes until every file has arrived whole: each
-// goes to its name + ".tmp" and is checked (size, CRC32, the .nds header's
-// own CRC), then read back from the SD card and checked again. Then the
+// is received into memory and checked (size, CRC32, the .nds header's own
+// CRC), then written to its name + ".tmp" with the Wi-Fi idle and read back
+// (written again if the SD card didn't keep it; the SD card and the Wi-Fi
+// busy at once corrupted data on a 3DS). A file that fails on the way is
+// asked for again, up to TRIES times. Then the
 // swap: the old file becomes ".bak" and the .tmp takes its name, and if any
 // of that fails, every file goes back as it was. The launcher's own file can
 // be replaced while it runs: all of it is in memory (it has no NitroFS).
@@ -16,6 +19,7 @@
 // and modified time, so the check only reads a file (nds-bootstrap is about
 // 1.7 MB) when it changed.
 
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,8 +39,10 @@
 #define BUF_SIZE          (16 * 1024)
 #define NDS_HEADER_SIZE   0x200
 #define INDEX_MAGIC       "DSiRPC update 1"
+#define TRIES             3        // tries of a file that fails on the way, and writes of one
 
-static uint8_t buf[BUF_SIZE];
+static uint8_t buf[BUF_SIZE] __attribute__((aligned(32)));
+static bool again;                 // the last failure is worth another try
 
 // ---------------------------------------------------------------------------
 // Little helpers
@@ -351,6 +357,7 @@ static int download_one(const SyncJob *job, const uint8_t mac[6], int model, con
     if (r <= 0)
     {
         sync_close(sock);
+        again = r < 0;
         return r;
     }
     if (memcmp(head, "DRUF", 4) != 0 || get16(head + 4) != 0)
@@ -367,42 +374,60 @@ static int download_one(const SyncJob *job, const uint8_t mac[6], int model, con
         return -1;
     }
 
-    FILE *out = fopen(tmp, "wb");
-    bool ok = out != NULL, header_ok = false;
-    uint32_t got = 0, crc = 0;
+    // Received whole into memory...
+    uint8_t *data = memalign(32, size);
+    if (data == NULL)
+    {
+        snprintf(msg, msgsz, "Not enough memory for\n%s", what);
+        sync_close(sock);
+        return -1;
+    }
+    uint32_t got = 0;
     while (got < size)
     {
         size_t n = size - got < BUF_SIZE ? size - got : BUF_SIZE;
-        r = sync_recv(job, sock, buf, n, msg, msgsz);
+        r = sync_recv(job, sock, data + got, n, msg, msgsz);
         if (r <= 0)
             break;
-        if (got == 0)
-            header_ok = nds_header_ok(buf, n);
-        crc = crc_update(crc, buf, n);
-        if (ok && fwrite(buf, 1, n, out) != n)
-            ok = false;
         got += n;
         *done += n;
         if (progress != NULL)
             progress(what, *done, plan->total);
     }
     sync_close(sock);
-    if (out != NULL && fclose(out) != 0)
-        ok = false;
-    if (r <= 0 || !ok || crc != want || !header_ok)
+    if (r <= 0)
     {
-        remove(tmp);
-        if (r > 0)
-            snprintf(msg, msgsz, !ok ? "Can't write %s\n(is the SD card full?)" : "%s arrived damaged", what);
-        return r <= 0 ? r : -1;
+        free(data);
+        again = r < 0;
+        return r;
+    }
+    if (crc_update(0, data, size) != want || !nds_header_ok(data, size))
+    {
+        free(data);
+        again = true;
+        snprintf(msg, msgsz, "%s arrived damaged", what);
+        return -1;
     }
 
-    // What the SD card kept
-    uint32_t back;
-    if (!file_crc(tmp, &back) || back != want)
+    // ...then written with the Wi-Fi idle, and read back: what the SD card kept
+    bool written = false, kept = false;
+    for (int i = 0; i < TRIES && !kept; i++)
+    {
+        FILE *out = fopen(tmp, "wb");
+        written = out != NULL && fwrite(data, 1, size, out) == size;
+        if (out != NULL && fclose(out) != 0)
+            written = false;
+        if (!written)
+            break;
+        uint32_t back;
+        kept = file_crc(tmp, &back) && back == want;
+    }
+    free(data);
+    if (!kept)
     {
         remove(tmp);
-        snprintf(msg, msgsz, "The SD card didn't keep\n%s whole", what);
+        snprintf(msg, msgsz, written ? "The SD card didn't keep\n%s whole" : "Can't write %s\n(is the SD card full?)",
+                 what);
         return -1;
     }
     f->downloaded = true;
@@ -420,7 +445,16 @@ int update_download(const SyncJob *job, const uint8_t mac[6], int model, const s
         f->downloaded = false;
         if (!f->needed)
             continue;
-        int r = download_one(job, mac, model, server, f, plan, &done, progress, msg, msgsz);
+        int r;
+        uint32_t before = done;
+        for (int attempt = 1; ; attempt++)
+        {
+            again = false;
+            done = before;
+            r = download_one(job, mac, model, server, f, plan, &done, progress, msg, msgsz);
+            if (r >= 0 || !again || attempt >= TRIES)
+                break;
+        }
         if (r <= 0)
         {
             update_discard(plan);

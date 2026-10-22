@@ -285,6 +285,136 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-21 (night): **Viv's round on the Mac: a save turned down as
+  damaged, and an unlock the console lost.** Platinum's save went up with
+  the CRC `saves.idx` remembered (it vouches for a save whose size and time
+  haven't changed), which no longer matched the save, so DSiRPC refused it
+  every time; the launcher now reads the CRC from the save as it sends it,
+  and a download the list planned over a save that turns out to have changed
+  stops (that's a conflict now, and the save's on the PC). The lost unlock:
+  the launcher syncs as it connects (handing over the console's unlocks) and
+  again as it starts the game, and DSiRPC only counted an unlock as known
+  once RetroAchievements had answered for it, so the second sync's set
+  didn't have it and replaced the console's; it came back at the next start.
+  DSiRPC now remembers every unlock it sees, on the console or here, sent
+  or not (`core/unlocks.py`), and the sets mark them all earned. Before the
+  started game's set, it checks that game with RetroAchievements (up to 5 s):
+  unlocks earned elsewhere come in, ones RetroAchievements lacks go out when
+  sending is on, and without an answer what DSiRPC remembers stands in. The
+  Mac's Wi-Fi fix works.
+
+- 2026-10-21 (evening): **Updates over Wi-Fi.** Viv asked for the console
+  to update itself so a new build doesn't need the SD card moved back and
+  forth, with the PC fetching each new build from GitHub. GitHub's build
+  artifacts need a signed-in account to download, even from a public
+  repository, and every download of DSiRPC already carries the matching
+  console files (`SD card/DSiRPC/`), so DSiRPC offers its own: the
+  Windows download's folder, the same files now bundled inside the macOS
+  app, or a source checkout's builds. After its first sync the launcher
+  asks (`DRUP` on port 4245, an exchange that never changes, 20 bytes so a
+  DSiRPC from before updates turns it down at once) and compares sizes,
+  then CRC32s (`update.idx` keeps them, so the 1.7 MB nds-bootstrap isn't
+  read at every start). A differing file is offered (A: update, B: not
+  now), downloaded to `.tmp`, checked (CRC32, the `.nds` header's own CRC)
+  and read back from the SD card; then the launcher says "bye", turns the
+  Wi-Fi off and swaps the files in, old ones kept as `.bak` and put back if
+  any rename fails, and exits to be started again. Discovery keeps DSiRPC's
+  address even when it's from another release, which is when an update
+  matters most. Auto-update in the launcher's settings and Console updates
+  in the tray menu turn it off. Checked that nds-bootstrap's builds don't
+  change until its code does: built in Docker with only its folder mounted,
+  git isn't there and its version is `-` (only the order of its NitroFS
+  folders depends on the disk). The build now runs on pushes to every
+  branch, a newer push cancelling the build before it on that branch. To
+  try on hardware: copy this launcher by hand once, then an update from the
+  next build.
+
+- 2026-10-21 (later): **A backup folder per console, the live save, and
+  External saves.** Viv's model for the PC's side: every save a console
+  sends is one of that console's backups (`backups/<console>/`, its last N),
+  and the live save the consoles share sits next to them, the newest backup
+  over again, on purpose. The arrows come from what the console had at its
+  last sync (the save it sent or took): changed since, with nothing newer
+  from the others, is up; unchanged, with a newer save from another console,
+  is down; changed, with a newer save from another console, is a conflict.
+  That's the three-way plan as it was, but DSiRPC now also remembers what
+  each console last had (`consoles` in `saves.json`), which decides when a
+  console sends no base (its `saves.idx` gone). A save copied over the live
+  one by hand is the live save from then on, as the backup it is or as an
+  External one (`backups/External/`); one put anywhere else in the game's
+  folder is listed as an External backup the consoles can restore, and never
+  pruned. A restore keeps whose the save was. The launcher says whose a save
+  is: "From 3DS 3F21, ..." in the list, "from: ..." while taking or
+  restoring one, and each version's console in the restore list. The first
+  layout's `history/` is moved into the console folders when DSiRPC first
+  reads it. To try on hardware: syncing between the DSi and the 3DS, and a
+  save copied in by hand.
+
+- 2026-10-21: **Viv's first round on the save sync, and the launcher's top
+  screen.** The main screen's "(N changed)" didn't match the list: a save
+  the plan found already in sync with the PC (the very save the other
+  console had uploaded, say) kept its old base in `saves.idx`, so the
+  startup check went on counting it, and that check also counted any `.sav`
+  in `roms/nds/saves` it hadn't seen, renamed backups like "(Backup) Pokemon
+  - Platinum Version (USA) (Rev 1).sav" included. Now a save in sync counts
+  as synced as soon as the plan says so, and a new save only counts if a
+  game is named after it (the scan already left the others out); save file
+  names may be up to 127 characters (63 before). An upload carries the
+  save's time (the exchange is version 2; a launcher from another release
+  is told so), and the PC's copy, latest and history alike, is dated by it,
+  not by when it arrived; a restore keeps the version's own time. The main
+  screen's keys are START, SELECT, X (exit connected), Y (the save sync),
+  L+R, it shows the gateway again (not the mask) and DSiRPC's address once
+  it's found, and the save list says X:restore. In the game picker, START
+  starts the game last started from the launcher (`LAST_GAME` in
+  `launcher.ini`) and SELECT backs out. The top screen shows the desktop
+  app's pixel DSi (`topscreen.c`: drawn 4x into an 8-bit bitmap over a
+  tiled, drifting diamond layer, animated by palette entries from a
+  cothread): its Wi-Fi sign lights up arc by arc while connecting, green
+  once connected, red if it can't, dark offline. And DSiRPC no longer shows
+  the console as in the launcher for 15 minutes after it's gone: the
+  launcher says "DSiRPC here" every 5 s while it waits for a key and
+  "DSiRPC bye" on SELECT or X, and the state ends 20 s after the last one
+  (2 minutes for a game being started that never says hello). The build
+  only runs by itself on `main`, pull requests and tags, which is why the
+  branch's pushes only ran the tests. To try on hardware: all of it.
+
+- 2026-10-20 (cleanups): The launcher no longer broadcasts the stage 1
+  spike's three UDP test packets on port 4242 (about 3 s at every start),
+  shows each connection try's progress on one line in words (DSWiFi's
+  `ASSOCSTATUS_STRINGS` are the enum's own names), and drops the gateway,
+  mask, `Mode: DSi` and `Wrote sd:/RPCHAND.TXT` lines (it only says so if
+  that file can't be written). The README is about half as long: one place
+  per topic, the developer and how-it-works parts in `docs/`, and a roadmap
+  of what's still open. Setup's warning about sending unlocks no longer says
+  DSiRPC looks at the game once a second, and the other docs lost what the
+  releases since made outdated.
+
+- 2026-10-20: **Save backups and sync, through the launcher.** (Branch
+  `mac-fix-and-save-sync`.) X in the launcher lists every game in
+  `roms/nds` (subfolders too) and its saves, wherever TWiLight Menu++ keeps
+  them, every slot included, with Sync all on top: green `^` changed here
+  (back it up), cyan `v` newer on the PC or only there, yellow `!` changed
+  on both (L keeps the console's, R takes the PC's, B decides later), grey
+  `x` left out (Y). X on a save lists the versions the PC keeps and puts
+  one back. The PC (`core/saves.py`) keeps a folder per game, keyed by its
+  code and ROM header CRC so a DSi and a 3DS share saves whatever the files
+  are called: the latest save the sync-mode consoles share, and the last 10
+  versions (setup asks; `[saves]` in `dsirpc.cfg`). Whether a save changed
+  is three-way (the console's CRC now, the PC's, and the console's at its
+  last sync, from `saves.idx`), so no clocks are trusted. The launcher only
+  reads saves whose size or time changed since the last sync (two stages:
+  nds-bootstrap touches a save's time whenever it starts the game), and its
+  main screen counts the changed ones. Downloads go through a `.tmp` file
+  checked against its CRC, with the old save kept as `.bak` until the swap
+  is done; a console's save always goes to the PC before anything replaces
+  it. The exchange (`core/save_session.py`) is one request per connection on
+  the offline sync's port. L+R opens the launcher's settings
+  (`launcher.ini`): DSiRPC's address (empty: broadcast) and the save mode
+  (back up and sync, or back up only). `tests/test_save_sync.py` runs the
+  launcher's code built for the PC against DSiRPC on loopback; 24 new tests
+  in all. To try on hardware: the whole flow on the DSi and the 3DS.
+
 - 2026-10-19 (release cleanups): The screen-swap hotkey's delayed save to
   the SD card waits out IPC-served ROM reads like the in-game menu does
   (`ipcReadBusy()`); the launcher's game picker opens in `sd:/roms/nds` when
@@ -531,6 +661,20 @@ in this table before assuming it's missing from RA entirely.
   while a ROM read is under way, nor for 30 VBlanks after: if that's normal,
   it's a fix that keeps the checker's every-frame accuracy outside loads).
   The ARM9 cardengine's Makefile takes `$(DSIRPC_CFLAGS)` now too.
+
+- 2026-10-19: **The launcher's sync after a macOS app update.** Each update
+  of the Mac app (signed ad hoc, so a new app to macOS) asks for Local
+  Network access again, and the session that asked never synced: Viv's log
+  showed `Local network check: [Errno 65] No route to host` at start, then
+  nearly four hours without one sync or sync error, though the launcher's
+  broadcasts reached the Mac (tcpdump) and the game itself connected fine.
+  Quitting and opening DSiRPC again fixed it, and the same had happened on
+  2026-10-09 (a restart a minute later, then syncs as usual). So the sync
+  listener opened before macOS allowed DSiRPC on the local network stays
+  deaf after it does. Now, when that first check fails, the tray tries again
+  every 3 seconds and, once a packet gets out, opens the sync ports again
+  with a new listener (`watch_local_network()` in `app/tray.py`,
+  `Engine.restart_console_sync()`).
 
 - 2026-10-18: **Black and White's slow loads: it's rpcprobe, not the board
   or the launcher.** Viv's tests, against stock nds-bootstrap (normal): ours

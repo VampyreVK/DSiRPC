@@ -11,10 +11,12 @@ Right-click the icon for the menu:
     Discord presence                   on/off
     Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
+    Console updates                    on/off: the launcher may update its files from here
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
     Setup...                           'dsirpc.py setup' in a console window (Terminal on a Mac)
     Open log / Open DSiRPC folder      (on a Mac, the folder with your settings)
+    Open save backups                  the launcher's save sync folder
     ---
     Quit
 
@@ -95,6 +97,17 @@ def _open(path):
         subprocess.Popen(["open" if MAC else "xdg-open", path])
 
 
+def _open_saves(engine):
+    """The launcher's save sync folder (made if there isn't one yet)."""
+    path = engine.cfg.saves_path
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        logging.warning(f"Can't make {path}: {e}")
+        return
+    _open(path)
+
+
 def on_main(fn):
     """Runs fn() on the menu bar's thread on a Mac (AppKit only takes
     changes there), else right away."""
@@ -105,17 +118,37 @@ def on_main(fn):
         fn()
 
 
-def nudge_local_network():
+def nudge_local_network(quiet=False):
     """One UDP packet to the local network's discard port, so macOS asks
     for Local Network access right away (it asks when an app first sends
-    there, and DSiRPC mostly listens). Nothing listens on that port."""
+    there, and DSiRPC mostly listens). Nothing listens on that port.
+    Returns whether the packet got out (False while macOS hasn't allowed
+    it yet)."""
     import socket
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             s.sendto(b"DSiRPC", ("255.255.255.255", 9))
+        return True
     except OSError as e:
-        logging.info(f"Local network check: {e}")
+        if not quiet:
+            logging.info(f"Local network check: {e}")
+        return False
+
+
+def watch_local_network(on_access, every=3.0):
+    """After a failed nudge_local_network(): tries again every few seconds
+    and calls on_access() once a packet gets out. The launcher's sync
+    listener, opened before macOS allowed DSiRPC on the local network,
+    stays deaf after it does (the launcher's broadcasts reached the Mac,
+    and DSiRPC only heard them once it was restarted), so on_access opens
+    it again."""
+    def run():
+        while not nudge_local_network(quiet=True):
+            threading.Event().wait(every)
+        logging.info("Local network check: works now")
+        on_access()
+    threading.Thread(target=run, name="LocalNetwork", daemon=True).start()
 
 
 def open_setup():
@@ -185,7 +218,7 @@ def run_tray(cfg, **engine_args):
             icon.update_menu()
             for e in events:
                 if e['type'] == 'online':
-                    notify(engine.headline(), "DSiRPC: DSi connected")
+                    notify(engine.headline(), f"DSiRPC: {e.get('console', 'DSi')} connected")
                 elif e['type'] == 'offline':
                     notify("No data from the DSi for 30 s. DSiRPC waits for it to come back.", "DSiRPC")
                 elif e['type'] == 'game_changed':
@@ -198,6 +231,11 @@ def run_tray(cfg, **engine_args):
                     if not e['sent']:
                         body += "\n(not sent to RetroAchievements)"
                     notify(body[:255], "Achievement unlocked!")
+                elif e['type'] == 'saves_synced':
+                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "synced up"), ('backed_up', "backed up"),
+                                                             ('downloaded', "taken from the PC"),
+                                                             ('failed', "failed")) if e[k]]
+                    notify(", ".join(parts) or "Everything was in sync", f"DSiRPC: saves from the {e['console']}")
                 elif e['type'] == 'offline_unlocks':
                     n = e['count']
                     body = ", ".join(e['titles'][:3]) + (f" and {n - 3} more" if n > 3 else "")
@@ -220,6 +258,10 @@ def run_tray(cfg, **engine_args):
         on = not engine.overlay_on
         engine.set_overlay(on, on_closed=overlay_closed)
         engine.cfg.overlay = on
+        engine.save_config()
+
+    def toggle_console_updates(icon_, item):
+        engine.cfg.console_updates = not engine.cfg.console_updates
         engine.save_config()
 
     def console_item(key, label):
@@ -254,12 +296,14 @@ def run_tray(cfg, **engine_args):
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
+        Item("Console updates", toggle_console_updates, checked=lambda i: engine.cfg.console_updates),
         Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),
         Menu.SEPARATOR,
         Item("Setup...", lambda i, it: open_setup()),
         Item("Open log", lambda i, it: _open(LOG_FILE)),
         Item("Open DSiRPC folder", lambda i, it: _open(DATA)),
+        Item("Open save backups", lambda i, it: _open_saves(engine)),
         Menu.SEPARATOR,
         Item("Quit", quit_),
     )
@@ -272,9 +316,10 @@ def run_tray(cfg, **engine_args):
     def setup(icon_):
         try:
             on_main(show)
-            if MAC:
-                nudge_local_network()
+            network_ok = nudge_local_network() if MAC else True
             engine.start()
+            if not network_ok:
+                watch_local_network(engine.restart_console_sync)
             if MAC and not cfg.loaded_from:
                 open_setup()   # the first time: there's no dsirpc.cfg yet
             if cfg.overlay:

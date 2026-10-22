@@ -50,6 +50,11 @@ def setup_logging(console=True, verbose=False):
         root.addHandler(sh)
 
 
+# How long the launcher's sync waits for RetroAchievements' list of the
+# started game's unlocks before going on with what DSiRPC knows
+RECONCILE_TIMEOUT = 5.0
+
+
 class PortInUse(Exception):
     """UDP port 4244 is taken: DSiRPC (or one of its tools) is already running."""
 
@@ -79,6 +84,10 @@ class Engine:
         self.clear_ra = clear_ra
         self._cleared = False      # --clear-ra's sync has happened
         self._clearing = False     # this sync is it
+        # Every unlock DSiRPC has seen, on the console or here, sent to
+        # RetroAchievements or not (core/unlocks.py)
+        from core.unlocks import UnlockLedger
+        self.unlocks = UnlockLedger()
         self.ra_settings = RaSettings()
         self._apply_ra_settings()
         self.ra_link = None
@@ -127,7 +136,11 @@ class Engine:
         self.console_sync = None
         if not demo and not file:
             from core.console_sync import ConsoleSync
-            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen)
+            self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
+                                            saves=self._save_store, on_saves=self._on_saves,
+                                            on_here=self._launcher_here, updates=self._console_files)
+        self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
+        self._console_update = None    # the console's files for its updates (core/console_update.py)
 
     # -- settings ----------------------------------------------------------
 
@@ -228,6 +241,10 @@ class Engine:
 
     def _log_achievements(self, events):
         lines = []
+        if not self.blank_ra:
+            got = {e['id']: int(time.time()) for e in events if e.get('type') == 'achievement' and e.get('id')}
+            if got:
+                self.unlocks.add(got)
         for e in events:
             if e.get('type') == 'achievement':
                 p = e.get('progress')
@@ -244,7 +261,7 @@ class Engine:
 
     # -- offline play (core/console_sync.py's thread) --------------------------
 
-    def _console_seen(self, ip, game):
+    def _console_seen(self, ip, game, console="DSi"):
         """The launcher synced: the DSi is connected, in the launcher (game
         None) or starting a game, before the game says hello (the overlay's
         waiting screen and the tray show it)."""
@@ -259,16 +276,37 @@ class Engine:
             except (ra_set.SetFileError, OSError, ValueError):
                 title = None
         title = (title or game or '').replace("Pokemon", "Pokémon")
-        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'at': time.time()}
+        seen = self.source.launcher or {}
+        self.source.launcher = {'ip': ip, 'game': game, 'title': title, 'console': console, 'at': time.time(),
+                                'here': seen.get('here', False) and seen.get('ip') == ip}
+
+    def _launcher_here(self, ip, here, console="DSi"):
+        """The launcher's "still here" (every 5 s while it waits for a key:
+        it's in the launcher) or its "bye" (it's exiting), so the waiting
+        screen and the tray stop saying the DSi's connected once it's gone
+        (core/hub.py's launcher_state times the rest out)."""
+        if not hasattr(self.source, 'launcher'):
+            return
+        seen = self.source.launcher or {}
+        if not here:
+            if seen.get('ip') == ip:
+                self.source.launcher = None
+            return
+        same = seen.get('ip') == ip
+        self.source.launcher = {'ip': ip, 'game': None, 'title': '', 'at': time.time(), 'here': True,
+                                'console': seen.get('console', console) if same else console}
 
     def _offline_sets(self, game, stamps, unlocks=()):
         """[(code, .DRS bytes)] for the console: the game it's starting
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
-        unlocked is left out, including the unlocks the console just sent
-        (nothing with --blank-ra or --dry-run), and listed as earned, with
-        when, for nds-bootstrap's in-game menu. --clear-ra's sync sends every
-        set. rcheevos builds them (core/offline.py's build_set())."""
+        unlocked is left out (what RetroAchievements has, what DSiRPC has
+        seen unlocked on the console or here, and the unlocks the console
+        just sent; nothing with --blank-ra or --dry-run), and listed as
+        earned, with when, for nds-bootstrap's in-game menu. The game being
+        started is checked with RetroAchievements first (_reconcile()).
+        --clear-ra's sync sends every set. rcheevos builds them
+        (core/offline.py's build_set())."""
         from core import offline, ra_set
         from core.rcheevos import RcheevosError, RcheevosMissing
         # Each exchange calls this first, then _offline_unlocks()
@@ -287,8 +325,14 @@ class Engine:
                 continue
             earned = {}
             if not self.blank_ra:
+                if link and code == game and not self._clearing:
+                    self._reconcile(link, s)
                 earned = link.known_unlock_times(s.id) if link else {}
                 if not self._clearing:
+                    ids = {a['id'] for a in s.achievements}
+                    for aid, when in self.unlocks.times(ids).items():
+                        if not earned.get(aid):
+                            earned[aid] = when
                     for u in unlocks:
                         if u['code'] == code and not earned.get(u['id']):
                             earned[u['id']] = u['when']
@@ -306,6 +350,29 @@ class Engine:
         if self._clearing:
             logging.info(f"Offline sync: --clear-ra: sending all {len(out)} set(s) again")
         return out
+
+    def _reconcile(self, link, s):
+        """Before the console gets the game it's starting: RetroAchievements'
+        unlocks for it come here (unlocked.json and the ledger), and the ones
+        known here that it doesn't have go there, if sending is on. Without
+        its answer (signed out, out of reach within RECONCILE_TIMEOUT, or
+        profile and sending both off in setup, which keep DSiRPC from
+        starting sessions), what's known here stands in."""
+        if not (self.ra_settings.profile or self.ra_settings.submit):
+            return
+        upstream = link.refresh_unlocks(s.id, timeout=RECONCILE_TIMEOUT)
+        if upstream is None:
+            return
+        ids = {a['id'] for a in s.achievements}
+        self.unlocks.add({aid: when for aid, when in upstream.items() if aid in ids})
+        if not self.ra_settings.submit:
+            return
+        missing = {aid: when for aid, when in self.unlocks.times(ids).items()
+                   if aid not in upstream and not link.pending(aid)}
+        for aid, when in sorted(missing.items()):
+            link.award_offline(aid, when or int(time.time()), s.title, s.id)
+        if missing:
+            logging.info(f"RetroAchievements: sending {len(missing)} unlock(s) of {s.title} it didn't have yet")
 
     def _offline_unlocks(self, unlocks):
         """Unlocks from offline play: sent to RetroAchievements like any
@@ -326,6 +393,11 @@ class Engine:
             return False
         sending = self.cfg.ra_submit and self.ra_enabled and not self.dry_run
         link = self.ra_link
+        # Noted here at once, so the next sync's sets have them whatever
+        # RetroAchievements does (sending off, out of reach, or no answer
+        # yet); the ones DSiRPC had already seen (unlocked here, or the
+        # console's while connected) are left out below
+        new = self.unlocks.add({u['id']: u['when'] for u in unlocks})
         sets, rows, known = {}, [], 0
         for u in unlocks:
             if u['code'] not in sets:
@@ -334,7 +406,7 @@ class Engine:
                 except ra_set.SetFileError:
                     sets[u['code']] = None
             s = sets[u['code']]
-            if s and link and u['id'] in link.known_unlocks(s.id):
+            if u['id'] not in new or (s and link and u['id'] in link.known_unlocks(s.id)):
                 known += 1
                 continue
             a = next((a for a in s.achievements if a['id'] == u['id']), None) if s else None
@@ -368,6 +440,35 @@ class Engine:
             except Exception:
                 logging.exception("on_change failed")
         return len(rows)
+
+    def _save_store(self):
+        """The SaveStore for the launcher's save sync, in dsirpc.cfg's [saves]
+        folder (made again when the folder or the number of versions changes)."""
+        from core.saves import SaveStore
+        path, keep = self.cfg.saves_path, self.cfg.save_versions
+        if self._saves is None or self._saves.root != path or self._saves.keep != keep:
+            self._saves = SaveStore(path, keep)
+        return self._saves
+
+    def _console_files(self):
+        """The console's files as they came with this DSiRPC, for the
+        launcher's update check, or None while the tray's "Console updates"
+        is off."""
+        if not self.cfg.console_updates:
+            return None
+        if self._console_update is None:
+            from core.console_update import ConsoleFiles
+            self._console_update = ConsoleFiles()
+        return self._console_update
+
+    def _on_saves(self, event):
+        """The save sync's events: the tray hears the summary at the end."""
+        if event['type'] != 'saves_synced' or not self.on_change:
+            return
+        try:
+            self.on_change([event])
+        except Exception:
+            logging.exception("on_change failed")
 
     def _on_update(self, snap, events):
         self._check_config()
@@ -423,6 +524,25 @@ class Engine:
             except OSError as e:
                 logging.warning(f"No offline sync: UDP/TCP port {self.console_sync.port} is in use ({e})")
                 self.console_sync = None
+
+    def restart_console_sync(self):
+        """Closes the launcher's sync ports and opens them again with a new
+        listener (from the tray's thread, once macOS lets DSiRPC on the
+        local network: the listener opened before that never hears the
+        launcher)."""
+        old = self.console_sync
+        if not old or not self._started:
+            return
+        old.stop()
+        from core.console_sync import ConsoleSync
+        new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
+                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates)
+        try:
+            new.start()
+        except OSError as e:
+            logging.warning(f"No offline sync: UDP/TCP port {new.port} is in use ({e})")
+            new = None
+        self.console_sync = new
 
     def stop(self):
         self.set_overlay(False)

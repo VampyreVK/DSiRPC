@@ -10,6 +10,7 @@ import collections
 import struct
 import threading
 import time
+import types
 
 import pytest
 
@@ -225,3 +226,30 @@ def test_achievements_with_the_consoles_checker(hub, rcheevos):
     mine = {aid for aid, (at, bc, _) in unlocks.items() if not bc and at < end - 3.0}
     assert mine - on_console, "DSiRPC should have unlocked some of its own half"
     assert mine <= {aid for aid, _ in fake.pushed}
+
+
+# -- the launcher ---------------------------------------------------------------
+
+def test_the_launchers_state_times_out(monkeypatch):
+    """In the launcher while it says it's still there (every 5 s), gone soon
+    after it stops; an older launcher, which never says so, counts as there
+    for its 15 minutes; a game being started that never says hello, gone
+    after 2."""
+    pc_socket_only(monkeypatch)
+    src = core.hub.DsiSource(None, port=free_port())
+    now = [1000.0]
+    monkeypatch.setattr(core.hub, "time", types.SimpleNamespace(time=lambda: now[0]))
+    try:
+        src.launcher = {'ip': '10.0.0.5', 'game': None, 'title': '', 'console': '3DS', 'at': now[0], 'here': True}
+        assert src.launcher_state and src.status == "3DS at 10.0.0.5: in the launcher"
+        now[0] += src.LAUNCHER_HERE_S + 1
+        assert src.launcher_state is None
+        src.launcher = dict(src.launcher, here=False, at=now[0])
+        now[0] += src.LAUNCHER_HERE_S + 1
+        assert src.launcher_state is not None
+        src.launcher = dict(src.launcher, game='IRBO', title='Pokémon Black', at=now[0])
+        assert src.status == "3DS at 10.0.0.5: starting Pokémon Black"
+        now[0] += src.LAUNCHER_STARTING_S + 1
+        assert src.launcher_state is None
+    finally:
+        src.close()

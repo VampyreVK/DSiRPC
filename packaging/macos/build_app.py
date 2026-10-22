@@ -13,7 +13,9 @@ attaches the zip to releases. In order, it:
      system's compiler, like the Windows DLL (third_party/rcheevos/README.md)
   2. writes the Discord applications the download comes with (defaults.cfg),
      as the Windows download does
-  3. runs PyInstaller (DSiRPC.spec), then the app's own self-check
+  3. runs PyInstaller (DSiRPC.spec), with the two DSi files inside the app
+     too (the launcher updates itself from them), then the app's own
+     self-check
   4. zips it with ditto, which keeps the app's signature and links intact:
 
     DSiRPC/
@@ -65,8 +67,9 @@ def build_rcheevos(work):
                     *sources, "-o", DYLIB, "-install_name", "@rpath/librcheevos.dylib"], cwd=src, check=True)
 
 
-def build_app(version, defaults, work, dist):
-    env = dict(os.environ, DSIRPC_VERSION=version, DSIRPC_DEFAULTS=defaults or "")
+def build_app(version, defaults, nds_dir, work, dist):
+    env = dict(os.environ, DSIRPC_VERSION=version, DSIRPC_DEFAULTS=defaults or "",
+               DSIRPC_NDS_DIR=os.path.abspath(nds_dir) if nds_dir else "")
     subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
                     "--distpath", dist, "--workpath", os.path.join(work, "pyinstaller"),
                     os.path.join(HERE, "DSiRPC.spec")], cwd=ROOT, env=env, check=True)
@@ -99,7 +102,7 @@ def main():
     os.makedirs(extra)
     build_release.add_defaults(extra, args.discord_client_id.strip(), args.discord_default_id.strip())
     defaults = os.path.join(extra, "defaults.cfg")
-    app = build_app(args.version, defaults if os.path.exists(defaults) else None, args.work,
+    app = build_app(args.version, defaults if os.path.exists(defaults) else None, args.nds_dir, args.work,
                     os.path.join(args.work, "dist"))
 
     pkg = os.path.join(args.work, "package", "DSiRPC")

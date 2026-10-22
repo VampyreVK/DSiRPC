@@ -58,12 +58,15 @@
 #define RESEND_FRAMES     30                 // asking again every 0.5 s
 #define CONNECT_FRAMES    (5 * 60)
 #define IDLE_FRAMES       (30 * 60)          // DSiRPC may be downloading a set
+#define HERE_FRAMES       (5 * 60)           // "still here" every 5 s
 
 #define PATH_LEN          512
 #define CHUNK             4096
 
 static const char DISCOVER[12] = "DSiRPC sync?";   // + u8 version
 static const char ANSWER[12]   = "DSiRPC sync!";   // + u8 version + u16 TCP port
+static const char HERE[11]     = "DSiRPC here";    // + u8 console model: still in the launcher
+static const char BYE[10]      = "DSiRPC bye";     // leaving it
 
 static uint8_t unlock_buf[UNLOCK_FILE_SIZE];
 static uint8_t stamp_buf[MAX_SETS * 8];
@@ -337,8 +340,57 @@ static bool would_block(void)
     return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINPROGRESS;
 }
 
-// Asks for DSiRPC with a broadcast. 1: found (server set), 0: no answer or
-// skipped, -1: failed (msg).
+// ---------------------------------------------------------------------------
+// Still here: while the launcher waits for a key, DSiRPC hears from it every
+// few seconds (UDP, to the port it answered from), and "bye" when it leaves,
+// so DSiRPC stops showing it as connected once it's gone.
+
+uint32_t sync_found_addr;
+uint16_t sync_found_port;
+static uint16_t here_port;
+static uint8_t here_model;
+static int here_countdown;
+static int here_sock = -1;
+
+static void tell_dsirpc(const void *data, size_t len)
+{
+    if (here_sock < 0 && (here_sock = socket(AF_INET, SOCK_DGRAM, 0)) >= 0)
+        set_nonblocking(here_sock);
+    if (here_sock < 0)
+        return;
+    struct sockaddr_in to;
+    memset(&to, 0, sizeof(to));
+    to.sin_family = AF_INET;
+    to.sin_port = htons(here_port);
+    to.sin_addr.s_addr = sync_found_addr;
+    sendto(here_sock, data, len, 0, (struct sockaddr *)&to, sizeof(to));
+}
+
+void sync_frame(void)
+{
+    next_frame();
+    if (sync_found_addr == 0 || --here_countdown > 0)
+        return;
+    here_countdown = HERE_FRAMES;
+    uint8_t here[sizeof(HERE) + 1];
+    memcpy(here, HERE, sizeof(HERE));
+    here[sizeof(HERE)] = here_model;
+    tell_dsirpc(here, sizeof(here));
+}
+
+void sync_bye(void)
+{
+    if (sync_found_addr == 0)
+        return;
+    tell_dsirpc(BYE, sizeof(BYE));
+    if (here_sock >= 0)
+        close_socket(here_sock);
+    here_sock = -1;
+    sync_found_addr = 0;
+}
+
+// Asks for DSiRPC with a broadcast, or at the address set in the launcher's
+// settings. 1: found (server set), 0: no answer or skipped, -1: failed (msg).
 static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, size_t msgsz)
 {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -354,15 +406,19 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
     struct sockaddr_in to;
     memset(&to, 0, sizeof(to));
     to.sin_family = AF_INET;
-    to.sin_port = htons(SYNC_PORT);
-    to.sin_addr.s_addr = htonl(SYNC_DISCOVER_ADDR);
+    to.sin_port = htons(job->port != 0 ? job->port : SYNC_PORT);
+    to.sin_addr.s_addr = job->server_addr != 0 ? job->server_addr : htonl(SYNC_DISCOVER_ADDR);
 
     uint8_t ask[sizeof(DISCOVER) + 1];
     memcpy(ask, DISCOVER, sizeof(DISCOVER));
     ask[sizeof(DISCOVER)] = SYNC_VERSION;
 
     int result = 0;
-    snprintf(msg, msgsz, "DSiRPC wasn't found");
+    bool skipped = false;
+    if (job->server_addr != 0)
+        snprintf(msg, msgsz, "DSiRPC wasn't found at\n%s (settings: L+R)", inet_ntoa(to.sin_addr));
+    else
+        snprintf(msg, msgsz, "DSiRPC wasn't found");
     for (int frame = 0; frame < DISCOVER_FRAMES && result == 0; frame++)
     {
         if (frame % RESEND_FRAMES == 0)
@@ -371,6 +427,7 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
         if (stop_requested(job))
         {
             snprintf(msg, msgsz, "Sync skipped");
+            skipped = true;
             break;
         }
 
@@ -383,6 +440,16 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
         {
             if (n >= (int)sizeof(ANSWER) + 3 && memcmp(got, ANSWER, sizeof(ANSWER)) == 0)
             {
+                // Where DSiRPC is, whichever release it's from (the update
+                // check needs it most when they differ), and where the
+                // "still here"s go, starting at the next frame
+                *server = from;
+                server->sin_port = htons(get16(got + sizeof(ANSWER) + 1));
+                sync_found_addr = from.sin_addr.s_addr;
+                sync_found_port = get16(got + sizeof(ANSWER) + 1);
+                here_port = ntohs(from.sin_port);
+                here_model = (uint8_t)job->console_model;
+                here_countdown = 1;
                 if (got[sizeof(ANSWER)] != SYNC_VERSION)
                 {
                     snprintf(msg, msgsz, "DSiRPC and this launcher\nare from different releases\n(sync version %d, not %d)",
@@ -391,8 +458,6 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
                 }
                 else
                 {
-                    *server = from;
-                    server->sin_port = htons(get16(got + sizeof(ANSWER) + 1));
                     msg[0] = '\0';
                     result = 1;
                 }
@@ -401,6 +466,8 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
         }
     }
     close_socket(sock);
+    if (result == 0 && !skipped)
+        sync_found_addr = 0;    // not there (anymore)
     return result;
 }
 
@@ -555,6 +622,50 @@ static int receive_set(const SyncJob *job, int sock, const uint8_t code[4], uint
     return 1;
 }
 
+// ---------------------------------------------------------------------------
+// Shared with the save sync
+
+int sync_find(const SyncJob *job, struct sockaddr_in *server, char *msg, size_t msgsz)
+{
+    return discover(job, server, msg, msgsz);
+}
+
+int sync_open(const SyncJob *job, const struct sockaddr_in *server, int *sock, char *msg, size_t msgsz)
+{
+    *sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (*sock < 0)
+    {
+        snprintf(msg, msgsz, "Can't open a TCP socket");
+        return -1;
+    }
+    set_nonblocking(*sock);
+    int r = connect_to(job, *sock, server, msg, msgsz);
+    if (r <= 0)
+    {
+        close_socket(*sock);
+        *sock = -1;
+    }
+    return r;
+}
+
+int sync_send(const SyncJob *job, int sock, const void *data, size_t len, char *msg, size_t msgsz)
+{
+    return send_all(job, sock, data, len, msg, msgsz);
+}
+
+int sync_recv(const SyncJob *job, int sock, void *data, size_t len, char *msg, size_t msgsz)
+{
+    return recv_all(job, sock, data, len, msg, msgsz);
+}
+
+void sync_close(int sock)
+{
+    if (sock >= 0)
+        close_socket(sock);
+}
+
+// ---------------------------------------------------------------------------
+
 int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t msgsz)
 {
     memset(result, 0, sizeof(*result));
@@ -600,7 +711,7 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     if (valid_code(job->game))
         memcpy(head + 8, job->game, 4);
     put32(head + 12, unlock_len);
-    put32(head + 16, 0);
+    put32(head + 16, (uint32_t)job->console_model);
 
     if ((r = send_all(job, sock, head, sizeof(head), msg, msgsz)) <= 0 ||
         (r = send_all(job, sock, stamp_buf, n_cached * 8, msg, msgsz)) <= 0 ||

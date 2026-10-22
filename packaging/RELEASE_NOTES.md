@@ -12,5 +12,8 @@ right-click > Open.
 `dsirpc-launcher.nds` and `nds-bootstrap-dsirpc.nds` are also attached on
 their own, for updating just the SD card.
 
-Updating: unzip the new zip over your DSiRPC folder (your settings stay), and
-copy the new SD card files over the old ones.
+Updating: unzip the new zip over your DSiRPC folder (on a Mac, replace
+DSiRPC.app); your settings, achievement sets and save backups stay. The
+launcher then offers the new SD card files itself, over Wi-Fi. Coming from
+v0.8.1 or older? Copy both new SD card files over the old ones by hand this
+once: the two go together.

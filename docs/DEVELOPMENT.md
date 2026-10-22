@@ -26,7 +26,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Command line](#7-command-line)) |
 | `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
 | `overlay/` | The stream overlay window (pygame-ce) |
-| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), demo data (`demo.py`) |
+| `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), save backups (`saves.py`, `save_session.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
 | `ra/` | RetroAchievements set files (gitignored, see [ra/README.md](../ra/README.md)) |
 | `third_party/rcheevos/` | RetroAchievements' rule engine (MIT), prebuilt for Windows x64, with DSiRPC's offline set compiler (`dsirpc_offline.c`) built in; how to rebuild it is in its README |
@@ -50,7 +50,8 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) to build
   the two console files. (Or take them from a release, or from the Action's
   artifacts.)
-- For the full presence: Pokémon Platinum (USA, Rev 1).
+- For the full presence: Pokémon Platinum (USA, Rev 1) or Black and White
+  (USA).
 
 ## 3. Running from the source code
 
@@ -69,10 +70,12 @@ overlay window, pystray for the tray icon), then runs the setup wizard
    your RA profile, and whether to send your unlocks.
 4. **Your game files** (optional): a folder of `.nds` files, so
    RetroAchievements knows exactly which game you play.
-5. **Achievement sets**: RALibretro's folder, and a set for the game the DSi
-   is running right now or any game code you type, from RetroAchievements or
-   RALibretro's cache.
-6. **Start with Windows**: starts DSiRPC in the tray when you sign in.
+5. **Achievement sets**: RALibretro's folder, and a set for the game the
+   console is running right now or any game code you type, from
+   RetroAchievements or RALibretro's cache.
+6. **Save backups**: the folder for the launcher's save backups, and how
+   many older versions of each save to keep.
+7. **Start with Windows**: starts DSiRPC in the tray when you sign in.
 
 Everything goes in `dsirpc.cfg` (gitignored, and with RetroAchievements
 signed in it holds your login token, so keep it to yourself;
@@ -87,6 +90,11 @@ for each; allow both.
 
 ## 4. Building the console files
 
+On Windows, **`BuildConsole.bat`** runs both builds below (Docker Desktop
+running) and puts the files in the checkout's `SD card\DSiRPC`, where DSiRPC
+run from the checkout offers them to the launcher as an update. Give it a
+DSiRPC folder (`BuildConsole.bat "C:\...\DSiRPC"`) to copy them there too.
+
 ### nds-bootstrap (the in-game memory server)
 
 ```
@@ -95,9 +103,11 @@ docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro
 
 The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
 the SD card as `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
-Menu++'s own copy, so you always know which one you are launching. The build
-prints a few harmless `fatal: not a git repository` lines; that's
-nds-bootstrap looking for its version tag.
+Menu++'s own copy, so you always know which one you are launching (or let
+the launcher take it: DSiRPC run from the source code offers its own builds
+as updates). The build prints a few harmless `fatal: not a git repository`
+lines; that's nds-bootstrap looking for its version tag, and the reason a
+build only changes when its code does (the launcher's updates rely on it).
 
 A test build with one of DSiRPC's pieces switched off, to find what slows a
 game down on hardware, takes the switches in `DSIRPC_CFLAGS` (listed in
@@ -125,8 +135,14 @@ Nothing else needs setting up on the SD card. The launcher writes its own
 console's saved settings, and the console broadcasts its hello packets, so it
 never needs to know your PC's IP. For offline play it also makes
 `RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
-itself, and finds DSiRPC with a broadcast on port 4245
+itself, and finds DSiRPC with a broadcast on port 4245, or at the address
+in its settings (`launcher.ini`)
 ([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
+The save sync keeps `saves.idx` next to it, and its updates `update.idx`.
+Once a launcher with updates is on the SD card, DSiRPC run from the source
+code offers it the builds above whenever they change
+([DOCUMENTATION.md, section 7](DOCUMENTATION.md#console-updates-tcp-4245)),
+so they don't need copying by hand.
 
 ## 5. Discord applications
 
@@ -187,6 +203,12 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--scale 4` | Overlay size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`) |
 | `--chroma 00FF00` | Fill the overlay's background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
 
+To test achievements without your real progress getting in the way, quit
+DSiRPC in the tray, then run it with `--blank-ra` while you collect test
+unlocks (add `tray` to run it in the tray), and with `--clear-ra` once
+afterwards to put the console back to your real state (add `--blank-ra` to
+give it whole sets instead). The flags combine.
+
 The log is `logs\dsirpc.log`. Only one DSiRPC can run at a time, and the
 tools below can't run next to it: they all need UDP port 4244. The overlay's
 colours are all in `THEME` at the top of `overlay/ui.py`; Platinum's party
@@ -221,9 +243,10 @@ things on GitHub:
 | `windows` | `DSiRPC-<version>-windows.zip`, the Windows download (`packaging/build_release.py`, below), on a Windows runner |
 | `macos` | `DSiRPC-<version>-macos.zip`, the macOS app (`packaging/macos/build_app.py`, below), on an Apple silicon runner |
 
-It runs when a push to `main` changes DSiRPC's files, on pull requests, and on
-demand (Actions tab > **Build DSiRPC** > **Run workflow**). Each run keeps the
-outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
+It runs when a push to any branch changes DSiRPC's files, on pull requests,
+and on demand (Actions tab > **Build DSiRPC** > **Run workflow**); a newer
+push to the same branch cancels the build still running for the one before
+(never a tag's). Each run keeps the outputs as artifacts: `nds-bootstrap-dsirpc` and `dsirpc-launcher`, which
 GitHub downloads as zips, and the two downloads' own zips
 (`DSiRPC-<version>-windows.zip`, `DSiRPC-<version>-macos.zip`), uploaded as
 they are (`archive: false`), so they download as one zip, not a zip in a zip.
@@ -251,7 +274,8 @@ from the commits, and it has the Windows and macOS zips and both `.nds` files at
   the script), its `._pth` file set up to find `Lib\site-packages` and
   DSiRPC's folder, and the packages from `requirements.txt` installed there as
   Windows wheels;
-- `SD card/DSiRPC/` with both `.nds` files;
+- `SD card/DSiRPC/` with both `.nds` files (for the first copy to the SD
+  card, and the launcher's updates after that);
 - `README.txt` (`packaging/README.txt`, the plain-text steps), `version.txt`,
   `licenses/` (`packaging/THIRD-PARTY.txt` and nds-bootstrap's GPLv3), and
   `defaults.cfg` when Discord application IDs are given.
@@ -275,7 +299,8 @@ older folder updates DSiRPC and keeps the user's `dsirpc.cfg`, `ra\` and
 ### The macOS app
 
 `packaging/macos/build_app.py` makes `DSiRPC.app` with PyInstaller
-(`packaging/macos/DSiRPC.spec`) and zips it with the same `SD card` folder,
+(`packaging/macos/DSiRPC.spec`; the two `.nds` files go inside it too, for
+the launcher's updates) and zips it with the same `SD card` folder,
 `licenses/` (plus `THIRD-PARTY-macOS.txt`) and its own `README.txt`. On a Mac
 with Apple silicon, from the repo root:
 
@@ -315,9 +340,10 @@ How the app differs from the Windows download:
 [`tests/`](../tests/README.md) checks what decides whether an achievement is
 missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
 write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
-against rcheevos frame by frame, and DSiRPC's side (the offline formats, the
-launcher's sync, the protocol client, the Black/White parser, the hub)
-against a fake DSi on the loopback network. From the repo root:
+against rcheevos frame by frame, the launcher's save sync and updates (built
+for the PC), and DSiRPC's side (the offline formats, the launcher's sync,
+the protocol client, the Black/White parser, the hub) against a fake DSi on
+the loopback network. From the repo root:
 
 ```
 python -m pip install -r tests/requirements.txt

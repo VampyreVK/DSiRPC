@@ -69,6 +69,9 @@ class Config:
         # The picture in Assets/Consoles shown as Discord's small image for
         # games without their own presence ('' for none)
         self.console_icon = "DSiXL"
+        # Offer the launcher the console's files that came with this DSiRPC
+        # when its own differ (core/console_update.py)
+        self.console_updates = True
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
@@ -82,6 +85,11 @@ class Config:
         self.ra_achievements = True    # check achievements
         self.ra_submit = False         # send unlocks to RetroAchievements (softcore)
         self.ra_interval = 1.0         # seconds between achievement checks
+        # [saves]: the launcher's save sync: where the PC keeps the console's
+        # saves ('' for saves/ in DSiRPC's folder) and how many older
+        # versions of each it keeps
+        self.saves_folder = ""
+        self.save_versions = 10
 
         # The Discord applications a release comes with (defaults.cfg), if any
         self.release_client_id = ""
@@ -154,6 +162,7 @@ class Config:
             self.chroma = _clean(a.get("chroma", ""))
             if "console_icon" in a:
                 self.console_icon = _clean(a.get("console_icon", ""))
+            self.console_updates = _bool(a.get("console_updates"), self.console_updates)
         if "ra" in parser:
             r = parser["ra"]
             self.racache = _clean(r.get("racache", ""))
@@ -168,6 +177,18 @@ class Config:
                 self.ra_interval = max(0.25, min(10.0, float(_clean(r.get("interval", "")) or self.ra_interval)))
             except ValueError:
                 pass
+        if "saves" in parser:
+            v = parser["saves"]
+            self.saves_folder = _clean(v.get("folder", ""))
+            try:
+                self.save_versions = max(1, min(999, int(_clean(v.get("versions", "")) or self.save_versions)))
+            except ValueError:
+                pass
+
+    @property
+    def saves_path(self):
+        """Where the launcher's save sync keeps the console's saves."""
+        return os.path.expanduser(self.saves_folder) if self.saves_folder else os.path.join(DATA, "saves")
 
     @property
     def ra_signed_in(self):
@@ -213,6 +234,10 @@ chroma: {self.chroma}
 # games without their own presence (file name without the extension; empty
 # for none). The tray menu's "Console icon" changes it.
 console_icon: {self.console_icon}
+# When the launcher's files on the SD card (the launcher and nds-bootstrap)
+# differ from the ones that came with this DSiRPC, the launcher offers to
+# update them from here (the tray menu's "Console updates")
+console_updates: {yn(self.console_updates)}
 
 [ra]
 # Your RetroAchievements account. Setup signs in with your password once and
@@ -237,6 +262,14 @@ interval: {self.ra_interval:g}
 # matches (auto_import).
 racache: {self.racache}
 auto_import: {yn(self.ra_auto_import)}
+
+[saves]
+# The launcher's save sync (Y in the launcher): the folder the PC keeps the
+# console's saves in (empty: saves/ in DSiRPC's folder; put it in a cloud
+# drive's folder for an off-site copy too), and how many backups of each
+# save it keeps for each console
+folder: {self.saves_folder}
+versions: {self.save_versions}
 """
         tmp = self.path + ".tmp"
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)   # the macOS app's data folder, the first time

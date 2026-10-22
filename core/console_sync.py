@@ -12,11 +12,19 @@ yet, so they're on the SD card for the next time it plays without DSiRPC.
 sets_for(game, stamps, unlocks) -> [(code, .DRS bytes)] and
 on_unlocks([unlock]) are the engine's (app/engine.py). on_unlocks returns
 False to leave the unlocks on the console (a dry run), anything else lets the
-launcher clear them. on_console(ip, game), if given, hears about each sync as
+launcher clear them. on_console(ip, game, console), if given, hears about each sync as
 it starts: the launcher syncs once it's connected (game None) and again as it
 starts a game (its code), so DSiRPC knows the DSi is there before the game
-says hello. Everything here runs on this module's thread; the console waits
-while it works.
+says hello. on_here(ip, here, console), if given, hears the launcher's
+"still here" (here True, every 5 s while it waits for a key) and its "bye"
+(False, as it exits). Everything here runs on this module's thread; the
+console waits while it works.
+
+The launcher's save sync uses the same port: a connection that starts with
+"DRSV" instead of "DRSQ" goes to core/save_session.py, with the SaveStore
+saves() returns (None: save backups are off) and on_saves(event). So does
+its update check: "DRUP" goes to core/console_update.py, with the
+ConsoleFiles updates() returns (None: console updates are off).
 """
 
 import logging
@@ -26,17 +34,22 @@ import struct
 import threading
 import time
 
-from . import offline
+from . import console_update, offline, save_session
 
 ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
 
 
 class ConsoleSync:
-    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host=""):
+    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
+                 saves=None, on_saves=None, on_here=None, updates=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
+        self.on_here = on_here
+        self.saves = saves
+        self.on_saves = on_saves
+        self.updates = updates
         self.port = port
         self.host = host
         self.udp = None
@@ -101,6 +114,13 @@ class ConsoleSync:
         data, addr = self.udp.recvfrom(64)
         if data.startswith(offline.DISCOVER):
             self.udp.sendto(offline.ANSWER + struct.pack("<BH", offline.VERSION, self.port), addr)
+        elif self.on_here and (data.startswith(offline.HERE) or data.startswith(offline.BYE)):
+            here = data.startswith(offline.HERE)
+            model = data[len(offline.HERE)] if here and len(data) > len(offline.HERE) else 0
+            try:
+                self.on_here(addr[0], here, offline.console_name(model))
+            except Exception:
+                logging.exception("Offline sync: on_here failed")
 
     def _exchange(self, conn, addr):
         conn.settimeout(ACCEPT_TIMEOUT)
@@ -114,8 +134,21 @@ class ConsoleSync:
                 buf += chunk
             return bytes(buf)
 
+        magic = read(4)
+        if magic == save_session.MAGIC:
+            store = self.saves() if self.saves else None
+            save_session.handle(magic, read, conn.sendall, store, self.on_saves)
+            self._await_hangup(conn)
+            return
+        if magic == console_update.MAGIC:
+            files = self.updates() if self.updates else None
+            console_update.handle(magic, read, conn.sendall, files)
+            self._await_hangup(conn)
+            return
         try:
-            game, stamps, unlock_bytes = offline.parse_request(read(offline.REQUEST.size), read)
+            header = magic + read(offline.REQUEST.size - 4)
+            game, stamps, unlock_bytes = offline.parse_request(header, read)
+            console = offline.request_console(header)
             unlocks = offline.read_unlocks(unlock_bytes)
         except offline.FormatError as e:
             logging.warning(f"Offline sync from {addr[0]}: {e}")
@@ -124,7 +157,7 @@ class ConsoleSync:
             return
         if self.on_console:
             try:
-                self.on_console(addr[0], game)
+                self.on_console(addr[0], game, console)
             except Exception:
                 logging.exception("Offline sync: on_console failed")
         # The sets first (that may download the game's), so the unlocks are

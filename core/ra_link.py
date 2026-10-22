@@ -366,6 +366,27 @@ class RALink:
             mine = self._read_unlocked().get(self.api.username or "", {})
             return _times(mine.get(str(game_id)))
 
+    def refresh_unlocks(self, game_id, timeout=None):
+        """RetroAchievements' list of a game's unlocks, asked for now (a
+        session start, as when the game is played here) and kept in
+        unlocked.json: {ID: when}. None if it can't say (signed out, out of
+        reach, or blank)."""
+        if not self.signed_in or not game_id or self.blank:
+            return None
+        try:
+            unlocked = self.api.start_session(game_id, timeout=timeout)
+        except RAError as e:
+            logging.info(f"RetroAchievements: can't check game {game_id}'s unlocks ({e}); "
+                         "using what DSiRPC knows")
+            return None
+        self._remember(game_id, unlocked, replace=True)
+        return unlocked
+
+    def pending(self, achievement_id):
+        """True while an unlock of this achievement waits to be sent."""
+        with self._lock:
+            return any(p.get("id") == int(achievement_id) for p in self._pending)
+
     def _remember(self, game_id, ids, replace=False):
         """ids: achievement IDs, or {ID: when} (a Unix time; 0 if not known).
         A time already known is kept unless `replace` (a session's list,

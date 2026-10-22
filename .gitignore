@@ -214,3 +214,4 @@ logs/
 *.lnk
 Thumbs.db
 desktop.ini
+/saves

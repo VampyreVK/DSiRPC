@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 //
 // A file picker on the bottom screen (see browser.h). The console is 32x24
-// characters: a title, the folder, then a page of entries and the controls.
+// characters: a title (and where the selection is in the folder), the
+// folder, then a page of entries, the quick pick and the controls.
 //
 //   Up/Down: move   Left/Right: a page at a time
 //   A: open the folder / pick the file
-//   B: up a folder (at the SD root: back out)   START: back out
+//   B: up a folder (at the SD root: back out)
+//   START: the quick pick (the game last started)   SELECT: back out
 
 #include <dirent.h>
 #include <stdio.h>
@@ -17,6 +19,7 @@
 #include <nds.h>
 
 #include "browser.h"
+#include "sync.h"
 
 #define PATH_LEN     512
 #define MAX_ENTRIES  1024
@@ -124,10 +127,14 @@ static bool load_dir(const char *dir, const char *ext)
     return true;
 }
 
-static void draw(const char *title, const char *dir, int sel, int top)
+static void draw(const char *title, const char *dir, int sel, int top, const char *quick)
 {
     consoleClear();
-    printf("%.31s\n", title);
+    char pos[24] = "";
+    if (entry_count > 0)
+        snprintf(pos, sizeof(pos), "%d/%d", sel + 1, entry_count);
+    int width = 31 - (int)strlen(pos) - (pos[0] ? 1 : 0);
+    printf("%-*.*s%s%s\n", width, width, title, pos[0] ? " " : "", pos);
     size_t n = strlen(dir);
     if (n > 31)
         printf("...%s\n", dir + n - 28);
@@ -150,15 +157,28 @@ static void draw(const char *title, const char *dir, int sel, int top)
                len > width ? "~" : "", e->dir ? "/" : "");
     }
     printf("-------------------------------\n");
-    if (entry_count > 0)
-        printf("%d/%d\n", sel + 1, entry_count);
+    if (quick != NULL)
+    {
+        // Its name, without the folder or ".nds"
+        const char *name = strrchr(quick, '/');
+        name = name != NULL ? name + 1 : quick;
+        int len = (int)strlen(name);
+        if (has_extension(name, ".nds"))
+            len -= 4;
+        if (len > 24)
+            printf("START: %.23s~\n", name);
+        else
+            printf("START: %.*s\n", len, name);
+    }
     else
+    {
         printf("\n");
-    printf("A:open  B:up  START:back");
+    }
+    printf("A:open  B:up  SELECT:back");
 }
 
 bool browse_for_file(const char *title, const char *start_dir, const char *extension,
-                     char *out, size_t outsz)
+                     const char *quick, char *out, size_t outsz)
 {
     char dir[PATH_LEN];
     snprintf(dir, sizeof(dir), "%s", start_dir);
@@ -183,11 +203,11 @@ bool browse_for_file(const char *title, const char *start_dir, const char *exten
                 top = sel;
             if (sel >= top + PAGE_ROWS)
                 top = sel - PAGE_ROWS + 1;
-            draw(title, dir, sel, top);
+            draw(title, dir, sel, top, quick);
             redraw = false;
         }
 
-        cothread_yield_irq(IRQ_VBLANK);
+        sync_frame();
         scanKeys();
         u32 down = keysDown();
         u32 rep = keysDownRepeat();
@@ -242,7 +262,13 @@ bool browse_for_file(const char *title, const char *start_dir, const char *exten
             }
             redraw = true;
         }
-        else if (down & KEY_START)
+        else if ((down & KEY_START) && quick != NULL)
+        {
+            snprintf(out, outsz, "%s", quick);
+            free_entries();
+            return true;
+        }
+        else if (down & KEY_SELECT)
         {
             break;
         }

@@ -10,9 +10,10 @@
 #                                   folder and README.txt
 #                                   (packaging/macos/build_app.py)
 #
-# - Push to main (when DSiRPC's files change), pull requests, or "Run
+# - Push to any branch (when DSiRPC's files change), pull requests, or "Run
 #   workflow" on the Actions tab: builds all four and attaches them to the
-#   run as artifacts.
+#   run as artifacts. A newer push to the same branch cancels the build
+#   still running for the one before.
 # - Push a tag starting with "v" (for example v0.4.0): also publishes a GitHub
 #   release with all four.
 #
@@ -26,7 +27,7 @@ name: Build DSiRPC
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
     paths:
       - "nds-bootstrap/**"
@@ -65,6 +66,11 @@ on:
 
 permissions:
   contents: read
+
+# One build per branch at a time; a release (a tag) is never cut short
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   nds-bootstrap:

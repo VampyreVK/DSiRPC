@@ -7,9 +7,18 @@
 // until the new one is in place, and put back on the next scan if the
 // console went off in between). A console's save always goes to the PC
 // before anything replaces it.
+//
+// A save goes through memory both ways, with the SD card and the Wi-Fi never
+// busy at once: one going out is read whole (twice, until both reads agree)
+// before it's sent, one coming in is received whole, then written and read
+// back. Reading the SD card while the Wi-Fi sent corrupted a few blocks in a
+// hundred on a 3DS (big saves arrived damaged nearly every time). An
+// exchange that fails on the way (the network, or DSiRPC finding the save
+// damaged or unable to store it) is tried again, up to SYNC_TRIES times.
 
 #include <dirent.h>
 #include <errno.h>
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,7 +59,45 @@
 #define TWLM_SAVES       "sd:/_nds/TWiLightMenu/saves"
 #define UNIX_TIME_2000   946684800
 
-static uint8_t chunk[CHUNK];
+#define READ_TRIES       4       // reads of a save until two agree
+#define WRITE_TRIES      3       // writes of a download until one reads back right
+#define SYNC_TRIES       3       // tries of an exchange that failed on the way
+#ifndef SAVE_RETRY_FRAMES
+#define SAVE_RETRY_FRAMES 60     // the wait before another try: 1 s, then 2 s
+#endif
+
+// Aligned for the SD card's DMA, like every buffer a save is read into
+static uint8_t chunk[CHUNK] __attribute__((aligned(32)));
+
+// Whether the last failure is worth another try: the network (no connection,
+// a lost one, a stall), DSiRPC finding the save damaged or unable to store it,
+// or the SD card not keeping a download
+static bool transient;
+
+static int net(int r)
+{
+    if (r < 0)
+        transient = true;
+    return r;
+}
+
+// Waits before another try (1 s, then 2 s...), saying so. false if B stops it.
+static bool retry_wait(const SyncJob *job, int attempt, const char *name, SaveProgress progress)
+{
+    if (progress != NULL)
+    {
+        char what[96];
+        snprintf(what, sizeof(what), "Trying again (%d of %d)\n%s", attempt + 1, SYNC_TRIES, name);
+        progress(what, 0, 1);
+    }
+    for (int f = 0; f < SAVE_RETRY_FRAMES * attempt; f++)
+    {
+        sync_frame();
+        if (job->cancelled != NULL && job->cancelled())
+            return false;
+    }
+    return true;
+}
 
 // ---------------------------------------------------------------------------
 // Little helpers
@@ -768,6 +815,8 @@ static size_t request_header(uint8_t *p, const SaveConsole *c, uint8_t op)
 
 static void status_msg(char *msg, size_t msgsz, int status)
 {
+    if (status == 2 || status == 3)
+        transient = true;
     if (status == STATUS_OFF)
         snprintf(msg, msgsz, "Save backups are off in DSiRPC");
     else if (status == STATUS_RELEASE)
@@ -824,47 +873,14 @@ static SaveItem *add_pc_slot(SaveList *list, const uint8_t code[4], uint16_t hcr
     return it;
 }
 
-int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
-               struct sockaddr_in *server, char *msg, size_t msgsz)
+// The plan's request and its answer (one try).
+static int plan_exchange(const SyncJob *job, SaveList *list, const struct sockaddr_in *server, const uint8_t *req,
+                         size_t n, char *msg, size_t msgsz)
 {
-    msg[0] = '\0';
-    int r = sync_find(job, server, msg, msgsz);
-    if (r <= 0)
-        return r;
-
-    size_t cap = HEADER_SIZE + 2 + (size_t)list->count * (PLAN_ENTRY_SIZE + SAVE_NAME_LEN);
-    uint8_t *req = malloc(cap);
-    if (req == NULL)
-    {
-        snprintf(msg, msgsz, "Out of memory");
-        return -1;
-    }
-    size_t n = request_header(req, console, OP_PLAN);
-    put16(req + n, list->count);
-    n += 2;
-    for (int i = 0; i < list->count; i++)
-    {
-        SaveItem *it = &list->items[i];
-        it->action = SA_UNKNOWN;
-        uint8_t *p = req + n;
-        memcpy(p, it->code, 4);
-        put16(p + 4, it->hcrc);
-        p[6] = it->slot;
-        p[7] = (it->present ? STATE_PRESENT : 0) | (it->excluded ? STATE_EXCLUDED : 0);
-        put32(p + 8, it->size);
-        put32(p + 12, it->crc);
-        put32(p + 16, it->base);
-        size_t len = strlen(it->name);
-        p[20] = (uint8_t)len;
-        memcpy(p + PLAN_ENTRY_SIZE, it->name, len);
-        n += PLAN_ENTRY_SIZE + len;
-    }
-
     int sock;
-    r = sync_open(job, server, &sock, msg, msgsz);
+    int r = net(sync_open(job, server, &sock, msg, msgsz));
     if (r > 0)
-        r = sync_send(job, sock, req, n, msg, msgsz);
-    free(req);
+        r = net(sync_send(job, sock, req, n, msg, msgsz));
     if (r <= 0)
     {
         sync_close(sock);
@@ -872,7 +888,7 @@ int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
     }
 
     uint8_t head[8];
-    if ((r = sync_recv(job, sock, head, sizeof(head), msg, msgsz)) <= 0)
+    if ((r = net(sync_recv(job, sock, head, sizeof(head), msg, msgsz))) <= 0)
         goto done;
     if (memcmp(head, "DRSP", 4) != 0)
     {
@@ -891,8 +907,8 @@ int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
     {
         uint8_t p[PLAN_ITEM_SIZE];
         char source[256];
-        if ((r = sync_recv(job, sock, p, sizeof(p), msg, msgsz)) <= 0 ||
-            (r = sync_recv(job, sock, source, p[21], msg, msgsz)) <= 0)
+        if ((r = net(sync_recv(job, sock, p, sizeof(p), msg, msgsz))) <= 0 ||
+            (r = net(sync_recv(job, sock, source, p[21], msg, msgsz))) <= 0)
             goto done;
         source[p[21]] = '\0';
         if (!valid_code(p) || p[6] > SAVE_MAX_SLOT || p[7] > SA_DOWNLOAD_NEW)
@@ -929,20 +945,107 @@ done:
     return r;
 }
 
+int saves_plan(const SyncJob *job, const SaveConsole *console, SaveList *list,
+               struct sockaddr_in *server, char *msg, size_t msgsz)
+{
+    msg[0] = '\0';
+    int r = sync_find(job, server, msg, msgsz);
+    if (r <= 0)
+        return r;
+
+    size_t cap = HEADER_SIZE + 2 + (size_t)list->count * (PLAN_ENTRY_SIZE + SAVE_NAME_LEN);
+    uint8_t *req = malloc(cap);
+    if (req == NULL)
+    {
+        snprintf(msg, msgsz, "Out of memory");
+        return -1;
+    }
+    size_t n = request_header(req, console, OP_PLAN);
+    put16(req + n, list->count);
+    n += 2;
+    for (int i = 0; i < list->count; i++)
+    {
+        SaveItem *it = &list->items[i];
+        it->action = SA_UNKNOWN;
+        uint8_t *p = req + n;
+        memcpy(p, it->code, 4);
+        put16(p + 4, it->hcrc);
+        p[6] = it->slot;
+        p[7] = (it->present ? STATE_PRESENT : 0) | (it->excluded ? STATE_EXCLUDED : 0);
+        put32(p + 8, it->size);
+        put32(p + 12, it->crc);
+        put32(p + 16, it->base);
+        size_t len = strlen(it->name);
+        p[20] = (uint8_t)len;
+        memcpy(p + PLAN_ENTRY_SIZE, it->name, len);
+        n += PLAN_ENTRY_SIZE + len;
+    }
+
+    for (int attempt = 1; ; attempt++)
+    {
+        transient = false;
+        msg[0] = '\0';
+        r = plan_exchange(job, list, server, req, n, msg, msgsz);
+        if (r >= 0 || !transient || attempt >= SYNC_TRIES || !retry_wait(job, attempt, "", NULL))
+            break;
+    }
+    free(req);
+    return r;
+}
+
+// The whole save in memory, read again to check it: two reads that disagree
+// are read again (READ_TRIES in all). NULL if it can't be (msg).
+static uint8_t *load_save(const char *path, uint32_t *size, uint32_t *crc, char *msg, size_t msgsz)
+{
+    struct stat st;
+    if (stat(path, &st) != 0 || st.st_size > MAX_SAVE_SIZE)
+    {
+        snprintf(msg, msgsz, "Can't read the save");
+        return NULL;
+    }
+    uint32_t n = (uint32_t)st.st_size;
+    uint8_t *data = memalign(32, n ? n : 1);
+    if (data == NULL)
+    {
+        snprintf(msg, msgsz, "Not enough memory for\nthis save");
+        return NULL;
+    }
+    bool differed = false;
+    for (int i = 0; i < READ_TRIES; i++)
+    {
+        FILE *f = fopen(path, "rb");
+        bool read = f != NULL && fread(data, 1, n, f) == n;
+        if (f != NULL)
+            fclose(f);
+        if (!read)
+            break;
+        uint32_t again, again_size;
+        if (saves_file_crc(path, &again, &again_size) && again_size == n && again == crc_update(0, data, n))
+        {
+            *size = n;
+            *crc = again;
+            return data;
+        }
+        differed = true;
+    }
+    free(data);
+    transient = differed;
+    snprintf(msg, msgsz, differed ? "The SD card read this save\ndifferently each time" : "Can't read the save");
+    return NULL;
+}
+
 // Sends the console's save. 1: DSiRPC has it, 0: cancelled, -1: failed.
 static int upload(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
                   SaveItem *it, int kind, const char *what, SaveProgress progress,
                   char *msg, size_t msgsz)
 {
-    // The CRC of what's sent, read now: what saves.idx remembered can be out
-    // of date (and DSiRPC turns down a save that doesn't match its CRC). The
-    // item takes what's there, so saves.idx has it from then on.
+    // Read whole before anything's sent, so the SD card is idle while the
+    // Wi-Fi sends; its CRC is the one sent, whatever saves.idx remembered,
+    // and the item takes what's there, so saves.idx has it from then on
     uint32_t crc, size;
-    if (!saves_file_crc(it->path, &crc, &size))
-    {
-        snprintf(msg, msgsz, "Can't read the save");
+    uint8_t *data = load_save(it->path, &size, &crc, msg, msgsz);
+    if (data == NULL)
         return -1;
-    }
     struct stat st;
     if (stat(it->path, &st) == 0)
         it->mtime = (int32_t)st.st_mtime;
@@ -950,12 +1053,6 @@ static int upload(const SyncJob *job, const SaveConsole *console, const struct s
     it->crc = crc;
     it->changed = it->crc != it->base;
 
-    FILE *f = fopen(it->path, "rb");
-    if (f == NULL)
-    {
-        snprintf(msg, msgsz, "Can't read the save");
-        return -1;
-    }
     uint8_t req[HEADER_SIZE + 21 + SAVE_NAME_LEN];
     size_t n = request_header(req, console, OP_PUT);
     memcpy(req + n, it->code, 4);
@@ -973,29 +1070,23 @@ static int upload(const SyncJob *job, const SaveConsole *console, const struct s
     n += 21 + len;
 
     int sock;
-    int r = sync_open(job, server, &sock, msg, msgsz);
+    int r = net(sync_open(job, server, &sock, msg, msgsz));
     if (r > 0)
-        r = sync_send(job, sock, req, n, msg, msgsz);
+        r = net(sync_send(job, sock, req, n, msg, msgsz));
     uint32_t sent = 0;
-    while (r > 0 && sent < it->size)
+    while (r > 0 && sent < size)
     {
-        size_t want = it->size - sent < CHUNK ? it->size - sent : CHUNK;
-        if (fread(chunk, 1, want, f) != want)
-        {
-            snprintf(msg, msgsz, "Can't read the save");
-            r = -1;
-            break;
-        }
-        r = sync_send(job, sock, chunk, want, msg, msgsz);
+        size_t want = size - sent < CHUNK ? size - sent : CHUNK;
+        r = net(sync_send(job, sock, data + sent, want, msg, msgsz));
         sent += want;
         if (progress != NULL)
-            progress(what, sent, it->size);
+            progress(what, sent, size);
     }
-    fclose(f);
     uint8_t answer[6];
     if (r > 0)
-        r = sync_recv(job, sock, answer, sizeof(answer), msg, msgsz);
+        r = net(sync_recv(job, sock, answer, sizeof(answer), msg, msgsz));
     sync_close(sock);
+    free(data);
     if (r <= 0)
         return r;
     if (memcmp(answer, "DRSK", 4) != 0)
@@ -1048,12 +1139,12 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
     n += 9;
 
     int sock;
-    int r = sync_open(job, server, &sock, msg, msgsz);
+    int r = net(sync_open(job, server, &sock, msg, msgsz));
     uint8_t head[14];
     if (r > 0)
-        r = sync_send(job, sock, req, n, msg, msgsz);
+        r = net(sync_send(job, sock, req, n, msg, msgsz));
     if (r > 0)
-        r = sync_recv(job, sock, head, sizeof(head), msg, msgsz);
+        r = net(sync_recv(job, sock, head, sizeof(head), msg, msgsz));
     if (r <= 0)
     {
         sync_close(sock);
@@ -1069,43 +1160,64 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
         return -1;
     }
     uint32_t size = get32(head + 6), want_crc = get32(head + 10);
-    if (size > MAX_SAVE_SIZE)
+    uint8_t *data = size <= MAX_SAVE_SIZE ? memalign(32, size ? size : 1) : NULL;
+    if (data == NULL)
     {
-        snprintf(msg, msgsz, "DSiRPC's answer is garbled");
+        snprintf(msg, msgsz, size <= MAX_SAVE_SIZE ? "Not enough memory for\nthis save" : "DSiRPC's answer is garbled");
         sync_close(sock);
         return -1;
     }
 
-    char dir[SAVE_PATH_LEN], tmp[SAVE_PATH_LEN + 8];
-    parent_dir(dir, sizeof(dir), it->path);
-    make_dirs(dir);
-    snprintf(tmp, sizeof(tmp), "%s.tmp", it->path);
-    FILE *f = fopen(tmp, "wb");
-    bool ok = f != NULL;
-    uint32_t got = 0, crc = 0;
+    // Received whole, with the SD card idle...
+    uint32_t got = 0;
     while (got < size)
     {
         size_t want = size - got < CHUNK ? size - got : CHUNK;
-        r = sync_recv(job, sock, chunk, want, msg, msgsz);
+        r = net(sync_recv(job, sock, data + got, want, msg, msgsz));
         if (r <= 0)
             break;
-        crc = crc_update(crc, chunk, want);
-        if (ok && fwrite(chunk, 1, want, f) != want)
-            ok = false;
         got += want;
         if (progress != NULL)
             progress(what, got, size);
     }
     sync_close(sock);
-    if (f != NULL && fclose(f) != 0)
-        ok = false;
-    if (r <= 0 || !ok || crc != want_crc)
+    uint32_t crc = r > 0 ? crc_update(0, data, size) : 0;
+    if (r <= 0 || crc != want_crc)
+    {
+        free(data);
+        if (r > 0)
+        {
+            transient = true;
+            snprintf(msg, msgsz, "The save arrived damaged;\nthe old one is kept");
+        }
+        return r <= 0 ? r : -1;
+    }
+
+    // ...then written with the Wi-Fi idle, and read back
+    char dir[SAVE_PATH_LEN], tmp[SAVE_PATH_LEN + 8];
+    parent_dir(dir, sizeof(dir), it->path);
+    make_dirs(dir);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", it->path);
+    bool written = false, kept = false;
+    for (int i = 0; i < WRITE_TRIES && !kept; i++)
+    {
+        FILE *f = fopen(tmp, "wb");
+        written = f != NULL && fwrite(data, 1, size, f) == size;
+        if (f != NULL && fclose(f) != 0)
+            written = false;
+        uint32_t back, back_size;
+        kept = written && saves_file_crc(tmp, &back, &back_size) && back == crc && back_size == size;
+        if (!written)
+            break;
+    }
+    free(data);
+    if (!kept)
     {
         remove(tmp);
-        if (r > 0)
-            snprintf(msg, msgsz, ok ? "The save arrived damaged;\nthe old one is kept"
-                                    : "Can't write the save\n(is the SD card full?)");
-        return r <= 0 ? r : -1;
+        transient = written;   // written but not kept: another try may do
+        snprintf(msg, msgsz, written ? "The SD card didn't keep the\nsave; the old one is kept"
+                                     : "Can't write the save\n(is the SD card full?)");
+        return -1;
     }
     if (!replace_file(tmp, it->path))
     {
@@ -1125,20 +1237,20 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
 // The PC's save (version, from: the console it came from) replaces the
 // console's, which goes to the PC first.
 static int take_from_pc(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                        SaveItem *it, uint8_t version, const char *from, uint8_t flags, bool as_listed,
+                        SaveItem *it, uint8_t version, const char *from, uint8_t flags, const uint32_t *listed,
                         SaveProgress progress, char *msg, size_t msgsz)
 {
     char what[96];
     if (it->present)
     {
-        uint32_t listed = it->crc;
         snprintf(what, sizeof(what), "Keeping %s's save on the PC first", it->name);
         int r = upload(job, console, server, it, PUT_SAFETY, what, progress, msg, msgsz);
         if (r <= 0)
             return r;
         // The list said the console's save hadn't changed (so the PC's
-        // newer one comes here): if it has, that's for you to decide
-        if (as_listed && it->crc != listed)
+        // newer one comes here; listed: its CRC then): if it has, that's
+        // for you to decide
+        if (listed != NULL && it->crc != *listed)
         {
             snprintf(msg, msgsz, "This save changed since the\nlist was made. It's kept on\nthe PC; open the list again.");
             return -1;
@@ -1163,6 +1275,7 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     int *count = NULL;
     SaveAction action = it->action;
     bool chosen = action == SA_CONFLICT;   // you settled it: no second-guessing
+    uint32_t listed = it->crc;             // the console's save, as the list had it
     if (action == SA_CONFLICT)
     {
         if (it->choice == SC_KEEP_CONSOLE)
@@ -1172,25 +1285,34 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
         else
             return 0;
     }
-    switch (action)
-    {
-    case SA_UPLOAD:
-    case SA_BACKUP:
-        snprintf(what, sizeof(what), "Backing up %s", it->name);
-        r = upload(job, console, server, it, action == SA_UPLOAD ? PUT_SYNC : PUT_BACKUP, what, progress, msg, msgsz);
-        if (r > 0)
-            it->base = it->crc;
-        count = action == SA_UPLOAD ? &counts->uploaded : &counts->backed_up;
-        break;
-    case SA_DOWNLOAD:
-    case SA_DOWNLOAD_NEW:
-        if (console->backup_only)
-            return 0;
-        r = take_from_pc(job, console, server, it, 0, it->pc_source, 0, !chosen, progress, msg, msgsz);
-        count = &counts->downloaded;
-        break;
-    default:
+    if ((action == SA_DOWNLOAD || action == SA_DOWNLOAD_NEW) && console->backup_only)
         return 0;
+    for (int attempt = 1; ; attempt++)
+    {
+        transient = false;
+        msg[0] = '\0';
+        switch (action)
+        {
+        case SA_UPLOAD:
+        case SA_BACKUP:
+            snprintf(what, sizeof(what), "Backing up %s", it->name);
+            r = upload(job, console, server, it, action == SA_UPLOAD ? PUT_SYNC : PUT_BACKUP, what, progress, msg,
+                       msgsz);
+            if (r > 0)
+                it->base = it->crc;
+            count = action == SA_UPLOAD ? &counts->uploaded : &counts->backed_up;
+            break;
+        case SA_DOWNLOAD:
+        case SA_DOWNLOAD_NEW:
+            r = take_from_pc(job, console, server, it, 0, it->pc_source, 0, chosen ? NULL : &listed, progress, msg,
+                             msgsz);
+            count = &counts->downloaded;
+            break;
+        default:
+            return 0;
+        }
+        if (r >= 0 || !transient || attempt >= SYNC_TRIES || !retry_wait(job, attempt, it->name, progress))
+            break;
     }
     if (r > 0)
     {
@@ -1212,8 +1334,8 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
     return r;
 }
 
-int saves_versions(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
-                   const SaveItem *it, SaveVersion *out, int max, char *msg, size_t msgsz)
+static int versions_exchange(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
+                             const SaveItem *it, SaveVersion *out, int max, char *msg, size_t msgsz)
 {
     uint8_t req[HEADER_SIZE + 7];
     size_t n = request_header(req, console, OP_HIST);
@@ -1223,12 +1345,12 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
     n += 7;
 
     int sock;
-    int r = sync_open(job, server, &sock, msg, msgsz);
+    int r = net(sync_open(job, server, &sock, msg, msgsz));
     uint8_t head[8];
     if (r > 0)
-        r = sync_send(job, sock, req, n, msg, msgsz);
+        r = net(sync_send(job, sock, req, n, msg, msgsz));
     if (r > 0)
-        r = sync_recv(job, sock, head, sizeof(head), msg, msgsz);
+        r = net(sync_recv(job, sock, head, sizeof(head), msg, msgsz));
     if (r <= 0)
     {
         sync_close(sock);
@@ -1248,8 +1370,8 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
     {
         uint8_t p[HIST_ITEM_SIZE];
         char source[256];
-        if (sync_recv(job, sock, p, sizeof(p), msg, msgsz) <= 0 ||
-            sync_recv(job, sock, source, p[13], msg, msgsz) <= 0)
+        if (net(sync_recv(job, sock, p, sizeof(p), msg, msgsz)) <= 0 ||
+            net(sync_recv(job, sock, source, p[13], msg, msgsz)) <= 0)
         {
             sync_close(sock);
             return -1;
@@ -1269,13 +1391,35 @@ int saves_versions(const SyncJob *job, const SaveConsole *console, const struct 
     return kept;
 }
 
+int saves_versions(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
+                   const SaveItem *it, SaveVersion *out, int max, char *msg, size_t msgsz)
+{
+    int r;
+    for (int attempt = 1; ; attempt++)
+    {
+        transient = false;
+        msg[0] = '\0';
+        r = versions_exchange(job, console, server, it, out, max, msg, msgsz);
+        if (r >= 0 || !transient || attempt >= SYNC_TRIES || !retry_wait(job, attempt, "", NULL))
+            break;
+    }
+    return r;
+}
+
 int saves_restore(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
                   SaveList *list, SaveItem *it, uint8_t version, const char *from, SaveCounts *counts,
                   SaveProgress progress, char *msg, size_t msgsz)
 {
-    msg[0] = '\0';
-    int r = take_from_pc(job, console, server, it, version, from, console->backup_only ? 0 : GET_MAKE_LATEST,
-                         false, progress, msg, msgsz);
+    int r;
+    for (int attempt = 1; ; attempt++)
+    {
+        transient = false;
+        msg[0] = '\0';
+        r = take_from_pc(job, console, server, it, version, from, console->backup_only ? 0 : GET_MAKE_LATEST, NULL,
+                         progress, msg, msgsz);
+        if (r >= 0 || !transient || attempt >= SYNC_TRIES || !retry_wait(job, attempt, it->name, progress))
+            break;
+    }
     if (r > 0)
     {
         counts->downloaded++;
@@ -1305,12 +1449,17 @@ void saves_done(const SyncJob *job, const SaveConsole *console, const struct soc
     put16(req + n + 6, counts->failed);
     n += 8;
     char msg[64];
-    int sock;
-    if (sync_open(job, server, &sock, msg, sizeof(msg)) > 0)
+    for (int attempt = 1; attempt <= SYNC_TRIES; attempt++)
     {
+        int sock;
         uint8_t answer[6];
-        if (sync_send(job, sock, req, n, msg, sizeof(msg)) > 0)
-            sync_recv(job, sock, answer, sizeof(answer), msg, sizeof(msg));
+        int r = sync_open(job, server, &sock, msg, sizeof(msg));
+        if (r > 0)
+            r = sync_send(job, sock, req, n, msg, sizeof(msg));
+        if (r > 0)
+            r = sync_recv(job, sock, answer, sizeof(answer), msg, sizeof(msg));
         sync_close(sock);
+        if (r >= 0 || attempt >= SYNC_TRIES || !retry_wait(job, attempt, "", NULL))
+            break;
     }
 }

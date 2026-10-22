@@ -4,14 +4,19 @@ SaveStore on loopback, on SD cards in temporary folders. A DSi and a 3DS
 (different file names for the same game) share saves, the two-stage check
 (stray saves left out, saves already in sync not counted), the PC's copies
 dated by the console's clock, conflicts both ways, restores, back-up-only
-mode, exclusions, a swap that didn't finish, and the launcher's settings."""
+mode, exclusions, a swap that didn't finish, and the launcher's settings;
+and a network that drops a connection or damages a save on the way, which
+the launcher tries again."""
 
 import os
+import socket
+import struct
 import subprocess
+import threading
 
 import pytest
 
-from core import saves
+from core import offline, saves
 from core.console_sync import ConsoleSync
 from helpers import REPO, cbuild
 
@@ -37,7 +42,7 @@ def rom(code, hcrc=0x1A2B):
 def host(cc, tmp_path_factory):
     exe = str(tmp_path_factory.mktemp("savesync") / "savesync_host")
     sources = [HOST] + [os.path.join(LAUNCHER, f) for f in ("savesync.c", "sync.c", "settings.c", "bootstrap_ini.c")]
-    return cbuild.build(exe, sources, flags=["-std=gnu11", "-I", LAUNCHER])
+    return cbuild.build(exe, sources, flags=["-std=gnu11", "-I", LAUNCHER, "-DSAVE_RETRY_FRAMES=2"])
 
 
 @pytest.fixture
@@ -340,3 +345,101 @@ def test_the_launchers_settings(host, pc, tmp_path):
     assert out[-1] == "settings 1 - 0 00000000 sd:/roms/nds/Pokemon Black (USA).nds"    # START in the picker
     out = dsi.run("settings sd:/DSiRPC/check.ini|10.0.0.256|sync", scan=False)
     assert out[-1] == "settings 1 - 0 00000000 -"                     # not an address: looked for instead
+
+
+class FlakyProxy:
+    """Between the launcher and DSiRPC: answers the launcher's search with its
+    own port and passes each TCP connection on, except the ones `meddle`
+    names by number: "drop" (closed at once), "up" or "down" (one byte
+    flipped going to DSiRPC, or coming back, past the headers)."""
+
+    def __init__(self, target, meddle):
+        self.target, self.meddle, self.count = target, dict(meddle), 0
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.bind(("127.0.0.1", 0))
+        self.port = self.udp.getsockname()[1]
+        self.tcp = socket.socket()
+        self.tcp.bind(("127.0.0.1", self.port))
+        self.tcp.listen(8)
+        for fn in (self._answer, self._accept):
+            threading.Thread(target=fn, daemon=True).start()
+
+    def _answer(self):
+        while True:
+            try:
+                data, addr = self.udp.recvfrom(64)
+            except OSError:
+                return
+            if data.startswith(offline.DISCOVER):
+                self.udp.sendto(offline.ANSWER + struct.pack("<BH", offline.VERSION, self.port), addr)
+
+    def _accept(self):
+        while True:
+            try:
+                conn, _ = self.tcp.accept()
+            except OSError:
+                return
+            what = self.meddle.get(self.count)
+            self.count += 1
+            if what == "drop":
+                conn.close()
+                continue
+            far = socket.create_connection(("127.0.0.1", self.target))
+            threading.Thread(target=self._pump, args=(conn, far, what == "up"), daemon=True).start()
+            threading.Thread(target=self._pump, args=(far, conn, what == "down"), daemon=True).start()
+
+    @staticmethod
+    def _pump(src, dst, flip, at=600):
+        seen = 0
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                if flip and seen <= at < seen + len(data):
+                    data = bytearray(data)
+                    data[at - seen] ^= 0x5A
+                    data = bytes(data)
+                seen += len(data)
+                dst.sendall(data)
+        except OSError:
+            pass
+        for s in (dst,):
+            try:
+                s.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
+
+    def close(self):
+        self.udp.close()
+        self.tcp.close()
+
+
+def test_a_flaky_network_is_tried_again(host, pc, tmp_path):
+    """A connection dropped, a save damaged going to DSiRPC, and one damaged
+    coming back: each is tried again, and the saves arrive whole."""
+    port, store = pc
+    key = saves.game_key("CPUE", 0x5A5A)
+    path = "sd:/roms/nds/saves/Platinum.sav"
+    big = bytes(range(256)) * 2048          # 512 KB
+    # The plan's connection dropped, the upload damaged: both tried again
+    proxy = FlakyProxy(port, {0: "drop", 2: "up"})
+    dsi = Console(host, proxy.port, str(tmp_path / "dsi"))
+    dsi.put("sd:/roms/nds/Platinum.nds", rom("CPUE", 0x5A5A))
+    dsi.put(path, big)
+    out = dsi.run("plan", "sync Platinum|0")
+    assert "sync Platinum|0 1 " in out and store.read(key, 0)[0] == big
+    assert proxy.count == 4                  # the plan twice, the upload twice
+    proxy.close()
+
+    # Taking a newer save from the PC: the download damaged on its way back
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    three.put("sd:/roms/nds/Platinum.nds", rom("CPUE", 0x5A5A))
+    three.put(path, big[::-1])
+    three.run("plan", "sync Platinum|0|keep")
+    proxy = FlakyProxy(port, {2: "down"})    # plan, safety copy, download
+    dsi = Console(host, proxy.port, dsi.root)
+    out = dsi.run("plan", "sync Platinum|0")
+    assert "sync Platinum|0 1 " in out
+    assert dsi.read(path) == big[::-1]
+    proxy.close()

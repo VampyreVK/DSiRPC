@@ -85,7 +85,14 @@ console's backups, next to the live save. A download goes to a
 `.tmp` file, is checked against its CRC, then swapped in, with the old save
 kept as `.bak` until that's done (a scan puts a `.bak` back if the console
 went off in between). A console's save always goes to the PC before
-anything replaces it. An upload's CRC is read from the save as it goes,
+anything replaces it. A save goes through memory both ways, so the SD card
+and the Wi-Fi are never busy at once (reading the SD card while the Wi-Fi
+sent damaged a few blocks in a hundred on a 3DS): one going out is read
+whole, twice, until both reads agree, before it's sent; one coming in is
+received whole, then written and read back. An exchange that fails on the
+way (the network, or DSiRPC finding the save damaged or unable to store it)
+is tried again, up to 3 times, and the screen says so. An upload's CRC is
+read from the save as it goes,
 since `saves.idx` can be out of date (a save written in place with its time
 unchanged), and if a save the list called unchanged turns out to have
 changed, a download over it stops (it's on the PC by then) for you to look

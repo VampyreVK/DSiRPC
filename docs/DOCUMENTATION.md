@@ -1371,7 +1371,11 @@ haven't changed (a save the plan finds in sync counts as synced there, so
 the main screen's count only has what changed since); saves no game is
 named after are left out; a download goes through a `.tmp` file, checked against its
 CRC, and swaps in with the old save kept as `.bak` until it's done (the
-next scan puts a `.bak` back); an upload's CRC is read from the save as
+next scan puts a `.bak` back); a save goes through memory both ways, with the
+SD card and the Wi-Fi never busy at once (an upload is read whole, twice
+until the reads agree, before it's sent; a download is received whole, then
+written and read back), and an exchange that fails on the way (the network,
+status 2 or 3) is tried again, up to 3 times; an upload's CRC is read from the save as
 it's sent (`saves.idx` can be out of date: DSiRPC turns down a save that
 doesn't match its CRC), and a download the plan made over a save that turns
 out to have changed stops after the console's save is on the PC, to be
@@ -1387,7 +1391,10 @@ else kept as an External backup (`backups/External/`) too; one put anywhere
 else in the game's folder is listed as an External backup the consoles can
 restore (never pruned); one deleted by hand is backed up again. The first
 layout (one `history/` folder) is moved into the console folders the first
-time DSiRPC reads it.
+time DSiRPC reads it. A file another program holds open for a moment (a cloud
+drive's client, an antivirus: Windows won't replace it then) is tried again
+for about 1.5 s, and whatever goes wrong while DSiRPC answers, the launcher
+gets an answer (status 3) rather than a dropped connection.
 
 ### Console updates (TCP 4245)
 

@@ -571,13 +571,19 @@ class SaveStore:
                 s = self._slot(key, e["slot"])
                 live = s["live"] if s else None
                 had = (s["consoles"].get(console) if s and console else None) or {}
-                base = e["base"] or had.get("crc", 0)
+                # What the console had at its last sync only counts if that
+                # sync was with this DSiRPC: a save it never saw came from
+                # another one (synced with the PC, then with the Mac, the
+                # console would otherwise take the Mac's older save as the
+                # newer one). Then what this DSiRPC remembers it had decides.
+                known = self._knows(s, e["base"])
+                base = (e["base"] if known else 0) or had.get("crc", 0)
                 action = self._decide(key, e, live, base, backup_only, console)
                 if s and e["present"]:
                     # What the console has, as far as anyone can tell
                     if live and e["crc"] == live["crc"]:
                         changed |= self._note_console(s, console, live["crc"], live["source"])
-                    elif e["base"]:
+                    elif known:
                         whose = self._whose(s, e["base"])
                         changed |= self._note_console(s, console, e["base"], whose["source"] if whose else None)
                 if action is None:
@@ -596,6 +602,17 @@ class SaveStore:
             if changed:
                 self._save()
         return items
+
+    @staticmethod
+    def _knows(s, crc):
+        """Whether this DSiRPC has seen a save with this CRC in the slot: the
+        live save, a backup, or what a console had."""
+        if not s or not crc:
+            return False
+        if s["live"] and s["live"]["crc"] == crc:
+            return True
+        return any(b["crc"] == crc for b in s["backups"]) or \
+            any(c.get("crc") == crc for c in s["consoles"].values())
 
     def _decide(self, key, e, live, base, backup_only, console):
         if e["excluded"]:

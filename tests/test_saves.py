@@ -123,6 +123,29 @@ def test_what_a_console_had_counts_when_it_forgot(store):
                                                       "time": store.console_had(KEY, 0, "DSi 0001")["time"]}
 
 
+def test_a_console_that_last_synced_with_another_pc(tmp_path):
+    """A console synced its newer save with one PC (its saves.idx says so),
+    then meets another PC whose live save is older: that PC never saw the
+    console's base, so it's no reason to take its save. It's a conflict, not
+    a download over the newer save (Pokemon Black from the 29th, offered the
+    Mac's from the 24th)."""
+    pc, mac = SaveStore(str(tmp_path / "pc"), keep=3), SaveStore(str(tmp_path / "mac"), keep=3)
+    older, newer = b"the 24th, from the 3DS", b"the 29th, on the DSi"
+    mac.put(KEY, 0, "Pokemon Black", older, crc32(older), PUT_SYNC, "3DS 0002")
+    pc.put(KEY, 0, "Pokemon Black", newer, crc32(newer), PUT_SYNC, "DSi 0001")    # the DSi's base is now this
+    assert actions(mac, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, CONFLICT)]
+    assert mac.console_had(KEY, 0, "DSi 0001") is None       # and the PC's base isn't taken as what it had
+    assert actions(pc, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, IN_SYNC)]
+
+    # What the Mac remembers of the console still decides
+    mac.put(KEY, 0, "Pokemon Black", older, crc32(older), PUT_SAFETY, "DSi 0001")
+    assert actions(mac, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, CONFLICT)]
+    mine = b"the DSi, after the Mac's"
+    mac.put(KEY, 0, "Pokemon Black", mine, crc32(mine), PUT_SYNC, "DSi 0001")
+    pc_base = crc32(newer)                                    # its saves.idx still has the PC's
+    assert actions(mac, [entry(data=mine, base=pc_base)], console="DSi 0001") == [(0, IN_SYNC)]
+
+
 def test_a_replaced_console_save_goes_to_history(store):
     pc, console = b"the PC's", b"the console's"
     store.put(KEY, 0, "Pokemon Black", pc, crc32(pc), PUT_SYNC, "DSi 0001")
@@ -191,7 +214,7 @@ def test_a_save_copied_into_the_folder_by_hand(store, tmp_path):
     # A copy of one of the backups instead: the live save again, as that console's
     latest.write_bytes(v1)
     os.utime(latest, (1_800_000_100, 1_800_000_100))
-    assert actions(store, [entry(data=b"x", base=crc32(b"x"))]) == [(0, DOWNLOAD)]
+    assert actions(store, [entry(data=b"x", base=crc32(b"x"))]) == [(0, CONFLICT)]   # a base it never saw
     assert store.latest(KEY, 0)["source"] == "DSi 0001"
     latest.unlink()                                                       # deleted by hand: the console's goes up again
     assert actions(store, [entry(data=v1, base=crc32(v1))]) == [(0, UPLOAD)]

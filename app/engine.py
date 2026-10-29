@@ -112,7 +112,7 @@ class Engine:
                 raise PortInUse(f"UDP port {port} is already in use ({e})") from e
         self.source = source
         self.hub = StateHub(source, interval=self.fixed_interval or self.DISCORD_INTERVAL)
-        self.discord = DiscordConnector(self._client_id_for, dry_run=dry_run, enabled=discord,
+        self.discord = DiscordConnector(self._client_id, dry_run=dry_run, enabled=discord,
                                         check_images=check_images)
         self._apply_console_icon()
         self.hub.add_listener(self.discord.on_update)
@@ -165,8 +165,8 @@ class Engine:
         self.cfg.console_icon = key or ""
         self._apply_console_icon()
 
-    def _client_id_for(self, code, platinum):
-        return self.client_id or self.cfg.client_id_for(code, platinum)
+    def _client_id(self):
+        return self.client_id or self.cfg.discord_client_id
 
     @staticmethod
     def _mtime(path):

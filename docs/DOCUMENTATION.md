@@ -198,12 +198,12 @@ nds-bootstrap's ARM7 file lookup only matches short names.
   which setup writes. An older `PokemonPlatinumRPC.cfg` is still read while
   there's no `dsirpc.cfg`, and its settings move over the first time
   anything is saved.
-- The Discord application ID is `discord_client_id` (or `--client-id`). The
-  bold "Playing/Competing in ..." name comes from the application's name in
-  the Discord Developer Portal. For other games, `[discord_apps]` can name an
-  application per game code and a `default` one (section 6). A release
-  download's `defaults.cfg` holds the applications it comes with, used while
-  `dsirpc.cfg` leaves them empty.
+- The Discord application ID is `discord_client_id` (or `--client-id`): one
+  application for every game. The bold "Playing/Competing in ..." name is the
+  game's, which DSiRPC sends (the application's own name only where Discord
+  can't show it). A release download's `defaults.cfg` holds the application
+  it comes with, used while `dsirpc.cfg` leaves it empty. A `dsirpc.cfg` from
+  when other games had their own (`[discord_apps]`) still loads.
 - Games with a RetroAchievements set in `ra/` get their achievements checked
   and their RA rich presence (section 6, "RetroAchievements"). Signed in
   (setup), DSiRPC downloads sets by itself; it can also copy them from
@@ -369,9 +369,8 @@ and Enter keeps it, so it's safe to run again:
 1. Python packages: the version, each package in `requirements.txt`
    (offers `pip install -r requirements.txt` for missing ones) and the
    rcheevos library.
-2. Discord: how to make an application, the application ID for Platinum
-   (and the fallback), and one for other games (`[discord_apps] default`).
-   IDs are checked to be 17-20 digits.
+2. Discord: how to make an application, and its application ID (one for
+   every game). IDs are checked to be 17-20 digits.
 3. RetroAchievements (optional): signs in with your username and password
    (`login2`; the password is read without echo and only the token is
    kept), then asks whether to show what you play on your profile
@@ -784,7 +783,7 @@ numbers mean.
 | `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, `repel`, `badge_shine`, `route` (trainers beaten and items found here), `subway`, `institute` and `league` (only in those places, else None), battlers' `pp_max` and `owned` (a wild foe you've caught before), the location's `form` (bike, surf) and the player object's address and position for the hub's quick field reads (`field_ranges()` / `apply_field()`, which work out the `gait` with `motion()`), and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name), and also before you're in the field (`on_menu`: the zone reads 0, Black City's, and there's no player map object, so the Continue menu and the intro don't show as Black City in spring). `read_clock()` reads the in-game clock (two places tried, PC clock otherwise), the field's weather and the music are read too, and `identify()` names a battle's kind and, for a Gym Leader, Elite Four member or the Champion, who. `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads (with the music). `decode_text()` decodes Gen V text (UTF-16) |
 | `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), `terrain()` for the battle backgrounds, `opponent()` (Gym Leader rooms with the leader music, the Elite Four's and Champion's rooms; Striaton's leader by your first partner, Opelucid's by version), `WEATHER` (the field weather byte to the battle view's weather), `time_of_day()` (the season's hours), `ROUTE_FLAGS` / `route_stats()` (each place's trainer and item flags), the Battle Subway's trains, the Battle Institute's ranks, the League's rooms and order, `shine_row()` (badge shine to the trainer card's look), the catch and low-HP music, and `ITEMS` / `item_name()` (held items by the games' numbers, from IronMon Tracker's Gen 5 table: Gen IV's numbering, a few of its slots reused, such as the Drives at 116-119 and the new Mail at 137-148, and Gen V's own items from 468 on) |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
-| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[discord_apps]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon, console_updates), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `client_id_for(code, platinum)` picks the Discord application for a game (`[discord_apps]`, then its `default` for other games, then `discord_client_id`). `save()` writes every setting back, with comments. |
+| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon, console_updates), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/bw_presence.py` | Black and White's presence (section 6): `build_presence()`, the turf-matched image URLs (`foe_image()`, `trainer_image()`), `game_code()` and `playtime_start()` |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
@@ -910,10 +909,9 @@ without a parser for it (`core/other_game.py` reads it,
 | Timer | Counts up from when the game was first seen this session |
 
 The title comes from the set file, else `core/games.py`'s names, else the
-title in the game's header (like `MARIOKART DS`), else the game code. Which
-Discord application is used: `[discord_apps]` in `dsirpc.cfg` by game code,
-else its `default`, else `discord_client_id` (`--client-id` overrides all of
-them). Without a rich presence to read, the presence stays up while hellos
+title in the game's header (like `MARIOKART DS`), else the game code, and
+it's what Discord shows after "Playing" (the same Discord application,
+`discord_client_id`, shows every game). Without a rich presence to read, the presence stays up while hellos
 keep coming (within 15 s) and is cleared like Platinum's after about 30 s
 without them.
 

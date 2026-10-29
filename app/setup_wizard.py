@@ -162,33 +162,21 @@ def _ask_id(prompt, current):
 def step_discord(cfg):
     heading(2, "Discord")
     how = ("  1. Open https://discord.com/developers/applications and sign in.\n"
-           "  2. Click \"New Application\" and give it the name Discord should show after "
-           "\"Playing\", for example \"Pokémon Platinum\".\n"
+           "  2. Click \"New Application\" and name it, for example \"Nintendo DS\".\n"
            "  3. Copy its \"Application ID\" (a long number).")
+    say("DSiRPC shows your games on Discord through a \"Discord application\", one for every "
+        "game: Discord shows each game's own name after \"Playing\" (the application's name "
+        "only where it can't).")
     if cfg.release_client_id:
-        say("DSiRPC shows your game on Discord through a \"Discord application\". This copy of "
-            "DSiRPC comes with one: press Enter at both questions below to use it.")
-        say("To use your own instead (to choose the name Discord shows after \"Playing\"), make "
-            "one (it's free and takes a minute) and paste its Application ID below:")
-        say(how)
-        say()
+        say("This copy of DSiRPC comes with one: press Enter below to use it. To use your own "
+            "instead, make one (it's free and takes a minute) and paste its Application ID:")
     else:
-        say("DSiRPC shows your game on Discord through a \"Discord application\". Making one is "
-            "free and takes a minute:")
-        say(how)
-        say()
-        say("Paste the Application ID below (type - to remove one that's saved).")
-    cfg.discord_client_id = _ask_id("Application ID for Pokémon Platinum", cfg.discord_client_id)
+        say("Making one is free and takes a minute:")
+    say(how)
     say()
-    say("For every other game, DSiRPC also sends the game's own name, which Discord shows "
-        "instead where it can. You can use the same application for them, or make a second "
-        "one (for example named \"Nintendo DS\").")
-    default = cfg.discord_apps.get("DEFAULT", "")
-    other = _ask_id("Application ID for other games (Enter: the same one)", default)
-    if other:
-        cfg.discord_apps["DEFAULT"] = other
-    else:
-        cfg.discord_apps.pop("DEFAULT", None)
+    if not cfg.release_client_id:
+        say("Paste the Application ID below (type - to remove one that's saved).")
+    cfg.discord_client_id = _ask_id("Application ID", cfg.discord_client_id) or cfg.release_client_id
     if not cfg.has_discord_id:
         say("No Application ID yet, so nothing will show on Discord (the overlay window and "
             "achievements still work). Run setup again once you have one.")

@@ -12,7 +12,7 @@ Discord is only connected while the game answers, updates are only sent when
 the presence changes (and at most about every 5 s, Discord's limit), and the
 presence is cleared when the DSi goes quiet, when it's switched off here
 (enabled = False) and when the program stops. Each game can have its own
-Discord application (client_id_for). Everything runs on the hub thread,
+Discord application (client_id()). Everything runs on the hub thread,
 including close() (register it with StateHub.add_closer), because
 pypresence's event loop belongs to the thread that created it.
 """
@@ -29,10 +29,10 @@ MIN_GAP_S = 4.75   # Discord takes about one update per 5 s; reads are ~5 s apar
 
 
 class DiscordConnector:
-    def __init__(self, client_id_for, dry_run=False, enabled=True, check_images=True):
-        """client_id_for(game code, platinum) -> the Discord application ID
-        to use (utils/config.Config.client_id_for)."""
-        self.client_id_for = client_id_for
+    def __init__(self, client_id, dry_run=False, enabled=True, check_images=True):
+        """client_id() -> the Discord application ID to use (dsirpc.cfg's,
+        read each time, so setup's changes apply)."""
+        self.client_id = client_id
         self.dry_run = dry_run
         self.enabled = enabled
         self.check_images = check_images
@@ -91,8 +91,8 @@ class DiscordConnector:
             self.status = "waiting for the game"
             return
 
-        presence, code, is_platinum = self._presence(snap.state)
-        client_id = self.client_id_for(code, is_platinum)
+        presence = self._presence(snap.state)[0]
+        client_id = self.client_id()
         if not client_id and not self.dry_run:
             if not self._warned_no_id:
                 logging.warning("No Discord application ID set: run 'dsirpc.py setup' (or pass --client-id)")
@@ -101,8 +101,7 @@ class DiscordConnector:
             return
         self._warned_no_id = False
 
-        # Each game can have its own Discord application (its name is what
-        # Discord shows after "Playing" if it doesn't take the game's name).
+        # A new application (setup changed it): connect again with it
         if not self.dry_run and (self.rpc is None or self.rpc.client_id != client_id):
             from rpc.discord_client import DiscordRPC
             self._clear()

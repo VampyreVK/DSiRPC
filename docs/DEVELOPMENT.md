@@ -146,23 +146,25 @@ so they don't need copying by hand.
 
 ## 5. Discord applications
 
-DSiRPC shows the game through a Discord application, whose name is what
-Discord shows after "Playing" / "Competing in".
+DSiRPC shows every game through one Discord application. It sends each
+game's name, which Discord shows after "Playing" / "Competing in" (the
+application's own name only where Discord can't).
 
-- **Release downloads** come with one: the Action writes the application IDs
-  in the repository variables `DISCORD_CLIENT_ID` (Platinum, and every game
-  without its own) and `DISCORD_DEFAULT_CLIENT_ID` (optional: games other
-  than Platinum) into the download's `defaults.cfg` (Settings > Secrets and
-  variables > Actions > Variables). Application IDs aren't secret. Setup
-  offers them as the default, and `dsirpc.cfg` can name others; an empty
-  value there means "the default" (`utils/config.py`).
+- **Release downloads** come with one: the Action writes the application ID
+  in the repository variable `DISCORD_CLIENT_ID` (or, from when other games
+  had their own, `DISCORD_DEFAULT_CLIENT_ID`) into the download's
+  `defaults.cfg` (Settings > Secrets and variables > Actions > Variables).
+  Application IDs aren't secret. Setup offers it as the default, and
+  `dsirpc.cfg` can name another; an empty value there means "the default"
+  (`utils/config.py`).
 - **From the source code**, make your own: create an application in the
-  [Discord Developer Portal](https://discord.com/developers/applications),
-  name it **Pokémon Platinum**, and give setup its **Application ID**
-  (General Information page). For other games DSiRPC also sends the game's
-  name, which Discord shows instead where it can; a second application named
-  like "Nintendo DS" can be the default for them. `--client-id` overrides
-  both for one run.
+  [Discord Developer Portal](https://discord.com/developers/applications)
+  (name it like "Nintendo DS") and give setup its **Application ID**
+  (General Information page). `--client-id` overrides it for one run.
+
+A `dsirpc.cfg` from when Platinum and the other games each had an
+application (`[discord_apps]`) still works: its Platinum application is the
+one, or, without it, its other games' default.
 
 ## 6. Sprites (GitHub Pages)
 
@@ -288,9 +290,8 @@ python packaging\build_release.py --nds-dir <folder with both .nds files> --vers
 ```
 
 `--check` (Windows only) starts the bundled Python once and imports
-everything DSiRPC uses. The zip goes in `dist\`; `--discord-client-id` and
-`--discord-default-id` (or the `DISCORD_CLIENT_ID` and
-`DISCORD_DEFAULT_CLIENT_ID` environment variables) write `defaults.cfg`.
+everything DSiRPC uses. The zip goes in `dist\`; `--discord-client-id` (or
+the `DISCORD_CLIENT_ID` environment variable) writes `defaults.cfg`.
 
 The zip holds no settings, sets or logs, so unzipping a newer one over an
 older folder updates DSiRPC and keeps the user's `dsirpc.cfg`, `ra\` and

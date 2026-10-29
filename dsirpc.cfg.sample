@@ -3,19 +3,10 @@
 # yourself, since with RetroAchievements signed in it holds your login token.
 
 [connection]
-# The Discord application for Pokemon Platinum, and for any game without its
-# own below. Its name is what Discord shows after "Playing" / "Competing in".
-# Empty: the one a release download comes with (its defaults.cfg), if any.
+# The Discord application DSiRPC shows every game through. Discord shows the
+# game's own name after "Playing" (the application's name only where it
+# can't). Empty: the one a release download comes with (its defaults.cfg).
 discord_client_id: ''
-
-# Optional: Discord applications for games other than Platinum, by game code.
-# DSiRPC also sends the game's name, which Discord may show instead of the
-# application's; if yours doesn't, make one application per game, or one named
-# like "Nintendo DS" as the default. "default" is for every game without its
-# own; without any of these, other games use discord_client_id.
-[discord_apps]
-default: ''
-# AMCE: ''
 
 [app]
 # What's on when DSiRPC starts (the tray menu changes these)

@@ -17,6 +17,7 @@ on:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "utils/config.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -28,6 +29,7 @@ on:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "utils/config.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -60,6 +62,7 @@ jobs:
           sparse-checkout: |
             core
             app
+            utils
             tools
             tests
             third_party/rcheevos

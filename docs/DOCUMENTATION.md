@@ -123,7 +123,7 @@ console files Docker ([DEVELOPMENT.md](DEVELOPMENT.md#2-requirements)).
 
 ## 3. Setup details
 
-Installing from a release is in the README's [Install](../README.md#install);
+Installing from a release is in the user guide's [Install](USER_GUIDE.md#install);
 running from the source code and the build commands are in
 [DEVELOPMENT.md](DEVELOPMENT.md). This section covers the details. Release
 downloads (the Windows zip, the macOS app and both `.nds` files) come from the GitHub Action
@@ -438,7 +438,7 @@ share. It draws from the engine's state hub (`OverlayWindow` in
 the Rich Presence. In the tray it runs on its own thread; closing it turns
 the menu's checkmark off. `tools/dsirpc_overlay.py` is the old standalone
 command (`dsirpc.py --overlay --no-discord`; `--discord` adds the presence).
-Its keys are in the README ([Stream overlay window](../README.md#stream-overlay-window)),
+Its keys are in the user guide ([Stream overlay window](USER_GUIDE.md#stream-overlay-window)),
 its options in [DEVELOPMENT.md](DEVELOPMENT.md#7-command-line). The sprites
 come from `Assets/`; a sprite that isn't there (a release download only has
 `Assets/Consoles`) is downloaded from GitHub Pages on the loader thread the

@@ -89,7 +89,8 @@ back up.
 No Wi-Fi? Press B while the launcher connects (or START when it says it
 couldn't) to play offline: games start the same way, without Discord,
 and achievements unlocked offline are sent the next time the launcher
-syncs with DSiRPC. README.md on GitHub has the details.
+syncs with DSiRPC. The user guide on GitHub (docs/USER_GUIDE.md) has
+the details.
 
 
 IF SOMETHING DOESN'T WORK

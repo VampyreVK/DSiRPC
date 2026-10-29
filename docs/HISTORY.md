@@ -285,6 +285,14 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-29: **One Discord application, and a README for sharing.** Setup
+  asked for two Discord applications (Pokémon Platinum's and the other
+  games'); DSiRPC sends every game's name, which Discord shows after
+  "Playing", so one does for all of them now, and Platinum sends its name
+  too. Older settings files still load. The README became the project's
+  front page (what it does, the features, getting started, the launcher's
+  buttons), and its detailed sections moved to docs/USER_GUIDE.md.
+
 - 2026-10-22: **Saves that failed to sync.** Viv's log from the 3DS: the
   small saves always arrived, the 256 KB ones (Mario Kart, Animal Crossing)
   some of the time, and the 512 KB ones (Black once, Platinum twenty times

@@ -187,7 +187,8 @@ def test_consolesync_hands_the_request_over(tmp_path):
 @pytest.fixture(scope="module")
 def host(cc, tmp_path_factory):
     exe = str(tmp_path_factory.mktemp("update") / "update_host")
-    sources = [HOST] + [os.path.join(LAUNCHER, f) for f in ("update.c", "sync.c", "settings.c", "bootstrap_ini.c")]
+    sources = [HOST] + [os.path.join(LAUNCHER, f)
+                        for f in ("update.c", "sync.c", "settings.c", "bootstrap_ini.c", "stats.c")]
     return cbuild.build(exe, sources, flags=["-std=gnu11", "-I", LAUNCHER])
 
 

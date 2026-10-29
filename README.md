@@ -39,6 +39,10 @@ console and your PC.
 - **Save backups and sync:** one button backs up every save to your PC,
   keeps the last 10 versions from each console, and carries your progress
   between your DSi and 3DS.
+- **A launcher that looks the part:** your games with their own icons,
+  sorted by when you last played them or with your favorites first, each
+  game's achievements and playtime, the battery, soft menu sounds and the
+  touch screen. The original text screens are one setting away.
 - **A stream overlay:** a crisp pixel-art window with your party, battles in
   the games' own style and achievement banners, ready for OBS.
 - **Updates over Wi-Fi:** new versions reach the console without taking the
@@ -80,11 +84,17 @@ Within about 15 seconds, Discord shows what you're playing. The zip's
 
 | Button | What it does |
 |---|---|
-| **START** | Pick a game, and start it still connected (**START** in the list starts the last game you played) |
+| **A** (or a tap) | Open a tile: **Play** (pick a game, and start it still connected), **Saves**, **Settings** or **Exit** |
+| **START** | Start the last game you played |
 | **Y** | Back up your saves, and take newer ones from your other console |
-| **L + R** | Settings: how to find your PC, the save mode, updates |
+| **L + R** | Settings: how to find your PC, the save mode, updates, the look and sounds |
 | **SELECT** / **X** | Leave the launcher (**X** stays connected) |
 | **B** while it connects | Play offline |
+
+In the game list, **A** starts the game, **X** shows its achievements, **Y**
+makes it a favorite and **L** / **R** change the order. (In the classic
+look, **START** opens a file browser instead, where **START** starts the
+last game.)
 
 ## Good to know
 

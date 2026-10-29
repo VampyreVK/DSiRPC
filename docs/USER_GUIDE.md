@@ -55,13 +55,12 @@ Its settings, log, achievement sets and save backups are in
 1. **PC:** start DSiRPC, or turn on **Start with Windows** in its menu so
    it's always there.
 2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
-   connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign green)
-   and shows the console's IP address. (Away from your PC? Press **B** to
-   [play offline](#playing-offline).)
-3. Press **START** and pick your game: **A** opens a folder or picks the
-   game, **B** goes up (it opens in `roms/nds`). **START** there starts the
-   game you last started from the launcher, and **SELECT** goes back. The
-   launcher starts it, still connected.
+   connects to Wi-Fi, ticking off each step on the bottom screen (the DSi on
+   the top screen turns its Wi-Fi sign green), and finds DSiRPC. (Away from
+   your PC? Press **B** to [play offline](#playing-offline).)
+3. Open **Play** (or press **START** to start the game you played last) and
+   pick your game ([the game list](#the-game-list)). The launcher starts
+   it, still connected.
 4. Within about 15 seconds, Discord shows what you're playing and the tray
    icon's dot turns green.
 
@@ -69,6 +68,34 @@ When you close the game, the presence clears after about 30 seconds and
 DSiRPC waits for the console again, so switching games needs nothing on the
 PC. Leaving the launcher without starting a game (**SELECT**, or **X** to
 exit connected) clears DSiRPC's "connected" right away.
+
+## The game list
+
+**Play** on the launcher's main screen lists every game in `roms/nds` (and
+its folders) with its own icon and name, as the DSi menu shows them, and
+how many of its achievements you have. The top screen shows the game you're
+on: its icon, its publisher, its achievements, how long you've played it
+and when you last did.
+
+- **A** starts the game, **B** goes back, and **START** starts the game you
+  last started from the launcher.
+- **L** / **R** change the order: the games you played last first, A to Z,
+  or your favorites first. The launcher remembers the one you picked.
+- **Y** makes a game a favorite (a star), or not.
+- **X** lists its achievements, with their points, and what each one asks
+  for on the top screen. A green check is earned, an amber one was unlocked
+  on the console and waits for DSiRPC (offline play), and **L** / **R**
+  shows all of them, the ones to earn or the earned ones. The list comes
+  from the game's achievement set on the SD card, which DSiRPC puts there
+  the first time you start the game while it's around.
+
+Playtime is the time DSiRPC saw the game running, so it counts when you
+play near your PC, not offline. The launcher asks DSiRPC for it as it
+starts, and keeps it on the SD card for when you're away.
+
+The first time, the list takes a moment to read every game's name; after
+that, only new games are read. Everything on this screen works with the
+touch screen too: tap a game to pick it, and again to start it.
 
 ## The tray icon
 
@@ -216,6 +243,10 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
 - **Auto-update:** on, the launcher asks DSiRPC as it starts whether it has
   other versions of the launcher or nds-bootstrap, and offers them
   ([Updating](#updating-and-removing)).
+- **Look:** modern (the tiles, the game list with icons, the battery on the
+  top screen) or classic (the original text screens, with a file browser
+  for picking games). It changes as soon as you pick it.
+- **Sounds:** the modern look's soft menu sounds, on or off.
 
 ## Stream overlay window
 

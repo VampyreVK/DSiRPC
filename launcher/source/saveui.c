@@ -18,6 +18,12 @@
 //   Up/Down: move   L/R or Left/Right: a page   A: sync the one picked
 //   (or all, on Sync all)   START: sync all   Y: leave out / include
 //   X: the versions the PC keeps (restore one)   B: back to the launcher
+//
+// The modern look draws the same screens with ui.c: the list six saves at a
+// time, each with a badge for what it does (UP, DN, !, OK), the picked one's
+// details on the top screen (topscreen.c's top_save()), and cards for the
+// progress, the questions and the messages. A tap picks a save (a second
+// one syncs it).
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,8 +37,13 @@
 
 #include "saveui.h"
 #include "savesync.h"
+#include "topscreen.h"
+#include "ui.h"
 
 #define LIST_ROWS        17
+#define M_ROWS           6        // the modern look's
+#define M_ROW_H          24
+#define M_LIST_Y         (UI_BAR_H + 3)
 #define NAME_COLS        27
 #define UNIX_TIME_2000   946684800
 
@@ -50,6 +61,7 @@ static struct sockaddr_in server;
 static SaveCounts counts;
 static int *shown;          // indexes into list.items of what the list shows
 static int n_shown;
+static int tapped = -1;     // the list row tapped (the modern look), or -1
 
 // ---------------------------------------------------------------------------
 // Little helpers
@@ -78,18 +90,40 @@ static u32 wait_keys(u32 keys)
     while (1)
     {
         next_frame();
-        u32 down = keysDownRepeat() & keys;
-        if (down)
+        u32 down = (keysDownRepeat() | ui_footer_key()) & keys;
+        tapped = ui_tapped();
+        if (down || tapped >= 0)
             return down;
     }
 }
 
-static void message(const char *title, const char *text)
+static int list_rows(void)
 {
-    consoleClear();
-    printf("%s\n-------------------------------\n%s\n\nPress A\n", title, text);
+    return ui_on() ? M_ROWS : LIST_ROWS;
+}
+
+static void message_tone(const char *title, const char *text, uint8_t accent)
+{
+    if (ui_on())
+    {
+        static const UiKey keys[] = { { "A", "OK", KEY_A } };
+        ui_sound(accent == UI_GREEN ? SND_DONE : SND_ERROR);
+        ui_fill(ui_screen(), 0, UI_BAR_H, UI_W, UI_FOOT_Y - UI_BAR_H, UI_BG);
+        ui_card(title, text, accent, keys, 1);
+    }
+    else
+    {
+        consoleClear();
+        printf("%s\n-------------------------------\n%s\n\nPress A\n", title, text);
+    }
     wait_release();
     wait_keys(KEY_A | KEY_B | KEY_START);
+}
+
+static void message(const char *title, const char *text)
+{
+    bool good = strcmp(title, "Synced") == 0 || strcmp(title, "Restored") == 0;
+    message_tone(title, text, good ? UI_GREEN : strncmp(title, "Didn't", 6) == 0 ? UI_RED : UI_AMBER);
 }
 
 // "Oct 20 14:02" from seconds since 2000 (the console's local time, as is)
@@ -155,6 +189,51 @@ static bool to_do(const SaveItem *it)
 
 static const char *progress_title = "";
 
+// A screen with progress coming: the console cleared, or the modern look's
+// header and B
+static void begin(const char *title)
+{
+    progress_title = title;
+    if (!ui_on())
+    {
+        consoleClear();
+        return;
+    }
+    static const UiKey keys[] = { { "B", "Cancel", KEY_B } };
+    ui_clear();
+    ui_header("Saves");
+    ui_footer(keys, 1);
+    ui_present();
+}
+
+// The modern look's progress: a card with the title, what it's doing (up to
+// two lines), and a bar (or how many were found)
+static void progress_card(const char *what, uint32_t done, uint32_t total, int pct)
+{
+    Canvas *c = ui_screen();
+    char first[64];
+    const char *nl = strchr(what, '\n');
+    snprintf(first, sizeof(first), "%.*s", nl != NULL ? (int)(nl - what) : (int)strlen(what), what);
+    ui_panel(10, 52, UI_W - 20, 76, UI_CYAN);
+    ui_text_fit(c, 20, 61, progress_title, UI_W - 40, UI_CYAN);
+    ui_text_fit(c, 20, 76, first, UI_W - 40, UI_SOFT);
+    if (nl != NULL)
+        ui_text_fit(c, 20, 87, nl + 1, UI_W - 40, UI_DIM);
+    char num[24];
+    if (total)
+    {
+        snprintf(num, sizeof(num), "%d%%", pct);
+        ui_bar(c, 20, 104, UI_W - 76, 10, pct, UI_CYAN);
+        ui_text_right(c, UI_W - 20, 105, num, UI_TEXT);
+    }
+    else
+    {
+        snprintf(num, sizeof(num), "%u found", (unsigned)done);
+        ui_text(c, 20, 105, num, UI_TEXT);
+    }
+    ui_present();
+}
+
 static void progress(const char *what, uint32_t done, uint32_t total)
 {
     static int last_pct = -1;
@@ -162,6 +241,11 @@ static void progress(const char *what, uint32_t done, uint32_t total)
     if (total && pct == last_pct && done != 0)
         return;
     last_pct = pct;
+    if (ui_on())
+    {
+        progress_card(what, done, total, pct);
+        return;
+    }
     printf("\x1b[0;0H%-31.31s\n-------------------------------\n", progress_title);
     // What it's doing, on up to two lines ("Taking Pokemon Black\nfrom: 3DS 3F21")
     const char *nl = strchr(what, '\n');
@@ -291,8 +375,168 @@ static void detail(const SaveItem *it, char *out, size_t outsz)
     }
 }
 
+// The modern look's list: a badge for what each save does, a short word on
+// the right, and the picked one's details on the top screen
+
+static void badge(const SaveItem *it, const char **text, uint8_t *fill, uint8_t *ink)
+{
+    *text = "OK";
+    *fill = UI_CHIP;
+    *ink = UI_DIM;
+    if (it->failed)
+    {
+        *text = "X";
+        *fill = UI_RED;
+        *ink = UI_RED_DARK;
+        return;
+    }
+    if (it->excluded)
+    {
+        *text = "--";
+        return;
+    }
+    if (it->done)
+    {
+        *fill = UI_GREEN;
+        *ink = UI_GREEN_DARK;
+        return;
+    }
+    switch (it->action)
+    {
+    case SA_UPLOAD:
+    case SA_BACKUP:
+        *text = "UP";
+        *fill = UI_GREEN;
+        *ink = UI_GREEN_DARK;
+        break;
+    case SA_DOWNLOAD:
+    case SA_DOWNLOAD_NEW:
+        if (!console.backup_only)
+        {
+            *text = "DN";
+            *fill = UI_CYAN;
+            *ink = UI_CYAN_DARK;
+        }
+        break;
+    case SA_CONFLICT:
+        *text = "!";
+        *fill = UI_AMBER;
+        *ink = UI_AMBER_DARK;
+        break;
+    default:
+        break;
+    }
+}
+
+static void short_word(const SaveItem *it, char *out, size_t outsz)
+{
+    if (it->failed)
+        snprintf(out, outsz, "didn't sync");
+    else if (it->excluded)
+        snprintf(out, outsz, "left out");
+    else if (it->done)
+        snprintf(out, outsz, "synced");
+    else if (it->action == SA_UPLOAD || it->action == SA_BACKUP)
+        format_size(out, outsz, it->size);
+    else if ((it->action == SA_DOWNLOAD || it->action == SA_DOWNLOAD_NEW) && !console.backup_only)
+        snprintf(out, outsz, "%.20s", it->pc_source[0] ? it->pc_source : "from the PC");
+    else if (it->action == SA_CONFLICT)
+        snprintf(out, outsz, "conflict");
+    else
+        snprintf(out, outsz, "in sync");
+}
+
+static void show_save(const SaveItem *it)
+{
+    char name[48], size[16], status[96], here[24], there[24];
+    item_name(name, sizeof(name), it, 40);
+    format_size(size, sizeof(size), it->present ? it->size : it->pc_size);
+    detail(it, status, sizeof(status));
+    if (it->present)
+        format_time(here, sizeof(here), (uint32_t)(it->mtime - UNIX_TIME_2000));
+    if (it->pc_time)
+        format_time(there, sizeof(there), it->pc_time);
+    const char *text;
+    uint8_t fill, ink;
+    badge(it, &text, &fill, &ink);
+    TopSave t = {
+        .name = name,
+        .size = size,
+        .status = status,
+        .tone = fill == UI_GREEN ? TONE_GREEN : fill == UI_CYAN ? TONE_CYAN : fill == UI_AMBER ? TONE_AMBER
+                : fill == UI_RED ? TONE_RED : TONE_GREY,
+        .console = console.model >= 2 ? "3DS" : "DSi",
+        .here = it->present ? here : NULL,
+        .there = it->pc_time ? there : NULL,
+        .from = it->pc_source,
+        .versions = it->versions,
+    };
+    top_save(&t);
+}
+
+static void draw_list_modern(int sel, int top)
+{
+    Canvas *c = ui_screen();
+    ui_clear();
+    ui_header(NULL);
+    int x = ui_text(c, 8, 5, "Saves", UI_SOFT);
+    ui_text(c, x + 6, 5, console.backup_only ? "back up only" : "back up and sync", UI_DIM);
+    int rows = n_shown + 1;
+    for (int row = top; row < rows && row < top + M_ROWS; row++)
+    {
+        int y = M_LIST_Y + (row - top) * M_ROW_H;
+        if (row == sel)
+        {
+            ui_fill(c, 4, y, UI_W - 16, M_ROW_H - 2, UI_GREEN);
+            ui_fill(c, 6, y + 2, UI_W - 20, M_ROW_H - 6, UI_PANEL);
+        }
+        ui_touch_add(4, y, UI_W - 16, M_ROW_H - 2, row);
+        if (row == 0)
+        {
+            int n = count_to_do();
+            char text[32];
+            if (n)
+            {
+                snprintf(text, sizeof(text), "Sync all (%d)", n);
+                ui_chip(c, 10, y + 5, text, UI_GREEN, UI_GREEN_DARK);
+                ui_text_right(c, UI_W - 16, y + 7, "START", UI_DIM);
+            }
+            else
+            {
+                ui_chip(c, 10, y + 5, n_shown ? "All in sync" : "No saves to sync", UI_CHIP, UI_DIM);
+            }
+            continue;
+        }
+        const SaveItem *it = &list.items[shown[row - 1]];
+        const char *text;
+        uint8_t fill, ink;
+        badge(it, &text, &fill, &ink);
+        ui_fill(c, 10, y + 5, 20, 12, fill);
+        ui_text_center(c, 20, y + 7, text, ink);
+        char word[32], name[48];
+        short_word(it, word, sizeof(word));
+        item_name(name, sizeof(name), it, 40);
+        int ww = ui_text_width(word);
+        ui_text(c, UI_W - 16 - ww, y + 7, word, UI_DIM);
+        ui_text_fit(c, 36, y + 7, name, UI_W - 16 - ww - 42, it->excluded ? UI_DIM : UI_TEXT);
+    }
+    ui_scrollbar(UI_W - 8, M_LIST_Y, M_ROWS * M_ROW_H - 2, top, M_ROWS, rows);
+    static const UiKey keys[] = { { "A", "Sync", KEY_A }, { "X", "Restore", KEY_X }, { "Y", "Leave out", KEY_Y } };
+    ui_footer(keys, 3);
+    ui_present();
+    if (sel > 0)
+        show_save(&list.items[shown[sel - 1]]);
+    else
+        top_dsi();
+}
+
 static void draw_list(int sel, int top)
 {
+    if (ui_on())
+    {
+        draw_list_modern(sel, top);
+        return;
+    }
     consoleClear();
     printf("Saves (%s)\n", console.backup_only ? "back up only" : "back up and sync");
     printf("-------------------------------\n");
@@ -346,6 +590,29 @@ static SaveChoice ask_conflict(const SaveItem *it)
     format_size(size_there, sizeof(size_there), it->pc_size);
     const char *self = console.model >= 2 ? "3DS" : "DSi";
 
+    if (ui_on())
+    {
+        // Both dates are on the top screen (the save's details)
+        char keep[24], text[160];
+        snprintf(keep, sizeof(keep), "Keep %s's", self);
+        UiKey keys[] = { { "L", keep, KEY_L }, { "R", "Take PC's", KEY_R }, { "B", "Later", KEY_B } };
+        snprintf(text, sizeof(text), "%s changed here and on the PC since the last sync.\n\n"
+                 "The one you don't pick stays in the PC's backups.", name);
+        show_save(it);
+        ui_sound(SND_TOGGLE);
+        ui_card("Both saves changed", text, UI_AMBER, keys, 3);
+        wait_release();
+        u32 k;
+        while ((k = wait_keys(KEY_L | KEY_R | KEY_B)) == 0)
+            ;
+        ui_sound(k & KEY_B ? SND_BACK : SND_SELECT);
+        if (k & KEY_L)
+            return SC_KEEP_CONSOLE;
+        if (k & KEY_R)
+            return SC_TAKE_PC;
+        return SC_SKIP;
+    }
+
     consoleClear();
     printf(YELLOW "Both saves changed" WHITE "\n");
     printf("-------------------------------\n");
@@ -373,8 +640,7 @@ static SaveChoice ask_conflict(const SaveItem *it)
 static void sync_one(SaveItem *it)
 {
     char msg[160];
-    consoleClear();
-    progress_title = "Syncing saves";
+    begin("Syncing saves");
     int r = saves_sync_item(&job, &console, &server, &list, it, &counts, progress, msg, sizeof(msg));
     if (r < 0 || msg[0] != '\0')
     {
@@ -386,12 +652,56 @@ static void sync_one(SaveItem *it)
     }
 }
 
+// The modern look's versions: when each was saved, its size and whose it
+// is, the live save first
+static void draw_versions_modern(const SaveItem *it, const SaveVersion *v, int n, int sel, int top)
+{
+    Canvas *c = ui_screen();
+    char name[48], line[48];
+    item_name(name, sizeof(name), it, 40);
+    ui_clear();
+    ui_header(NULL);
+    snprintf(line, sizeof(line), "%d version%s", n, n == 1 ? "" : "s");
+    int rx = ui_header_right(line, UI_DIM);
+    ui_text_fit(c, 8, 5, name, rx - 16, UI_SOFT);
+    for (int i = top; i < n && i < top + M_ROWS; i++)
+    {
+        int y = M_LIST_Y + (i - top) * M_ROW_H;
+        if (i == sel)
+        {
+            ui_fill(c, 4, y, UI_W - 16, M_ROW_H - 2, UI_GREEN);
+            ui_fill(c, 6, y + 2, UI_W - 20, M_ROW_H - 6, UI_PANEL);
+        }
+        char when[24], size[16];
+        format_time(when, sizeof(when), v[i].time);
+        format_size(size, sizeof(size), v[i].size);
+        if (v[i].version == 0)
+            ui_chip(c, 10, y + 5, "live", UI_CYAN, UI_CYAN_DARK);
+        ui_text(c, 46, y + 7, when, UI_TEXT);
+        ui_text(c, 136, y + 7, size, UI_DIM);
+        ui_text_fit(c, 182, y + 7, v[i].source, UI_W - 16 - 182, UI_DIM);
+        ui_touch_add(4, y, UI_W - 16, M_ROW_H - 2, i);
+    }
+    ui_scrollbar(UI_W - 8, M_LIST_Y, M_ROWS * M_ROW_H - 2, top, M_ROWS, n);
+    static const UiKey keys[] = { { "A", "Put it back", KEY_A }, { "B", "Back", KEY_B } };
+    ui_footer(keys, 2);
+    ui_present();
+}
+
 static void versions_screen(SaveItem *it)
 {
     static SaveVersion v[SAVE_MAX_VERSIONS];
     char msg[160];
-    consoleClear();
-    printf("Asking DSiRPC for the\nversions it keeps...\n");
+    if (ui_on())
+    {
+        begin("Asking DSiRPC");
+        progress_card("for the versions it keeps", 0, 1, 0);
+    }
+    else
+    {
+        consoleClear();
+        printf("Asking DSiRPC for the\nversions it keeps...\n");
+    }
     int n = saves_versions(&job, &console, &server, it, v, SAVE_MAX_VERSIONS, msg, sizeof(msg));
     if (n < 0)
     {
@@ -410,13 +720,62 @@ static void versions_screen(SaveItem *it)
     {
         if (sel < top)
             top = sel;
-        if (sel >= top + LIST_ROWS)
-            top = sel - LIST_ROWS + 1;
+        if (sel >= top + list_rows())
+            top = sel - list_rows() + 1;
         char name[33];
         item_name(name, sizeof(name), it, 32);
+        if (ui_on())
+        {
+            draw_versions_modern(it, v, n, sel, top);
+            u32 k = wait_keys(KEY_UP | KEY_DOWN | KEY_A | KEY_B);
+            if (tapped >= 0 && tapped != sel)
+            {
+                sel = tapped;
+                ui_sound(SND_MOVE);
+                continue;
+            }
+            if (tapped >= 0)
+                k |= KEY_A;
+            if (k & (KEY_UP | KEY_DOWN))
+                ui_sound(SND_MOVE);
+            if (k & KEY_UP)
+                sel = (sel + n - 1) % n;
+            if (k & KEY_DOWN)
+                sel = (sel + 1) % n;
+            if (k & KEY_B)
+            {
+                ui_sound(SND_BACK);
+                return;
+            }
+            if (!(k & KEY_A))
+                continue;
+            static const UiKey keys[] = { { "A", "Yes, put it back", KEY_A }, { "B", "No", KEY_B } };
+            char when[24], text[200];
+            format_time(when, sizeof(when), v[sel].time);
+            snprintf(text, sizeof(text), "%s, from %.18s.%s%s", when, v[sel].source,
+                     it->present ? "\nThe console's save goes to the PC first, so it can come back too." : "",
+                     console.backup_only ? "" : "\nYour other consoles get it at their next sync.");
+            ui_sound(SND_SELECT);
+            ui_card("Put this version back?", text, UI_CYAN, keys, 2);
+            wait_release();
+            u32 yes;
+            while ((yes = wait_keys(KEY_A | KEY_B)) == 0)
+                ;
+            if (yes & KEY_B)
+            {
+                ui_sound(SND_BACK);
+                continue;
+            }
+            begin("Restoring a save");
+            int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, v[sel].source, &counts,
+                                  progress, msg, sizeof(msg));
+            message(r > 0 ? "Restored" : "Didn't restore", r > 0 ? (msg[0] ? msg : "The save is on the console.")
+                                                                 : msg);
+            return;
+        }
         consoleClear();
         printf("%s\n-------------------------------\n", name);
-        for (int i = top; i < n && i < top + LIST_ROWS; i++)
+        for (int i = top; i < n && i < top + list_rows(); i++)
         {
             // When it was saved, its size, and whose it is (the live save: "live")
             char when[24], size[16];
@@ -453,8 +812,7 @@ static void versions_screen(SaveItem *it)
             wait_release();
             if (wait_keys(KEY_A | KEY_B) & KEY_B)
                 continue;
-            consoleClear();
-            progress_title = "Restoring a save";
+            begin("Restoring a save");
             int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, v[sel].source, &counts,
                                   progress, msg, sizeof(msg));
             message(r > 0 ? "Restored" : "Didn't restore", r > 0 ? (msg[0] ? msg : "The save is on the console.")
@@ -479,7 +837,7 @@ static void sync_all(void)
         total += to_do(&list.items[shown[i]]);
     SaveCounts before = counts;
     int skipped = 0;
-    consoleClear();
+    begin("Syncing saves");
     for (int i = 0; i < n_shown; i++)
     {
         SaveItem *it = &list.items[shown[i]];
@@ -508,7 +866,7 @@ static void sync_all(void)
         size_t n = strlen(text);
         snprintf(text + n, sizeof(text) - n, "\n" RED "%d didn't sync" WHITE " (see the list)", failed);
     }
-    message("Saves synced", text);
+    message_tone("Saves synced", text, failed ? UI_RED : UI_GREEN);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,8 +882,7 @@ void save_sync_screen(const SaveUi *ui)
     job.console_model = ui->console_model;
     job.cancelled = b_pressed;
 
-    consoleClear();
-    progress_title = "Looking for your saves";
+    begin("Looking for your saves");
     int found = saves_scan(&list, ui->games_dir, ui->index_dir, progress);
     if (found < 0)
     {
@@ -542,9 +899,20 @@ void save_sync_screen(const SaveUi *ui)
         return;
     }
 
-    consoleClear();
-    printf("Save sync\n-------------------------------\n");
-    printf("%d game(s), %d save(s)\n\nAsking DSiRPC (B: cancel)...\n", list.roms, found);
+    if (ui_on())
+    {
+        char text[48];
+        snprintf(text, sizeof(text), "%d game%s, %d save%s", list.roms, list.roms == 1 ? "" : "s", found,
+                 found == 1 ? "" : "s");
+        begin("Asking DSiRPC");
+        progress_card(text, 0, 1, 0);
+    }
+    else
+    {
+        consoleClear();
+        printf("Save sync\n-------------------------------\n");
+        printf("%d game(s), %d save(s)\n\nAsking DSiRPC (B: cancel)...\n", list.roms, found);
+    }
     char msg[160];
     int r = saves_plan(&job, &console, &list, &server, msg, sizeof(msg));
     if (r <= 0)
@@ -566,20 +934,39 @@ void save_sync_screen(const SaveUi *ui)
         int rows = n_shown + 1;
         if (sel < top)
             top = sel;
-        if (sel >= top + LIST_ROWS)
-            top = sel - LIST_ROWS + 1;
+        if (sel >= top + list_rows())
+            top = sel - list_rows() + 1;
         draw_list(sel, top);
         u32 k = wait_keys(KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT | KEY_L | KEY_R | KEY_A | KEY_B | KEY_X | KEY_Y |
                           KEY_START);
+        if (tapped >= 0)
+        {
+            // A tap picks a save, and syncs the one already picked
+            if (tapped != sel)
+            {
+                sel = tapped;
+                ui_sound(SND_MOVE);
+                continue;
+            }
+            k |= KEY_A;
+        }
         SaveItem *it = sel > 0 ? &list.items[shown[sel - 1]] : NULL;
+        if (k & (KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT | KEY_L | KEY_R))
+            ui_sound(SND_MOVE);
+        else if (k & (KEY_A | KEY_X | KEY_START))
+            ui_sound(SND_SELECT);
+        else if (k & KEY_Y)
+            ui_sound(SND_TOGGLE);
+        else if (k & KEY_B)
+            ui_sound(SND_BACK);
         if (k & KEY_UP)
             sel = (sel + rows - 1) % rows;
         else if (k & KEY_DOWN)
             sel = (sel + 1) % rows;
         else if (k & (KEY_LEFT | KEY_L))
-            sel = sel > LIST_ROWS ? sel - LIST_ROWS : 0;
+            sel = sel > list_rows() ? sel - list_rows() : 0;
         else if (k & (KEY_RIGHT | KEY_R))
-            sel = sel + LIST_ROWS < rows ? sel + LIST_ROWS : rows - 1;
+            sel = sel + list_rows() < rows ? sel + list_rows() : rows - 1;
         else if (k & KEY_START || ((k & KEY_A) && it == NULL))
         {
             sync_all();
@@ -608,8 +995,16 @@ void save_sync_screen(const SaveUi *ui)
             else
             {
                 // Back in: what to do with it is DSiRPC's call again
-                consoleClear();
-                printf("Asking DSiRPC...\n");
+                if (ui_on())
+                {
+                    begin("Asking DSiRPC");
+                    progress_card("what to do with it", 0, 1, 0);
+                }
+                else
+                {
+                    consoleClear();
+                    printf("Asking DSiRPC...\n");
+                }
                 if (saves_plan(&job, &console, &list, &server, msg, sizeof(msg)) > 0)
                 {
                     saves_write_index(&list);
@@ -637,4 +1032,5 @@ void save_sync_screen(const SaveUi *ui)
     free(shown);
     shown = NULL;
     saves_free(&list);
+    top_dsi();
 }

@@ -285,6 +285,23 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-29 (evening): **The launcher's modern look, and a save sync fix
+  for two PCs.** The bottom screen used to be the text console; now it
+  draws in the desktop app's colors (`launcher/source/ui.c`): a checklist
+  while it connects, with a spinner on the step it's on and the update's
+  card under it, tiles for the main screen, and a game list with the games'
+  own banner icons, sorted by when they were last played, by name or with
+  the favorites first, with each game's achievements (X lists them, marking
+  the ones waiting for DSiRPC) and, on the top screen, its details and
+  playtime. The top screen got a status chip and the battery. Soft menu
+  sounds, the touch screen, and Look in the settings to go back to the
+  text screens, which are as they were. DSiRPC counts the playtimes
+  (`core/playtime.py`) and hands them over after the first sync. The save
+  sync fix: Viv's Black save, changed on the console on the 29th and synced
+  to the PC, then offered from the Mac as a download of the 24th, because
+  the console's base was from its sync with the PC; a base this DSiRPC
+  doesn't know now doesn't count, so that's a conflict.
+
 - 2026-10-29: **One Discord application, and a README for sharing.** Setup
   asked for two Discord applications (Pokémon Platinum's and the other
   games'); DSiRPC sends every game's name, which Discord shows after

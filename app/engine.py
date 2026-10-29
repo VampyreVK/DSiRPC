@@ -88,6 +88,12 @@ class Engine:
         # RetroAchievements or not (core/unlocks.py)
         from core.unlocks import UnlockLedger
         self.unlocks = UnlockLedger()
+        # How long each game runs while DSiRPC watches, for the launcher's
+        # game picker (core/playtime.py). Only when reading a real DSi.
+        self.playtime = None
+        if not demo and not file:
+            from core.playtime import Playtime
+            self.playtime = Playtime()
         self.ra_settings = RaSettings()
         self._apply_ra_settings()
         self.ra_link = None
@@ -138,7 +144,8 @@ class Engine:
             from core.console_sync import ConsoleSync
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
                                             saves=self._save_store, on_saves=self._on_saves,
-                                            on_here=self._launcher_here, updates=self._console_files)
+                                            on_here=self._launcher_here, updates=self._console_files,
+                                            stats=self._console_stats)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
         self._console_update = None    # the console's files for its updates (core/console_update.py)
 
@@ -461,6 +468,14 @@ class Engine:
             self._console_update = ConsoleFiles()
         return self._console_update
 
+    def _console_stats(self):
+        """The playtimes and how DSiRPC is doing, for the launcher's modern
+        look (core/playtime.py): (Playtime, {'pc', 'ra', 'discord'})."""
+        from core.playtime import pc_name
+        ra = self.ra_link.username if self.ra_link and self.ra_link.signed_in else ""
+        discord = self.discord.status not in ("off",) and not self.discord.status.startswith(("no ", "can't"))
+        return self.playtime, {'pc': pc_name(), 'ra': ra, 'discord': discord}
+
     def _on_saves(self, event):
         """The save sync's events: the tray hears the summary at the end."""
         if event['type'] != 'saves_synced' or not self.on_change:
@@ -473,6 +488,8 @@ class Engine:
     def _on_update(self, snap, events):
         self._check_config()
         self._log_achievements(events)
+        if self.playtime and snap.online:
+            self.playtime.tick((getattr(self.source, 'game', None) or {}).get('code'))
         view = (self.headline(), self.discord.status, snap.online, self.overlay_on, self.ra_status())
         changed = view != self._last_view
         if changed:
@@ -536,7 +553,8 @@ class Engine:
         old.stop()
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
-                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates)
+                          saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates,
+                          stats=old.stats)
         try:
             new.start()
         except OSError as e:
@@ -548,6 +566,8 @@ class Engine:
         self.set_overlay(False)
         if self.console_sync:
             self.console_sync.stop()
+        if self.playtime:
+            self.playtime.flush()
         if self._started:
             self.hub.stop()
             self._started = False

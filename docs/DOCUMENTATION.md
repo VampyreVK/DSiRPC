@@ -151,7 +151,9 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode and Auto-update; and the game last started from the launcher (START in its game browser) |
+| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds; and the game last started from the launcher (START) and the game list's order |
+| `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
+| `stats.idx` | Next to the launcher | DSiRPC's playtimes and how it was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
 | `update.idx` | Next to the launcher | The CRC32 of the launcher's file and nds-bootstrap's, with their sizes and times, so the update check only reads a file that changed ([section 7](#console-updates-tcp-4245)) |
 | `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
@@ -232,14 +234,16 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    within 30 s, or gets no IPv4 address within 10 s after associating, is
    retried, up to 3 tries (DSWiFi reports "Associated" as soon as an IPv4
    *or IPv6* address is ready, so DHCP can still be going). The screen shows
-   the IP, gateway and MAC (the top screen's pixel DSi turns its Wi-Fi sign
-   green), and the launcher writes `RPCHAND.TXT` and syncs with DSiRPC
-   ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)), which it
-   then tells every 5 s that it's still there. Y opens the save sync, L+R
+   the IP (the classic look the gateway and MAC too; the top screen's pixel
+   DSi turns its Wi-Fi sign green), and the launcher writes `RPCHAND.TXT`,
+   syncs with DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)),
+   which it then tells every 5 s that it's still there, and asks for its
+   playtimes ([section 7](#playtimes-tcp-4245)). Y opens the save sync, L+R
    the settings.
-2. **START: pick the game.** A file browser opens in `sd:/roms/nds` (or the
-   launcher's folder); START there picks the game last started from the
-   launcher. The launcher finds our nds-bootstrap next to itself
+2. **Pick the game.** The modern look's game list (Play, or START for the
+   game last started) or the classic look's file browser (START), in
+   `sd:/roms/nds` (or the launcher's folder); START in the browser picks the
+   game last started from the launcher. The launcher finds our nds-bootstrap next to itself
    (or asks for it), points `sd:/_nds/nds-bootstrap.ini` at the game, with
    DS mode for a DSi-enhanced game
    ([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)),
@@ -805,7 +809,8 @@ numbers mean.
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
-| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py`, `DRUP` to `console_update.py` |
+| `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py`, `DRUP` to `console_update.py`, `DRGS` to `playtime.py` |
+| `core/playtime.py` | `Playtime`: how long each game ran while DSiRPC watched, and when it last did (`ra/cache/playtime.json`), ticked by the engine; `handle()`, the launcher's playtime exchange (section 7) |
 | `core/unlocks.py` | `UnlockLedger`: every unlock DSiRPC has seen, on the console (offline, or its checker while connected) or the PC, sent to RetroAchievements or not (`ra/cache/local_unlocks.json`). The console's sets mark them earned; before the started game's set, the engine checks it with RetroAchievements (`RALink.refresh_unlocks()`, 5 s at most): its unlocks come in, and the ones it lacks are sent if sending is on |
 | `core/console_update.py` | The launcher's updates (section 7): `ConsoleFiles` (the console's files this DSiRPC came with, their CRCs, `pc_version()`'s label) and `handle()`, the exchange |
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
@@ -1449,6 +1454,33 @@ code changes: they're built in Docker with only `nds-bootstrap/` mounted, so
 git isn't there and the version it shows is `-`. (Only the order of its
 NitroFS folders depends on the disk it's built on.) So a launcher only
 offers nds-bootstrap when it really changed.
+
+### Playtimes (TCP 4245)
+
+DSiRPC counts how long each game runs while it watches it
+(`core/playtime.py`, in `ra/cache/playtime.json`): the engine ticks it at
+each of the hub's updates while the game answers, and the time between two
+ticks of the same game counts unless they're more than a minute apart (the
+console slept, or went away). Offline play isn't seen, so it isn't counted.
+After its first sync, the launcher asks for the numbers (`launcher/source/stats.c`;
+`core/console_sync.py` hands connections that start with `DRGS` to
+`playtime.handle()`) and keeps them in `stats.idx`, for the modern look's
+game list and achievement list. The request is 20 bytes, like the others,
+so a DSiRPC from before playtimes takes it for a sync request and turns it
+down at once (`DRSA`), and the launcher leaves `stats.idx` as it was:
+
+```
+"DRGS" | version u16 (1) | MAC[6] | console model u8 | 7 bytes 0
+answer: "DRGA" | status u16 (0 OK, 4 bad request) | n u16 | flags u8 (bit 0: Discord on)
+        | PC name length u8 | RetroAchievements user length u8 | u8 0
+        | the PC's name | the user (none: not signed in)
+        | n x ( 4 game code | seconds played u32 | last played u32 )
+```
+
+Last played is in seconds since 2000-01-01 by the PC's clock, in local
+time, the way the console dates things. The PC's name (without its domain),
+the user and Discord go on the modern look's top screen ("DSiRPC on
+VIV-MACBOOK").
 
 ### The checker's report (DSi -> broadcast, after each hello)
 
@@ -2221,7 +2253,7 @@ section is the technical side.
 | `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`), `arm7_model/` (the checker's cycle counter) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
 | `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `launcher/` | The DSi-mode launcher (`source/`: connecting, the file browser, the ini, starting nds-bootstrap, the sync for offline play, the save sync, the settings) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
+| `launcher/` | The DSi-mode launcher (`source/`: connecting, the modern look's drawing and game list, the file browser, the ini, starting nds-bootstrap, the sync for offline play, the save sync, the playtimes, the settings) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
 | `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
 | `docs/DOCUMENTATION.md` | This file |
 | `docs/research.md` | Verified research notes beyond this map, plus leads |

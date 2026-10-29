@@ -8,10 +8,12 @@ It connects with the WPA2 settings saved in DSi connection slots 4-6 using
 BlocksDS + DSWiFi (MIT licensed), and no Wi-Fi password is stored in any file.
 Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
-The text is on the bottom screen. The top screen shows DSiRPC's pixel DSi,
-as on the desktop app's waiting screen (`source/topscreen.c`): its Wi-Fi
-sign lights up arc by arc while the launcher connects, green once it's
-connected, red if it can't, dark offline.
+The top screen shows DSiRPC's pixel DSi, as on the desktop app's waiting
+screen (`source/topscreen.c`): its Wi-Fi sign lights up arc by arc while the
+launcher connects, green once it's connected, red if it can't, dark offline.
+The bottom screen has two looks ([below](#the-modern-look)): the modern one
+(the default) draws panels, tiles and the games' icons; the classic one is
+the text console.
 
 ## What it does
 
@@ -109,8 +111,59 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
   them to the other consoles).
 - `AUTO_UPDATE`: `on` (ask DSiRPC for [updates](#updates) as the launcher
   starts) or `off`.
-- `LAST_GAME`: the game last started from the launcher, for **START** in
-  the game browser (not on the settings screen).
+- `LOOK`: `modern` or `classic` ([below](#the-modern-look)). It changes as
+  soon as it's picked on the settings screen.
+- `SOUNDS`: `on` or `off`, the modern look's menu sounds (the classic look
+  has none, so it has no Sounds row either).
+- `GAME_SORT`: `recent`, `name` or `favorites`, the modern game list's order
+  (L/R there, not on the settings screen).
+- `LAST_GAME`: the game last started from the launcher, for **START** on the
+  main screen and in the game browser (not on the settings screen).
+
+### The modern look
+
+`source/ui.c` draws the bottom screen as an 8-bit bitmap (BG3 in mode 5, 64
+KB into VRAM C, above the text console's font and map, which stay where
+`consoleDemoInit()` put them for the classic look): the frame is drawn in
+memory and the rows that changed are copied over (VRAM takes no 8-bit
+writes), the text is the console's own 8x8 font with each letter as wide as
+it is, and the colors are the desktop app's. The spinner on the
+connecting screen's current step turns by palette, from a cothread, so it
+keeps turning while the launcher works (the network code waits a frame at a
+time). The menu sounds are short samples made at startup (soft sine notes
+that fade), so they end by themselves.
+
+The screens are the classic ones' with the same keys, drawn differently,
+plus:
+
+- **Connecting:** a checklist (Wi-Fi, IP address, DSiRPC, Achievements),
+  the update's card under it (`source/update.c`), and a card when it can't
+  connect.
+- **The main screen:** four tiles, Play, Saves (with how many changed),
+  Settings and Exit, picked with the D-pad and A or a tap. **START** starts
+  the game last started (`LAST_GAME`) without the list.
+- **The game list** (`source/picker.c`): the games in `sd:/roms/nds` and its
+  folders (found as the save sync finds them), each with its banner icon at
+  half size, its name and its achievements (earned / all, counted from its
+  set's list and the unlocks waiting in `RPCUNLK.BIN`). **L**/**R** change
+  the order, **Y** makes a favorite, **X** lists the achievements, with the
+  one picked described on the top screen. `games.idx` keeps each game's
+  name, publisher and code from its banner by the file's size and time, so
+  only new or changed games are read, plus the favorites and when each game
+  was last started from the launcher (written in the classic look too, when
+  a game starts). If nds-bootstrap isn't next to the launcher, the classic
+  file browser asks for it.
+- **The top screen** (`top_modern()`): the bar has a status chip
+  (Connecting, Connected, No Wi-Fi, Offline) and the battery (its percent is
+  the DSi's step: 100, 75, 50, 25 or 10, a DS only high or low; cyan while
+  charging), the DSi is drawn 3x with a note under it (which PC DSiRPC is
+  on, or what went wrong), and the game list and save sync show the picked
+  game's or save's details instead.
+- **Playtimes** (`source/stats.c`): after its first sync, the launcher asks
+  DSiRPC how long each game ran while it watched, with the PC's name and
+  whether it's signed in to RetroAchievements and has Discord on
+  ([DOCUMENTATION.md](../docs/DOCUMENTATION.md#playtimes-tcp-4245)), and
+  keeps the answer in `stats.idx`, so the game list has it offline too.
 
 ### Updates
 
@@ -180,7 +233,8 @@ Without Wi-Fi (**B** while connecting, or **START** when it couldn't), the
 launcher turns Wi-Fi off and works the same way, minus the syncs.
 `RPCHAND.TXT` then holds only `mode=offline`, `time=` and `end`; with no
 `ip` or `mac`, the in-game side leaves the network alone. The keys are
-**START** (pick a game) and **SELECT** (exit).
+**START** (pick a game) and **SELECT** (exit); in the modern look, the Saves
+tile waits for DSiRPC.
 
 ### The files on the SD card
 
@@ -251,14 +305,17 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 
 | File | What it is |
 |---|---|
-| `source/main.c` | Connecting (with the retries), the results screen and the keys |
-| `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread |
+| `source/main.c` | Connecting (with the retries), the results screen and the keys; the modern look's checklist, main screen and starting screen |
+| `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread; the modern look's bar (status chip, battery), note and details |
+| `source/ui.c` | The modern look's drawing: the bitmap, text, icons, banner icons, panels, key hints, the spinner, taps and sounds |
+| `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
+| `source/stats.c` | DSiRPC's playtimes, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
 | `source/browser.c` | The file browser (START: the last game) |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
 | `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file; finding DSiRPC (broadcast or the address in the settings) |
 | `source/savesync.c` | The save sync's work: finding the saves, `saves.idx`, the exchange with DSiRPC, safe downloads (tested on a PC against DSiRPC: `tests/test_save_sync.py`) |
-| `source/saveui.c` | The save sync's screens: the list, conflicts, older versions, progress |
-| `source/settings.c` | `launcher.ini` (and the last game) and the settings screen |
+| `source/saveui.c` | The save sync's screens, in both looks: the list, conflicts, older versions, progress |
+| `source/settings.c` | `launcher.ini` (and the last game) and the settings screen, in both looks |
 | `source/update.c` | Updates from DSiRPC: the check, `update.idx`, safe downloads, the swap and its screens (tested on a PC against DSiRPC: `tests/test_console_update.py`) |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |

@@ -11,9 +11,9 @@ made-up SD card (tests/helpers/launcher_ui.py):
                                                   bright.mp3 and subtle.mp3
 
 Everything goes to renders/ (--out DIR for another folder); --scale N sizes
-the PNGs and the video (3: 816x1224). The PNGs and the GIF need Pillow, the
-video and the music ffmpeg (built with libopenmpt to play the songs, as
-Ubuntu's is; without it the video is silent and there's no music). The
+the PNGs and the video (3: 816x1224). The PNGs need Pillow, the demo (the
+video and the GIF) and the music ffmpeg (built with libopenmpt to play the
+songs, as Ubuntu's is; without it the video is silent and there's no music). The
 README shows the SVGs and the GIF from the renders branch, which
 .github/workflows/renders.yml updates when a release comes out, with the
 demo and the MP3s too.
@@ -95,47 +95,54 @@ def scenes(path):
         return [(name, int(first), float(seconds)) for name, first, seconds in (ln.split() for ln in f)]
 
 
+def screens(scale):
+    """ffmpeg's filter for the demo's frames (both screens, one above the
+    other), like image(): the two screens a gap apart, scaled up by a whole
+    number"""
+    w, h, gap = 256 * scale, 192 * scale, GAP * scale
+    color = f"0x{bytes(BACKGROUND).hex()}"
+    return (f"[0:v]split[a][b];"
+            f"[a]crop=256:192:0:0,scale={w}:{h}:flags=neighbor,"
+            f"pad={w + 2 * gap}:{h + gap + gap // 2}:{gap}:{gap}:color={color}[top];"
+            f"[b]crop=256:192:0:192,scale={w}:{h}:flags=neighbor,"
+            f"pad={w + 2 * gap}:{h + gap + gap - gap // 2}:{gap}:{gap - gap // 2}:color={color}[bottom];"
+            f"[top][bottom]vstack")
+
+
 def render_demo(host, sd, work, out_dir, scale):
-    frames, stills = os.path.join(work, "frames"), os.path.join(work, "stills")
+    frames = os.path.join(work, "frames")
     os.makedirs(frames)
-    os.makedirs(stills)
-    lui.run(host, f"demo {frames}|{sd}|{DEMO_FPS}")
-    lui.run(host, f"demo {stills}|{sd}|0")
-    length = sum(seconds for _, _, seconds in scenes(os.path.join(stills, "scenes.txt")))
-
-    # The GIF: a still a scene, for the README (no sound, and small)
-    gif = os.path.join(out_dir, "demo.gif")
-    shots = [(image(os.path.join(stills, f"frame_{first:04d}.ppm"), 2), seconds)
-             for _, first, seconds in scenes(os.path.join(stills, "scenes.txt"))]
-    first = shots[0][0].quantize(colors=255)
-    first.save(gif, save_all=True, append_images=[im.quantize(colors=255) for im, _ in shots[1:]],
-               duration=[round(seconds * 1000) for _, seconds in shots], loop=0, optimize=True)
-    print(f"{gif}: {length:.1f} s, {os.path.getsize(gif) // 1024} KB")
-
-    # The video: every frame, the spinner and the diamonds moving, with the
-    # Bright song (ffmpeg plays the XM with libopenmpt) fading out at the end
+    count = int(lui.run(host, f"demo {frames}|{sd}|{DEMO_FPS}")[-1].split()[1])
+    length = sum(seconds for _, _, seconds in scenes(os.path.join(frames, "scenes.txt")))
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
-        print("No ffmpeg: no demo.mp4")
+        print("No ffmpeg: no demo.gif or demo.mp4")
         return
-    w, h, gap = 256 * scale, 192 * scale, GAP * scale
-    picture = (f"[0:v]split[a][b];"
-               f"[a]crop=256:192:0:0,scale={w}:{h}:flags=neighbor,"
-               f"pad={w + 2 * gap}:{h + gap + gap // 2}:{gap}:{gap}:color=0x{bytes(BACKGROUND).hex()}[top];"
-               f"[b]crop=256:192:0:192,scale={w}:{h}:flags=neighbor,"
-               f"pad={w + 2 * gap}:{h + gap + gap - gap // 2}:{gap}:{gap - gap // 2}:color=0x{bytes(BACKGROUND).hex()}[bottom];"
-               f"[top][bottom]vstack,format=yuv420p[v]")
+    run = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
     video = ["-framerate", str(DEMO_FPS), "-i", os.path.join(frames, "frame_%04d.ppm")]
+
+    # The GIF, for the README: every frame, like the video (the spinner and
+    # the diamonds moving), silent and at twice the DS's size. Its palette is
+    # the frames' own colors (a few dozen), found first, so nothing's
+    # dithered; each frame keeps only the pixels that changed
+    palette, gif = os.path.join(work, "palette.png"), os.path.join(out_dir, "demo.gif")
+    subprocess.run([*run, *video, "-filter_complex", f"{screens(2)},palettegen=stats_mode=full",
+                    "-update", "1", palette], check=True)
+    subprocess.run([*run, *video, "-i", palette, "-filter_complex",
+                    f"{screens(2)}[s];[s][1:v]paletteuse=dither=none:diff_mode=rectangle", gif], check=True)
+    print(f"{gif}: {count / DEMO_FPS:.1f} s, {os.path.getsize(gif) // 1024} KB")
+
+    # The video: with the Bright song (ffmpeg plays the XM with libopenmpt)
+    # fading out at the end
+    picture = f"{screens(scale)},format=yuv420p[v]"
     encode = ["-c:v", "libx264", "-preset", "slow", "-crf", "20", "-tune", "animation", "-r", "30",
               "-movflags", "+faststart", "-t", f"{length:.2f}"]
     mp4 = os.path.join(out_dir, "demo.mp4")
-    with_song = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", *video, "-i", SONG,
-                 "-filter_complex", picture, "-map", "[v]", "-map", "1:a",
+    with_song = [*run, *video, "-i", SONG, "-filter_complex", picture, "-map", "[v]", "-map", "1:a",
                  "-af", f"afade=t=out:st={max(0.0, length - 2):.2f}:d=2", "-c:a", "aac", "-b:a", "160k", *encode, mp4]
     if subprocess.run(with_song).returncode != 0:
         print("ffmpeg couldn't play the song (no libopenmpt?): demo.mp4 without it")
-        subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", *video, "-filter_complex", picture,
-                        "-map", "[v]", *encode, mp4], check=True)
+        subprocess.run([*run, *video, "-filter_complex", picture, "-map", "[v]", *encode, mp4], check=True)
     print(f"{mp4}: {os.path.getsize(mp4) // 1024} KB")
 
 

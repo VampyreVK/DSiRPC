@@ -48,7 +48,13 @@
   paid for it); its record now has the stacks' high-water marks (painted at
   boot) and how often a tick had to wait. Also: the Achievements step says
   "2 down, 1 sent" (it was cut off), RetroAchievements sees DSiRPC's real
-  version, and `spikes/` is gone (git history keeps it).
+  version, and `spikes/` is gone (git history keeps it). Then: playtimes
+  call a Mac "macOS", the renders workflow makes the menu music into MP3s
+  (and, run by hand, keeps everything as the run's artifact unless told to
+  publish), the note when DSiRPC isn't found says "Saves+achievements not
+  synced", the settings' Address says "Auto" while the launcher finds
+  DSiRPC itself, and the README's demo GIF moves like the video (it was a
+  still a scene, so its diamonds stood still).
 
 - 2026-10-30 (evening): **Still freezing, a watchdog, and a README to show
   off.** The 3DS still froze after a minute or so with the guard in, the

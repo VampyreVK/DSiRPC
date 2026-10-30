@@ -97,24 +97,73 @@ Within about 15 seconds, Discord shows what you're playing. The zip's
 </p>
 <p align="center"><sub>The launcher on your console: the main screen, your games, a game's achievements and the save sync.</sub></p>
 
-| Button | What it does |
-|---|---|
-| **A** (or a tap) | Open a tile: **Games** (pick a game, and start it still connected), **Saves**, **Settings** or **Exit** |
-| **START** | Start the last game you played |
-| **Y** | Back up your saves, and take newer ones from your other console |
-| **L + R** | Settings: how to find your PC, the save mode, updates, the look, sounds and music |
-| **SELECT** / **X** | Leave the launcher (**X** stays connected) |
-| **B** while it connects | Play offline |
+Pick a tile with the D-pad and **A**, or tap it. The bottom of the screen
+always shows the buttons that work where you are, so these are just the
+shortcuts worth knowing:
 
-In the game list, **A** starts the game, **X** shows its achievements, **Y**
-makes it a favorite and **L** / **R** change the order. (In the classic
-look, **START** opens a file browser instead, where **START** starts the
-last game.)
+| Where | Press | To |
+|---|---|---|
+| While it connects | **B** | Skip connecting and play offline |
+| Main screen | **START** | Start the game you played last |
+| Main screen | **Y** | Sync your saves (the **Saves** tile) |
+| Main screen | **L + R** | Open the settings (the **Settings** tile) |
+| Main screen | **SELECT** | Leave the launcher (**X** leaves it still connected) |
+| Game list | **X** / **Y** | See the game's achievements / make it a favorite |
+| Game list | **L** / **R** | Sort by last played, A to Z, or favorites first |
+
+In the classic look, **START** opens a file browser instead, where
+**START** starts the last game.
+
+## <img src="docs/images/icons/ball.svg" width="26" height="26" alt="">&nbsp;Pokémon, in full
+
+Pokémon Platinum (USA, Rev 1) and Black and White (USA) get much more than a
+status. DSiRPC reads your party, your trainer and every battle as you play,
+so your Discord status and the desktop app's overlay window always show
+the real thing.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black.svg" width="400" alt="The overlay with Pokémon Black: the place and season, the party with HP and status, the latest achievement and the next one, the trainer, money, badges and Pokédex">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black-battle.svg" width="400" alt="A battle in Pokémon Black in the rain in Pinwheel Forest, in the game's own style: a wild Sewaddle against Dewott, with the game's message box">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-platinum-battle.svg" width="400" alt="A battle in Pokémon Platinum at night: Piplup against the rival's Turtwig on grass platforms under the stars, with each move's PP">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
+</p>
+<p align="center"><sub>The desktop app's overlay window, drawn by its own code from its demo for the latest release: Pokémon Black, a battle in Black's Pinwheel Forest, Platinum's rival at night, and the card every other game gets.</sub></p>
+
+- **On Discord:** where you are ("Exploring Route 209", or running, biking
+  and surfing through Unova), your badges and Pokédex, how many of your
+  party can still fight, your trainer walking the way you face, and your
+  lead Pokémon. In a battle, who you're up against (a wild or shiny
+  Pokémon, a trainer, a Gym Leader, the Elite Four, the Champion, or your
+  rival by the name you gave them), with the foe's sprite and both sides'
+  HP. The timer is your save's playtime.
+- **In the overlay window:** your party with animated sprites, HP bars that
+  slide, status and shinies, and your trainer walking along with your
+  badges and Pokédex. **V** opens the party screen: every Pokémon's moves
+  and PP, its nature and its held item.
+- **Battles in each game's own style:** the backdrop follows the place, the
+  time of day and the weather (rain, snow, sandstorms, fog), the Pokémon
+  slide in, and every move plays an animation in its type's colors, from
+  punches and bites to Surf rolling across the field.
+- **Black and White's extras:** the season and the in-game clock, the
+  trainers you've beaten and items you've found on each route, the steps
+  left on a Repel, your Battle Subway streak, Battle Institute rank and
+  Elite Four progress, and every Gym Leader, Elite Four member and the
+  Champion by name.
+- **The big moments:** new badges, catches, level-ups and shiny encounters
+  get a banner, and so do achievements, with your progress, the latest
+  unlock and the next one to earn on the main view.
 
 ## <img src="docs/images/icons/bolt.svg" width="26" height="26" alt="">&nbsp;Good to know
 
 - Pokémon Platinum (USA, Rev 1) and Black and White (USA) get the full
   presence; every other game gets its name, box art and rich presence.
+- **Achievements away from your PC:** the console checks almost every
+  achievement on its own, but a few only unlock while DSiRPC is watching
+  (near your PC): ones that need decimal math, which the console's second
+  processor can't do, and, in a very big set, the biggest ones if the whole
+  set doesn't fit in the memory the console keeps for it. Ones that read
+  memory the DSi can't reach (the ARM9's own fast RAM) don't unlock with
+  DSiRPC at all, and ones about split-second moments can unlock late.
 - Sending your unlocks to RetroAchievements is up to you (off unless you
   turn it on in setup), and always softcore: RetroAchievements doesn't
   officially support original hardware.

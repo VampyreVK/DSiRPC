@@ -1,8 +1,10 @@
 # Draws the launcher's screens with its own code (tools/render_launcher.py, on
 # the tests' host in tests/c/ui): the README's pictures (SVG), every screen as
 # a PNG, a demo of the modern look (demo.mp4 with the Bright song, and
-# demo.gif), and the menu music as MP3s (a loop of each song). They're kept as
-# the run's artifact, to look over by hand.
+# demo.gif), and the menu music as MP3s (a loop of each song); and the
+# desktop app's overlay window in four of its demo's scenes
+# (tools/render_overlay.py, SVG and PNG). They're kept as the run's artifact,
+# to look over by hand.
 #
 # When a release is published, the README's pictures, the demo and the music
 # go to the renders branch, which the README shows them from, so they're
@@ -40,7 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      # The launcher's code, the tests' host and the songs
+      # The launcher's code, the tests' host and the songs; the overlay's
+      # code and its small art (the Pokemon sprites it needs come from
+      # GitHub Pages, as in the app)
       - uses: actions/checkout@v6
         with:
           sparse-checkout: |
@@ -48,6 +52,12 @@ jobs:
             tools
             launcher/source
             launcher/audio
+            core
+            overlay
+            Assets/PokemonBlackUI
+            Assets/Unova-Trainer-Overworld
+            Assets/Sinnoh-Trainer-Overworld
+            Assets/Consoles
           filter: blob:none
 
       - uses: actions/setup-python@v6
@@ -55,14 +65,17 @@ jobs:
           python-version: "3.13"
 
       # Ubuntu's ffmpeg plays XM modules (libopenmpt), for the video's song
-      - name: Install Pillow and ffmpeg
+      - name: Install Pillow, pygame-ce and ffmpeg
         run: |
-          python -m pip install --disable-pip-version-check Pillow
+          python -m pip install --disable-pip-version-check Pillow pygame-ce
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends ffmpeg
 
       - name: Draw the screens and play the music
         run: python tools/render_launcher.py --out renders --png --demo --music
+
+      - name: Draw the overlay window
+        run: python tools/render_overlay.py --out renders --png
 
       - uses: actions/upload-artifact@v7
         with:
@@ -94,8 +107,9 @@ jobs:
           # DSiRPC's renders
 
           The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`),
-          its demo, and its menu music as MP3s (\`bright.mp3\`, \`subtle.mp3\`: a loop
-          of each song), for ${LABEL}. The README shows the pictures;
+          its demo, its menu music as MP3s (\`bright.mp3\`, \`subtle.mp3\`: a loop
+          of each song), and the desktop app's overlay window in its demo's scenes
+          (\`overlay-*.svg\`, \`tools/render_overlay.py\`), for ${LABEL}. The README shows the pictures;
           \`.github/workflows/renders.yml\` replaces all of them when a release is
           published, so don't edit them here.
           EOF

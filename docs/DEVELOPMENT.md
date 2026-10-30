@@ -202,7 +202,7 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
 | `--dsi-ip`, `--interval`, `--client-id` | The DSi's IP (if your network drops broadcasts), seconds between reads (default 5, or 2 with the overlay), a Discord application ID for every game |
-| `--demo` | The overlay with made-up scenes (battles, a shiny, a level-up, another game's card), for styling without the DSi; **N** skips to the next scene |
+| `--demo` | The overlay with made-up scenes (Black's main view, battles and places, another game's card, then Platinum's battles, a shiny and a level-up), for styling without the DSi; **N** skips to the next scene |
 | `--name Vivi` | With `--demo`: the trainer name to show |
 | `--scale 4` | Overlay size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`) |
 | `--chroma 00FF00` | Fill the overlay's background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
@@ -232,6 +232,7 @@ For testing and development, run from the repo root:
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
 | `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL): the README's pictures as SVGs, `--png` every screen as a PNG and a contact sheet, `--demo` a walk through the screens (`demo.mp4` with the Bright song and `demo.gif`, both through ffmpeg), `--music` the menu music as MP3s (a loop of each song, through ffmpeg). Into `renders/` (`--out` for another folder). The renders workflow runs it for the README |
+| `tools/render_overlay.py` | Draws the overlay window with its own code from the demo's scenes (`core/demo.py`), without opening a window (SDL's dummy driver), on a made-up clock so the same pictures come out every time: the README's four (Black's main view and a battle, Platinum's rival at night, another game's card) as SVGs, `--png` as PNGs too. Needs pygame-ce and Pillow; `.github/workflows/renders.yml` runs it with `render_launcher.py` and puts the SVGs on the `renders` branch |
 | `tools/readme_art.py` | Draws the README's banner and its sections' icons (`docs/images/`) from the launcher's own pixel art, read from `launcher/source/` (the DSi, the title, the diamonds, the colors, the tiles' icons and the font); `--png` stills to look at (Pillow). Run it after changing that art (`tests/test_readme_art.py` says when) |
 | `tools/m8s.py` | Reads an M8 song for `make_music.py`; `python tools/m8s.py SONG.m8s` prints it as it reads it (tempo, groove, each instrument's notes and range, with the M8's note names; `--notes` every note) |
 | `tools/make_music.py` | Makes the launcher's menu music: reads the two M8 songs (`launcher/music/*.m8s`, with `tools/m8s.py`) and writes them as XM modules (`launcher/audio/*.xm`) with the voices of their browser preview. Run it after changing a song on the M8 (the steps: [launcher/music/README.md](../launcher/music/README.md)) |

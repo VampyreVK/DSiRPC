@@ -382,9 +382,14 @@ static bool run_sync(const char *game)
     if (r == 1)
     {
         show_step(row_dsirpc, STEP_DONE, result.server);
-        if (result.sets_received || result.unlocks_sent)
-            snprintf(text, sizeof(text), "%d new set%s, %d unlock%s sent", result.sets_received,
-                     result.sets_received == 1 ? "" : "s", result.unlocks_sent, result.unlocks_sent == 1 ? "" : "s");
+        // (short: the row has about 110 pixels after its label): sets
+        // down from DSiRPC, unlocks sent to it
+        if (result.sets_received && result.unlocks_sent)
+            snprintf(text, sizeof(text), "%d down, %d sent", result.sets_received, result.unlocks_sent);
+        else if (result.sets_received)
+            snprintf(text, sizeof(text), "%d new set%s", result.sets_received, result.sets_received == 1 ? "" : "s");
+        else if (result.unlocks_sent)
+            snprintf(text, sizeof(text), "%d unlock%s sent", result.unlocks_sent, result.unlocks_sent == 1 ? "" : "s");
         else
             snprintf(text, sizeof(text), "Up to date");
         show_step(row_sets, msg[0] != '\0' ? STEP_FAILED : STEP_DONE, text);

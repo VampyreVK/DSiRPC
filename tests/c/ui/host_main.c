@@ -16,7 +16,7 @@ void host_connected(void)
     show_step(STEP_WIFI, STEP_DONE, "Connected");
     show_step(STEP_IP, STEP_DONE, "192.168.2.186");
     show_step(STEP_DSIRPC, STEP_DONE, "192.168.2.10");
-    show_step(STEP_SETS, STEP_DONE, "2 new sets, 1 unlock sent");
+    show_step(STEP_SETS, STEP_DONE, "2 down, 1 sent");
     top_note("DSiRPC on GAMING-PC", "Discord on, RA: VampyreVK");
 }
 
@@ -87,7 +87,7 @@ void host_demo_connecting(int done)
 {
     static const char *const doing[STEPS] = { "Signing in", "Asking the router", "Looking", "CPUE", "Asking DSiRPC" };
     static const char *const result[STEPS] = { "Connected", "192.168.2.186", "192.168.2.10",
-                                               "2 new sets, 1 unlock sent", "2 to sync" };
+                                               "2 down, 1 sent", "2 to sync" };
     settings_load("/nonexistent/launcher.ini", &settings);
     settings_apply(&settings);
     top_set(done >= 2 ? TOP_CONNECTED : TOP_CONNECTING);

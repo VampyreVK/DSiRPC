@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  Rich Presence, RetroAchievements and save backups for the DS games you play on actual hardware.
+  Rich Presence, RetroAchievements and save backups for DS games running on actual hardware.
 </p>
 
 <p align="center">

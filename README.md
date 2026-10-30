@@ -34,8 +34,8 @@ console and your PC.
   are, your party, badges and Pokédex, and who you're battling, with animated
   sprites set on the right terrain.
 - **RetroAchievements on real hardware:** achievements are checked while you
-  play, by your PC and by the console itself. They show up in a menu on the
-  console, and can go to your RetroAchievements profile if you choose.
+  play, by your PC and by the console itself. They show up in a menu in-game on the
+  console (L + Down + B), and can go to your RetroAchievements profile if you choose.
 - **Play anywhere:** away from your Wi-Fi, the console keeps checking
   achievements and hands them over the next time it sees your PC.
 - **Save backups and sync:** one button backs up every save to your PC,

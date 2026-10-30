@@ -36,7 +36,6 @@ console and your PC.
 - **RetroAchievements on real hardware:** achievements are checked while you
   play, by your PC and by the console itself. They show up in a menu in-game on the
   console (L + Down + B), blink the DSi power LED when you have a new unlock, and can go straight to your RetroAchievements profile if you choose.
-- **Playtime Tracking:** Track your playtime from within the DSiRPC Launcher to know exactly how long you've spent in a particular game.
 - **Play anywhere:** away from your Wi-Fi, the console keeps checking
   achievements and hands them over the next time it sees your PC.
 - **Save backups and sync:** one button backs up every save to your PC,

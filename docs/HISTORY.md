@@ -285,6 +285,23 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-30 (evening): **Still freezing, a watchdog, and a README to show
+  off.** The 3DS still froze after a minute or so with the guard in, the
+  note playing ringing on: the ARM7 stops. Rather than guess again, the
+  launcher keeps watch: its ARM7 core counts every interrupt handler into a
+  record the ARM9 checks at each VBlank (`arm7watch.h`, `watchdog.c`), and
+  if the ARM7's VBlanks or the music stop for 4 s, the bottom screen shows
+  which handlers were running, how deep, the stack and the timers, for a
+  photo. Tools for the release: `tools/render_launcher.py` draws every
+  screen as a PNG (`--png`) and a walk through them (`--demo`: `demo.mp4`
+  with the Bright song, `demo.gif`), `tools/m8s.py` prints a song, and
+  `.github/workflows/renders.yml` puts the README's pictures and the demo
+  on the `renders` branch for each release. The README got a banner drawn
+  from the launcher's own art (`tools/readme_art.py`: the top screen made
+  wide, its diamonds drifting and the Wi-Fi sign connecting), the tiles'
+  icons by its sections, and its pictures and demo from the `renders`
+  branch, so they're always the latest release's.
+
 - 2026-10-30 (later still): **The music freeze, and polish.** On a 3DS the
   launcher froze a few minutes into its music, the music stopping with it.
   The ARM7 was the likely culprit: DSWiFi's `Wifi_Update()` runs from the

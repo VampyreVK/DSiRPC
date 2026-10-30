@@ -36,7 +36,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
 | `packaging/` | The Windows download: `build_release.py`, and the `README.txt`, license list and release notes that go with it; `packaging/macos/`: the macOS app (below) |
-| `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
+| `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references), `images/` (the README's banner and icons, from `tools/readme_art.py`) |
 | `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
@@ -232,6 +232,7 @@ For testing and development, run from the repo root:
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
 | `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL): the README's pictures as SVGs, `--png` every screen as a PNG and a contact sheet, `--demo` a walk through the screens (`demo.mp4` with the Bright song, through ffmpeg, and `demo.gif`). Into `renders/` (`--out` for another folder). The renders workflow runs it for the README |
+| `tools/readme_art.py` | Draws the README's banner and its sections' icons (`docs/images/`) from the launcher's own pixel art, read from `launcher/source/` (the DSi, the title, the diamonds, the colors, the tiles' icons and the font); `--png` stills to look at (Pillow). Run it after changing that art (`tests/test_readme_art.py` says when) |
 | `tools/m8s.py` | Reads an M8 song for `make_music.py`; `python tools/m8s.py SONG.m8s` prints it as it reads it (tempo, groove, each instrument's notes and range, with the M8's note names; `--notes` every note) |
 | `tools/make_music.py` | Makes the launcher's menu music: reads the two M8 songs (`launcher/music/*.m8s`, with `tools/m8s.py`) and writes them as XM modules (`launcher/audio/*.xm`) with the voices of their browser preview. Run it after changing a song on the M8 (the steps: [launcher/music/README.md](../launcher/music/README.md)) |
 | `tools/make_pixel_dsi.py` | Makes the pixel DSi's GIFs from `overlay/ui.py`'s: Discord's "Pixel DSi" console picture (`Assets/Consoles/Pixel.gif`) and the launcher's animated icon (`launcher/icon.gif`). Run it after changing the DSi; needs pygame and Pillow |

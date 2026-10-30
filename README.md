@@ -1,19 +1,16 @@
-<p align="center">
-  <img src="Assets/icons/Exports/DSiRPC-iOS-Default-1024@1x.png" width="128" alt="DSiRPC's icon, a little pixel DSi">
-</p>
-
-<h1 align="center">DSiRPC</h1>
+<h1 align="center">
+  <img src="docs/images/banner.svg" width="100%" alt="DSiRPC: your DSi or 3DS, live on Discord. Rich Presence, RetroAchievements and save sync.">
+</h1>
 
 <p align="center">
-  <b>Your real Nintendo DSi or 3DS, live on Discord.</b><br>
   Rich Presence, RetroAchievements and save backups for the DS games you play on actual hardware.
 </p>
 
 <p align="center">
-  <a href="https://github.com/VampyreVK/DSiRPC/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/VampyreVK/DSiRPC?label=download&color=58d080"></a>
-  <img alt="For Windows and macOS" src="https://img.shields.io/badge/PC-Windows%20%7C%20macOS-5865f2">
-  <img alt="For DSi and 3DS" src="https://img.shields.io/badge/console-DSi%20%7C%203DS-e60012">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/VampyreVK/DSiRPC"></a>
+  <a href="https://github.com/VampyreVK/DSiRPC/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/github/v/release/VampyreVK/DSiRPC?label=download&color=58d080&style=flat-square"></a>
+  <img alt="For Windows and macOS" src="https://img.shields.io/badge/PC-Windows%20%7C%20macOS-5865f2?style=flat-square">
+  <img alt="For DSi and 3DS" src="https://img.shields.io/badge/console-DSi%20%7C%203DS-e60012?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/VampyreVK/DSiRPC?style=flat-square"></a>
 </p>
 
 Pick up your DSi, start a game, and your friends see what you're up to: the
@@ -24,14 +21,11 @@ overlay and achievement unlocks. No emulator, no capture card: just your
 console and your PC.
 
 <p align="center">
-  <img src="docs/images/launcher-home.svg" width="200" alt="The launcher on a DSi: the pixel DSi and the PC it found on the top screen, tiles for Games, Saves, Settings and Exit below">
-  <img src="docs/images/launcher-games.svg" width="200" alt="The game list: each game's icon and achievements below, the picked game's icon, achievements, playtime and last played on the top screen">
-  <img src="docs/images/launcher-achievements.svg" width="200" alt="A game's achievements, earned ones checked, with the picked one's description and points on the top screen">
-  <img src="docs/images/launcher-saves.svg" width="200" alt="The save sync: what happens to each save below, the picked save's dates on the console and the PC on the top screen">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/demo.gif" width="272" alt="The launcher on a DSi, moving: it connects, then shows the main screen, the game list, a game's achievements, a save sync and the settings">
 </p>
-<p align="center"><sub>The launcher on your console: the main screen, your games, a game's achievements and the save sync.</sub></p>
+<p align="center"><sub>The launcher in motion, drawn by its own code for the latest release. <a href="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/demo.mp4">The video, with its music</a> (MP4).</sub></p>
 
-## Features
+## <img src="docs/images/icons/star.svg" width="26" height="26" alt="">&nbsp;Features
 
 - **A live Discord status for any DS game:** its name, box art and your
   console, plus what you're doing in it when RetroAchievements has a rich
@@ -61,7 +55,7 @@ console and your PC.
   questions, and an icon by the clock (or in the menu bar on a Mac) that
   tells you what it sees.
 
-## What you need
+## <img src="docs/images/icons/wifi.svg" width="26" height="26" alt="">&nbsp;What you need
 
 - A **DSi or 3DS** with [TWiLight Menu++](https://github.com/DS-Homebrew/TWiLightMenu)
   installed, and your games as `.nds` files on its SD card.
@@ -70,7 +64,7 @@ console and your PC.
 - A **Windows 10 or 11 PC** (64-bit) or a **Mac with Apple silicon** (macOS
   12 or newer), with the **Discord** desktop app.
 
-## Get started
+## <img src="docs/images/icons/check.svg" width="26" height="26" alt="">&nbsp;Get started
 
 1. **Download** `DSiRPC-<version>-windows.zip` (or `-macos.zip`) from the
    [latest release](https://github.com/VampyreVK/DSiRPC/releases/latest).
@@ -90,7 +84,15 @@ Within about 15 seconds, Discord shows what you're playing. The zip's
 `README.txt` walks through each step, and the
 [user guide](docs/USER_GUIDE.md) covers everything else.
 
-## The launcher
+## <img src="docs/images/icons/games.svg" width="26" height="26" alt="">&nbsp;The launcher
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/launcher-home.svg" width="200" alt="The launcher on a DSi: the pixel DSi and the PC it found on the top screen, tiles for Games, Saves, Settings and Exit below">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/launcher-games.svg" width="200" alt="The game list: each game's icon and achievements below, the picked game's icon, achievements, playtime and last played on the top screen">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/launcher-achievements.svg" width="200" alt="A game's achievements, earned ones checked, with the picked one's description and points on the top screen">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/launcher-saves.svg" width="200" alt="The save sync: what happens to each save below, the picked save's dates on the console and the PC on the top screen">
+</p>
+<p align="center"><sub>The launcher on your console: the main screen, your games, a game's achievements and the save sync.</sub></p>
 
 | Button | What it does |
 |---|---|
@@ -106,7 +108,7 @@ makes it a favorite and **L** / **R** change the order. (In the classic
 look, **START** opens a file browser instead, where **START** starts the
 last game.)
 
-## Good to know
+## <img src="docs/images/icons/bolt.svg" width="26" height="26" alt="">&nbsp;Good to know
 
 - Pokémon Platinum (USA, Rev 1) and Black and White (USA) get the full
   presence; every other game gets its name, box art and rich presence.
@@ -121,7 +123,7 @@ lines of its menu say what it sees. The usual fixes (the firewall, the
 network, the launcher's settings) are in the user guide's
 [troubleshooting](docs/USER_GUIDE.md#troubleshooting).
 
-## How it works
+## <img src="docs/images/icons/settings.svg" width="26" height="26" alt="">&nbsp;How it works
 
 ```
 Console                                          PC
@@ -145,7 +147,7 @@ decoding your party to deciding what Discord shows, happens on the PC. The
 console's part runs in the time the game's second processor leaves free, so
 games run at their usual speed.
 
-## For developers
+## <img src="docs/images/icons/prompt.svg" width="26" height="26" alt="">&nbsp;For developers
 
 | Where | What |
 |---|---|
@@ -159,7 +161,7 @@ games run at their usual speed.
 The PC side is Python (`app/`, `core/`, `overlay/`, `rpc/`); the console side
 is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 
-## Roadmap
+## <img src="docs/images/icons/flag.svg" width="26" height="26" alt="">&nbsp;Roadmap
 
 - [ ] Full presence for more games and versions, and ordinary trainers'
       names in Black and White's battles.
@@ -170,7 +172,7 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 - [ ] Handle WPA2 group-key renewal in game, if a router ever disconnects
       the console on a schedule.
 
-## Credits
+## <img src="docs/images/icons/heart.svg" width="26" height="26" alt="">&nbsp;Credits
 
 - Pokémon sprites from [PokeAPI](https://pokeapi.co/)
   ([sprites repository](https://github.com/PokeAPI/sprites)).
@@ -195,7 +197,7 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
   RetroAchievements' set authors for other games' rich presence;
   [GameTDB](https://www.gametdb.com/) for box art and game titles.
 
-## License
+## <img src="docs/images/icons/page.svg" width="26" height="26" alt="">&nbsp;License
 
 DSiRPC's own code is MIT licensed (see [LICENSE](LICENSE)). The
 `nds-bootstrap/` folder is GPLv3 (see [nds-bootstrap/LICENSE](nds-bootstrap/LICENSE)).

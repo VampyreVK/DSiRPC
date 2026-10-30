@@ -5,9 +5,11 @@
 #
 # When a release is published, the README's pictures and the demo go to the
 # renders branch, which the README shows them from, so they're always the
-# latest release's, and the video goes on the release too. Run by hand
-# ("publish" ticked) to replace them from any branch. The first run, when
-# this file is pushed, makes the branch if it isn't there.
+# latest release's, and the video goes on the release too. To refresh them
+# any other time, run it by hand (Actions > Renders > Run workflow, from the
+# branch to draw): "publish" is ticked to start with; untick it to only keep
+# them as the run's artifact. The first run, when this file is pushed, makes
+# the branch if it isn't there.
 
 name: Renders
 
@@ -17,9 +19,9 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Also replace the README's pictures (the renders branch)"
+        description: "Refresh the README's pictures and demo from this run (the renders branch)"
         type: boolean
-        default: false
+        default: true
   push:
     paths:
       - ".github/workflows/renders.yml"

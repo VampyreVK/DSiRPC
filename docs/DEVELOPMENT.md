@@ -278,9 +278,11 @@ it draws the launcher's screens from the release's code (`tools/render_launcher.
 puts the README's pictures and the demo on the `renders` branch (one commit,
 replaced each time; the README shows them from there, so they're always the
 latest release's), and attaches the demo video to the release
-(`DSiRPC-launcher-demo.mp4`). Run it by hand (Actions tab > **Renders** >
-**Run workflow**) for every screen as a PNG and the demo as an artifact, from
-any branch; tick **publish** to replace the README's pictures too.
+(`DSiRPC-launcher-demo.mp4`). To refresh the README's pictures any other
+time, run it by hand (Actions tab > **Renders** > **Run workflow**, from the
+branch to draw); untick **publish** to only get every screen as a PNG and the
+demo as the run's artifact. GitHub shows the button once the workflow is on
+`main`.
 
 ### The Windows download
 

@@ -43,8 +43,8 @@ the text console.
    - points `sd:/_nds/nds-bootstrap.ini` at the game (below), and remembers
      it for **START** in the browser (`LAST_GAME` in `launcher.ini`);
    - syncs with DSiRPC again, naming the game, so DSiRPC can send its set;
-   - copies the game's set to `sd:/RPCSET.BIN` (or deletes that file if
-     there's no set), makes sure `sd:/RPCUNLK.BIN` is there, and rewrites
+   - copies the game's set to `RPCSET.BIN` in its folder (or deletes that
+     file if there's no set), makes sure `RPCUNLK.BIN` is there, and rewrites
      `RPCHAND.TXT` with the current time;
    - starts nds-bootstrap directly, still connected ([CHAINLOAD.md](CHAINLOAD.md)).
 
@@ -275,8 +275,8 @@ tile waits for DSiRPC.
 | File | What |
 |---|---|
 | `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: the achievements left to unlock, already turned into the program the console's checker runs, and the list of all the game's achievements for nds-bootstrap's in-game menu |
-| `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root; nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
-| `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side (`rpcprobe/probe_ach.c`) only ever writes into it, a 16-byte slot per unlock |
+| `RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name (nds-bootstrap finds it beside itself); nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
+| `RPCUNLK.BIN` | Unlocks waiting for DSiRPC (moved here from the root, where older launchers kept it): 4096 bytes, made at full size by the launcher so the in-game side (`rpcprobe/probe_ach.c`) only ever writes into it, a 16-byte slot per unlock |
 
 The formats are in DSiRPC's `core/offline.py` and in
 [docs/DOCUMENTATION.md](../docs/DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245).

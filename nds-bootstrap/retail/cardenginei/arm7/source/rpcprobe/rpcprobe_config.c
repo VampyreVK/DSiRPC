@@ -4,6 +4,8 @@
 #include "debug_file.h"
 #include <string.h>
 
+extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_header.s, from nds-bootstrap's loader)
+
 RpcProbeHandoff rpcProbeHandoff;
 
 // The launcher's file is about 100 bytes.
@@ -96,7 +98,7 @@ u8 RpcProbeHandoff_Load(void) {
 	memset(&rpcProbeHandoff, 0, sizeof(rpcProbeHandoff));
 
 	aFile hoFile;
-	getBootFileCluster(&hoFile, "RPCHAND.TXT", 0);
+	getFileFromCluster(&hoFile, rpcClusters[0], 0);
 	if (hoFile.firstCluster == CLUSTER_FREE) {
 		#ifdef DEBUG
 		dbg_printf("rpcprobe: RPCHAND.TXT not found (run the launcher first)\n");

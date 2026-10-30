@@ -53,7 +53,7 @@ sync them between consoles. On Windows, DSiRPC runs as a tray icon
  ---                                                      --
  dsirpc-launcher.nds (BlocksDS + DSWiFi)
    connects in DSi mode with the saved slot 4-6 WPA2
-   settings (up to 3 tries), writes sd:/RPCHAND.TXT (IP, MAC,
+   settings (up to 3 tries), writes RPCHAND.TXT (IP, MAC,
    gateway), START = pick a game: points nds-bootstrap.ini at
    it and starts our nds-bootstrap, without disconnecting
         |
@@ -148,15 +148,15 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 |---|---|---|
 | `dsirpc-launcher.nds` | Next to our nds-bootstrap build: `sd:/roms/nds/DSiRPC/` (the `DSiRPC` folder in the release download's `SD card` folder, copied to `roms/nds` with the games; the game list leaves it out) | Must be started in **DSi mode** |
 | Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
-| `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
+| `RPCHAND.TXT` | Next to the launcher | Written by the launcher every time; don't edit it. nds-bootstrap finds it (and `RPCSET.BIN`, `RPCUNLK.BIN`) beside itself as it starts, at the root with an older launcher, and hands the in-game side where each file is (`rpcClusters`) |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
-| `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
+| `RPCSET.BIN` | Next to the launcher | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
 | `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
 | `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
 | `stats.idx` | Next to the launcher | Each game's DSiRPC playtime (the higher of the console's and DSiRPC's, offline play added from `RPCUNLK.BIN` as the launcher starts) and how DSiRPC was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
 | `update.idx` | Next to the launcher | The CRC32 of the launcher's file and nds-bootstrap's, with their sizes and times, so the update check only reads a file that changed ([section 7](#console-updates-tcp-4245)) |
-| `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`) and one with each start's playtime, and the launcher clears them once DSiRPC has the unlocks (the playtime as it starts, once it's added to `stats.idx`) |
+| `RPCUNLK.BIN` | Next to the launcher (one at the root, from before, is moved there) | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`) and one with each start's playtime, and the launcher clears them once DSiRPC has the unlocks (the playtime as it starts, once it's added to `stats.idx`) |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
@@ -185,8 +185,10 @@ the game was started. The in-game side dates unlocks by reading the clock
 itself, and only falls back to `time` plus the VBlanks since when it can't
 (section 8). When the launcher plays offline, the file is
 only `mode=offline`, `time=` and `end`: with no `ip` or `mac`, the in-game
-side leaves the network alone. The file needs an 8.3 name because
-nds-bootstrap's ARM7 file lookup only matches short names.
+side leaves the network alone. nds-bootstrap's loader finds the file beside
+itself with the full FAT library and hands the in-game side its cluster
+(the three files keep their 8.3 names, which older builds' root lookup
+needed).
 
 ### 3.3 PC side
 

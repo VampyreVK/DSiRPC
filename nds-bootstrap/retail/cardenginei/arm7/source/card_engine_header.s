@@ -172,6 +172,9 @@ romMap:
 	.word	0x00000000
 	.word	0x00000000
 	.word	0x00000000
+	.global rpcClusters
+rpcClusters: @ DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN, from nds-bootstrap's loader (0: not there)
+	.word	0, 0, 0
 .align	4
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@

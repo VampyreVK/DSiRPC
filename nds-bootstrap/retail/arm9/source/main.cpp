@@ -582,6 +582,28 @@ static int runNdsFile(configuration* conf) {
 	return runNds(st.st_ino, clusterSav, clusterDonor, /* clusterGba, clusterGbaSav, */ clusterQuit, clusterWideCheat, clusterApPatch, clusterApPatchPostCardRead, clusterDSi2DSSave, clusterCheat, clusterPatchOffsetCache, clusterRamDump, clusterSrParams, clusterScreenshot, apFixOverlaysCluster, musicCluster, clusterPageFile, clusterManual, clusterTwlFont, conf);
 }
 
+// DSiRPC: the launcher's RPCHAND.TXT, RPCSET.BIN and RPCUNLK.BIN, beside
+// nds-bootstrap in the launcher's folder (from an older launcher: at the
+// root). Found here with the full FAT library, so the in-game side gets them
+// by cluster and never looks through folders itself.
+static void findDsirpcFiles(configuration* conf, const char* bootstrapPath) {
+	static const char* const names[3] = {"RPCHAND.TXT", "RPCSET.BIN", "RPCUNLK.BIN"};
+	const char* slash = strrchr(bootstrapPath, '/');
+	const char* colon = strchr(bootstrapPath, ':');
+	for (int i = 0; i < 3; i++) {
+		char path[256];
+		struct stat st;
+		conf->rpcClusters[i] = 0;
+		if (slash && snprintf(path, sizeof(path), "%.*s/%s", (int)(slash - bootstrapPath), bootstrapPath, names[i]) < (int)sizeof(path)
+		 && stat(path, &st) == 0) {
+			conf->rpcClusters[i] = st.st_ino;
+		} else if (colon && snprintf(path, sizeof(path), "%.*s/%s", (int)(colon + 1 - bootstrapPath), bootstrapPath, names[i]) < (int)sizeof(path)
+		 && stat(path, &st) == 0) {
+			conf->rpcClusters[i] = st.st_ino;
+		}
+	}
+}
+
 int main(int argc, char** argv) {
 	fifoSendValue32(FIFO_PM, PM_REQ_SLEEP_DISABLE);
 
@@ -592,6 +614,7 @@ int main(int argc, char** argv) {
 	bootstrapOnFlashcard = conf->bootstrapOnFlashcard;
 
 	if (status == 0) {
+		findDsirpcFiles(conf, argv[0]);
 		status = runNdsFile(conf);
 		if (status != 0) {
 			powerOff(PM_BACKLIGHT_TOP);

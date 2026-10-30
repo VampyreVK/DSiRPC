@@ -134,11 +134,10 @@ its own folder. It must be started in **DSi mode**. Details are in
 [launcher/README.md](../launcher/README.md).
 
 Nothing else needs setting up on the SD card. The launcher writes its own
-`RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
+`RPCHAND.TXT` next to itself on every run, the Wi-Fi password comes from the
 console's saved settings, and the console broadcasts its hello packets, so it
 never needs to know your PC's IP. For offline play it also makes
-`RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
-itself, and finds DSiRPC with a broadcast on port 4245, or at the address
+`RPCUNLK.BIN`, `RPCSET.BIN` and a `sets` folder next to itself, and finds DSiRPC with a broadcast on port 4245, or at the address
 in its settings (`launcher.ini`)
 ([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
 The save sync keeps `saves.idx` next to it, and its updates `update.idx`.

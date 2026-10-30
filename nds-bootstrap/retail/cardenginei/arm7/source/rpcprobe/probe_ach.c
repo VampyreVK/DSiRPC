@@ -65,6 +65,8 @@
 #include "probe_ach_vm.h"
 #include "probe_watch.h"
 
+extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_header.s, from nds-bootstrap's loader)
+
 #ifndef ACH_REG_VCOUNT // (the PC tests have their own)
 #define ACH_REG_VCOUNT      (*(vu16*)0x04000006)
 #define ACH_RAM             ((const u8 *)0x02000000) // RetroAchievements address 0 on the DS
@@ -243,7 +245,7 @@ static u32 slotId(const u8 *s, u32 game) {
 // wasn't started from the launcher) or not ours: nothing gets saved.
 static void loadUnlocks(u32 game) {
 	timeGame = game;
-	getBootFileCluster(&unlockFile, "RPCUNLK.BIN", 0);
+	getFileFromCluster(&unlockFile, rpcClusters[2], 0);
 	if (unlockFile.firstCluster == CLUSTER_FREE) return;
 
 	const u8 *buf = (const u8 *)DSIRPC_ACH_LOCATION + ACH_SET_SPACE;
@@ -309,7 +311,7 @@ void ProbeAch_Load(const void *ndsHeader) {
 	listEntries = 0; // (no list until the CRC has been checked)
 	listCount = 0;
 	aFile file;
-	getBootFileCluster(&file, "RPCSET.BIN", 0);
+	getFileFromCluster(&file, rpcClusters[1], 0);
 	if (file.firstCluster == CLUSTER_FREE) { // no set: nothing to check, but the playtime counts
 		anchorStart(ndsHeader, DSIRPC_MENU_NO_SET);
 		loadUnlocks(rd32((const u8 *)ndsHeader + 0x0C));

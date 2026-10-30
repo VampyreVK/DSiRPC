@@ -12,8 +12,9 @@
 #include <stdint.h>
 
 #define SYNC_PORT        4245
-#define UNLOCKS_PATH     "sd:/RPCUNLK.BIN"   // unlocks waiting for DSiRPC
-#define STAGED_SET_PATH  "sd:/RPCSET.BIN"    // the started game's set
+// In the launcher's folder, where nds-bootstrap looks for them (beside itself)
+#define UNLOCKS_FILE     "RPCUNLK.BIN"       // unlocks waiting for DSiRPC
+#define STAGED_SET_FILE  "RPCSET.BIN"        // the started game's set
 #define SETS_FOLDER      "sets"              // in the launcher's folder: CODE.DRS
 // An unlock file slot with the playtime of one start of a game (the game's
 // side writes it, rpcprobe/probe_ach.c), not an unlock: stats.c adds it up
@@ -22,7 +23,7 @@
 typedef struct
 {
     const char *sets_dir;       // where the sets are kept ("sd:/roms/nds/DSiRPC/sets")
-    const char *unlocks_path;   // UNLOCKS_PATH
+    const char *unlocks_path;   // UNLOCKS_FILE in the launcher's folder
     char game[5];               // the game being started ("CPUE"), or ""
     int console_model;          // console_model(), so DSiRPC can say "3DS"
     uint32_t server_addr;       // DSiRPC's IPv4 address (network order), or 0
@@ -51,7 +52,7 @@ int unlocks_prepare(const char *path);
 // after a clean sync.
 int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t msgsz);
 
-// Copies the game's set to dest (STAGED_SET_PATH), or removes dest if there
+// Copies the game's set to dest (STAGED_SET_FILE), or removes dest if there
 // isn't one, so the in-game side never sees another game's set. Returns
 // true if there was a set.
 bool stage_set(const char *sets_dir, const char *game, const char *dest);

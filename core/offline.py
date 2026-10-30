@@ -4,15 +4,16 @@ offline.py - the files and messages for playing without DSiRPC nearby
 DSiRPC the next time the launcher finds it. DSiRPC does all the work; the
 console only stores what it's given and what it unlocked.
 
-On the SD card (the launcher writes them; see launcher/source/sync.c):
+On the SD card, in the launcher's folder (the launcher writes them; see
+launcher/source/sync.c):
 
-    sd:/RPCUNLK.BIN       unlocks waiting for DSiRPC (written in game by
+    RPCUNLK.BIN           unlocks waiting for DSiRPC (written in game by
                           nds-bootstrap's rpcprobe/probe_ach.c; read and
                           cleared by the launcher)
     <launcher>/sets/CODE.DRS
                           each game's achievements, from DSiRPC (build_set())
-    sd:/RPCSET.BIN        the set of the game being started (a copy, so the
-                          in-game side only needs a fixed name in the root);
+    RPCSET.BIN            the set of the game being started (a copy, so the
+                          in-game side only needs a fixed name);
                           nds-bootstrap's rpcprobe/probe_ach.c checks it
 
 RPCUNLK.BIN (version 1): 4096 bytes, 256 slots of 16 bytes, little-endian.

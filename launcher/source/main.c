@@ -13,7 +13,7 @@
 //      comes from DHCP (DSWiFi also reports "Associated" once an IPv6
 //      address is ready, which can be before DHCP has answered).
 //   2. Show the console's IP and MAC addresses.
-//   3. Write the connection info to sd:/RPCHAND.TXT, which the in-game side
+//   3. Write the connection info to RPCHAND.TXT (in its folder), which the in-game side
 //      of nds-bootstrap reads to address its packets.
 //   4. Sync with DSiRPC if it's on the network (source/sync.c): hand over
 //      the unlocks from offline play, take the achievement sets. Then, if
@@ -26,7 +26,7 @@
 //      picks the game last started from here (launcher.ini's LAST_GAME).
 //      The launcher points sd:/_nds/nds-bootstrap.ini at it
 //      (source/bootstrap_ini.c), syncs again (so DSiRPC can send that
-//      game's set), puts the game's set in sd:/RPCSET.BIN and starts our
+//      game's set), puts the game's set in RPCSET.BIN beside it and starts our
 //      nds-bootstrap build, found next to the launcher (or picked in the
 //      browser), still connected (source/chainload.c).
 //      SELECT: disconnect cleanly, then exit.
@@ -99,11 +99,14 @@
 
 #define PATH_LEN          512
 
-#define HANDOFF_PATH      "sd:/RPCHAND.TXT"
+#define HANDOFF_FILE      "RPCHAND.TXT"    // in the launcher's folder, for the in-game side
 #define GAMES_DIR         "sd:/roms/nds"   // where the game picker opens, if it exists
 #define UNIX_TIME_2000    946684800   // 2000-01-01 00:00 as a Unix time
 
 static char ip_str[20], gw_str[20], mask_str[20], mac_str[20];
+// RPCHAND.TXT, RPCUNLK.BIN and RPCSET.BIN in the launcher's folder: nds-bootstrap
+// finds them beside itself and hands them to the in-game side
+static char handoff_path[PATH_LEN], unlocks_path[PATH_LEN], staged_set_path[PATH_LEN];
 static u8 mac_bytes[6];
 static bool online;                   // false: offline play, no Wi-Fi
 static char sets_dir[PATH_LEN];       // the achievement sets (sync.c)
@@ -310,14 +313,14 @@ static ConnectResult connect_with_retries(void)
 // ---------------------------------------------------------------------------
 // Offline play and the sync with DSiRPC
 
-// sd:/RPCHAND.TXT, for the in-game side. 8.3 name on purpose: nds-bootstrap's
-// ARM7 file lookup only matches short names. The "end" line tells its parser
+// RPCHAND.TXT, for the in-game side (8.3 names for all three, as
+// nds-bootstrap's older root lookup only matched short names). The "end" line tells its parser
 // where the real content stops. Offline, there's no ip or mac, so the in-game
 // side leaves the network alone. time= is the console's clock (seconds since
 // 2000, local time), so the in-game side can date its unlocks.
 static bool write_handoff(void)
 {
-    FILE *f = fopen(HANDOFF_PATH, "w");
+    FILE *f = fopen(handoff_path, "w");
     if (f == NULL)
         return false;
     long now = (long)(time(NULL) - UNIX_TIME_2000);
@@ -352,7 +355,7 @@ static bool run_sync(const char *game)
 {
     SyncJob job = {
         .sets_dir = sets_dir,
-        .unlocks_path = UNLOCKS_PATH,
+        .unlocks_path = unlocks_path,
         .console_model = console_model(),
         .server_addr = settings_server_addr(&settings),
         .say = say_line,
@@ -602,7 +605,7 @@ static void start_game(const char *dir, bool quick)
             .games_dir = dir_exists(GAMES_DIR) ? GAMES_DIR : dir,
             .index_dir = dir,
             .sets_dir = sets_dir,
-            .unlocks_path = UNLOCKS_PATH,
+            .unlocks_path = unlocks_path,
             .last = last,
             .settings = &settings,
             .settings_path = settings_path,
@@ -650,8 +653,8 @@ static void start_game(const char *dir, bool quick)
     bool pause = online && run_sync(code);
 
     // The files the in-game side uses for achievements in offline play
-    int waiting = unlocks_prepare(UNLOCKS_PATH);
-    bool have_set = stage_set(sets_dir, code, STAGED_SET_PATH);
+    int waiting = unlocks_prepare(unlocks_path);
+    bool have_set = stage_set(sets_dir, code, staged_set_path);
     write_handoff();
     if (ui_on())
     {
@@ -1150,10 +1153,18 @@ int main(int argc, char *argv[])
     settings_load(settings_path, &settings);
     settings_apply(&settings);
     find_self(argc, argv, dir, launcher_path, sizeof(launcher_path));
+    join_path(handoff_path, sizeof(handoff_path), dir, HANDOFF_FILE);
+    join_path(unlocks_path, sizeof(unlocks_path), dir, UNLOCKS_FILE);
+    join_path(staged_set_path, sizeof(staged_set_path), dir, STAGED_SET_FILE);
     if (have_fat)
     {
+        // From before they moved to the launcher's folder: the unlocks (and
+        // playtime) waiting come along, the rest is written again anyway
+        rename("sd:/" UNLOCKS_FILE, unlocks_path);
+        remove("sd:/" HANDOFF_FILE);
+        remove("sd:/" STAGED_SET_FILE);
         saves_changed = saves_quick_check(games_dir(), dir);
-        stats_add_played(dir, UNLOCKS_PATH);   // the last game's playtime, before any sync
+        stats_add_played(dir, unlocks_path);   // the last game's playtime, before any sync
     }
     find_last_title();
 
@@ -1229,7 +1240,7 @@ int main(int argc, char *argv[])
         print_connection();
 
         if (have_fat && !write_handoff())
-            printf("Can't write sd:/RPCHAND.TXT\n");
+            printf("Can't write RPCHAND.TXT\n");
 
         if (have_fat)
         {

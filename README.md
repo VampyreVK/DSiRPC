@@ -123,7 +123,7 @@ the real thing.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black.svg" width="400" alt="The overlay with Pokémon Black: the place and season, the party with HP and status, the latest achievement and the next one, the trainer, money, badges and Pokédex">
-  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black-battle.svg" width="400" alt="A battle in Pokémon Black in the rain in Pinwheel Forest, in the game's own style: a wild Sewaddle against Dewott, with the game's message box">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black-battle.svg" width="400" alt="A battle in Pokémon Black in the rain in Pinwheel Forest, in the game's own style: Dewott's Water Gun splashing a wild Sewaddle, with the game's message box">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-platinum-battle.svg" width="400" alt="A battle in Pokémon Platinum at night: Piplup against the rival's Turtwig on grass platforms under the stars, with each move's PP">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
 </p>

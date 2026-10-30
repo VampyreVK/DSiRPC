@@ -47,8 +47,8 @@ from overlay.sprites import SpriteBank  # noqa: E402
 PICTURES = [
     ("overlay-black.svg", "unova", 12.0,
      "The overlay with Pokemon Black: the trainer, the party, the badges and the latest achievement"),
-    ("overlay-black-battle.svg", "unova_battle", 6.0,
-     "A battle in Pokemon Black, in the rain in Pinwheel Forest, in the game's own style"),
+    ("overlay-black-battle.svg", "unova_battle", 10.5,     # (not as a hit lands: the target blinks)
+     "A battle in Pokemon Black, in the rain in Pinwheel Forest, in the game's own style: Dewott's Water Gun"),
     ("overlay-platinum-battle.svg", "rival", 9.0,
      "A battle in Pokemon Platinum: the rival at night, with animated sprites on the right terrain"),
     ("overlay-other.svg", "other", 8.0,

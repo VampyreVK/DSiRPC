@@ -12,9 +12,9 @@ and libnds' font (tests/c/ui/font.h, which the modern look writes with).
 to date that way.)
 
 The banner is the launcher's top screen made wide: its header bar, the pixel
-DSi on the drifting diamonds, and beside it the tagline (in the font with
-twice the detail, on pixels a quarter of the art's) and the features as the
-launcher's chips. It moves as the console's does
+DSi on the drifting diamonds, and beside it the tagline (on a grid twice as
+fine as the art's, so its pixels can be a little smaller than the DSi's)
+and the features as the launcher's chips. It moves as the console's does
 while it connects (the Wi-Fi sign's arcs lighting up, the chip saying
 Connecting, then Connected), with CSS, so a browser set to reduce motion
 shows it still and connected. The icons are the main screen's tiles, small:
@@ -44,7 +44,7 @@ FEATURES = [("Discord + RA Dynamic Rich Presence", "C_GREEN"),
             ("Runs on original hardware", "C_TEXT"),
             ("Windows + macOS desktop clients", "C_TEXT"),
             ("Auto-Updates, console included", "C_TEXT")]
-TEXT_RES = 4                            # the tagline's own pixels: a quarter of the art's
+TEXT_RES = 2                            # the tagline's own grid: twice as fine as the art's
 CONNECTING_S, CONNECTED_S = 4.8, 3.2     # the banner's loop: 3 rounds of the arcs, then connected
 ARC_S = 0.4                             # an arc every 400 ms, as the launcher
 DRIFT_S = 16 * 7 / 59.83                # the diamonds: a pixel every 7 frames, 16 to a cell
@@ -208,52 +208,6 @@ class Font:
             x += (self.width[i] + 1) * scale
         return x
 
-    def glyph(self, ch):
-        """A letter's pixels, rows of 0 and 1, as wide as it is"""
-        i = ord(ch) - 32
-        return [[(self.data[i * 8 + row] >> (self.left[i] + col)) & 1 for col in range(self.width[i])]
-                for row in range(8)]
-
-
-def scale2x(rows):
-    """Scale2x (EPX): pixels of 0 and 1 at twice the size, their diagonals
-    smoothed, so a letter keeps its look with twice the detail"""
-    h, w = len(rows), len(rows[0])
-
-    def at(x, y):
-        return rows[y][x] if 0 <= x < w and 0 <= y < h else 0
-
-    out = [[0] * (2 * w) for _ in range(2 * h)]
-    for y in range(h):
-        for x in range(w):
-            p, a, b, c, d = at(x, y), at(x, y - 1), at(x + 1, y), at(x - 1, y), at(x, y + 1)
-            out[2 * y][2 * x] = a if c == a and c != d and a != b else p
-            out[2 * y][2 * x + 1] = b if a == b and a != c and b != d else p
-            out[2 * y + 1][2 * x] = c if d == c and d != b and c != a else p
-            out[2 * y + 1][2 * x + 1] = d if b == d and b != a and d != c else p
-    return out
-
-
-class SmoothFont:
-    """The font with twice the detail (Scale2x): each letter 16 pixels high,
-    two apart"""
-
-    def __init__(self, font):
-        self.glyphs = [scale2x(font.glyph(chr(32 + i))) for i in range(96)]
-
-    def measure(self, s, px=1):
-        return (sum(len(self.glyphs[ord(ch) - 32][0]) + 2 for ch in s) - 2) * px
-
-    def write(self, pic, x, y, s, color, px=1):
-        for ch in s:
-            g = self.glyphs[ord(ch) - 32]
-            for row, bits in enumerate(g):
-                for col, on in enumerate(bits):
-                    if on:
-                        pic.fill(x + col * px, y + row * px, px, px, color)
-            x += (len(g[0]) + 2) * px
-        return x
-
 
 def title(pic, x, y, letters, color, scale):
     """topscreen.c's title(): "DSiRPC" in its 5x7 letters, each as wide as it is"""
@@ -324,14 +278,14 @@ def outline(w, h, corner, edge, color):
 def banner(art):
     """The banner's art and, apart, the tagline: a picture TEXT_RES times as
     fine, to put at (x, y)"""
-    font, smooth = Font(art.font), SmoothFont(Font(art.font))
+    font = Font(art.font)
     bar_h, scale, margin, h = 20, 4, 28, 192
     dsi_w, dsi_h = len(art.dsi[0]) * scale, len(art.dsi) * scale
-    # The tagline in the font with twice the detail, each of its pixels 7
-    # of the layer's (1.75 of the art's: 28 high, just under the 32 the
-    # launcher's font made at 4x), its shadow one of them down and right
-    px, line_h, line_gap, shadow = 7, 16 * 7, 4 * TEXT_RES, 7
-    text_w = (max(smooth.measure(line, px) for line in TAGLINE) + shadow + TEXT_RES - 1) // TEXT_RES
+    # The tagline in the launcher's font, each of its pixels 7 of the
+    # layer's (3.5 of the art's: 28 high, a little under the 32 it was at
+    # 4x), its shadow one of them down and right
+    px, line_h, line_gap, shadow = 7, 8 * 7, 4 * TEXT_RES, 7
+    text_w = (max(font.measure(line, px) for line in TAGLINE) + shadow + TEXT_RES - 1) // TEXT_RES
     text_h = (len(TAGLINE) * line_h + (len(TAGLINE) - 1) * line_gap + shadow + TEXT_RES - 1) // TEXT_RES
     # The chips: the launcher's, 12 high, the text 4 in; each column as wide
     # as its widest
@@ -366,8 +320,8 @@ def banner(art):
     text = Picture(text_w * TEXT_RES, text_h * TEXT_RES)
     for i, line in enumerate(TAGLINE):
         ly = i * (line_h + line_gap)
-        smooth.write(text, shadow, ly + shadow, line, art.rgb("C_TEXT_SHADOW"), px)
-        smooth.write(text, 0, ly, line, art.rgb("C_TEXT"), px)
+        font.write(text, shadow, ly + shadow, line, art.rgb("C_TEXT_SHADOW"), px)
+        font.write(text, 0, ly, line, art.rgb("C_TEXT"), px)
     cx, cy = tx, ty + text_h + chips_gap
     for col, cw in zip(columns, col_w):
         for r, (name, ink) in enumerate(col):

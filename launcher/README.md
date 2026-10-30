@@ -310,13 +310,22 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 
 The output is `dsirpc-launcher.nds`. The same command first builds the loader
 in `loader/` (it ends up inside the launcher) and the ARM7 core in `arm7/`:
-BlocksDS's default one (DSWiFi and maxmod), with a guard that keeps
-`Wifi_Update()` from running inside itself, which BlocksDS added after 1.24.0.
-Without it the launcher froze a few minutes into its music on a 3DS (the
-music's timer interrupt made the overlap likely). Once the SDK has the fix,
-`ARM7ELF` can point at its prebuilt core again. Copy the launcher to the SD
-card next to our nds-bootstrap build (`nds-bootstrap-dsirpc.nds`), for example
-both in `sd:/DSiRPC/` as in the release download, and start it in DSi mode.
+BlocksDS's default one (DSWiFi and maxmod), changed for the menu music.
+maxmod's music tick, `mmFrame()`, lets other interrupts in partway through,
+and so do the FIFO's callbacks, the DSi's SD card reads among them. So a
+read that came while the music was working could let the next tick start
+`mmFrame()` again inside the first, which maxmod isn't made for: the launcher
+froze a minute or so into its music on a 3DS, or crashed as it read the saves
+at boot. The core runs the ticks one at a time (a tick that comes meanwhile
+waits until the last one is done), gives the IRQ and SVC stacks 4 KB and 1 KB
+(BlocksDS's 256 bytes each hold six interrupts inside one another), and
+keeps `Wifi_Update()` from running inside itself (BlocksDS added that after
+1.24.0). It also keeps a record for the launcher's watchdog
+(`source/watchdog.c`): if the ARM7 stops, the bottom screen shows how much of
+those stacks was used, and how often a music tick had to wait, for a photo.
+Copy the launcher to the SD card next to our nds-bootstrap build
+(`nds-bootstrap-dsirpc.nds`), for example both in `sd:/DSiRPC/` as in the
+release download, and start it in DSi mode.
 
 In the DSi's menus (and TWiLight Menu++) it shows as "DSiRPC / RPC & RA
 Tracking / VampyreVK" with an animated icon: the pixel DSi from DSiRPC's
@@ -344,6 +353,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread; the modern look's bar (status chip, battery), note and details |
 | `source/ui.c` | The modern look's drawing: the bitmap, text, icons, banner icons, panels, key hints, the spinner, taps and sounds |
 | `source/music.c` | The menu music, with maxmod (the setting's wiring is tested on a PC: `tests/test_launcher_ui.py`) |
+| `source/watchdog.c`, `source/arm7watch.h` | The watchdog: if the ARM7 stops or the music stops moving, the bottom screen shows the ARM7's record (its interrupt stacks, the music's waits) instead of freezing |
 | `music/*.m8s` | The two songs, as the M8 saves them ([music/README.md](music/README.md): changing them) |
 | `audio/*.xm` | The songs for maxmod, made by `tools/make_music.py` (don't edit by hand; tested against the songs: `tests/test_music.py`) |
 | `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
@@ -358,7 +368,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
-| `arm7/` | The ARM7 core: BlocksDS's default one, with the `Wifi_Update()` guard (above, Build) |
+| `arm7/` | The ARM7 core: BlocksDS's default one, with the music's ticks one at a time, bigger interrupt stacks and the `Wifi_Update()` guard (above, Build) |
 | `icon.gif` | The launcher's animated icon (made by `tools/make_pixel_dsi.py`, don't edit by hand) |
 
 ## License

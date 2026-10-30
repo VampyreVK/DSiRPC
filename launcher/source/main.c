@@ -85,6 +85,7 @@
 #include "topscreen.h"
 #include "ui.h"
 #include "update.h"
+#include "watchdog.h"
 
 #define CONNECT_TRIES     3
 #define CONNECT_TIMEOUT_S 30   // per try, until associated
@@ -687,9 +688,11 @@ static void start_game(const char *dir, bool quick)
         printf("%d unlock(s) wait for DSiRPC\n", waiting);
     wait_frames(pause ? 150 : 30);
 
+    watchdog_pause(true);       // the ARM7 is handed over to nds-bootstrap
     music_stop();
     chainload(bootstrap, msg, sizeof(msg));
     music_play(settings.classic_look ? MUSIC_OFF : (MusicChoice)settings.music);
+    watchdog_pause(false);
     top_note("The game didn't start", NULL);
     show_message("Can't start the game", msg);  // only if it didn't work
     restore_steps();
@@ -1114,6 +1117,7 @@ int main(int argc, char *argv[])
     consoleDemoInit();
     top_init();
     ui_init();
+    watchdog_start();
 
     printf("DSiRPC launcher\n");
     printf("---------------\n");
@@ -1247,6 +1251,7 @@ int main(int argc, char *argv[])
         draw_main();    // the update's screens were up (or the modern look's main screen)
     else
         print_keys();
+    watchdog_pause(false);      // connected (or not): the ARM7 should keep beating from here
 
     while (1)
     {
@@ -1306,6 +1311,7 @@ int main(int argc, char *argv[])
         }
 
         // SELECT or X: leaving
+        watchdog_pause(true);
         sync_bye();
         music_stop();
         if (ui_on())

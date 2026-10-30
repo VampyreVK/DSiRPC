@@ -7,10 +7,12 @@
 BLOCKSDS	?= /opt/blocksds/core
 
 SOURCEDIRS	:= source
+# arm7watch.h, shared with the ARM9
+INCLUDEDIRS	:= ../source
 DEFINES		:= -DUSE_DSWIFI=1 -DUSE_MAXMOD=1 -DPICOLIBC_LONG_LONG_PRINTF_SCANF
 LIBS		:= -lmm7 -ldswifi7 -lnds7
 LIBDIRS		:= $(BLOCKSDS)/libs/maxmod \
 		   $(BLOCKSDS)/libs/dswifi
-LDFLAGS		:= -Wl,--wrap=Wifi_Update
+LDFLAGS		:= -Wl,--wrap=Wifi_Update,--wrap=irqSet,--wrap=irqSetAUX
 
 include $(BLOCKSDS)/sys/default_makefiles/rom_arm9arm7/Makefile.arm7

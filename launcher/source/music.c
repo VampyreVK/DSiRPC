@@ -59,3 +59,8 @@ void music_stop(void)
     }
     halt();
 }
+
+bool music_on(void)
+{
+    return playing != MUSIC_OFF;
+}

@@ -56,6 +56,8 @@ void lcdMainOnTop(void) {}
 void setBrightness(int screen, int level) { (void)screen; (void)level; }
 
 void defaultExceptionHandler(void) {}
+void watchdog_start(void) {}                // (the watchdog needs a real ARM7)
+void watchdog_pause(bool paused) { (void)paused; }
 PrintConsole *consoleDemoInit(void) { return &console; }
 void consoleClear(void) {}
 const PrintConsole *consoleGetDefault(void) { return &console; }
@@ -211,8 +213,9 @@ bool host_dump(const char *path, bool key)
             }
             else
             {
-                uint16_t t = main_map[(y / 8) * 32 + x / 8] & 0x3FF;
-                rgb(BG_PALETTE[main_tiles[t * 64 + (y % 8) * 8 + x % 8]], f);
+                int mx = (x + REG_BG0HOFS) & 255, my = (y + REG_BG0VOFS) & 255;   // where BG0 is scrolled to
+                uint16_t t = main_map[(my / 8) * 32 + mx / 8] & 0x3FF;
+                rgb(BG_PALETTE[main_tiles[t * 64 + (my % 8) * 8 + mx % 8]], f);
             }
         }
     }

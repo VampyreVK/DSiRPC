@@ -9,6 +9,8 @@
 #ifndef MUSIC_H__
 #define MUSIC_H__
 
+#include <stdbool.h>
+
 typedef enum
 {
     MUSIC_OFF,
@@ -31,5 +33,8 @@ void music_play(MusicChoice choice);
 // Fades the song out over a few frames and stops it (before starting a
 // game, or leaving).
 void music_stop(void);
+
+// Whether a song is playing (for the watchdog)
+bool music_on(void);
 
 #endif // MUSIC_H__

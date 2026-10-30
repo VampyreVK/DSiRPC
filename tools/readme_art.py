@@ -287,8 +287,9 @@ def banner(art):
     px, line_h, line_gap, shadow = 7, 8 * 7, 4 * TEXT_RES, 7
     text_w = (max(font.measure(line, px) for line in TAGLINE) + shadow + TEXT_RES - 1) // TEXT_RES
     text_h = (len(TAGLINE) * line_h + (len(TAGLINE) - 1) * line_gap + shadow + TEXT_RES - 1) // TEXT_RES
-    # The chips: the launcher's, 12 high, the text 4 in; each column as wide
-    # as its widest
+    # The chips: the launcher's, the text 4 in, each column as wide as its
+    # widest; laid out 12 high, but drawn 13 high with the text a pixel
+    # lower (a pixel more room above it), so nothing else moves
     rows, gap, chips_gap = (len(FEATURES) + 1) // 2, 4, 12
     columns = [FEATURES[:rows], FEATURES[rows:]]
     col_w = [max(font.measure(name) + 8 for name, _ in col) for col in columns]
@@ -326,10 +327,10 @@ def banner(art):
     for col, cw in zip(columns, col_w):
         for r, (name, ink) in enumerate(col):
             y = cy + r * (12 + gap)
-            pic.fill(cx, y, cw, 12, art.rgb("C_BAR"))
+            pic.fill(cx, y, cw, 13, art.rgb("C_BAR"))
             pic.fill(cx, y, cw, 1, art.rgb("C_BAR_HI"))
-            pic.fill(cx, y + 11, cw, 1, art.rgb("C_BAR_LO"))
-            font.write(pic, cx + 4, y + 2, name, art.rgb(ink))
+            pic.fill(cx, y + 12, cw, 1, art.rgb("C_BAR_LO"))
+            font.write(pic, cx + 4, y + 3, name, art.rgb(ink))
         cx += cw + 6
 
     return pic, dsi, font, (tx, ty, text)

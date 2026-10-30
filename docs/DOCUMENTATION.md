@@ -1492,9 +1492,9 @@ answer: "DRGA" | status u16 (0 OK, 4 bad request) | n u16 | flags u8 (bit 0: Dis
 ```
 
 Last played is in seconds since 2000-01-01 by the PC's clock, in local
-time, the way the console dates things. The PC's name (without its domain),
-the user and Discord go on the modern look's top screen ("DSiRPC on
-VIV-MACBOOK").
+time, the way the console dates things. The PC's name (without its domain;
+on a Mac just "macOS"), the user and Discord go on the modern look's top
+screen ("DSiRPC on GAMING-PC", "DSiRPC on macOS").
 
 ### The checker's report (DSi -> broadcast, after each hello)
 

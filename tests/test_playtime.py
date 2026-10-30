@@ -102,6 +102,15 @@ def test_not_signed_in_and_nothing_played():
     assert (status, flags, pc, ra, games) == (pt.OK, 0, "X", "", {})
 
 
+def test_the_launcher_calls_a_mac_macos(monkeypatch):
+    monkeypatch.setattr(pt.socket, "gethostname", lambda: "GAMING-PC.lan")
+    monkeypatch.setattr(pt.sys, "platform", "win32")
+    assert pt.pc_name() == "GAMING-PC"
+    monkeypatch.setattr(pt.socket, "gethostname", lambda: "MacBookPro.local")
+    monkeypatch.setattr(pt.sys, "platform", "darwin")
+    assert pt.pc_name() == "macOS"
+
+
 def test_another_version_is_turned_down(tmp_path):
     p = played(tmp_path, [("CPUE", 1000)])
     assert pt.parse_answer(answer_for(pt.request(version=2), p, INFO))[0] == pt.BAD_REQUEST

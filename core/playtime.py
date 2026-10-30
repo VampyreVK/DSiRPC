@@ -37,6 +37,7 @@ import logging
 import os
 import socket
 import struct
+import sys
 import threading
 import time
 
@@ -69,7 +70,11 @@ def console_time(t):
 
 
 def pc_name():
-    """This PC's name, without its domain."""
+    """What the launcher calls this PC ("DSiRPC on ..."): its name, without
+    its domain, or on a Mac just "macOS" (a Mac's name is usually only its
+    model, like "MacBookPro")."""
+    if sys.platform == "darwin":
+        return "macOS"
     try:
         return socket.gethostname().split(".")[0]
     except OSError:

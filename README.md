@@ -49,8 +49,9 @@ console and your PC.
   between your DSi and 3DS.
 - **A launcher that looks the part:** your games with their own icons,
   sorted by when you last played them or with your favorites first, each
-  game's achievements and playtime, the battery, soft menu sounds and the
-  touch screen. The original text screens are one setting away.
+  game's achievements and playtime, the battery, soft menu sounds, menu
+  music (Bright or Subtle) and the touch screen. The original text screens
+  are one setting away.
 - **A stream overlay:** a crisp pixel-art window with your party, battles in
   the games' own style and achievement banners, ready for OBS.
 - **Updates over Wi-Fi:** new versions reach the console without taking the
@@ -95,7 +96,7 @@ Within about 15 seconds, Discord shows what you're playing. The zip's
 | **A** (or a tap) | Open a tile: **Play** (pick a game, and start it still connected), **Saves**, **Settings** or **Exit** |
 | **START** | Start the last game you played |
 | **Y** | Back up your saves, and take newer ones from your other console |
-| **L + R** | Settings: how to find your PC, the save mode, updates, the look and sounds |
+| **L + R** | Settings: how to find your PC, the save mode, updates, the look, sounds and music |
 | **SELECT** / **X** | Leave the launcher (**X** stays connected) |
 | **B** while it connects | Play offline |
 

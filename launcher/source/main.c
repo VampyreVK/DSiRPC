@@ -75,6 +75,7 @@
 #include "bootstrap_ini.h"
 #include "browser.h"
 #include "chainload.h"
+#include "music.h"
 #include "picker.h"
 #include "saveui.h"
 #include "savesync.h"
@@ -686,7 +687,9 @@ static void start_game(const char *dir, bool quick)
         printf("%d unlock(s) wait for DSiRPC\n", waiting);
     wait_frames(pause ? 150 : 30);
 
+    music_stop();
     chainload(bootstrap, msg, sizeof(msg));
+    music_play(settings.classic_look ? MUSIC_OFF : (MusicChoice)settings.music);
     top_note("The game didn't start", NULL);
     show_message("Can't start the game", msg);  // only if it didn't work
     restore_steps();
@@ -1231,6 +1234,7 @@ int main(int argc, char *argv[])
 
         // SELECT or X: leaving
         sync_bye();
+        music_stop();
         if (ui_on())
         {
             ui_card(key == KEY_SELECT && online ? "Turning the Wi-Fi off" : "See you soon!",

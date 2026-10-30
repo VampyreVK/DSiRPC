@@ -251,6 +251,9 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
   top screen) or classic (the original text screens, with a file browser
   for picking games). It changes as soon as you pick it.
 - **Sounds:** the modern look's soft menu sounds, on or off.
+- **Music:** the modern look's menu music: **Bright** (an airy loop, the
+  default), **Subtle** (a quiet lounge one) or **Off**. It changes as soon
+  as you pick it, and fades out when a game starts.
 
 ## Stream overlay window
 

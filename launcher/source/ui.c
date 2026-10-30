@@ -19,6 +19,7 @@
 
 #include <nds.h>
 
+#include "music.h"
 #include "sync.h"
 #include "ui.h"
 
@@ -147,6 +148,7 @@ void ui_init(void)
         glyph_width[ch] = left < 8 ? right - left + 1 : 3;   // a space: 3 (and the gap)
     }
     soundEnable();
+    music_init();
     make_sounds();
     cothread_create(spin_thread, NULL, 2048, COTHREAD_DETACHED);
 }
@@ -864,9 +866,13 @@ void ui_sounds(bool yes)
 
 void ui_sound(UiSound s)
 {
+    // On the channels the music leaves to the sounds, in turn
+    static int next;
     if (!sounds_on || !on || s >= SND_COUNT || samples[s] == NULL)
         return;
-    soundPlaySample(samples[s], SoundFormat_8Bit, sample_len[s], SOUND_RATE, SOUNDS[s].volume, 64, false, 0);
+    soundPlaySampleChannel(MUSIC_UI_FIRST_CHANNEL + next, samples[s], SoundFormat_8Bit, sample_len[s], SOUND_RATE,
+                           SOUNDS[s].volume, 64, false, 0);
+    next = (next + 1) & 3;
 }
 
 // ---------------------------------------------------------------------------

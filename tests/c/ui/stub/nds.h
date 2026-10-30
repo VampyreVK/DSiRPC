@@ -89,6 +89,8 @@ typedef enum { SoundFormat_8Bit, SoundFormat_16Bit } SoundFormat;
 void soundEnable(void);
 int soundPlaySample(const void *data, SoundFormat format, u32 size, u16 freq, u8 volume, u8 pan, bool loop,
                     u16 loop_point);
+int soundPlaySampleChannel(int channel, const void *data, SoundFormat format, u32 size, u16 freq, u8 volume,
+                           u8 pan, bool loop, u16 loop_point);
 
 u32 getBatteryLevel(void);
 #define BATTERY_CHARGER_CONNECTED  BIT(7)

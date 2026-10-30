@@ -28,6 +28,9 @@ void host_settings_screens(void);
 void host_picker_screens(const char *sd);
 void host_save_screens(void);
 
+// maxmod's calls since it was last emptied (host_stubs.c)
+extern char host_music_log[1024];
+
 // The game list's findings, printed (picker)
 void host_games(const char *sd, int sort);
 void host_favorite(const char *sd, const char *path);

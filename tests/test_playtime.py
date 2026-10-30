@@ -195,11 +195,18 @@ def test_the_look_settings(host, tmp_path):
     os.makedirs(os.path.join(sd, SD))
     with open(os.path.join(sd, SD, "old.ini"), "w", encoding="ascii") as f:
         f.write("[LAUNCHER]\r\nSAVE_MODE = sync\r\n")      # from before the looks
-    out = run(host, 1, sd, "look sd:/DSiRPC/old.ini|-|-|-", "look sd:/DSiRPC/launcher.ini|1|0|2",
-              "look sd:/DSiRPC/launcher.ini|0|1|1", "look sd:/DSiRPC/launcher.ini|0|1|9")
-    assert out == ["look 0|0|1|0",      # the defaults: modern, sounds on, recent first
-                   "look 1|1|0|2", "look 1|0|1|1",
-                   "look 1|0|1|0"]      # not an order: recent
+    out = run(host, 1, sd, "look sd:/DSiRPC/old.ini|-|-|-|-", "look sd:/DSiRPC/launcher.ini|1|0|2|0",
+              "look sd:/DSiRPC/launcher.ini|0|1|1|2", "look sd:/DSiRPC/launcher.ini|0|1|9|1")
+    assert out == ["look 0|0|1|0|1",    # the defaults: modern, sounds on, recent first, Bright
+                   "look 1|1|0|2|0", "look 1|0|1|1|2",
+                   "look 1|0|1|0|1"]    # not an order: recent
     with open(os.path.join(sd, SD, "launcher.ini"), encoding="ascii") as f:
         text = f.read()
     assert "LOOK = modern" in text and "SOUNDS = on" in text and "GAME_SORT = recent" in text
+    assert "MUSIC = bright" in text
+
+    # MUSIC's words, any case; one it doesn't know is the default
+    for word, music in (("off", 0), ("Subtle", 2), ("BRIGHT", 1), ("loud", 1)):
+        with open(os.path.join(sd, SD, "music.ini"), "w", encoding="ascii") as f:
+            f.write(f"[LAUNCHER]\r\nMUSIC = {word}\r\n")
+        assert run(host, 1, sd, "look sd:/DSiRPC/music.ini|-|-|-|-") == [f"look 0|0|1|0|{music}"]

@@ -1,11 +1,14 @@
 // The libnds stand-in's workings (stub/nds.h), and host_dump(): both screens
 // as one PPM file.
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <dswifi9.h>
 #include <fat.h>
 #include <nds.h>
+#include <maxmod9.h>
 
 #include "font.h"
 #include "ui_host.h"
@@ -69,6 +72,67 @@ int soundPlaySample(const void *data, SoundFormat format, u32 size, u16 freq, u8
 {
     (void)data; (void)format; (void)size; (void)freq; (void)volume; (void)pan; (void)loop; (void)loop_point;
     return 0;
+}
+
+int soundPlaySampleChannel(int channel, const void *data, SoundFormat format, u32 size, u16 freq, u8 volume,
+                           u8 pan, bool loop, u16 loop_point)
+{
+    (void)data; (void)format; (void)size; (void)freq; (void)volume; (void)pan; (void)loop; (void)loop_point;
+    return channel;
+}
+
+// maxmod (music.c): each call noted, comma-separated
+char host_music_log[1024];
+const unsigned char soundbank_bin[4];
+
+static void music_note(const char *what, int value)
+{
+    size_t n = strlen(host_music_log);
+    snprintf(host_music_log + n, sizeof(host_music_log) - n, "%s%s%s", n ? "," : "", what, value >= 0 ? " " : "");
+    if (value >= 0)
+    {
+        n = strlen(host_music_log);
+        snprintf(host_music_log + n, sizeof(host_music_log) - n, "%d", value);
+    }
+}
+
+bool mmInitDefaultMem(mm_addr soundbank)
+{
+    (void)soundbank;
+    music_note("init", -1);
+    return true;
+}
+
+void mmLockChannels(mm_word bitmask)
+{
+    music_note("lock", (int)bitmask);
+}
+
+mm_word mmLoad(mm_word module_ID)
+{
+    music_note("load", (int)module_ID);
+    return 0;
+}
+
+mm_word mmUnload(mm_word module_ID)
+{
+    music_note("unload", (int)module_ID);
+    return 0;
+}
+
+void mmStart(mm_word module_ID, mm_pmode mode)
+{
+    music_note(mode == MM_PLAY_LOOP ? "loop" : "once", (int)module_ID);
+}
+
+void mmStop(void)
+{
+    music_note("stop", -1);
+}
+
+void mmSetModuleVolume(mm_word volume)
+{
+    music_note("volume", (int)volume);
 }
 
 u32 getBatteryLevel(void) { return host_battery; }

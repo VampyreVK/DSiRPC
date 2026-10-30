@@ -151,7 +151,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds; and the game last started from the launcher (START) and the game list's order |
+| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
 | `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
 | `stats.idx` | Next to the launcher | DSiRPC's playtimes and how it was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |

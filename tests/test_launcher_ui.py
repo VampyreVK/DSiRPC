@@ -163,3 +163,27 @@ def test_text(host):
     assert red[0] == red[1]                     # the console's color codes skipped
     assert int(wrapped[2]) >= 4                 # wrapped at 100 pixels
     assert empty[0] == "0" and empty[2] == "0"
+
+
+# -- music -------------------------------------------------------------------------------
+
+def test_the_music_setting(host):
+    """Music (music.c): settings_apply() starts the song the settings pick,
+    in the modern look only, and switching stops the one before; maxmod's
+    calls, as the host notes them."""
+    fade = ",".join(f"volume {640 * f // 12}" for f in range(11, 0, -1))
+    out = lui.run(host,
+                  "music 0|1|0",        # Bright, as the launcher started (the default)
+                  "music 0|2|0",        # Subtle
+                  "music 0|2|0",        # the same: carries on
+                  "music 0|0|0",        # Off
+                  "music 0|1|1",        # Bright, then a game starts: faded out
+                  "music 1|2|0",        # the classic look: none
+                  "music 0|2|0")
+    assert out == ["music ",
+                   "music stop,unload 0,load 1,volume 640,loop 1",
+                   "music ",
+                   "music stop,unload 1",
+                   f"music load 0,volume 640,loop 0,{fade},stop,unload 0",
+                   "music ",
+                   "music load 1,volume 640,loop 1"]

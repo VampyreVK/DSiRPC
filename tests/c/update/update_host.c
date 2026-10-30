@@ -13,10 +13,12 @@
 //   settings path|on, off or -           writes the settings (- leaves
 //                                        AUTO_UPDATE out), reads them back:
 //                                        settings saved|auto_update
-//   look path|classic|sounds|sort        writes LOOK, SOUNDS and GAME_SORT
-//                                        (classic, sounds 0/1, sort 0-2; - for
+//   look path|classic|sounds|sort|music  writes LOOK, SOUNDS, GAME_SORT and
+//                                        MUSIC (classic, sounds 0/1, sort 0-2,
+//                                        music 0 off, 1 bright, 2 subtle; - for
 //                                        all: only reads them), reads them
-//                                        back: look saved|classic|sounds|sort
+//                                        back: look saved|classic|sounds|sort|
+//                                        music
 //   stats index_dir                      the playtimes (stats.c):
 //                                        stats r|pc|ra|discord|count|msg, then
 //                                        game lines: code|seconds|last
@@ -85,8 +87,8 @@ int main(int argc, char *argv[])
             *rest++ = '\0';
         else
             rest = line + strlen(line);
-        char *f[4] = { 0 };
-        int nf = split(rest, f, 4);
+        char *f[5] = { 0 };
+        int nf = split(rest, f, 5);
         char msg[160] = "";
 
         if (strcmp(line, "check") == 0 && nf == 3)
@@ -125,7 +127,7 @@ int main(int argc, char *argv[])
             struct in_addr a = { .s_addr = sync_found_addr };
             printf("find %d|%s|%d|%s\n", r, sync_found_addr ? inet_ntoa(a) : "-", sync_found_port, flat(msg));
         }
-        else if (strcmp(line, "look") == 0 && nf == 4)
+        else if (strcmp(line, "look") == 0 && nf == 5)
         {
             LauncherSettings s;
             settings_load(f[0], &s);    // the defaults, if it's not there
@@ -135,11 +137,12 @@ int main(int argc, char *argv[])
                 s.classic_look = atoi(f[1]) != 0;
                 s.sounds = atoi(f[2]) != 0;
                 s.game_sort = (uint8_t)atoi(f[3]);
+                s.music = (uint8_t)atoi(f[4]);
                 saved = settings_save(f[0], &s);
             }
             LauncherSettings back;
             settings_load(f[0], &back);
-            printf("look %d|%d|%d|%d\n", saved, back.classic_look, back.sounds, back.game_sort);
+            printf("look %d|%d|%d|%d|%d\n", saved, back.classic_look, back.sounds, back.game_sort, back.music);
         }
         else if (strcmp(line, "stats") == 0 && nf == 1)
         {

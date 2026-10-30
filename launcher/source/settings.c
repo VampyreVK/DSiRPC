@@ -9,6 +9,7 @@
 //   AUTO_UPDATE = on              (or off: never ask DSiRPC for updates)
 //   LOOK = modern                 (or classic: the text screens)
 //   SOUNDS = on                   (or off: the modern look's menu sounds)
+//   MUSIC = bright                (or subtle, off: the modern look's menu music)
 //   GAME_SORT = recent            (or name, favorites: the modern game picker)
 //   LAST_GAME = sd:/roms/nds/Pokemon Black.nds   (START in the game picker)
 
@@ -17,6 +18,7 @@
 #include <strings.h>
 
 #include "bootstrap_ini.h"
+#include "music.h"
 #include "settings.h"
 
 #define SECTION "LAUNCHER"
@@ -24,6 +26,9 @@
 // GAME_SORT's words, in picker.h's order
 static const char *const SORTS[] = { "recent", "name", "favorites" };
 #define N_SORTS (sizeof(SORTS) / sizeof(SORTS[0]))
+
+// MUSIC's words, in music.h's order
+static const char *const MUSICS[MUSIC_CHOICES] = { "off", "bright", "subtle" };
 
 // "a.b.c.d", each 0-255 and nothing else. Returns the address in network
 // order (a first in memory), or 0 if it isn't one (or is 0.0.0.0).
@@ -74,6 +79,15 @@ void settings_load(const char *path, LauncherSettings *s)
     if (ini_get(path, SECTION, "LOOK", value, sizeof(value)) == 1)
         s->classic_look = strcasecmp(value, "classic") == 0;
     s->sounds = switched_on(path, "SOUNDS");
+    s->music = MUSIC_BRIGHT;
+    if (ini_get(path, SECTION, "MUSIC", value, sizeof(value)) == 1)
+    {
+        for (int i = 0; i < MUSIC_CHOICES; i++)
+        {
+            if (strcasecmp(value, MUSICS[i]) == 0)
+                s->music = (uint8_t)i;
+        }
+    }
     if (ini_get(path, SECTION, "GAME_SORT", value, sizeof(value)) == 1)
     {
         for (size_t i = 0; i < N_SORTS; i++)
@@ -104,12 +118,15 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "LOOK = %s\r\n"
                "; The modern look's menu sounds: on or off\r\n"
                "SOUNDS = %s\r\n"
+               "; The modern look's menu music: bright, subtle or off\r\n"
+               "MUSIC = %s\r\n"
                "; The modern game picker's order: recent, name or favorites (first)\r\n"
                "GAME_SORT = %s\r\n"
                "; The game last started from the launcher (START in the game picker)\r\n"
                "LAST_GAME = %s\r\n",
             s->dsirpc_ip, s->backup_only ? "backup" : "sync", s->auto_update ? "on" : "off",
             s->classic_look ? "classic" : "modern", s->sounds ? "on" : "off",
+            MUSICS[s->music < MUSIC_CHOICES ? s->music : MUSIC_BRIGHT],
             SORTS[s->game_sort < N_SORTS ? s->game_sort : 0], s->last_game);
     return fclose(f) == 0;
 }
@@ -129,9 +146,9 @@ uint32_t settings_server_addr(const LauncherSettings *s)
 #include "topscreen.h"
 #include "ui.h"
 
-enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROW_UPDATES, ROW_LOOK, ROW_SOUNDS, ROWS };
+enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROW_UPDATES, ROW_LOOK, ROW_SOUNDS, ROW_MUSIC, ROWS };
 
-// The classic look has no sounds, so no Sounds row
+// The classic look has no sounds or music, so no rows for them
 static int rows(void)
 {
     return ui_on() ? ROWS : ROW_SOUNDS;
@@ -185,7 +202,7 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
     else if (row == ROW_UPDATES)
         printf("On: when DSiRPC on the PC has\nother versions of the launcher\nor nds-bootstrap, the launcher\noffers them as it starts\n(A: update, B: not now).\n");
     else
-        printf("Classic: these text screens.\nModern: the new screens, with\nthe games' icons, sounds and\nthe battery.\n");
+        printf("Classic: these text screens.\nModern: the new screens, with\nthe games' icons, sounds, music\nand the battery.\n");
     printf("\x1b[21;0H-------------------------------\n");
     // (no newline after the last row: it would scroll the screen)
     if (editing >= 0)
@@ -196,7 +213,8 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
 
 // The modern look's settings screen
 
-static const char *const LABELS[ROWS] = { "Find DSiRPC", "Address", "Saves", "Auto-update", "Look", "Sounds" };
+static const char *const LABELS[ROWS] = { "Find DSiRPC", "Address", "Saves", "Auto-update", "Look", "Sounds",
+                                          "Music" };
 static const char *const HELP[ROWS] = {
     "How the launcher finds DSiRPC. Automatically works on most networks; use an address if it isn't found.",
     "The PC's IP address. The launcher shows it once it finds DSiRPC.",
@@ -204,16 +222,19 @@ static const char *const HELP[ROWS] = {
     "console can keep its own.",
     "On: when DSiRPC on the PC has other versions of the launcher or nds-bootstrap, the launcher offers them as "
     "it starts.",
-    "Modern: these screens, with the games' icons, sounds and the battery. Classic: the text screens.",
+    "Modern: these screens, with the games' icons, sounds, music and the battery. Classic: the text screens.",
     "Soft sounds as you move around and pick things.",
+    "Bright: an airy loop (the default). Subtle: a quiet lounge one. Off: no music.",
 };
+static const char *const MUSIC_NAMES[MUSIC_CHOICES] = { "Off", "Bright", "Subtle" };
 
-#define ROW_H  17
+#define ROW_H   15
+#define TEXT_Y  3       // a row's text, from its top
 
 static void draw_switch(Canvas *c, int x, int y, bool yes)
 {
-    ui_round(c, x, y, 22, 12, 3, yes ? UI_GREEN : UI_SCROLL);
-    ui_round(c, yes ? x + 12 : x + 2, y + 2, 8, 8, 2, UI_TEXT);
+    ui_round(c, x, y, 20, 10, 3, yes ? UI_GREEN : UI_SCROLL);
+    ui_round(c, yes ? x + 12 : x + 2, y + 2, 6, 6, 2, UI_TEXT);
 }
 
 static void draw_modern(const LauncherSettings *s, int row, bool manual, const int octet[4], int editing)
@@ -231,18 +252,18 @@ static void draw_modern(const LauncherSettings *s, int row, bool manual, const i
             ui_fill(c, 10, y + 2, UI_W - 20, ROW_H - 5, UI_PANEL);
         }
         bool dim = i == ROW_ADDRESS && !manual;
-        ui_text(c, 16, y + 4, LABELS[i], dim ? UI_DIM : UI_TEXT);
+        ui_text(c, 16, y + TEXT_Y, LABELS[i], dim ? UI_DIM : UI_TEXT);
         int right = UI_W - 16;
         uint8_t ink = sel ? UI_TEXT : UI_DIM;
         switch (i)
         {
         case ROW_FIND:
-            ui_text_right(c, right, y + 4, manual ? "At this address" : "Automatically", ink);
+            ui_text_right(c, right, y + TEXT_Y, manual ? "At this address" : "Automatically", ink);
             break;
         case ROW_ADDRESS:
             if (!manual)
             {
-                ui_text_right(c, right, y + 4, "Looked for", UI_DIM);
+                ui_text_right(c, right, y + TEXT_Y, "Looked for", UI_DIM);
                 break;
             }
             {
@@ -257,28 +278,31 @@ static void draw_modern(const LauncherSettings *s, int row, bool manual, const i
                 for (int o = 0; o < 4; o++)
                 {
                     snprintf(part, sizeof(part), "%d", octet[o]);
-                    x = ui_text(c, x, y + 4, part, editing == o ? UI_AMBER : ink) + 1;
+                    x = ui_text(c, x, y + TEXT_Y, part, editing == o ? UI_AMBER : ink) + 1;
                     if (o < 3)
-                        x = ui_text(c, x, y + 4, ".", ink) + 1;
+                        x = ui_text(c, x, y + TEXT_Y, ".", ink) + 1;
                 }
             }
             break;
         case ROW_SAVES:
-            ui_text_right(c, right, y + 4, s->backup_only ? "Back up only" : "Back up and sync", ink);
+            ui_text_right(c, right, y + TEXT_Y, s->backup_only ? "Back up only" : "Back up and sync", ink);
             break;
         case ROW_UPDATES:
-            draw_switch(c, right - 22, y + 2, s->auto_update);
+            draw_switch(c, right - 20, y + 2, s->auto_update);
             break;
         case ROW_LOOK:
-            ui_text_right(c, right, y + 4, s->classic_look ? "Classic" : "Modern", ink);
+            ui_text_right(c, right, y + TEXT_Y, s->classic_look ? "Classic" : "Modern", ink);
             break;
         case ROW_SOUNDS:
-            draw_switch(c, right - 22, y + 2, s->sounds);
+            draw_switch(c, right - 20, y + 2, s->sounds);
+            break;
+        case ROW_MUSIC:
+            ui_text_right(c, right, y + TEXT_Y, MUSIC_NAMES[s->music < MUSIC_CHOICES ? s->music : MUSIC_BRIGHT], ink);
             break;
         }
         ui_touch_add(8, y, UI_W - 16, ROW_H - 1, i);
     }
-    ui_text_wrap(c, 12, UI_TOP + ROWS * ROW_H + 4, HELP[row], UI_W - 24, 4, UI_DIM);
+    ui_text_wrap(c, 12, UI_TOP + ROWS * ROW_H + 3, HELP[row], UI_W - 24, 4, UI_DIM);
     if (editing >= 0)
     {
         static const UiKey keys[] = { { "<>", "Digit", 0 }, { "^v", "+/-", 0 }, { "A", "Done", KEY_A } };
@@ -300,6 +324,7 @@ void settings_apply(const LauncherSettings *s)
         ui_enter();
     top_modern(!s->classic_look);
     ui_sounds(s->sounds);
+    music_play(s->classic_look ? MUSIC_OFF : (MusicChoice)s->music);
 }
 
 void settings_screen(const char *path, LauncherSettings *s, const char *current_ip)
@@ -383,6 +408,12 @@ void settings_screen(const char *path, LauncherSettings *s, const char *current_
             else if (row == ROW_SOUNDS)
             {
                 s->sounds = !s->sounds;
+                settings_apply(s);
+            }
+            else if (row == ROW_MUSIC)
+            {
+                // Off, Bright, Subtle: A and right go along, left back
+                s->music = (uint8_t)((s->music + (down & KEY_LEFT ? MUSIC_CHOICES - 1 : 1)) % MUSIC_CHOICES);
                 settings_apply(s);
             }
             if (row != ROW_ADDRESS || manual)

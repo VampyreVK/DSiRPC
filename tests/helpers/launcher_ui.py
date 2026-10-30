@@ -16,7 +16,8 @@ LAUNCHER = os.path.join(REPO, "launcher", "source")
 HOST_DIR = os.path.join(REPO, "tests", "c", "ui")
 HOST_SOURCES = ["ui_host.c", "host_stubs.c", "host_main.c", "host_update.c", "host_settings.c", "host_picker.c",
                 "host_saves.c"]
-LAUNCHER_SOURCES = ["ui.c", "topscreen.c", "browser.c", "sync.c", "savesync.c", "stats.c", "bootstrap_ini.c"]
+LAUNCHER_SOURCES = ["ui.c", "topscreen.c", "browser.c", "sync.c", "savesync.c", "stats.c", "bootstrap_ini.c",
+                    "music.c"]
 UNIX_2000 = 946684800
 KEY = (255, 0, 255)         # the top screen's clear pixels, in a dump with key=1
 

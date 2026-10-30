@@ -10,6 +10,7 @@ void host_settings_screens(void)
     memset(&s, 0, sizeof(s));
     s.auto_update = true;
     s.sounds = true;
+    s.music = MUSIC_BRIGHT;
     int octet[4] = { 192, 168, 2, 10 };
     draw_modern(&s, ROW_LOOK, false, octet, -1);
     host_shot("settings");

@@ -285,6 +285,18 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-30 (later): **Menu music.** Two songs made on a Dirtywave M8
+  (`launcher/music/`): Bright, an airy Eb major loop that opens on a
+  falling maj9 chord with an echo, and Subtle, a quiet lounge loop. Viv
+  preferred their browser preview to the M8 itself, so the DS plays the
+  preview's voices: `tools/make_music.py` reads the songs (`tools/m8s.py`)
+  and writes XM modules with those waves, envelopes and echoes, and maxmod
+  plays them on the ARM7, where they keep time while the launcher works.
+  Music: Off, Bright (the default) or Subtle, under Sounds; the menu
+  sounds keep channels 12-15. Making the songs turned up how the M8 counts
+  notes: its notes are MIDI's, so its C-6 is middle C (the first sketch
+  was two octaves low).
+
 - 2026-10-30: **Never an older save over a newer one.** Viv's Platinum on
   the 3DS: the Mac's live save was from the 21st, and the 3DS's saves from
   the 24th and 26th were only there as copies kept before downloads

@@ -18,6 +18,10 @@
 //   favorite sd|path             Y on a game, then back out
 //   started sd|path              the game being started (games.idx)
 //   text a|b                     text a|b's widths|a's lines at 100 pixels
+//   music classic|choice|stop    settings_apply() with that look and Music
+//                                (0 off, 1 bright, 2 subtle), then
+//                                music_stop() if stop is 1: music then the
+//                                maxmod calls made, comma-separated
 //
 // The SD card is a folder on the PC with sd:'s layout (roms/nds, DSiRPC, the
 // root's RPCUNLK.BIN).
@@ -28,6 +32,7 @@
 
 #include <nds.h>
 
+#include "music.h"
 #include "settings.h"
 #include "topscreen.h"
 #include "ui.h"
@@ -100,6 +105,17 @@ int main(void)
         {
             host_started(f[0], f[1]);
             printf("started\n");
+        }
+        else if (strcmp(line, "music") == 0 && nf == 3)
+        {
+            host_music_log[0] = '\0';
+            LauncherSettings s = defaults;
+            s.classic_look = atoi(f[0]) != 0;
+            s.music = (uint8_t)atoi(f[1]);
+            settings_apply(&s);
+            if (atoi(f[2]) != 0)
+                music_stop();
+            printf("music %s\n", host_music_log);
         }
         else if (strcmp(line, "text") == 0 && nf == 2)
         {

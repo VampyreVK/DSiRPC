@@ -117,6 +117,8 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
   soon as it's picked on the settings screen.
 - `SOUNDS`: `on` or `off`, the modern look's menu sounds (the classic look
   has none, so it has no Sounds row either).
+- `MUSIC`: `bright` (the default), `subtle` or `off`, the modern look's menu
+  music ([below](#the-menu-music)); no row in the classic look either.
 - `GAME_SORT`: `recent`, `name` or `favorites`, the modern game list's order
   (L/R there, not on the settings screen).
 - `LAST_GAME`: the game last started from the launcher, for **START** on the
@@ -133,7 +135,29 @@ it is, and the colors are the desktop app's. The spinner on the
 connecting screen's current step turns by palette, from a cothread, so it
 keeps turning while the launcher works (the network code waits a frame at a
 time). The menu sounds are short samples made at startup (soft sine notes
-that fade), so they end by themselves.
+that fade), so they end by themselves. They play on channels 12-15, which
+the music leaves to them.
+
+### The menu music
+
+Two songs, made on a Dirtywave M8 tracker: Bright (an airy Eb major loop at
+122 BPM that opens on a falling maj9 chord with an echo) and Subtle (a quiet
+lounge loop in F major at 100 BPM, with swung 8ths). `music/*.m8s` are the
+songs; `tools/make_music.py` turns them into XM modules in `audio/`, and the
+build packs those into maxmod's soundbank (mmutil). `source/music.c` plays
+them with maxmod, on the ARM7, so they keep time whatever the launcher is
+doing (a save sync, reading the games' banners): from `settings_apply()`
+in the modern look, faded out before a game starts (and back if it
+doesn't) and as the launcher leaves.
+
+The DS doesn't try to sound like the M8: its voices are the songs' browser
+preview's, picked by each instrument's name (`LEAD`, `KEYS`, `BASS`, `BELL`,
+`KICK`, `SNAP`, `HAT`, `RIM`, `SHAKER`): a single cycle of a sine, triangle
+or soft square wave with a volume envelope, or a hit of filtered noise for
+the drums, an echo on the lead and the bell, and each song's groove. To
+change a song, edit it on the M8, copy it over `music/bright.m8s` or
+`music/subtle.m8s` and run `python tools/make_music.py` (the M8's FX
+commands, tables and effects aren't carried over).
 
 The screens are the classic ones' with the same keys, drawn differently,
 plus:
@@ -310,6 +334,9 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/main.c` | Connecting (with the retries), the results screen and the keys; the modern look's checklist, main screen and starting screen |
 | `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread; the modern look's bar (status chip, battery), note and details |
 | `source/ui.c` | The modern look's drawing: the bitmap, text, icons, banner icons, panels, key hints, the spinner, taps and sounds |
+| `source/music.c` | The menu music, with maxmod (the setting's wiring is tested on a PC: `tests/test_launcher_ui.py`) |
+| `music/*.m8s` | The two songs, as the M8 saves them |
+| `audio/*.xm` | The songs for maxmod, made by `tools/make_music.py` (don't edit by hand; tested against the songs: `tests/test_music.py`) |
 | `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
 | `source/stats.c` | DSiRPC's playtimes, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
 | `source/browser.c` | The file browser (START: the last game) |

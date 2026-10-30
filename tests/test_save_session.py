@@ -7,6 +7,7 @@ and save backups turned off."""
 import os
 import socket
 import struct
+import time
 
 import pytest
 
@@ -116,6 +117,11 @@ def test_plan_upload_download(server):
     assert (magic, status, data, crc) == (b"DRSD", ss.OK, v1, crc32(v1))
     assert talk(port, ss.request(ss.OP_DONE, ss.DONE.pack(1, 1, 0, 0), MAC, 2),
                 lambda read: struct.unpack("<4sH", read(6))) == (b"DRSK", ss.OK)
+    # The event comes after the answer (the console isn't kept waiting for the
+    # tray), so it may be a moment behind it
+    deadline = time.monotonic() + 5
+    while events[-1]["type"] != "saves_synced" and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert events[-1] == {"type": "saves_synced", "console": "3DS 3F21", "uploaded": 1, "downloaded": 1,
                           "backed_up": 0, "failed": 0}
 

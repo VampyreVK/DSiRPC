@@ -3,13 +3,14 @@ finds it with a UDP broadcast, then over TCP hands over the console's
 unlocks and takes the sets it doesn't have (core/offline.py has the
 formats). The launcher here is a stand-in for launcher/source/sync.c."""
 
+import errno
 import socket
 import struct
 import time
 
 import pytest
 
-from core import offline
+from core import console_sync, offline
 from core.console_sync import ConsoleSync
 
 HOST = "127.0.0.1"
@@ -192,3 +193,29 @@ def test_a_3ds_says_so(start):
     while len(engine.consoles) < 4 and time.monotonic() < end:
         time.sleep(0.02)
     assert [c for _, _, c in engine.consoles] == ["3DS", "3DS", "DSi", "DSi"]
+
+
+def test_port_0_takes_a_number_free_for_both(monkeypatch):
+    """The tests' port 0: the number the system picks for UDP can be taken for
+    TCP (by a connection that just closed, say), as it was once on GitHub's
+    runner, so another is tried. A fixed port that's taken still says so."""
+    taken = {"n": 2}
+
+    class Busy(socket.socket):
+        def bind(self, address):
+            if self.type == socket.SOCK_STREAM and taken["n"]:
+                taken["n"] -= 1
+                raise OSError(errno.EADDRINUSE, "Address already in use")
+            return super().bind(address)
+
+    monkeypatch.setattr(console_sync.socket, "socket", Busy)
+    sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host=HOST)
+    sync.start()
+    try:
+        assert taken["n"] == 0 and sync.port != 0
+    finally:
+        sync.stop()
+
+    taken["n"] = 1
+    with pytest.raises(OSError):
+        ConsoleSync(lambda *a: [], lambda u: None, port=sync.port, host=HOST).start()

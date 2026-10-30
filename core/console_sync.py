@@ -62,17 +62,24 @@ class ConsoleSync:
         self.last = None          # what the last exchange did, for the log and tests
 
     def start(self):
-        """Opens the ports (OSError if one is taken) and starts listening."""
-        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            udp.bind((self.host, self.port))
-            tcp.bind((self.host, udp.getsockname()[1]))  # the same number (port 0: tests)
-            tcp.listen(2)
-        except OSError:
-            udp.close()
-            tcp.close()
-            raise
+        """Opens the ports (OSError if one is taken) and starts listening.
+        Port 0 (the tests) takes any number free for both: the one the
+        system picks for UDP can be taken for TCP (by a connection that just
+        closed, say), so then it tries another."""
+        tries = 20 if self.port == 0 else 1
+        for left in reversed(range(tries)):
+            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                udp.bind((self.host, self.port))
+                tcp.bind((self.host, udp.getsockname()[1]))  # the same number
+                tcp.listen(2)
+                break
+            except OSError:
+                udp.close()
+                tcp.close()
+                if not left:
+                    raise
         self.udp, self.tcp = udp, tcp
         self.port = tcp.getsockname()[1]
         self._thread = threading.Thread(target=self._run, name="ConsoleSync", daemon=True)

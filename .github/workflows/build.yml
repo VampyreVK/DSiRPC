@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Only nds-bootstrap/ is needed, so skip downloading the sprites.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: nds-bootstrap
           filter: blob:none
@@ -97,7 +97,7 @@ jobs:
           cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc.nds
           cp nds-bootstrap/LICENSE LICENSE-nds-bootstrap.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nds-bootstrap-dsirpc
           path: |
@@ -109,7 +109,7 @@ jobs:
     name: launcher
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: launcher
           filter: blob:none
@@ -117,7 +117,7 @@ jobs:
       - name: Build launcher
         run: docker run --rm -v "$GITHUB_WORKSPACE/launcher:/work" -w /work --entrypoint make skylyrac/blocksds:slim-latest
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dsirpc-launcher
           path: launcher/dsirpc-launcher.nds
@@ -131,7 +131,7 @@ jobs:
       # DSiRPC's own files; of Assets/, only the console pictures (the
       # overlay downloads its sprites when it needs them); and the
       # launcher's songs, the overlay's ambient music
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: |
             app
@@ -147,14 +147,14 @@ jobs:
             launcher/audio
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: nds
           merge-multiple: true
 
       # Only runs pip: the zip gets Python's embeddable package
       # (PYTHON_VERSION in packaging/build_release.py, the same 3.x)
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -180,7 +180,7 @@ jobs:
     steps:
       # DSiRPC's own files, the console pictures, the app's icon and the
       # launcher's songs (the overlay's ambient music)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: |
             app
@@ -195,12 +195,12 @@ jobs:
             launcher/audio
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: nds
           merge-multiple: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -229,7 +229,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: packaging
           filter: blob:none

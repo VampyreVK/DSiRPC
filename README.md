@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/images/banner.svg" width="100%" alt="DSiRPC: your DSi or 3DS, live on Discord. Rich Presence, RetroAchievements and save sync.">
+  <img src="docs/images/banner.svg" width="100%" alt="DSiRPC: same native DS games, same original hardware, modern features. Discord and RetroAchievements Rich Presence, real RetroAchievements for DS games (even offline), save backups synced between devices, original hardware, Windows and macOS apps, and auto-updates, the console included.">
 </h1>
 
 <p align="center">

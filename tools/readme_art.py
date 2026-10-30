@@ -12,7 +12,9 @@ and libnds' font (tests/c/ui/font.h, which the modern look writes with).
 to date that way.)
 
 The banner is the launcher's top screen made wide: its header bar, the pixel
-DSi on the drifting diamonds and the tagline. It moves as the console's does
+DSi on the drifting diamonds, and beside it the tagline (in the font with
+twice the detail, on pixels a quarter of the art's) and the features as the
+launcher's chips. It moves as the console's does
 while it connects (the Wi-Fi sign's arcs lighting up, the chip saying
 Connecting, then Connected), with CSS, so a browser set to reduce motion
 shows it still and connected. The icons are the main screen's tiles, small:
@@ -31,8 +33,18 @@ from helpers import REPO, launcher_ui as lui  # noqa: E402
 SOURCE = os.path.join(REPO, "launcher", "source")
 OUT = os.path.join(REPO, "docs", "images")
 
-TAGLINE = ["Your DSi or 3DS,", "live on Discord."]
-FEATURES = [("Rich Presence", "GREEN"), ("RetroAchievements", "AMBER"), ("Save sync", "CYAN")]
+TAGLINE = ["Same native DS games,", "same original hardware,", "modern features."]
+# The features, as the launcher's chips (dark like its header bar) in two
+# columns under the tagline: what DSiRPC does down the first, in the colors
+# the launcher gives them, where it runs down the second; each chip's text
+# color
+FEATURES = [("Discord + RA Dynamic Rich Presence", "C_GREEN"),
+            ("Real RetroAchievements for DS games, even offline", "C_AMBER"),
+            ("Backup saves, sync between devices", "C_CYAN"),
+            ("Runs on original hardware", "C_TEXT"),
+            ("Windows + macOS desktop clients", "C_TEXT"),
+            ("Auto-Updates, console included", "C_TEXT")]
+TEXT_RES = 4                            # the tagline's own pixels: a quarter of the art's
 CONNECTING_S, CONNECTED_S = 4.8, 3.2     # the banner's loop: 3 rounds of the arcs, then connected
 ARC_S = 0.4                             # an arc every 400 ms, as the launcher
 DRIFT_S = 16 * 7 / 59.83                # the diamonds: a pixel every 7 frames, 16 to a cell
@@ -155,6 +167,13 @@ class Picture:
         im.putdata([back if c is None else c for row in self.rows for c in row])
         return im
 
+    def mask(self):
+        """Where it's drawn on, for pasting it"""
+        from PIL import Image
+        im = Image.new("L", (self.w, self.h))
+        im.putdata([0 if c is None else 255 for row in self.rows for c in row])
+        return im
+
 
 def hexrgb(c):
     return "#%02x%02x%02x" % c
@@ -189,6 +208,52 @@ class Font:
             x += (self.width[i] + 1) * scale
         return x
 
+    def glyph(self, ch):
+        """A letter's pixels, rows of 0 and 1, as wide as it is"""
+        i = ord(ch) - 32
+        return [[(self.data[i * 8 + row] >> (self.left[i] + col)) & 1 for col in range(self.width[i])]
+                for row in range(8)]
+
+
+def scale2x(rows):
+    """Scale2x (EPX): pixels of 0 and 1 at twice the size, their diagonals
+    smoothed, so a letter keeps its look with twice the detail"""
+    h, w = len(rows), len(rows[0])
+
+    def at(x, y):
+        return rows[y][x] if 0 <= x < w and 0 <= y < h else 0
+
+    out = [[0] * (2 * w) for _ in range(2 * h)]
+    for y in range(h):
+        for x in range(w):
+            p, a, b, c, d = at(x, y), at(x, y - 1), at(x + 1, y), at(x - 1, y), at(x, y + 1)
+            out[2 * y][2 * x] = a if c == a and c != d and a != b else p
+            out[2 * y][2 * x + 1] = b if a == b and a != c and b != d else p
+            out[2 * y + 1][2 * x] = c if d == c and d != b and c != a else p
+            out[2 * y + 1][2 * x + 1] = d if b == d and b != a and d != c else p
+    return out
+
+
+class SmoothFont:
+    """The font with twice the detail (Scale2x): each letter 16 pixels high,
+    two apart"""
+
+    def __init__(self, font):
+        self.glyphs = [scale2x(font.glyph(chr(32 + i))) for i in range(96)]
+
+    def measure(self, s, px=1):
+        return (sum(len(self.glyphs[ord(ch) - 32][0]) + 2 for ch in s) - 2) * px
+
+    def write(self, pic, x, y, s, color, px=1):
+        for ch in s:
+            g = self.glyphs[ord(ch) - 32]
+            for row, bits in enumerate(g):
+                for col, on in enumerate(bits):
+                    if on:
+                        pic.fill(x + col * px, y + row * px, px, px, color)
+            x += (len(g[0]) + 2) * px
+        return x
+
 
 def title(pic, x, y, letters, color, scale):
     """topscreen.c's title(): "DSiRPC" in its 5x7 letters, each as wide as it is"""
@@ -201,12 +266,15 @@ def title(pic, x, y, letters, color, scale):
         x += (cols[-1] - cols[0] + 2) * scale
 
 
-def chip(pic, font, x, y, text, fill, ink, scale=1):
-    """ui.c's ui_chip(): 12 high, the text 4 in"""
-    w = font.measure(text) + 8
-    pic.fill(x, y, w * scale, 12 * scale, fill)
-    font.write(pic, x + 4 * scale, y + 2 * scale, text, ink, scale)
-    return w * scale
+def chip(pic, font, x, y, text, fill, ink, scale=1, width=None):
+    """ui.c's ui_chip(): 12 high, the text 4 in (or made `width` wide, the
+    text in the middle)"""
+    w = (font.measure(text) + 8) * scale
+    if width is None:
+        width = w
+    pic.fill(x, y, width, 12 * scale, fill)
+    font.write(pic, x + (width - w) // (2 * scale) * scale + 4 * scale, y + 2 * scale, text, ink, scale)
+    return width
 
 
 def corner_inset(y, h, corner):
@@ -254,14 +322,25 @@ def outline(w, h, corner, edge, color):
 # The banner
 
 def banner(art):
-    font = Font(art.font)
-    bar_h, scale, margin = 20, 4, 28
+    """The banner's art and, apart, the tagline: a picture TEXT_RES times as
+    fine, to put at (x, y)"""
+    font, smooth = Font(art.font), SmoothFont(Font(art.font))
+    bar_h, scale, margin, h = 20, 4, 28, 192
     dsi_w, dsi_h = len(art.dsi[0]) * scale, len(art.dsi) * scale
-    text_scale, chip_scale = 4, 2
-    text_w = max(font.measure(line, text_scale) for line in TAGLINE)
-    chips_w = sum(font.measure(name) + 8 for name, _ in FEATURES) * chip_scale + 6 * (len(FEATURES) - 1)
-    w = margin + dsi_w + scale + margin + max(text_w, chips_w) + margin
-    h = 192
+    # The tagline in the font with twice the detail, each of its pixels 7
+    # of the layer's (1.75 of the art's: 28 high, just under the 32 the
+    # launcher's font made at 4x), its shadow one of them down and right
+    px, line_h, line_gap, shadow = 7, 16 * 7, 4 * TEXT_RES, 7
+    text_w = (max(smooth.measure(line, px) for line in TAGLINE) + shadow + TEXT_RES - 1) // TEXT_RES
+    text_h = (len(TAGLINE) * line_h + (len(TAGLINE) - 1) * line_gap + shadow + TEXT_RES - 1) // TEXT_RES
+    # The chips: the launcher's, 12 high, the text 4 in; each column as wide
+    # as its widest
+    rows, gap, chips_gap = (len(FEATURES) + 1) // 2, 4, 12
+    columns = [FEATURES[:rows], FEATURES[rows:]]
+    col_w = [max(font.measure(name) + 8 for name, _ in col) for col in columns]
+    chips_w, chips_h = sum(col_w) + 6, rows * 12 + (rows - 1) * gap
+    tx = margin + dsi_w + scale + margin
+    w = tx + max(text_w, chips_w) + margin
     pic = Picture(w, h)
 
     # The header bar, its name (topscreen.c's draw_bar)
@@ -273,28 +352,33 @@ def banner(art):
 
     # The DSi, its shadow and the lines on its bottom screen (draw_dsi), as
     # the classic look draws it: 4x, in the middle of the screen's height
-    x, y = margin, bar_h + (h - bar_h - dsi_h) // 2
-    shadow = {k: art.rgb("C_SHADOW") for k in art.dsi_colors}
-    pic.art(x + scale, y + scale, art.dsi, shadow, scale)
+    x, y = margin, bar_h + (h - bar_h - dsi_h - scale) // 2
+    shadow_colors = {k: art.rgb("C_SHADOW") for k in art.dsi_colors}
+    pic.art(x + scale, y + scale, art.dsi, shadow_colors, scale)
     pic.art(x, y, art.dsi, art.dsi_colors, scale)
     x0, x1 = art.lines_x
     for top, bottom in art.lines:
         pic.fill(x + x0, y + top, x1 - x0, max(1, bottom - top), art.rgb("C_LINES"))
     dsi = (x, y)
 
-    # The tagline and the chips, in the middle of what's left
-    tx = margin + dsi_w + scale + margin
-    block_h = len(TAGLINE) * 8 * text_scale + (len(TAGLINE) - 1) * 6 + 14 + 12 * chip_scale
-    ty = bar_h + (h - bar_h - block_h) // 2
+    # The tagline and the chips beside it, in the middle of the height
+    ty = bar_h + (h - bar_h - text_h - chips_gap - chips_h) // 2
+    text = Picture(text_w * TEXT_RES, text_h * TEXT_RES)
     for i, line in enumerate(TAGLINE):
-        ly = ty + i * (8 * text_scale + 6)
-        font.write(pic, tx + text_scale, ly + text_scale, line, art.rgb("C_TEXT_SHADOW"), text_scale)
-        font.write(pic, tx, ly, line, art.rgb("C_TEXT"), text_scale)
-    cx, cy = tx, ty + len(TAGLINE) * 8 * text_scale + (len(TAGLINE) - 1) * 6 + 14
-    for name, tone in FEATURES:
-        cx += chip(pic, font, cx, cy, name, art.rgb("C_" + tone), art.rgb("C_" + tone + "_DARK"), chip_scale) + 6
+        ly = i * (line_h + line_gap)
+        smooth.write(text, shadow, ly + shadow, line, art.rgb("C_TEXT_SHADOW"), px)
+        smooth.write(text, 0, ly, line, art.rgb("C_TEXT"), px)
+    cx, cy = tx, ty + text_h + chips_gap
+    for col, cw in zip(columns, col_w):
+        for r, (name, ink) in enumerate(col):
+            y = cy + r * (12 + gap)
+            pic.fill(cx, y, cw, 12, art.rgb("C_BAR"))
+            pic.fill(cx, y, cw, 1, art.rgb("C_BAR_HI"))
+            pic.fill(cx, y + 11, cw, 1, art.rgb("C_BAR_LO"))
+            font.write(pic, cx + 4, y + 2, name, art.rgb(ink))
+        cx += cw + 6
 
-    return pic, dsi, font
+    return pic, dsi, font, (tx, ty, text)
 
 
 def status(art, font, w, text, tone):
@@ -317,7 +401,7 @@ def keyframes(name, prop, values, total):
 
 
 def banner_svg(art):
-    pic, (dx, dy), font = banner(art)
+    pic, (dx, dy), font, (tx, ty, text) = banner(art)
     w, h, scale = pic.w, pic.h, 4
     total = CONNECTING_S + CONNECTED_S
     amber, green, grey = (hexrgb(art.rgb(n)) for n in ("C_AMBER", "C_GREEN", "WIFI_ON"))
@@ -360,7 +444,7 @@ def banner_svg(art):
     # A dark edge around it all, its corners stepped like the DSi's
     edge, corner = 2, [4, 2, 1, 1]
     border = outline(w, h, corner, edge, art.rgb("C_BAR_LO"))
-    label = "DSiRPC: " + " ".join(TAGLINE) + " " + ", ".join(name for name, _ in FEATURES) + "."
+    label = "DSiRPC: " + " ".join(TAGLINE) + " " + "; ".join(name for name, _ in FEATURES) + "."
     svg = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {border.w} {border.h}" '
            f'width="{border.w * 2}" height="{border.h * 2}" shape-rendering="crispEdges" '
            f'role="img" aria-label="{label}">',
@@ -373,6 +457,7 @@ def banner_svg(art):
     svg += [f'<g transform="translate({edge} {edge})" clip-path="url(#screen)">',
             f'<rect class="drift" x="-16" y="-16" width="{w + 32}" height="{h + 32}" fill="url(#diamonds)"/>']
     svg += pic.paths()
+    svg += [f'<g transform="translate({tx} {ty}) scale({1 / TEXT_RES:g})">'] + text.paths() + ["</g>"]
     svg += parts
     svg += ['<g class="connecting" opacity="0">'] + connecting.paths() + ["</g>"]
     svg += ['<g class="connected">'] + connected.paths() + ["</g>"]
@@ -394,7 +479,7 @@ def banner_svg(art):
             still.rows[y + edge][x + edge] = c
     for x, y, part in art.wifi:
         still.fill(edge + dx + x * scale, edge + dy + y * scale, scale, scale, art.rgb("C_GREEN"))
-    return "\n".join(svg) + "\n", still
+    return "\n".join(svg) + "\n", still, (tx + edge, ty + edge, text)
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +549,7 @@ def main():
     ap.add_argument("--png", action="store_true", help="a still of each too, in renders/readme-art")
     args = ap.parse_args()
     art = Art()
-    svg, still = banner_svg(art)
+    svg, still, (tx, ty, text) = banner_svg(art)
     write(os.path.join(args.out, "banner.svg"), svg)
     pictures = icons(art)
     for name, pic in sorted(pictures.items()):
@@ -474,7 +559,9 @@ def main():
         os.makedirs(out, exist_ok=True)
         back = art.rgb("C_BACKDROP")
         im = still.image(back)
-        im.resize((im.width * 2, im.height * 2), 0).save(os.path.join(out, "banner.png"))
+        im = im.resize((im.width * TEXT_RES, im.height * TEXT_RES), 0)
+        im.paste(text.image(back), (tx * TEXT_RES, ty * TEXT_RES), text.mask())
+        im.save(os.path.join(out, "banner.png"))
         for name, pic in pictures.items():
             im = pic.image((255, 255, 255))
             im.resize((im.width * 4, im.height * 4), 0).save(os.path.join(out, name + ".png"))

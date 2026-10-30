@@ -422,11 +422,19 @@ class FlakyProxy:
 
     def __init__(self, target, meddle):
         self.target, self.meddle, self.count = target, dict(meddle), 0
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.bind(("127.0.0.1", 0))
-        self.port = self.udp.getsockname()[1]
-        self.tcp = socket.socket()
-        self.tcp.bind(("127.0.0.1", self.port))
+        for left in reversed(range(20)):    # a number free for both, as ConsoleSync's port 0
+            self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.tcp = socket.socket()
+            try:
+                self.udp.bind(("127.0.0.1", 0))
+                self.port = self.udp.getsockname()[1]
+                self.tcp.bind(("127.0.0.1", self.port))
+                break
+            except OSError:
+                self.udp.close()
+                self.tcp.close()
+                if not left:
+                    raise
         self.tcp.listen(8)
         for fn in (self._answer, self._accept):
             threading.Thread(target=fn, daemon=True).start()

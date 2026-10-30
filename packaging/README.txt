@@ -128,9 +128,12 @@ IF SOMETHING DOESN'T WORK
 
 UPDATING AND REMOVING
 ---------------------------------------------------------------------
-To update, unzip the new release over this folder (replace the files
-when asked). Your settings (dsirpc.cfg), achievement sets (ra) and save
-backups (saves) stay.
+DSiRPC updates itself: when there's a new release, it says so, and its
+menu says "Update to v...". Pick it and say yes: DSiRPC downloads it and
+restarts with it. ("Check for updates..." in the menu looks right away.)
+Your settings (dsirpc.cfg), achievement sets (ra), logs and save backups
+(saves) stay. By hand: unzip the new release over this folder (replace
+the files when asked).
 
 The next time the launcher finds DSiRPC, it offers the new SD card files
 (A updates, B not now): it downloads and checks them over Wi-Fi, swaps

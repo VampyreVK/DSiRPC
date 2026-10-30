@@ -11,7 +11,8 @@
 #     pixel art by tools/readme_art.py
 #   - the PC side: the offline formats, the launcher sync, the protocol
 #     client, the Black/White parser and the hub against a fake DSi on the
-#     loopback network
+#     loopback network, and the app updating itself (app/updates.py,
+#     app/update_apply.py)
 # rcheevos (with DSiRPC's dsirpc_offline.c) is built here from its tag, as
 # the macOS build does, and cached.
 
@@ -22,6 +23,8 @@ on:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "app/updates.py"
+      - "app/update_apply.py"
       - "utils/config.py"
       - "overlay/music.py"
       - "tools/**"
@@ -38,6 +41,8 @@ on:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "app/updates.py"
+      - "app/update_apply.py"
       - "utils/config.py"
       - "overlay/music.py"
       - "tools/**"

@@ -49,8 +49,9 @@ console and your PC.
 - **A stream overlay:** a crisp pixel-art window with your party, battles in
   the games' own style and achievement banners, ready for OBS, with the
   launcher's music if you'd like it.
-- **Updates over Wi-Fi:** new versions reach the console without taking the
-  SD card out.
+- **Updates itself, console included:** DSiRPC finds a new release on its
+  own and installs it from its menu, and the launcher then takes the new
+  console files from it over Wi-Fi, without taking the SD card out.
 - **Quick to set up:** one download with everything included, a few setup
   questions, and an icon by the clock (or in the menu bar on a Mac) that
   tells you what it sees.

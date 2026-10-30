@@ -27,6 +27,10 @@ console_updates: yes
 # Music while the overlay window is open: the launcher's menu songs, off,
 # bright or subtle (the tray menu's "Ambient music")
 ambient_music: off
+# Look for a new release of DSiRPC when it starts and once a day: the tray
+# menu then offers it ("Update to ..."). Its "Check for updates..." looks
+# whatever this says
+check_updates: yes
 
 [ra]
 # Your RetroAchievements account: setup signs in with your password once and

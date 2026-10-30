@@ -111,6 +111,7 @@ Right-click it (on a Mac, click it in the menu bar) for the menu:
 | **Ambient music** | The launcher's menu music while the overlay window is open: **Off** (at first), **Bright** or **Subtle** |
 | **Console updates** | Let the launcher [update its files](#updating-and-removing) from this DSiRPC |
 | **Start with Windows** | Start DSiRPC when you sign in (**Open at Login** on a Mac) |
+| **Check for updates...** | Look for a new release now. Once there is one, it says **Update to v...**: [updating](#updating-and-removing) |
 | **Setup...** | Run setup again, to change an answer |
 | **Open log**, **Open DSiRPC folder**, **Open save backups** | The log, the folder with DSiRPC's settings, and the [save backups](#save-backups) |
 | **Quit** | Stop DSiRPC |
@@ -309,9 +310,19 @@ The log is `logs\dsirpc.log` (tray menu > **Open log**).
 
 ## Updating and removing
 
-To update, unzip the new release over your DSiRPC folder (replace the files
-when asked), or on a Mac replace DSiRPC.app. Your settings (`dsirpc.cfg`),
-achievement sets and save backups stay.
+DSiRPC updates itself. A minute after it starts, and then once a day, it
+looks for a new release and says so; the tray menu then says **Update to
+v...** (**Check for updates...** looks right away). Pick it and say yes:
+DSiRPC downloads the new release, checks it, and restarts with it, all by
+itself. Your settings (`dsirpc.cfg`), achievement sets, logs and save
+backups stay as they are. (`check_updates: no` in `dsirpc.cfg` stops the
+looking; the menu item still works.)
+
+It can't update itself from a folder it can't write to (like Program
+Files), or on a Mac when DSiRPC.app runs straight from the Downloads folder
+(move it to Applications); then it offers the release's page. You can
+always update by hand too: unzip the new release over your DSiRPC folder
+(replace the files when asked), or on a Mac replace DSiRPC.app.
 
 The console's files come along. The next time the launcher finds DSiRPC, it
 offers the launcher and nds-bootstrap that came with it, if they differ from

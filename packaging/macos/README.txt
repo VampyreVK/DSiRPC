@@ -123,9 +123,13 @@ IF SOMETHING DOESN'T WORK
 
 UPDATING AND REMOVING
 ---------------------------------------------------------------------
-To update, quit DSiRPC and replace DSiRPC.app with the new one. Your
-settings, achievement sets and save backups stay. macOS may ask for Local
-Network access again after an update.
+DSiRPC updates itself: when there's a new release, it says so, and its
+menu says "Update to v...". Pick it and say yes: DSiRPC downloads it and
+restarts with it. ("Check for updates..." in the menu looks right away.)
+It needs DSiRPC.app in Applications (not run from Downloads). By hand:
+quit DSiRPC and replace DSiRPC.app with the new one. Your settings,
+achievement sets and save backups stay. macOS may ask for Local Network
+access again after an update.
 
 The next time the launcher finds DSiRPC, it offers the new SD card files
 (A updates, B not now): it downloads and checks them over Wi-Fi, swaps

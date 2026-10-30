@@ -78,6 +78,10 @@ class Config:
         # The launcher's menu song the overlay window plays while it's open
         # (MUSIC_CHOICES); off at first, as the window may be on a stream
         self.ambient_music = "off"
+        # Look for a new DSiRPC release when it starts and once a day, and
+        # say so (app/updates.py; the tray menu's "Check for updates..."
+        # looks whatever this says)
+        self.check_updates = True
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
@@ -159,6 +163,7 @@ class Config:
             music = _clean(a.get("ambient_music", "")).lower()
             if music in MUSIC_CHOICES:
                 self.ambient_music = music
+            self.check_updates = _bool(a.get("check_updates"), self.check_updates)
         if "ra" in parser:
             r = parser["ra"]
             self.racache = _clean(r.get("racache", ""))
@@ -226,6 +231,10 @@ console_updates: {yn(self.console_updates)}
 # Music while the overlay window is open: the launcher's menu songs, off,
 # bright or subtle (the tray menu's "Ambient music")
 ambient_music: {self.ambient_music}
+# Look for a new release of DSiRPC when it starts and once a day: the tray
+# menu then offers it ("Update to ..."). Its "Check for updates..." looks
+# whatever this says
+check_updates: {yn(self.check_updates)}
 
 [ra]
 # Your RetroAchievements account. Setup signs in with your password once and

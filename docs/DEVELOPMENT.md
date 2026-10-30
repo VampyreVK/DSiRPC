@@ -24,7 +24,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 |---|---|
 | `Setup.bat`, `DSiRPC.bat` | First-time setup, and DSiRPC in the tray (Windows). They use a release's bundled Python (`python\`) if there is one, else the `.venv` Setup.bat makes |
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Command line](#7-command-line)) |
-| `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
+| `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows, and the app updating itself (`updates.py`, with `update_apply.py` for the Windows download) |
 | `overlay/` | The stream overlay window (pygame-ce) |
 | `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), save backups (`saves.py`, `save_session.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
@@ -272,6 +272,22 @@ git push origin v0.4.0
 The release is named after the tag. Its notes start with
 `packaging/RELEASE_NOTES.md` (how to install), followed by notes generated
 from the commits, and it has the Windows and macOS zips and both `.nds` files attached.
+
+Published releases are what DSiRPC updates itself to (`app/updates.py`): a
+minute after it starts and once a day it asks GitHub for the latest release
+(drafts and pre-releases aren't), and when its tag is a newer version than
+its own (`version.txt`, the app's `DSiRPCVersion`), its menu offers it. So
+keep the tags versions (`v1.2.3`), the zips' names
+(`DSiRPC-<tag>-windows.zip`, `DSiRPC-<tag>-macos.zip`) and the version they
+say they are. It downloads its zip, checks it against the SHA-256 GitHub
+gives for it, unpacks it in the data folder's `update/`, and starts the step
+that puts it in place once DSiRPC has quit: on Windows the new release's own
+Python runs a copy of `app/update_apply.py`, which swaps the program's
+folders and files (whatever else is in the folder is yours: `dsirpc.cfg`,
+`ra/`, `logs/`, `saves/`, the downloaded sprites) and puts it all back if
+something can't go in; on a Mac a shell script swaps DSiRPC.app. Then it
+starts DSiRPC again. A dev build (`dev-...`) or a source checkout never
+updates itself; it only says what the latest release is.
 
 Publishing it also runs [`.github/workflows/renders.yml`](../.github/workflows/renders.yml):
 it draws the launcher's screens from the release's code (`tools/render_launcher.py`),

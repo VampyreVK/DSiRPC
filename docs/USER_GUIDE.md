@@ -303,7 +303,7 @@ at first, so it never surprises a stream.
 | "DSiRPC wasn't found" or "can't be reached" | DSiRPC isn't running, or the firewall blocks it (as in "Nothing on Discord"; the launcher uses port 4245). If it is running, give the launcher the PC's address in [its settings](#the-launchers-settings). Games still start; offline unlocks wait on the SD card. |
 | The game starts but never shows on Discord | nds-bootstrap's in-game menu should say **nds-bootstrap-DSiRPC**: if it says just "nds-bootstrap", the game wasn't started from the launcher. The launcher and `nds-bootstrap-dsirpc.nds` must be from the same release. |
 | "This game has no save file yet" | Start the game once from TWiLight Menu++, then use the launcher again. |
-| The in-game menu says "no set loaded" or "another game's" | Start the game with **START** in the launcher (not **X**, and not from TWiLight Menu++): that's what puts its set on the SD card. |
+| The in-game menu says "no set loaded" or "another game's" | Start the game from the launcher (**Games**, or **START** for the last one), not from TWiLight Menu++: that's what puts its set on the SD card. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
 | Discord stopped after the DSi's lid was closed | On purpose: a DSi that sleeps while connected switches itself off, so its Wi-Fi goes off with the lid. Achievements are still checked and saved. Start the game from the launcher again to reconnect. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |

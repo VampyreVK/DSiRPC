@@ -63,21 +63,18 @@ STEP 3: PLAYING
 1. Start DSiRPC on the PC (DSiRPC.bat), or turn on "Start with Windows"
    in its menu so it's always there.
 
-2. On the console, open roms/nds/DSiRPC/dsirpc-launcher.nds from TWiLight
-   Menu++.
-   It connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign
-   green) and shows the console's IP address. X exits and stays connected,
-   SELECT disconnects and exits.
+2. On the console, open the DSiRPC folder in roms/nds from TWiLight
+   Menu++ and start dsirpc-launcher.nds. It connects to Wi-Fi and finds
+   DSiRPC (the top screen says which PC it's on).
 
-3. Press START and pick your game (it opens in roms/nds): A opens a
-   folder or picks the game, B goes up, START picks the game you last
-   started from the launcher, SELECT goes back. The game starts, still
-   connected.
+3. Open Games and pick your game: A starts it, still connected, and B goes
+   back. Next time, START on the main screen starts the game you played
+   last.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 
 Save backups: Y in the launcher backs up your games' saves to the PC and
-takes newer ones from it (from your other console, say; the launcher
+downloads newer ones from it (from your other console, say; the launcher
 says whose). The PC keeps the live save your consoles share and each
 console's last 10 backups in its saves folder (tray menu > Open save
 backups). L+R opens the launcher's settings: how it finds DSiRPC, and

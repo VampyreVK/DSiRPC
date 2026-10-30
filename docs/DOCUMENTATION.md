@@ -1352,7 +1352,7 @@ lane. The console still checks versions 2 and 3.)
 
 ### The save sync (TCP 4245)
 
-Y in the launcher backs the games' saves up to DSiRPC and takes newer ones
+Y in the launcher backs the games' saves up to DSiRPC and downloads newer ones
 from it. `core/saves.py` (the PC's copy), `core/save_session.py` (the
 exchange, with every message's layout) and `launcher/source/savesync.c`
 (the console's side) are the three parts; `core/console_sync.py` hands

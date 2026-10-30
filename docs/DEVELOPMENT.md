@@ -229,6 +229,7 @@ For testing and development, run from the repo root:
 | `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
+| `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL) and writes the README's pictures, `docs/images/launcher-*.svg`. Run it after changing the screens |
 | `tools/make_pixel_dsi.py` | Makes the pixel DSi's GIFs from `overlay/ui.py`'s: Discord's "Pixel DSi" console picture (`Assets/Consoles/Pixel.gif`) and the launcher's animated icon (`launcher/icon.gif`). Run it after changing the DSi; needs pygame and Pillow |
 | `tools/arm7_model/arm7_model.py` | How many ARM7 cycles the console's achievement checker takes a pass, and where they go (`--profile`), from a set in `ra/`; `--compare` a changed copy of the checker. Needs Docker (devkitARM) and `pip install unicorn`; see its [README](../tools/arm7_model/README.md) |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`), and `--watch` to print whatever changes in some ranges while you play |
@@ -341,10 +342,11 @@ How the app differs from the Windows download:
 [`tests/`](../tests/README.md) checks what decides whether an achievement is
 missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
 write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
-against rcheevos frame by frame, the launcher's save sync and updates (built
-for the PC), and DSiRPC's side (the offline formats, the launcher's sync,
-the protocol client, the Black/White parser, the hub) against a fake DSi on
-the loopback network. From the repo root:
+against rcheevos frame by frame, the launcher's save sync, updates,
+playtimes and modern look's screens (built for the PC), and DSiRPC's side
+(the offline formats, the launcher's sync, the protocol client, the
+Black/White parser, the hub) against a fake DSi on the loopback network.
+From the repo root:
 
 ```
 python -m pip install -r tests/requirements.txt

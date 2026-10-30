@@ -23,6 +23,14 @@ your PC over Wi-Fi, which turns it into your Discord status, a stream
 overlay and achievement unlocks. No emulator, no capture card: just your
 console and your PC.
 
+<p align="center">
+  <img src="docs/images/launcher-home.svg" width="200" alt="The launcher on a DSi: the pixel DSi and the PC it found on the top screen, tiles for Play, Saves, Settings and Exit below">
+  <img src="docs/images/launcher-games.svg" width="200" alt="The game list: each game's icon and achievements below, the picked game's icon, achievements, playtime and last played on the top screen">
+  <img src="docs/images/launcher-achievements.svg" width="200" alt="A game's achievements, earned ones checked, with the picked one's description and points on the top screen">
+  <img src="docs/images/launcher-saves.svg" width="200" alt="The save sync: what happens to each save below, the picked save's dates on the console and the PC on the top screen">
+</p>
+<p align="center"><sub>The launcher on your console: the main screen, your games, a game's achievements and the save sync.</sub></p>
+
 ## Features
 
 - **A live Discord status for any DS game:** its name, box art and your

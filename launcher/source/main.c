@@ -823,7 +823,7 @@ static void draw_tile(int i)
     ui_text_wrap(c, x + 8, y + 40, sub, TILE_W - 16, 2, UI_DIM);
     if (i == TILE_SAVES && saves_ready() && saves_changed > 0)
     {
-        char n[8];
+        char n[16];
         snprintf(n, sizeof(n), "%d", saves_changed > 99 ? 99 : saves_changed);
         ui_chip(c, x + TILE_W - 8 - ui_chip_width(n), y + 8, n, UI_AMBER, UI_AMBER_DARK);
     }

@@ -933,6 +933,13 @@ static int plan_exchange(const SyncJob *job, SaveList *list, const struct sockad
         it->pc_size = get32(p + 8);
         it->pc_crc = get32(p + 12);
         it->pc_time = get32(p + 16);
+        // Never a download over a save written after the PC's (as the
+        // consoles' clocks have it: the PC dates a save by when its console
+        // wrote it): that's a conflict, for the player to settle, whatever
+        // DSiRPC planned
+        if (it->action == SA_DOWNLOAD && it->present && it->pc_time != 0 && it->mtime > UNIX_TIME_2000 &&
+            (uint32_t)(it->mtime - UNIX_TIME_2000) > it->pc_time)
+            it->action = SA_CONFLICT;
         it->versions = p[20];
         snprintf(it->pc_source, sizeof(it->pc_source), "%.32s", source);
         it->choice = SC_ASK;

@@ -754,7 +754,7 @@ static void versions_screen(SaveItem *it)
             format_time(when, sizeof(when), v[sel].time);
             snprintf(text, sizeof(text), "%s, from %.18s.%s%s", when, v[sel].source,
                      it->present ? "\nThe console's save goes to the PC first, so it can come back too." : "",
-                     console.backup_only ? "" : "\nYour other consoles get it at their next sync.");
+                     console.backup_only ? "" : "\nYour other consoles are offered it at their next sync.");
             ui_sound(SND_SELECT);
             ui_card("Put this version back?", text, UI_CYAN, keys, 2);
             wait_release();
@@ -807,7 +807,7 @@ static void versions_screen(SaveItem *it)
             if (it->present)
                 printf("The console's save now goes\nto the PC first, so it can be\nput back too.\n");
             if (!console.backup_only)
-                printf("\nYour other consoles get it at\ntheir next sync.\n");
+                printf("\nYour other consoles are offered\nit at their next sync.\n");
             printf("\x1b[22;0HA: yes, put it on\x1b[23;0HB: no");
             wait_release();
             if (wait_keys(KEY_A | KEY_B) & KEY_B)

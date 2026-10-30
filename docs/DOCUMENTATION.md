@@ -1357,15 +1357,23 @@ nothing waits while the list is on the console's screen:
 Each request starts with the exchange's version (2; a launcher from another
 release is told so), the console's MAC, its model and the save mode (back up
 and sync, or back up only); the MAC and model name the console ("DSi 3F21",
-"3DS 0002") for its backups. The plan is three-way, with no clocks
-involved: the console's CRC now, the live save's, and what the console had
-at its last sync (the save it sent or took: from `saves.idx`, or, if the
-console sends none, what DSiRPC remembers it had). The same CRC means in
-sync; the live save still matching the last sync means only the console
-changed (upload); the console's still matching it means a newer save from
-another console (download); anything else is a conflict, and the console
-asks. Back-up-only consoles only ever upload backups, and their saves are
-never offered to anyone.
+"3DS 0002") for its backups. The plan is three-way: the console's CRC now,
+the live save's, and what the console had at its last sync (the save it
+sent or took: from `saves.idx`, if that sync was with this DSiRPC, else
+what this DSiRPC remembers it had). A last sync counts only if its save
+was live here (now or before) or this DSiRPC noted the console had it: a
+copy kept of a console's save about to be replaced is no sync (the console
+may have synced it with another PC). The same CRC means in sync; the live
+save still matching the last sync means only the console changed (upload);
+the console's still matching it means a newer save from another console
+(download), unless a copy of the console's save here was written after
+the live one (by the consoles' clocks: a restore of an older version, or a
+console's save that went up only as a safety copy): then, as with anything
+else, it's a conflict, and the console asks. The launcher holds to that
+too: a planned download over a save written after the PC's live one (its
+time in the plan) is a conflict on the console's list. Back-up-only
+consoles only ever upload backups, and their saves are never offered to
+anyone.
 
 **On the console**, `saves.idx` (next to the launcher, one tab-separated
 line per save: code, header CRC, slot, size, time, CRC, CRC at the last

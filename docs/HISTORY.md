@@ -285,6 +285,16 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-30: **Never an older save over a newer one.** Viv's Platinum on
+  the 3DS: the Mac's live save was from the 21st, and the 3DS's saves from
+  the 24th and 26th were only there as copies kept before downloads
+  replaced them; the fix of the day before counted those copies as syncs
+  (DSiRPC "knew" the 26th), so the 3DS was handed the 21st again. A last
+  sync only counts now if its save was live on that DSiRPC (or it noted the
+  console had it), and a download over a save written after the live one,
+  by the consoles' clocks, is a conflict, on the PC and, whatever the plan
+  says, on the console.
+
 - 2026-10-29 (evening): **The launcher's modern look, and a save sync fix
   for two PCs.** The bottom screen used to be the text console; now it
   draws in the desktop app's colors (`launcher/source/ui.c`): a checklist

@@ -79,7 +79,9 @@ DSiRPC (`core/saves.py`) compares each save three ways (the console's now,
 the PC's live save, and what the console had at its last sync: its own
 `saves.idx` says, or else what DSiRPC remembers it sent or took) and
 answers with a plan: back up, take the newer one (and whose it is), ask
-(changed on both), or nothing. The launcher shows it, with the console each
+(changed on both), or nothing. A save written after the PC's live one (by
+the consoles' clocks) is never replaced without asking: whatever the plan
+says, the launcher makes a download over it a conflict. The launcher shows it, with the console each
 save came from, and carries out what you pick, one request per connection
 (`core/save_session.py` describes the exchange). An upload carries the
 save's time, which dates DSiRPC's copy; DSiRPC keeps it as one of that

@@ -216,9 +216,13 @@ console had at its last sync (the save it sent or took):
 |---|---|---|
 | green `^` | Changed on this console since its last sync, and nothing newer from the others | Backs it up (your other consoles get it at their next sync) |
 | cyan `v` | Unchanged here, and a newer save from another console (or only on the PC: the game is here, its save isn't) | Takes it; the list says whose it is |
-| yellow `!` | Changed here, and a newer save from another console | Asks: **L** keeps this console's, **R** takes the other one, **B** decides later |
+| yellow `!` | Changed here, and a newer save from another console (or this console's save was written after the PC's) | Asks: **L** keeps this console's, **R** takes the other one, **B** decides later |
 | grey `x` | Left out | Nothing, until it's back in |
 | (none) | In sync | Nothing |
+
+A save on the console is never replaced by an older one without asking:
+when the PC's is older than the console's (by when each console wrote
+them; say one console put an older version back), it's a `!`, never a `v`.
 
 **A** syncs the save picked (or everything, on Sync all), **START** syncs
 everything, **Y** leaves a save out (or puts it back in), **X** lists the

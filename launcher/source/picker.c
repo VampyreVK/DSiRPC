@@ -389,7 +389,7 @@ static Game *add_game(void)
     return g;
 }
 
-static void scan_dir(const char *dir, int depth)
+static void scan_dir(const char *dir, int depth, const char *launcher_dir)
 {
     DIR *d = opendir(dir);
     if (d == NULL)
@@ -397,7 +397,9 @@ static void scan_dir(const char *dir, int depth)
     struct dirent *e;
     while ((e = readdir(d)) != NULL && n_games < MAX_GAMES)
     {
-        // Like the save sync: not hidden files, "_nds" and the like, or saves
+        // Like the save sync: not hidden files, "_nds" and the like, or
+        // saves; nor the launcher's own folder (sd:/roms/nds/DSiRPC, with
+        // the games): the launcher and our nds-bootstrap aren't games
         if (e->d_name[0] == '.')
             continue;
         char path[PATH_LEN];
@@ -405,8 +407,9 @@ static void scan_dir(const char *dir, int depth)
         bool sub = e->d_type == DT_DIR || (e->d_type == DT_UNKNOWN && is_dir(path));
         if (sub)
         {
-            if (depth < MAX_DEPTH && e->d_name[0] != '_' && strcasecmp(e->d_name, "saves") != 0)
-                scan_dir(path, depth + 1);
+            if (depth < MAX_DEPTH && e->d_name[0] != '_' && strcasecmp(e->d_name, "saves") != 0 &&
+                strcasecmp(path, launcher_dir) != 0)
+                scan_dir(path, depth + 1, launcher_dir);
             continue;
         }
         struct stat st;
@@ -481,7 +484,7 @@ static bool is_pending(uint32_t id)
 static bool load_games(const PickerUi *ui)
 {
     n_games = 0;
-    scan_dir(ui->games_dir, 0);
+    scan_dir(ui->games_dir, 0, ui->index_dir);
     int count;
     Game *index = load_index(ui->index_dir, &count);
     int to_read = 0;

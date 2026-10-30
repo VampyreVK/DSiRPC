@@ -92,7 +92,7 @@
 #define DHCP_TIMEOUT_S    10   // per try, then for an IPv4 address
 
 // Our nds-bootstrap build, looked for next to the launcher (both go in
-// sd:/DSiRPC/)
+// sd:/roms/nds/DSiRPC/)
 #define BOOTSTRAP_NAME    "nds-bootstrap-dsirpc.nds"
 #define BOOTSTRAP_PREFIX  "nds-bootstrap"
 #define LAUNCHER_NAME     "dsirpc-launcher.nds"

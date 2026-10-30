@@ -18,7 +18,7 @@
 
 typedef struct
 {
-    const char *sets_dir;       // where the sets are kept ("sd:/DSiRPC/sets")
+    const char *sets_dir;       // where the sets are kept ("sd:/roms/nds/DSiRPC/sets")
     const char *unlocks_path;   // UNLOCKS_PATH
     char game[5];               // the game being started ("CPUE"), or ""
     int console_model;          // console_model(), so DSiRPC can say "3DS"

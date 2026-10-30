@@ -11,8 +11,9 @@
 //                                screen's clear pixels magenta): render N,
 //                                then pattern RRGGBB RRGGBB RRGGBB (the
 //                                diamonds' backdrop, tile and dot)
-//   games sd|sort                the game list (sort: 0 recent, 1 A-Z, 2
-//                                favorites first): game lines
+//   games sd|sort[|folder]       the game list (sort: 0 recent, 1 A-Z, 2
+//                                favorites first; the launcher in sd's
+//                                folder, "DSiRPC" if not given): game lines
 //                                code|name|publisher|version|favorite|last
 //                                played|earned/total, then games N
 //   favorite sd|path             Y on a game, then back out
@@ -191,9 +192,9 @@ int main(void)
             fclose(scenes);
             printf("demo %d\n", demo_frames);
         }
-        else if (strcmp(line, "games") == 0 && nf == 2)
+        else if (strcmp(line, "games") == 0 && (nf == 2 || nf == 3))
         {
-            host_games(f[0], atoi(f[1]));
+            host_games(f[0], atoi(f[1]), nf == 3 ? f[2] : "DSiRPC");
         }
         else if (strcmp(line, "favorite") == 0 && nf == 2)
         {

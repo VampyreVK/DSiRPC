@@ -35,9 +35,10 @@ version; [DOCUMENTATION.md](DOCUMENTATION.md) has how it all works inside.
 4. Double-click **`DSiRPC.bat`**. Its icon appears by the clock. When
    Windows asks about the firewall, allow **private networks**, or DSiRPC
    never hears from the console.
-5. Copy the `DSiRPC` folder from the zip's `SD card` folder to the root of
-   your SD card, so you have `sd:/DSiRPC/dsirpc-launcher.nds` and
-   `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`. Keep the two together.
+5. Copy the entire `DSiRPC` folder from the zip's `SD card` folder to
+   `/roms/nds` on your console's SD card, so you have
+   `sd:/roms/nds/DSiRPC/dsirpc-launcher.nds` and
+   `sd:/roms/nds/DSiRPC/nds-bootstrap-dsirpc.nds`. Keep the two together.
 
 ### On a Mac
 
@@ -54,8 +55,8 @@ Its settings, log, achievement sets and save backups are in
 
 1. **PC:** start DSiRPC, or turn on **Start with Windows** in its menu so
    it's always there.
-2. **Console:** open `DSiRPC/dsirpc-launcher.nds` from TWiLight Menu++. It
-   connects to Wi-Fi, ticking off each step on the bottom screen (the DSi on
+2. **Console:** open the `DSiRPC` folder in `roms/nds` from TWiLight Menu++
+   and start `dsirpc-launcher.nds`. It connects to Wi-Fi, ticking off each step on the bottom screen (the DSi on
    the top screen turns its Wi-Fi sign green), and finds DSiRPC. (Away from
    your PC? Press **B** to [play offline](#playing-offline).)
 3. Open **Games** (or press **START** to start the game you played last) and
@@ -161,7 +162,7 @@ time from its clock.
 Whenever the launcher reaches DSiRPC (when it connects, and again when you
 start a game; **B** skips it), the two sync: DSiRPC sends the
 [achievement sets](#retroachievements) you have (the launcher keeps them in
-`sd:/DSiRPC/sets`), and the launcher hands over the offline unlocks, which
+`sd:/roms/nds/DSiRPC/sets`), and the launcher hands over the offline unlocks, which
 DSiRPC sends to RetroAchievements if sending is on. This works for games
 started from the launcher, which puts the game's set on the SD card.
 

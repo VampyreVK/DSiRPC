@@ -75,10 +75,11 @@ console and your PC.
    - Mac: drag **DSiRPC.app** into Applications and open it with
      right-click > **Open** the first time. Setup opens by itself. Allow it
      on the **local network** when macOS asks.
-3. **Set up the SD card:** copy the `DSiRPC` folder from the zip's `SD card`
-   folder to the root of your SD card.
-4. **Play:** on the console, open `DSiRPC/dsirpc-launcher.nds` from TWiLight
-   Menu++, press **START** and pick a game.
+3. **3DS/DSi:** copy the entire `DSiRPC` folder from the zip's `SD card`
+   folder to `/roms/nds` on your console's SD card.
+4. **Play:** on the console, open the `DSiRPC` folder in `roms/nds` from
+   TWiLight Menu++ and start `dsirpc-launcher.nds`. Once it connects, open
+   **Games** and pick one (next time, **START** starts the last one).
 
 Within about 15 seconds, Discord shows what you're playing. The zip's
 `README.txt` walks through each step, and the

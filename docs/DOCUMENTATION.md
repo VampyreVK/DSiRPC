@@ -146,7 +146,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 
 | File | Where | Notes |
 |---|---|---|
-| `dsirpc-launcher.nds` | Next to our nds-bootstrap build: `sd:/DSiRPC/` in the release download's `SD card` folder | Must be started in **DSi mode** |
+| `dsirpc-launcher.nds` | Next to our nds-bootstrap build: `sd:/roms/nds/DSiRPC/` (the `DSiRPC` folder in the release download's `SD card` folder, copied to `roms/nds` with the games; the game list leaves it out) | Must be started in **DSi mode** |
 | Our `nds-bootstrap-nightly.nds`, renamed `nds-bootstrap-dsirpc.nds` | Next to the launcher | Kept separate from TWiLight's stock copy so the two don't get mixed up. The launcher looks for this name in its folder (or the only `nds-bootstrap*.nds` there), and asks for it otherwise |
 | `RPCHAND.TXT` | SD root | Written by the launcher every time; don't edit it |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |

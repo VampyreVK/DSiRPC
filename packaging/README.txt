@@ -46,11 +46,12 @@ STEP 1: THE PC
 
 STEP 2: THE SD CARD
 ---------------------------------------------------------------------
-Copy the DSiRPC folder from the "SD card" folder here to the root of
-your console's SD card. You should end up with:
+Copy the entire DSiRPC folder from the "SD card" folder here to
+/roms/nds on your console's SD card, with your games. You should end up
+with:
 
-    sd:/DSiRPC/dsirpc-launcher.nds
-    sd:/DSiRPC/nds-bootstrap-dsirpc.nds
+    sd:/roms/nds/DSiRPC/dsirpc-launcher.nds
+    sd:/roms/nds/DSiRPC/nds-bootstrap-dsirpc.nds
 
 Keep those two files together, in the same folder. This is the only time
 they need copying: after that, the launcher updates them from DSiRPC
@@ -62,7 +63,8 @@ STEP 3: PLAYING
 1. Start DSiRPC on the PC (DSiRPC.bat), or turn on "Start with Windows"
    in its menu so it's always there.
 
-2. On the console, open DSiRPC/dsirpc-launcher.nds from TWiLight Menu++.
+2. On the console, open roms/nds/DSiRPC/dsirpc-launcher.nds from TWiLight
+   Menu++.
    It connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign
    green) and shows the console's IP address. X exits and stays connected,
    SELECT disconnects and exits.

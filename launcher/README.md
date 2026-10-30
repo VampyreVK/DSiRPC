@@ -324,8 +324,10 @@ keeps `Wifi_Update()` from running inside itself (BlocksDS added that after
 (`source/watchdog.c`): if the ARM7 stops, the bottom screen shows how much of
 those stacks was used, and how often a music tick had to wait, for a photo.
 Copy the launcher to the SD card next to our nds-bootstrap build
-(`nds-bootstrap-dsirpc.nds`), for example both in `sd:/DSiRPC/` as in the
-release download, and start it in DSi mode.
+(`nds-bootstrap-dsirpc.nds`), for example both in `sd:/roms/nds/DSiRPC/` as
+the release download's instructions say, and start it in DSi mode. Its
+settings and the sets go in its folder, wherever that is (the game list
+leaves that folder out).
 
 In the DSi's menus (and TWiLight Menu++) it shows as "DSiRPC / RPC & RA
 Tracking / VampyreVK" with an animated icon: the pixel DSi from DSiRPC's

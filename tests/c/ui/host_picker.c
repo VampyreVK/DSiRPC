@@ -9,15 +9,22 @@
 static char games_dir[600], index_dir[600], sets_dir[600], unlocks[600], ini[600];
 static LauncherSettings picker_settings;
 
-static PickerUi sd_card(const char *sd)
+// The SD card at sd, the launcher in its folder there (sd's "DSiRPC", or
+// another: "roms/nds/DSiRPC", with the games)
+static PickerUi sd_card_with(const char *sd, const char *folder)
 {
     snprintf(games_dir, sizeof(games_dir), "%s/roms/nds", sd);
-    snprintf(index_dir, sizeof(index_dir), "%s/DSiRPC", sd);
-    snprintf(sets_dir, sizeof(sets_dir), "%s/DSiRPC/sets", sd);
+    snprintf(index_dir, sizeof(index_dir), "%s/%s", sd, folder);
+    snprintf(sets_dir, sizeof(sets_dir), "%s/%s/sets", sd, folder);
     snprintf(unlocks, sizeof(unlocks), "%s/RPCUNLK.BIN", sd);
-    snprintf(ini, sizeof(ini), "%s/DSiRPC/launcher.ini", sd);
+    snprintf(ini, sizeof(ini), "%s/%s/launcher.ini", sd, folder);
     PickerUi ui = { games_dir, index_dir, sets_dir, unlocks, NULL, &picker_settings, ini };
     return ui;
+}
+
+static PickerUi sd_card(const char *sd)
+{
+    return sd_card_with(sd, "DSiRPC");
 }
 
 static bool load(const PickerUi *ui, int sort)
@@ -71,9 +78,9 @@ void host_demo_games(const char *sd, const char *code, bool achievements)
     free_games();
 }
 
-void host_games(const char *sd, int sort)
+void host_games(const char *sd, int sort, const char *folder)
 {
-    PickerUi ui = sd_card(sd);
+    PickerUi ui = sd_card_with(sd, folder);
     if (!load(&ui, sort))
     {
         printf("games -1\n");

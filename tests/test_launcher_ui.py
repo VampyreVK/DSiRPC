@@ -122,6 +122,21 @@ def test_names_come_from_the_banners(host, sd):
     assert [r[1].lower() for r in rows] == sorted(r[1].lower() for r in rows)      # A-Z
 
 
+def test_the_launchers_own_folder_isnt_games(host, sd):
+    """The DSiRPC folder goes in roms/nds, with the games: the launcher and
+    our nds-bootstrap in it aren't on the list, games in other folders are"""
+    folder = os.path.join("roms", "nds", "DSiRPC")
+    lui.write(os.path.join(sd, folder, "dsirpc-launcher.nds"), lui.rom("DRPC", "DSiRPC\nVampyreVK"))
+    lui.write(os.path.join(sd, folder, "nds-bootstrap-dsirpc.nds"), lui.rom("NDSB", "nds-bootstrap\nDS-Homebrew"))
+    lui.write(os.path.join(sd, "roms", "nds", "RPG", "Layton 2.nds"), lui.rom("YLTE", "Layton 2\nLevel-5"))
+    out = lui.run(host, f"games {sd}|1|{folder}")
+    codes = [ln[5:].split("|")[0] for ln in out if ln.startswith("game ")]
+    assert "DRPC" not in codes and "NDSB" not in codes
+    assert "YLTE" in codes and len(codes) == len(lui.GAMES) + 1
+    # (with the launcher elsewhere, the same folder's files would be games)
+    assert {"DRPC", "NDSB"} <= {r[0] for r in games(host, sd)}
+
+
 def test_games_idx_keeps_what_was_read(host, sd):
     games(host, sd)
     with open(os.path.join(sd, "DSiRPC", "games.idx"), encoding="ascii") as f:

@@ -104,7 +104,7 @@ docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro
 ```
 
 The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
-the SD card as `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
+the SD card as `sd:/roms/nds/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
 Menu++'s own copy, so you always know which one you are launching (or let
 the launcher take it: DSiRPC run from the source code offers its own builds
 as updates). The build prints a few harmless `fatal: not a git repository`
@@ -129,7 +129,7 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 The output is `launcher\dsirpc-launcher.nds` (the same command builds the
 loader in `launcher/loader/` and the launcher's ARM7 core in `launcher/arm7/`
 first). Copy it next to our nds-bootstrap, as
-`sd:/DSiRPC/dsirpc-launcher.nds`: it looks for `nds-bootstrap-dsirpc.nds` in
+`sd:/roms/nds/DSiRPC/dsirpc-launcher.nds`: it looks for `nds-bootstrap-dsirpc.nds` in
 its own folder. It must be started in **DSi mode**. Details are in
 [launcher/README.md](../launcher/README.md).
 

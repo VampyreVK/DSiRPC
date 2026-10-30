@@ -46,7 +46,7 @@ Usage, from the repo root:
   python tools/arm7_model/arm7_model.py ADME --profile functions  # where the cycles go, by function
   python tools/arm7_model/arm7_model.py ADME --profile lines --top 30
   python tools/arm7_model/arm7_model.py CPUE --compare C:\\Projects\\vm_try   # this repo's checker against a changed copy
-  python tools/arm7_model/arm7_model.py --set CPUE.DRS            # a set file as the launcher keeps them (sd:/DSiRPC/sets)
+  python tools/arm7_model/arm7_model.py --set CPUE.DRS            # a set file as the launcher keeps them (sd:/roms/nds/DSiRPC/sets)
 
 --compare (and --vm) take folders with probe_ach_vm.c and probe_ach_vm.h; the
 default is nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe. Builds go

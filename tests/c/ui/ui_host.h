@@ -40,8 +40,8 @@ void host_demo_settings(int row);
 // maxmod's calls since it was last emptied (host_stubs.c)
 extern char host_music_log[1024];
 
-// The game list's findings, printed (picker)
-void host_games(const char *sd, int sort);
+// The game list's findings, printed (picker), the launcher in sd's folder
+void host_games(const char *sd, int sort, const char *folder);
 void host_favorite(const char *sd, const char *path);
 void host_started(const char *sd, const char *path);
 

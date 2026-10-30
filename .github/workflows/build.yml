@@ -129,7 +129,8 @@ jobs:
     runs-on: windows-latest
     steps:
       # DSiRPC's own files; of Assets/, only the console pictures (the
-      # overlay downloads its sprites when it needs them)
+      # overlay downloads its sprites when it needs them); and the
+      # launcher's songs, the overlay's ambient music
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
@@ -143,6 +144,7 @@ jobs:
             ra
             packaging
             Assets/Consoles
+            launcher/audio
           filter: blob:none
 
       - uses: actions/download-artifact@v4
@@ -176,7 +178,8 @@ jobs:
     needs: [nds-bootstrap, launcher]
     runs-on: macos-latest   # Apple silicon
     steps:
-      # DSiRPC's own files, the console pictures and the app's icon
+      # DSiRPC's own files, the console pictures, the app's icon and the
+      # launcher's songs (the overlay's ambient music)
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
@@ -189,6 +192,7 @@ jobs:
             packaging
             Assets/Consoles
             Assets/icons
+            launcher/audio
           filter: blob:none
 
       - uses: actions/download-artifact@v4

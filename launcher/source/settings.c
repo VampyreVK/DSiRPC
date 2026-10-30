@@ -187,7 +187,7 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
     }
     else
     {
-        printf("\x1b[30;1m%c Address:     (looked for)\x1b[39;0m\n", row == ROW_ADDRESS ? '>' : ' ');
+        printf("\x1b[30;1m%c Address:     (auto)\x1b[39;0m\n", row == ROW_ADDRESS ? '>' : ' ');
     }
     printf("%c Saves:       %s\n", row == ROW_SAVES ? '>' : ' ', s->backup_only ? "back up only" : "back up and sync");
     printf("%c Auto-update: %s\n", row == ROW_UPDATES ? '>' : ' ', s->auto_update ? "on" : "off");
@@ -263,7 +263,7 @@ static void draw_modern(const LauncherSettings *s, int row, bool manual, const i
         case ROW_ADDRESS:
             if (!manual)
             {
-                ui_text_right(c, right, y + TEXT_Y, "Looked for", UI_DIM);
+                ui_text_right(c, right, y + TEXT_Y, "Auto", UI_DIM);
                 break;
             }
             {

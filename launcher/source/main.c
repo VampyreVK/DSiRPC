@@ -1234,7 +1234,7 @@ int main(int argc, char *argv[])
             if (sync_found_addr != 0)
                 fetch_stats(dir, warned);
             else if (!warned)
-                top_note("DSiRPC wasn't found", "Saves and sets wait for it");
+                top_note("DSiRPC wasn't found", "Saves+achievements not synced");
             if (settings.auto_update && sync_found_addr != 0 && !offer_update(dir, &redraw))
                 return 0;
             if (redraw && ui_on())

@@ -57,9 +57,9 @@ void host_save_screens(void)
     draw_versions_modern(&list.items[0], v, 3, 1, 0);
     host_shot("saves_versions");
     begin("Syncing saves (2 of 4)");
-    progress("Taking Pokemon Black\nfrom: DSi 3F21", 300, 1000);
+    progress("Downloading Pokemon Black\nfrom: DSi 3F21", 300, 1000);
     host_shot("saves_progress");
-    message_tone("Saves synced", "3 backed up\n1 taken from the PC\n0 left to decide\n\nEverything else is in sync.",
+    message_tone("Saves synced", "3 uploaded\n1 downloaded\n\nEverything else is in sync.",
                  UI_GREEN);
     host_shot("saves_done");
     empty_list();
@@ -77,11 +77,11 @@ void host_demo_saves(int row)
 void host_demo_saves_progress(int pct)
 {
     begin("Syncing saves (2 of 4)");
-    progress("Taking Pokemon Black\nfrom: DSi 3F21", (uint32_t)pct * 10, 1000);
+    progress("Downloading Pokemon Black\nfrom: DSi 3F21", (uint32_t)pct * 10, 1000);
 }
 
 void host_demo_saves_done(void)
 {
-    message_tone("Saves synced", "3 backed up\n1 taken from the PC\n0 left to decide\n\nEverything else is in sync.",
+    message_tone("Saves synced", "3 uploaded\n1 downloaded\n\nEverything else is in sync.",
                  UI_GREEN);
 }

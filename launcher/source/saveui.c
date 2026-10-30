@@ -233,7 +233,7 @@ static void progress(const char *what, uint32_t done, uint32_t total)
         return;
     }
     printf("\x1b[0;0H%-31.31s\n-------------------------------\n", progress_title);
-    // What it's doing, on up to two lines ("Taking Pokemon Black\nfrom: 3DS 3F21")
+    // What it's doing, on up to two lines ("Downloading Pokemon Black\nfrom: 3DS 3F21")
     const char *nl = strchr(what, '\n');
     int first = nl != NULL ? (int)(nl - what) : (int)strlen(what);
     printf("\x1b[3;0H%-31.*s\n", first > 31 ? 31 : first, what);
@@ -330,23 +330,27 @@ static void detail(const SaveItem *it, char *out, size_t outsz)
         snprintf(out, outsz, "Synced");
     else
     {
+        // What the sync does: uploads it (the save the other consoles
+        // get), backs it up (back up only), or downloads the PC's
         switch (it->action)
         {
         case SA_UPLOAD:
+            snprintf(out, outsz, it->base ? "Changed here: upload it" : "New here: upload it");
+            break;
         case SA_BACKUP:
             snprintf(out, outsz, it->base ? "Changed here: back it up" : "New here: back it up");
             break;
         case SA_DOWNLOAD:
             if (it->pc_source[0] != '\0')
-                snprintf(out, outsz, "From %s, %s", it->pc_source, when);
+                snprintf(out, outsz, "Newer from %s: download it", it->pc_source);
             else
-                snprintf(out, outsz, "Newer on the PC: %s", when);
+                snprintf(out, outsz, "Newer on the PC: download it");
             break;
         case SA_DOWNLOAD_NEW:
             if (it->pc_source[0] != '\0')
-                snprintf(out, outsz, "New from %s, %s", it->pc_source, when);
+                snprintf(out, outsz, "New from %s: download it", it->pc_source);
             else
-                snprintf(out, outsz, "Only on the PC: %s", when);
+                snprintf(out, outsz, "Only on the PC: download it");
             break;
         case SA_CONFLICT:
             snprintf(out, outsz, "Changed here and on the PC");
@@ -579,11 +583,10 @@ static SaveChoice ask_conflict(const SaveItem *it)
     if (ui_on())
     {
         // Both dates are on the top screen (the save's details)
-        char keep[24], text[160];
-        snprintf(keep, sizeof(keep), "Keep %s's", self);
-        UiKey keys[] = { { "L", keep, KEY_L }, { "R", "Take PC's", KEY_R }, { "B", "Later", KEY_B } };
+        char text[200];
+        static const UiKey keys[] = { { "L", "Upload", KEY_L }, { "R", "Download", KEY_R }, { "B", "Later", KEY_B } };
         snprintf(text, sizeof(text), "%s changed here and on the PC since the last sync.\n\n"
-                 "The one you don't pick stays in the PC's backups.", name);
+                 "Upload this %s's or download the PC's: the other stays in the PC's backups.", name, self);
         show_save(it);
         ui_sound(SND_TOGGLE);
         ui_card("Both saves changed", text, UI_AMBER, keys, 3);
@@ -611,8 +614,8 @@ static SaveChoice ask_conflict(const SaveItem *it)
         printf("          from: %.15s\n", it->pc_source);
     printf("\nThe one you don't pick is kept\nin the PC's backups.\n");
     printf("\x1b[20;0H-------------------------------");
-    printf("\x1b[21;0HL: keep this %s's", self);
-    printf("\x1b[22;0HR: take the PC's");
+    printf("\x1b[21;0HL: upload this %s's", self);
+    printf("\x1b[22;0HR: download the PC's");
     printf("\x1b[23;0HB: decide later");
     wait_release();
     u32 k = wait_keys(KEY_L | KEY_R | KEY_B);
@@ -669,7 +672,7 @@ static void draw_versions_modern(const SaveItem *it, const SaveVersion *v, int n
         ui_touch_add(4, y, UI_W - 16, M_ROW_H - 2, i);
     }
     ui_scrollbar(UI_W - 8, M_LIST_Y, M_ROWS * M_ROW_H - 2, top, M_ROWS, n);
-    static const UiKey keys[] = { { "A", "Put it back", KEY_A }, { "B", "Back", KEY_B } };
+    static const UiKey keys[] = { { "A", "Restore", KEY_A }, { "B", "Back", KEY_B } };
     ui_footer(keys, 2);
     ui_present();
 }
@@ -735,14 +738,15 @@ static void versions_screen(SaveItem *it)
             }
             if (!(k & KEY_A))
                 continue;
-            static const UiKey keys[] = { { "A", "Yes, put it back", KEY_A }, { "B", "No", KEY_B } };
+            static const UiKey keys[] = { { "A", "Yes, restore it", KEY_A }, { "B", "No", KEY_B } };
             char when[24], text[200];
             format_time(when, sizeof(when), v[sel].time);
             snprintf(text, sizeof(text), "%s, from %.18s.%s%s", when, v[sel].source,
-                     it->present ? "\nThe console's save goes to the PC first, so it can come back too." : "",
+                     it->present ? "\nThe console's save is backed up on the PC first, so it can be restored too."
+                                 : "",
                      console.backup_only ? "" : "\nYour other consoles are offered it at their next sync.");
             ui_sound(SND_SELECT);
-            ui_card("Put this version back?", text, UI_CYAN, keys, 2);
+            ui_card("Restore this version?", text, UI_CYAN, keys, 2);
             wait_release();
             u32 yes;
             while ((yes = wait_keys(KEY_A | KEY_B)) == 0)
@@ -774,7 +778,7 @@ static void versions_screen(SaveItem *it)
         char from[48];
         snprintf(from, sizeof(from), "%sfrom: %s", v[sel].version == 0 ? "Live, " : "", v[sel].source);
         printf("\x1b[21;0H%-31.31s", from);
-        printf("\x1b[22;0HA: put this one on the console");
+        printf("\x1b[22;0HA: restore this one");
         printf("\x1b[23;0HB: back");
         u32 k = wait_keys(KEY_UP | KEY_DOWN | KEY_A | KEY_B);
         if (k & KEY_UP)
@@ -786,15 +790,15 @@ static void versions_screen(SaveItem *it)
         if (k & KEY_A)
         {
             consoleClear();
-            printf("Put this version on the\nconsole?\n\n%s\n", name);
+            printf("Restore this version?\n\n%s\n", name);
             char when[24];
             format_time(when, sizeof(when), v[sel].time);
             printf("%s, from: %.18s\n\n", when, v[sel].source);
             if (it->present)
-                printf("The console's save now goes\nto the PC first, so it can be\nput back too.\n");
+                printf("The console's save is backed\nup on the PC first, so it can\nbe restored too.\n");
             if (!console.backup_only)
                 printf("\nYour other consoles are offered\nit at their next sync.\n");
-            printf("\x1b[22;0HA: yes, put it on\x1b[23;0HB: no");
+            printf("\x1b[22;0HA: yes, restore it\x1b[23;0HB: no");
             wait_release();
             if (wait_keys(KEY_A | KEY_B) & KEY_B)
                 continue;
@@ -841,17 +845,28 @@ static void sync_all(void)
         saves_sync_item(&job, &console, &server, &list, it, &counts, progress, msg, sizeof(msg));
     }
 
+    // What it did, a line for each that happened: uploaded (the saves the
+    // other consoles get), backed up (back up only), downloaded
     char text[200];
     int up = counts.uploaded - before.uploaded, down = counts.downloaded - before.downloaded;
     int backed = counts.backed_up - before.backed_up, failed = counts.failed - before.failed;
-    snprintf(text, sizeof(text), "%d backed up%s\n%d taken from the PC\n%d left to decide%s",
-             up + backed, backed && !up ? " (back up only)" : "", down, skipped,
-             failed ? "" : "\n\nEverything else is in sync.");
+    size_t n = 0;
+    text[0] = '\0';
+    if (up)
+        n += snprintf(text + n, sizeof(text) - n, "%d uploaded\n", up);
+    if (backed)
+        n += snprintf(text + n, sizeof(text) - n, "%d backed up\n", backed);
+    if (down)
+        n += snprintf(text + n, sizeof(text) - n, "%d downloaded\n", down);
+    if (skipped)
+        n += snprintf(text + n, sizeof(text) - n, "%d left to decide\n", skipped);
+    if (n > 0)
+        text[--n] = '\0';      // (the last line's newline)
     if (failed)
-    {
-        size_t n = strlen(text);
-        snprintf(text + n, sizeof(text) - n, "\n" RED "%d didn't sync" WHITE " (see the list)", failed);
-    }
+        snprintf(text + n, sizeof(text) - n, "%s" RED "%d didn't sync" WHITE " (see the list)", n ? "\n" : "",
+                 failed);
+    else
+        snprintf(text + n, sizeof(text) - n, n ? "\n\nEverything else is in sync." : "Everything is in sync.");
     message_tone("Saves synced", text, failed ? UI_RED : UI_GREEN);
 }
 

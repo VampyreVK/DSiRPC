@@ -212,25 +212,30 @@ for an off-site copy), a folder per game:
 Nothing on either side is replaced without being kept as a backup first.
 
 The list has **Sync all** on top, then each save, decided by what the
-console had at its last sync (the save it sent or took):
+console had at its last sync (the save it uploaded or downloaded). Each has
+a badge (a mark in the classic look), and the top screen says what syncing
+it does:
 
-| Mark | Means | Syncing it |
+| Badge (classic) | Means | Syncing it |
 |---|---|---|
-| green `^` | Changed on this console since its last sync, and nothing newer from the others | Backs it up (your other consoles get it at their next sync) |
-| cyan `v` | Unchanged here, and a newer save from another console (or only on the PC: the game is here, its save isn't) | Takes it; the list says whose it is |
-| yellow `!` | Changed here, and a newer save from another console (or this console's save was written after the PC's) | Asks: **L** keeps this console's, **R** takes the other one, **B** decides later |
-| grey `x` | Left out | Nothing, until it's back in |
-| (none) | In sync | Nothing |
+| green `UP` (`^`) | Changed on this console since its last sync, and nothing newer from the others | **Uploads** it: your other consoles get it at their next sync. In back up only, **backs it up** instead: the PC keeps a copy, and the other consoles don't get it |
+| cyan `DN` (`v`) | Unchanged here, and a newer save from another console (or only on the PC: the game is here, its save isn't) | **Downloads** it; the list says whose it is. The console's save is backed up on the PC first |
+| amber `!` (`!`) | Changed here, and a newer save from another console (or this console's save was written after the PC's) | Asks: **L** uploads this console's, **R** downloads the PC's, **B** decides later. The one you don't pick stays in the PC's backups |
+| `--` (`x`) | Left out | Nothing, until it's included again |
+| `OK` (none) | In sync | Nothing |
 
 A save on the console is never replaced by an older one without asking:
 when the PC's is older than the console's (by when each console wrote
-them; say one console put an older version back), it's a `!`, never a `v`.
+them; say one console restored an older version), it's a `!`, never a
+`DN`.
 
 **A** syncs the save picked (or everything, on Sync all), **START** syncs
-everything, **Y** leaves a save out (or puts it back in), **X** lists the
-versions the PC keeps, with whose each one is, so you can put one back,
-and **B** goes back. Syncing everything asks about each `!` first, shows how
-it's going, then a summary.
+everything, **Y** leaves a save out (or includes it again), **X** lists the
+versions the PC keeps, with whose each one is, so you can **restore** one
+(the console's save is backed up on the PC first), and **B** goes back.
+Syncing everything asks about each `!` first, shows how it's going
+("Uploading", "Backing up", "Downloading"), then a summary of what was
+uploaded, backed up and downloaded.
 
 The launcher only reads the saves whose size or time changed since the last
 sync, so checking is quick. As it connects it also asks DSiRPC what the

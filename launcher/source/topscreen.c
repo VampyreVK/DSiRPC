@@ -661,7 +661,7 @@ void top_save(const TopSave *s)
     {
         snprintf(line, sizeof(line), "%d version%s on the PC", s->versions, s->versions == 1 ? "" : "s");
         ui_text(&cv, 16, 153, line, C_TEXT);
-        ui_text(&cv, 16, 166, "X puts an older one back", C_DIM);
+        ui_text(&cv, 16, 166, "X restores an older one", C_DIM);
     }
     else
     {

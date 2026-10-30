@@ -34,7 +34,7 @@
 //      start our nds-bootstrap build from there). Not B, which the file
 //      browser uses to go up a folder.
 //      Y: the save sync (source/saveui.c, source/savesync.c): back the
-//      games' saves up to DSiRPC, take newer ones from it.
+//      games' saves up to DSiRPC, download newer ones from it.
 //      L+R: the launcher's settings (source/settings.c): DSiRPC's address,
 //      the save sync's mode.
 //

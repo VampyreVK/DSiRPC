@@ -1260,7 +1260,8 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
 }
 
 // The PC's save (version, from: the console it came from) replaces the
-// console's, which goes to the PC first.
+// console's, which is backed up on the PC first: downloading, or restoring
+// an older version.
 static int take_from_pc(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
                         SaveItem *it, uint8_t version, const char *from, uint8_t flags, const uint32_t *listed,
                         SaveProgress progress, char *msg, size_t msgsz)
@@ -1268,7 +1269,7 @@ static int take_from_pc(const SyncJob *job, const SaveConsole *console, const st
     char what[96];
     if (it->present)
     {
-        snprintf(what, sizeof(what), "Keeping %s's save on the PC first", it->name);
+        snprintf(what, sizeof(what), "Backing up %s first", it->name);
         int r = upload(job, console, server, it, PUT_SAFETY, what, progress, msg, msgsz);
         if (r <= 0)
             return r;
@@ -1277,14 +1278,14 @@ static int take_from_pc(const SyncJob *job, const SaveConsole *console, const st
         // for you to decide
         if (listed != NULL && it->crc != *listed)
         {
-            snprintf(msg, msgsz, "This save changed since the\nlist was made. It's kept on\nthe PC; open the list again.");
+            snprintf(msg, msgsz, "This save changed since the\nlist was made. It's backed up\non the PC; open the list again.");
             return -1;
         }
     }
     if (from != NULL && from[0] != '\0')
-        snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Taking", it->name, from);
+        snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Downloading", it->name, from);
     else
-        snprintf(what, sizeof(what), version ? "Restoring %s" : "Taking %s from the PC", it->name);
+        snprintf(what, sizeof(what), version ? "Restoring %s" : "Downloading %s from the PC", it->name);
     return download(job, console, server, it, version, flags, what, progress, msg, msgsz);
 }
 
@@ -1320,7 +1321,9 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
         {
         case SA_UPLOAD:
         case SA_BACKUP:
-            snprintf(what, sizeof(what), "Backing up %s", it->name);
+            // Uploading: it becomes the save the other consoles get;
+            // backing up (back up only): a copy the PC keeps
+            snprintf(what, sizeof(what), action == SA_UPLOAD ? "Uploading %s" : "Backing up %s", it->name);
             r = upload(job, console, server, it, action == SA_UPLOAD ? PUT_SYNC : PUT_BACKUP, what, progress, msg,
                        msgsz);
             if (r > 0)

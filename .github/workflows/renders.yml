@@ -1,15 +1,16 @@
 # Draws the launcher's screens with its own code (tools/render_launcher.py, on
 # the tests' host in tests/c/ui): the README's pictures (SVG), every screen as
-# a PNG, and a demo of the modern look (demo.mp4 with the Bright song, and
-# demo.gif). They're kept as the run's artifact, to look over by hand.
+# a PNG, a demo of the modern look (demo.mp4 with the Bright song, and
+# demo.gif), and the menu music as MP3s (a loop of each song). They're kept as
+# the run's artifact, to look over by hand.
 #
-# When a release is published, the README's pictures and the demo go to the
-# renders branch, which the README shows them from, so they're always the
-# latest release's, and the video goes on the release too. To refresh them
-# any other time, run it by hand (Actions > Renders > Run workflow, from the
-# branch to draw): "publish" is ticked to start with; untick it to only keep
-# them as the run's artifact. The first run, when this file is pushed, makes
-# the branch if it isn't there.
+# When a release is published, the README's pictures, the demo and the music
+# go to the renders branch, which the README shows them from, so they're
+# always the latest release's, and the video goes on the release too. Run by
+# hand (Actions > Renders > Run workflow, from any branch) to try changes: the
+# renders are only the run's artifact, unless "publish" is ticked to put them
+# on the renders branch too. A push of this file runs it as well (artifact
+# only).
 
 name: Renders
 
@@ -19,9 +20,9 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "Refresh the README's pictures and demo from this run (the renders branch)"
+        description: "Also replace the README's pictures, the demo and the music (the renders branch)"
         type: boolean
-        default: true
+        default: false
   push:
     paths:
       - ".github/workflows/renders.yml"
@@ -60,8 +61,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends ffmpeg
 
-      - name: Draw the screens
-        run: python tools/render_launcher.py --out renders --png --demo
+      - name: Draw the screens and play the music
+        run: python tools/render_launcher.py --out renders --png --demo --music
 
       - uses: actions/upload-artifact@v7
         with:
@@ -79,26 +80,24 @@ jobs:
           gh release upload "$TAG" DSiRPC-launcher-demo.mp4 --clobber --repo "$GITHUB_REPOSITORY"
 
       # One commit, replaced each time, so the branch doesn't grow
-      - name: Update the README's pictures
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+      - name: Update the renders branch
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           LABEL="${TAG:-$GITHUB_REF_NAME at ${GITHUB_SHA::7}}"
-          if [ "$GITHUB_EVENT_NAME" = push ] && git ls-remote --exit-code --heads "$remote" renders > /dev/null; then
-            echo "The renders branch is there already: releases update it"
-            exit 0
-          fi
           mkdir pictures
-          cp renders/*.svg renders/demo.gif renders/demo.mp4 pictures/
+          cp renders/*.svg renders/demo.gif renders/demo.mp4 renders/*.mp3 pictures/
           cat > pictures/README.md <<EOF
           # DSiRPC's renders
 
-          The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`)
-          for ${LABEL}. The README shows these; \`.github/workflows/renders.yml\`
-          replaces them when a release is published, so don't edit them here.
+          The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`),
+          its demo, and its menu music as MP3s (\`bright.mp3\`, \`subtle.mp3\`: a loop
+          of each song), for ${LABEL}. The README shows the pictures;
+          \`.github/workflows/renders.yml\` replaces all of them when a release is
+          published, so don't edit them here.
           EOF
           cd pictures
           git init -q -b renders

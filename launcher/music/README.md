@@ -44,7 +44,10 @@ plays on the PC (the tray's Ambient music). How it all fits is in
    ```
 
 The PC side needs nothing more: the overlay plays `launcher/audio/*.xm`
-straight from there, and the Windows and Mac builds ship that folder.
+straight from there, and the Windows and Mac builds ship that folder. For
+anything else, MP3s of both songs (a loop each) are on the repository's
+`renders` branch, made for each release by
+`python tools/render_launcher.py --music` (ffmpeg with libopenmpt).
 
 ## What carries over from the M8
 

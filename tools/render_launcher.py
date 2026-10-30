@@ -7,13 +7,16 @@ made-up SD card (tests/helpers/launcher_ui.py):
     python tools/render_launcher.py --png         every screen as a PNG, and a contact sheet
     python tools/render_launcher.py --demo        a walk through the screens, about 30 s:
                                                   demo.mp4 (with the Bright song) and demo.gif
+    python tools/render_launcher.py --music       the menu music as MP3s, a loop each:
+                                                  bright.mp3 and subtle.mp3
 
 Everything goes to renders/ (--out DIR for another folder); --scale N sizes
 the PNGs and the video (3: 816x1224). The PNGs and the GIF need Pillow, the
-video ffmpeg (built with libopenmpt for the song, as Ubuntu's is; without it
-the video is silent). The README shows the SVGs and the GIF from the
-renders branch, which .github/workflows/renders.yml updates when a release
-comes out.
+video and the music ffmpeg (built with libopenmpt to play the songs, as
+Ubuntu's is; without it the video is silent and there's no music). The
+README shows the SVGs and the GIF from the renders branch, which
+.github/workflows/renders.yml updates when a release comes out, with the
+demo and the MP3s too.
 
 Each SVG is a DSi: the top screen's diamonds as an SVG pattern, the rest as
 rectangles of one color.
@@ -21,6 +24,7 @@ rectangles of one color.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,7 +42,9 @@ PICTURES = {
 BACKGROUND = (14, 20, 27)       # the launcher's darkest grey, around the screens
 GAP = 8                         # DS pixels between the screens, and around them
 DEMO_FPS = 15
-SONG = os.path.join(REPO, "launcher", "audio", "bright.xm")
+AUDIO = os.path.join(REPO, "launcher", "audio")
+SONG = os.path.join(AUDIO, "bright.xm")
+SONGS = {"bright": "Bright", "subtle": "Subtle"}    # the menu music (launcher/audio/*.xm), by title
 
 
 def image(path, scale):
@@ -90,7 +96,6 @@ def scenes(path):
 
 
 def render_demo(host, sd, work, out_dir, scale):
-    from PIL import Image
     frames, stills = os.path.join(work, "frames"), os.path.join(work, "stills")
     os.makedirs(frames)
     os.makedirs(stills)
@@ -134,11 +139,40 @@ def render_demo(host, sd, work, out_dir, scale):
     print(f"{mp4}: {os.path.getsize(mp4) // 1024} KB")
 
 
+def render_music(out_dir):
+    """The menu music as MP3s, a loop each (ffmpeg plays the XM modules with
+    libopenmpt). As modules they're mixed quiet, to leave room for 12
+    channels, so both are turned up as much as the louder one takes to peak
+    at -1 dB: Subtle stays the quieter."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        print("No ffmpeg: no music")
+        return
+    songs = {name: os.path.join(AUDIO, name + ".xm") for name in SONGS}
+    try:
+        peaks = []
+        for path in songs.values():
+            out = subprocess.run([ffmpeg, "-hide_banner", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                                 capture_output=True, text=True, check=True).stderr
+            peaks.append(float(re.search(r"max_volume: (-?[\d.]+) dB", out).group(1)))
+        gain = -1.0 - max(peaks)
+        for name, path in songs.items():
+            mp3 = os.path.join(out_dir, name + ".mp3")
+            subprocess.run([ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", path,
+                            "-af", f"volume={gain:.1f}dB", "-c:a", "libmp3lame", "-q:a", "2",
+                            "-metadata", f"title={SONGS[name]}", "-metadata", "artist=DSiRPC",
+                            "-metadata", "album=DSiRPC's menu music", mp3], check=True)
+            print(f"{mp3}: {os.path.getsize(mp3) // 1024} KB")
+    except (subprocess.CalledProcessError, AttributeError):
+        print("ffmpeg couldn't play the songs (no libopenmpt?): no music")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Draw the launcher's modern look with its own code")
     ap.add_argument("--out", default=os.path.join(REPO, "renders"), help="where they go (default renders/)")
     ap.add_argument("--png", action="store_true", help="every screen as a PNG, and a contact sheet")
     ap.add_argument("--demo", action="store_true", help="a walk through the screens: demo.mp4 and demo.gif")
+    ap.add_argument("--music", action="store_true", help="the menu music as MP3s, a loop each")
     ap.add_argument("--scale", type=int, default=3, help="the PNGs' and the video's scale (default 3)")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -155,6 +189,8 @@ def main():
             render_pngs(host, sd, shots, png_dir, args.scale)
         if args.demo:
             render_demo(host, sd, os.path.join(tmp, "demo"), args.out, args.scale)
+    if args.music:
+        render_music(args.out)
 
 
 if __name__ == "__main__":

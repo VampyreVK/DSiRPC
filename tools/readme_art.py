@@ -41,7 +41,7 @@ TAGLINE = ["Same native DS games,", "same original hardware,", "modern features.
 FEATURES = [("Discord + RA Dynamic Rich Presence", "C_GREEN"),
             ("Real RetroAchievements for DS games, even offline", "C_AMBER"),
             ("Backup saves, sync between devices", "C_CYAN"),
-            ("Runs a real 3DS or DSi", "C_TEXT"),
+            ("Runs on a real 3DS or DSi", "C_TEXT"),
             ("Windows + macOS desktop clients", "C_TEXT"),
             ("Auto-Updates, console included", "C_TEXT")]
 TEXT_RES = 2                            # the tagline's own grid: twice as fine as the art's

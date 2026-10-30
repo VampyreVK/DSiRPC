@@ -18,7 +18,14 @@ plays on the PC (the tray's Ambient music). How it all fits is in
    ```
 
    It prints each song's notes, tempo and groove, and rewrites
-   `launcher/audio/bright.xm` and `subtle.xm`.
+   `launcher/audio/bright.xm` and `subtle.xm`. To see a song as it reads
+   it first (tempo, groove, each instrument's notes and range, as the M8
+   names them; `--notes` lists every note):
+
+   ```
+   python tools/m8s.py launcher/music/subtle.m8s
+   ```
+
 3. Run the music tests:
 
    ```
@@ -57,5 +64,9 @@ straight from there, and the Windows and Mac builds ship that folder.
 - 12 channels at most, counting the echoes and the lead's second voice
   (the console keeps the other 4 for the menu sounds); `make_music.py`
   says so if a song needs more.
-- Keep the bass at G2 or above: the DSi's and 3DS's speakers rattle on
-  lower notes (Subtle's F2s were moved up to F3 for that).
+- Mind the lowest bass notes: the DSi's and 3DS's speakers barely go below
+  100 Hz or so. Subtle's soft triangle bass rattled them on F2 (the M8's
+  F-4), so those notes moved up to F3 (F-5). Bright's square-ish bass goes
+  down to D#2 (D#4) and has sounded fine so far. Note names: the M8 counts
+  octaves from MIDI's note number // 12 + 1, so middle C (MIDI 60) is its C-6
+  (`python tools/m8s.py` prints the M8's names).

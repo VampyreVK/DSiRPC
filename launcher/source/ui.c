@@ -111,20 +111,23 @@ static void load_palette(void)
         BG_PALETTE_SUB[UI_SPIN + i] = RGB(SPIN_RGB[4][0], SPIN_RGB[4][1], SPIN_RGB[4][2]);
 }
 
+void ui_spin_frame(unsigned step)
+{
+    for (int i = 0; i < 8; i++)
+    {
+        const uint8_t *c = SPIN_RGB[(step - i) & 7];
+        BG_PALETTE_SUB[UI_SPIN + i] = RGB(c[0], c[1], c[2]);
+    }
+}
+
 static int spin_thread(void *arg)
 {
     (void)arg;
     for (unsigned frame = 0;; frame++)
     {
         cothread_yield_irq(IRQ_VBLANK);
-        if (!on || frame % SPIN_FRAMES != 0)
-            continue;
-        unsigned step = frame / SPIN_FRAMES;
-        for (int i = 0; i < 8; i++)
-        {
-            const uint8_t *c = SPIN_RGB[(step - i) & 7];
-            BG_PALETTE_SUB[UI_SPIN + i] = RGB(c[0], c[1], c[2]);
-        }
+        if (on && frame % SPIN_FRAMES == 0)
+            ui_spin_frame(frame / SPIN_FRAMES);
     }
     return 0;
 }

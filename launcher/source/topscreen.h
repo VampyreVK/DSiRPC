@@ -81,6 +81,10 @@ void top_init(void);
 
 void top_set(TopState state);
 
+// The animation's frame (60ths of a second since it started): the drifting
+// diamonds and the Wi-Fi sign. Its cothread calls it every frame.
+void top_animate(unsigned frame);
+
 // The modern look on or off (the classic look's screen when off)
 void top_modern(bool on);
 

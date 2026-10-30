@@ -41,6 +41,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
 | `.github/workflows/tests.yml` | The GitHub Action that runs the tests (see [Tests](#10-tests)) |
+| `.github/workflows/renders.yml` | The GitHub Action that draws the launcher's screens and its demo, and keeps the README's pictures on the `renders` branch up to date with the latest release (see [Builds and releases](#9-builds-and-releases)) |
 
 ## 2. Requirements
 
@@ -230,7 +231,8 @@ For testing and development, run from the repo root:
 | `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
-| `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL) and writes the README's pictures, `docs/images/launcher-*.svg`. Run it after changing the screens |
+| `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL): the README's pictures as SVGs, `--png` every screen as a PNG and a contact sheet, `--demo` a walk through the screens (`demo.mp4` with the Bright song, through ffmpeg, and `demo.gif`). Into `renders/` (`--out` for another folder). The renders workflow runs it for the README |
+| `tools/m8s.py` | Reads an M8 song for `make_music.py`; `python tools/m8s.py SONG.m8s` prints it as it reads it (tempo, groove, each instrument's notes and range, with the M8's note names; `--notes` every note) |
 | `tools/make_music.py` | Makes the launcher's menu music: reads the two M8 songs (`launcher/music/*.m8s`, with `tools/m8s.py`) and writes them as XM modules (`launcher/audio/*.xm`) with the voices of their browser preview. Run it after changing a song on the M8 (the steps: [launcher/music/README.md](../launcher/music/README.md)) |
 | `tools/make_pixel_dsi.py` | Makes the pixel DSi's GIFs from `overlay/ui.py`'s: Discord's "Pixel DSi" console picture (`Assets/Consoles/Pixel.gif`) and the launcher's animated icon (`launcher/icon.gif`). Run it after changing the DSi; needs pygame and Pillow |
 | `tools/arm7_model/arm7_model.py` | How many ARM7 cycles the console's achievement checker takes a pass, and where they go (`--profile`), from a set in `ra/`; `--compare` a changed copy of the checker. Needs Docker (devkitARM) and `pip install unicorn`; see its [README](../tools/arm7_model/README.md) |
@@ -269,12 +271,22 @@ The release is named after the tag. Its notes start with
 `packaging/RELEASE_NOTES.md` (how to install), followed by notes generated
 from the commits, and it has the Windows and macOS zips and both `.nds` files attached.
 
+Publishing it also runs [`.github/workflows/renders.yml`](../.github/workflows/renders.yml):
+it draws the launcher's screens from the release's code (`tools/render_launcher.py`),
+puts the README's pictures and the demo on the `renders` branch (one commit,
+replaced each time; the README shows them from there, so they're always the
+latest release's), and attaches the demo video to the release
+(`DSiRPC-launcher-demo.mp4`). Run it by hand (Actions tab > **Renders** >
+**Run workflow**) for every screen as a PNG and the demo as an artifact, from
+any branch; tick **publish** to replace the README's pictures too.
+
 ### The Windows download
 
 `packaging/build_release.py` makes the zip: one `DSiRPC` folder with
 
 - DSiRPC's files (`dsirpc.py`, `app/`, `core/`, `overlay/`, `rpc/`, `utils/`,
-  `tools/`, `third_party/rcheevos/`, `Assets/Consoles/`, the two `.bat` files);
+  `tools/`, `third_party/rcheevos/`, `Assets/Consoles/`, `launcher/audio/` for
+  the overlay's ambient music, the two `.bat` files);
 - `python/`: Python's embeddable package for Windows x64 (`PYTHON_VERSION` in
   the script), its `._pth` file set up to find `Lib\site-packages` and
   DSiRPC's folder, and the packages from `requirements.txt` installed there as

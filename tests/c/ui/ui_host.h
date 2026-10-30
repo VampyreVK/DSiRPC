@@ -28,6 +28,15 @@ void host_settings_screens(void);
 void host_picker_screens(const char *sd);
 void host_save_screens(void);
 
+// The demo's screens (ui_host.c's demo command): one state each, drawn
+void host_demo_connecting(int done);
+void host_demo_home(int tile, int changed);
+void host_demo_games(const char *sd, const char *code, bool achievements);
+void host_demo_saves(int row);
+void host_demo_saves_progress(int pct);
+void host_demo_saves_done(void);
+void host_demo_settings(int row);
+
 // maxmod's calls since it was last emptied (host_stubs.c)
 extern char host_music_log[1024];
 

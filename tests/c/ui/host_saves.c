@@ -6,7 +6,7 @@
 
 #include "ui_host.h"
 
-void host_save_screens(void)
+static void fill_list(void)
 {
     static const char *const names[] = { "Pokemon Black", "Mario Kart DS", "Pokemon Platinum", "Tetris DS",
                                          "Animal Crossing WW" };
@@ -30,6 +30,20 @@ void host_save_screens(void)
         snprintf(it->pc_source, sizeof(it->pc_source), "DSi 3F21");
     }
     build_shown();
+}
+
+static void empty_list(void)
+{
+    free(shown);
+    shown = NULL;
+    free(list.items);
+    list.items = NULL;
+    list.count = 0;
+}
+
+void host_save_screens(void)
+{
+    fill_list();
     draw_list_modern(1, 0);
     host_shot("saves");
     ask_conflict(&list.items[0]);       // (B: decide later)
@@ -48,10 +62,26 @@ void host_save_screens(void)
     message_tone("Saves synced", "3 backed up\n1 taken from the PC\n0 left to decide\n\nEverything else is in sync.",
                  UI_GREEN);
     host_shot("saves_done");
+    empty_list();
+}
 
-    free(shown);
-    shown = NULL;
-    free(list.items);
-    list.items = NULL;
-    list.count = 0;
+// The demo's (ui_host.c): the list with a row picked, a sync pct% done, and
+// its summary
+void host_demo_saves(int row)
+{
+    fill_list();
+    draw_list_modern(row, 0);
+    empty_list();
+}
+
+void host_demo_saves_progress(int pct)
+{
+    begin("Syncing saves (2 of 4)");
+    progress("Taking Pokemon Black\nfrom: DSi 3F21", (uint32_t)pct * 10, 1000);
+}
+
+void host_demo_saves_done(void)
+{
+    message_tone("Saves synced", "3 backed up\n1 taken from the PC\n0 left to decide\n\nEverything else is in sync.",
+                 UI_GREEN);
 }

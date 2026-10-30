@@ -171,6 +171,9 @@ void ui_step(int row, StepState state, const char *label, const char *value);
 void ui_scrollbar(int x, int y, int h, int first, int shown, int total);
 // The spinner (12x12)
 void ui_spinner(Canvas *c, int x, int y);
+// The spinner's dots lit for one step of its turn (its cothread moves it on
+// every few frames)
+void ui_spin_frame(unsigned step);
 // A step's icon (12x12) on any canvas, in these colors: an empty box, the
 // spinner, a check, a cross or a dash
 void ui_icon(Canvas *c, int x, int y, StepState state, uint8_t box, uint8_t mark);

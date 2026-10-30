@@ -79,3 +79,38 @@ void host_main_screens(const char *rom)
     restore_steps();
     top_note("DSiRPC on GAMING-PC", "Discord on, RA: VampyreVK");
 }
+
+// The demo's (ui_host.c): the connecting screen with done of its steps
+// ticked off and the next one going, and the main screen with a tile picked
+// (changed: the Saves tile's count)
+void host_demo_connecting(int done)
+{
+    static const char *const doing[STEPS] = { "Signing in", "Asking the router", "Looking", "CPUE", "Asking DSiRPC" };
+    static const char *const result[STEPS] = { "Connected", "192.168.2.186", "192.168.2.10",
+                                               "2 new sets, 1 unlock sent", "2 to sync" };
+    settings_load("/nonexistent/launcher.ini", &settings);
+    settings_apply(&settings);
+    top_set(done >= 2 ? TOP_CONNECTED : TOP_CONNECTING);
+    draw_connecting();
+    if (done >= 3)
+        top_note("DSiRPC on GAMING-PC", "Discord on, RA: VampyreVK");
+    for (int i = 0; i < done && i < STEPS; i++)
+        show_step(i, STEP_DONE, result[i]);
+    if (done < STEPS)
+        show_step(done, STEP_ACTIVE, doing[done]);
+}
+
+void host_demo_home(int tile, int changed)
+{
+    online = true;
+    have_fat = true;
+    snprintf(ip_str, sizeof(ip_str), "192.168.2.186");
+    mac_bytes[4] = 0xCC;
+    mac_bytes[5] = 0x5D;
+    snprintf(last_title, sizeof(last_title), "Pokemon Platinum Version");
+    saves_changed = changed;
+    home_tile = tile;
+    top_set(TOP_CONNECTED);
+    top_note("DSiRPC on GAMING-PC", "Discord on, RA: VampyreVK");
+    draw_main();
+}

@@ -1,0 +1,108 @@
+# Draws the launcher's screens with its own code (tools/render_launcher.py, on
+# the tests' host in tests/c/ui): the README's pictures (SVG), every screen as
+# a PNG, and a demo of the modern look (demo.mp4 with the Bright song, and
+# demo.gif). They're kept as the run's artifact, to look over by hand.
+#
+# When a release is published, the README's pictures and the demo go to the
+# renders branch, which the README shows them from, so they're always the
+# latest release's, and the video goes on the release too. Run by hand
+# ("publish" ticked) to replace them from any branch. The first run, when
+# this file is pushed, makes the branch if it isn't there.
+
+name: Renders
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also replace the README's pictures (the renders branch)"
+        type: boolean
+        default: false
+  push:
+    paths:
+      - ".github/workflows/renders.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: renders
+  cancel-in-progress: false
+
+jobs:
+  renders:
+    name: Renders
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The launcher's code, the tests' host and the songs
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tests
+            tools
+            launcher/source
+            launcher/audio
+          filter: blob:none
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Ubuntu's ffmpeg plays XM modules (libopenmpt), for the video's song
+      - name: Install Pillow and ffmpeg
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+
+      - name: Draw the screens
+        run: python tools/render_launcher.py --out renders --png --demo
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launcher-renders
+          path: renders
+          if-no-files-found: error
+
+      - name: Put the demo on the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cp renders/demo.mp4 DSiRPC-launcher-demo.mp4
+          gh release upload "$TAG" DSiRPC-launcher-demo.mp4 --clobber --repo "$GITHUB_REPOSITORY"
+
+      # One commit, replaced each time, so the branch doesn't grow
+      - name: Update the README's pictures
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          LABEL="${TAG:-$GITHUB_REF_NAME at ${GITHUB_SHA::7}}"
+          if [ "$GITHUB_EVENT_NAME" = push ] && git ls-remote --exit-code --heads "$remote" renders > /dev/null; then
+            echo "The renders branch is there already: releases update it"
+            exit 0
+          fi
+          mkdir pictures
+          cp renders/*.svg renders/demo.gif renders/demo.mp4 pictures/
+          cat > pictures/README.md <<EOF
+          # DSiRPC's renders
+
+          The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`)
+          for ${LABEL}. The README shows these; \`.github/workflows/renders.yml\`
+          replaces them when a release is published, so don't edit them here.
+          EOF
+          cd pictures
+          git init -q -b renders
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "The launcher's renders for ${LABEL}"
+          git push -q -f "$remote" renders
+          echo "Pushed the renders branch for ${LABEL}"

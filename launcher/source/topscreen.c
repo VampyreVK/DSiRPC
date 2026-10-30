@@ -312,7 +312,7 @@ static void set_parts(int first, int n, int lit, uint16_t on, uint16_t off)
         BG_PALETTE[first + i] = i < lit ? on : off;
 }
 
-static void animate(unsigned frame)
+void top_animate(unsigned frame)
 {
     // The diamonds drift down and right, a pixel every 7 frames (the
     // overlay's 120 ms)
@@ -714,7 +714,7 @@ static int top_thread(void *arg)
     for (unsigned frame = 1;; frame++)
     {
         cothread_yield_irq(IRQ_VBLANK);
-        animate(frame);
+        top_animate(frame);
         if (modern && frame % BATTERY_FRAMES == 0)
             check_battery();
     }
@@ -769,7 +769,7 @@ void top_init(void)
     free(canvas);
     canvas = NULL;
 
-    animate(0);
+    top_animate(0);
     bgUpdate();
     cothread_create(top_thread, NULL, 8192, COTHREAD_DETACHED);   // (the battery's drawn from it)
 }

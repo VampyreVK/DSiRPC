@@ -82,6 +82,28 @@ def test_the_key_color_marks_the_top_screens_clear_pixels(host, sd, tmp_path):
     assert bytes(lui.KEY) in top and bytes(lui.KEY) not in bottom
 
 
+
+def test_the_demo(host, sd, tmp_path):
+    """tools/render_launcher.py --demo's walk through the screens: every scene
+    draws, a little under one loop of the Bright song, and at a frame rate
+    the spinner, the Wi-Fi sign and the diamonds move between frames"""
+    stills = tmp_path / "stills"
+    stills.mkdir()
+    out = lui.run(host, f"demo {stills}|{sd}|0")
+    scenes = [ln.split() for ln in (stills / "scenes.txt").read_text().splitlines()]
+    assert out[-1] == f"demo {len(scenes)}" and len(scenes) == 26
+    assert [s[1] for s in scenes] == [str(i) for i in range(26)]        # a still a scene
+    assert 25 < sum(float(s[2]) for s in scenes) < 31.5
+    assert {s[0] for s in scenes} == {"connecting", "home", "games", "achievements", "saves", "syncing", "synced",
+                                      "settings"}
+
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    out = lui.run(host, f"demo {frames}|{sd}|5")
+    assert out[-1] == f"demo {sum(int(float(s[2]) * 5 + 0.5) for s in scenes)}"
+    first, second = (lui.read_ppm(str(frames / f"frame_{i:04d}.ppm"))[2] for i in (0, 1))
+    assert first != second
+
 # -- the game list ---------------------------------------------------------------------
 
 def test_names_come_from_the_banners(host, sd):

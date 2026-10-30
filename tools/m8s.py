@@ -8,6 +8,11 @@ music is made from these (tools/make_music.py).
     song.tempo, song.groove, song.steps          # 122.0, [6, 6], 256
     song.notes[0]                                # Note(step=2, track=0, ...)
 
+From the command line it prints a song as it reads it (--notes: every note
+too), to check one copied from the M8 before making the music:
+
+    python tools/m8s.py launcher/music/subtle.m8s [--notes]
+
 The offsets are a firmware 6 song's (112294 bytes or more), as the
 m8-file-parser library (MIT) reads them. An M8 note is a MIDI note number
 (its 11 octaves cover all 128, shown as octave = note // 12 + 1, so middle
@@ -15,7 +20,9 @@ C, 60, is its C-6). Phrase FX and tables aren't read: the launcher's player
 doesn't do them.
 """
 
+import argparse
 import struct
+import sys
 from dataclasses import dataclass, field
 
 TEMPO, TRANSPOSE, NAME = 143, 142, 148
@@ -153,3 +160,47 @@ def read(path):
         song.instruments[number] = Instrument(number, kind, _text(r[1:13]),
                                               WAV_SHAPES.get(r[18], "") if r[0] == 0 else "")
     return song
+
+
+NOTE_NAMES = ("C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-")
+
+
+def note_name(n):
+    """A note as the M8 shows it (60, middle C: "C-6")."""
+    return "OFF" if n >= OFF else f"{NOTE_NAMES[n % 12]}{n // 12 + 1:X}"
+
+
+def describe(song, notes=False):
+    """The song as text: what it plays, as the M8 names the notes."""
+    ticks = sum(song.groove[s % len(song.groove)] for s in range(song.steps))
+    lines = [f"{song.name}: {song.tempo:g} BPM, groove {' '.join(map(str, song.groove))}, {song.steps} steps "
+             f"({ticks * 2.5 / song.tempo:.1f} s a loop), {len(song.notes)} notes"]
+    for number, ins in sorted(song.instruments.items()):
+        played = [n for n in song.notes if n.instrument == number]
+        pitches = [n.note for n in played if n.note != OFF]
+        tracks = ", ".join(str(t + 1) for t in sorted({n.track for n in played}))
+        span = f"{note_name(min(pitches))} to {note_name(max(pitches))}" if pitches else "no notes"
+        what = f"{ins.kind} {ins.shape}".strip()
+        lines.append(f"  {number:02X} {ins.name:<12} {what:<18} {len(pitches):4} notes, {span}, track {tracks}")
+    if notes:
+        lines.append("  step track note vel instrument")
+        for n in song.notes:
+            name = song.instruments[n.instrument].name if n.instrument in song.instruments else f"{n.instrument:02X}"
+            lines.append(f"  {n.step:4} {n.track + 1:5} {note_name(n.note):>4} {n.velocity:3} {name}")
+    return "\n".join(lines)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Print an M8 song as tools/make_music.py reads it")
+    ap.add_argument("song", nargs="+", help=".m8s files")
+    ap.add_argument("--notes", action="store_true", help="list every note too")
+    args = ap.parse_args()
+    for path in args.song:
+        try:
+            print(describe(read(path), args.notes))
+        except (OSError, M8Error) as e:
+            sys.exit(f"{path}: {e}")
+
+
+if __name__ == "__main__":
+    main()

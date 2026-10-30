@@ -55,6 +55,22 @@ void host_picker_screens(const char *sd)
     top_dsi();
 }
 
+// The demo's (ui_host.c): the game list (A-Z) with the game with that code
+// picked, or its achievements
+void host_demo_games(const char *sd, const char *code, bool achievements)
+{
+    PickerUi ui = sd_card(sd);
+    if (!load(&ui, SORT_NAME))
+        return;
+    games[order[find_code("AMCE")]].favorite = true;
+    int sel = find_code(code);
+    draw_list(sel, sel >= ROWS ? sel - ROWS + 1 : 0, &ui);
+    show_game(&games[order[sel]]);
+    if (achievements)
+        achievements_screen(&games[order[sel]], ui.sets_dir);    // (B: back)
+    free_games();
+}
+
 void host_games(const char *sd, int sort)
 {
     PickerUi ui = sd_card(sd);

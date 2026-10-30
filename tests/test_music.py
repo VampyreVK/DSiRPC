@@ -128,6 +128,16 @@ def test_reads_the_songs():
     assert min(n.step for n in subtle.notes if n.track == 0) == 3 * 16 + 12
 
 
+def test_the_song_as_text():
+    """python tools/m8s.py SONG: what it plays, with the M8's note names"""
+    assert (m8s.note_name(60), m8s.note_name(41), m8s.note_name(127), m8s.note_name(m8s.OFF)) == \
+        ("C-6", "F-4", "G-B", "OFF")
+    lines = m8s.describe(song("subtle")).splitlines()
+    assert lines[0] == "MENU SUBTLE: 100 BPM, groove 7 7 5 5, 256 steps (38.4 s a loop), 324 notes"
+    assert lines[3].split()[:2] == ["02", "BASS"] and "G-4 to F-5" in lines[3]     # F2 moved up to F3
+    assert len(m8s.describe(song("subtle"), notes=True).splitlines()) == 1 + 6 + 1 + 324
+
+
 def test_rejects_what_isnt_a_firmware_6_song(tmp_path):
     other = tmp_path / "other.m8s"
     other.write_bytes(b"MThd" + bytes(200000))

@@ -234,8 +234,8 @@ def run_tray(cfg, **engine_args):
                         body += "\n(not sent to RetroAchievements)"
                     notify(body[:255], "Achievement unlocked!")
                 elif e['type'] == 'saves_synced':
-                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "synced up"), ('backed_up', "backed up"),
-                                                             ('downloaded', "taken from the PC"),
+                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "uploaded"), ('backed_up', "backed up"),
+                                                             ('downloaded', "downloaded"),
                                                              ('failed', "failed")) if e[k]]
                     notify(", ".join(parts) or "Everything was in sync", f"DSiRPC: saves from the {e['console']}")
                 elif e['type'] == 'offline_unlocks':

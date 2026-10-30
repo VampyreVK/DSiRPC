@@ -126,6 +126,15 @@ def test_a_source_checkout_offers_its_own_builds(tmp_path):
     assert cu.pc_version(str(tmp_path / "nothing")) == "dev"    # no version.txt, not a git checkout
 
 
+def test_retroachievements_sees_this_version(monkeypatch):
+    from core import ra_api
+    for version, shown in (("v1.0.0", "1.0.0"), ("dev-abc1234", "dev-abc1234")):
+        monkeypatch.setattr(cu, "pc_version", lambda version=version: version)
+        ra_api.dsirpc_version.cache_clear()
+        assert ra_api.user_agent().startswith(f"DSiRPC/{shown} (")
+    ra_api.dsirpc_version.cache_clear()
+
+
 def test_crcs_are_kept_until_a_file_changes(tmp_path, monkeypatch):
     path = os.path.join(str(tmp_path), "SD card", "DSiRPC", "dsirpc-launcher.nds")
     write(path, nds("one"))

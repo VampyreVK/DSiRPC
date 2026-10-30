@@ -156,8 +156,8 @@ plus:
   a game starts). If nds-bootstrap isn't next to the launcher, the classic
   file browser asks for it.
 - **The top screen** (`top_modern()`): the bar has a status chip
-  (Connecting, Connected, No Wi-Fi, Offline) and the battery (its percent is
-  the DSi's step: 100, 75, 50, 25 or 10, a DS only high or low; cyan while
+  (Connecting, Connected, No Wi-Fi, Offline) and the battery icon (filled to
+  the DSi's step: 100, 75, 50, 25 or 10%, a DS only high or low; cyan while
   charging), the DSi is drawn 3x with a note under it (which PC DSiRPC is
   on, or what went wrong), and the game list and save sync show the picked
   game's or save's details instead.

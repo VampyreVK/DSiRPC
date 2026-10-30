@@ -108,7 +108,6 @@ static void message_tone(const char *title, const char *text, uint8_t accent)
     {
         static const UiKey keys[] = { { "A", "OK", KEY_A } };
         ui_sound(accent == UI_GREEN ? SND_DONE : SND_ERROR);
-        ui_fill(ui_screen(), 0, UI_BAR_H, UI_W, UI_FOOT_Y - UI_BAR_H, UI_BG);
         ui_card(title, text, accent, keys, 1);
     }
     else

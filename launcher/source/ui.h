@@ -176,7 +176,8 @@ void ui_icon(Canvas *c, int x, int y, StepState state, uint8_t box, uint8_t mark
 
 // A card in the middle of the screen with a title and text (lines split at
 // '\n'), and the footer's keys; drawn and presented, nothing waited for.
-// ui_card_at(): its top at y instead.
+// What was between the header and the footer is cleared first.
+// ui_card_at(): its top at y instead, over what's there.
 void ui_card(const char *title, const char *text, uint8_t accent, const UiKey *keys, int n);
 void ui_card_at(int y, const char *title, const char *text, uint8_t accent, const UiKey *keys, int n);
 

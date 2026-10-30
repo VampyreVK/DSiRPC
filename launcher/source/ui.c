@@ -668,6 +668,8 @@ void ui_scrollbar(int x, int y, int h, int first, int shown, int total)
 
 void ui_card(const char *title, const char *text, uint8_t accent, const UiKey *keys, int n)
 {
+    // On its own: a list's rows peeking out around it look misplaced
+    ui_fill(&screen, 0, UI_BAR_H, UI_W, UI_FOOT_Y - UI_BAR_H, UI_BG);
     ui_card_at(-1, title, text, accent, keys, n);
 }
 

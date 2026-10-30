@@ -397,11 +397,9 @@ static void draw_status(void)
     ui_chip(&cv, x, 4, WORDS[st], FILLS[st], INKS[st]);
     if (battery_pct < 0)
         return;
-    char pct[16];
-    snprintf(pct, sizeof(pct), "%d%%", battery_pct);
-    x -= 6 + ui_text_width(pct);
-    ui_text(&cv, x, 6, pct, C_TEXT);
-    x -= 4 + 14;
+    // Only the icon: the DSi reports its battery in a few steps, so a
+    // percent would claim more than it knows
+    x -= 6 + 14;
     const uint8_t outline[4] = { C_LINES, 0, 0, 0 };
     ui_art(&cv, x, 6, BATTERY, 8, outline);
     uint8_t level = battery_charging ? C_CYAN : battery_pct <= 10 ? C_RED : battery_pct <= 25 ? C_AMBER : C_GREEN;

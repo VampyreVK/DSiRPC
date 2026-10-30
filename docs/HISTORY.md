@@ -293,7 +293,10 @@ in this table before assuming it's missing from RA entirely.
   sync only counts now if its save was live on that DSiRPC (or it noted the
   console had it), and a download over a save written after the live one,
   by the consoles' clocks, is a conflict, on the PC and, whatever the plan
-  says, on the console.
+  says, on the console. Later: the top screen's battery is only its icon
+  (the DSi reports a few steps, not a percent), and a card in the middle
+  of the bottom screen clears what's behind it (the save sync's conflict
+  card left the picked row's frame peeking out around it).
 
 - 2026-10-29 (evening): **The launcher's modern look, and a save sync fix
   for two PCs.** The bottom screen used to be the text console; now it

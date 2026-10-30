@@ -43,9 +43,9 @@ console and your PC.
   between your DSi and 3DS.
 - **A launcher that looks the part:** your games with their own icons,
   sorted by when you last played them or with your favorites first, each
-  game's achievements and playtime, the battery, soft menu sounds, menu
-  music (Bright or Subtle) and the touch screen. The original text screens
-  are one setting away.
+  game's achievements and DSiRPC playtime (offline play counts too), the
+  battery, soft menu sounds, menu music (Bright or Subtle) and the touch
+  screen. The original text screens are one setting away.
 - **A stream overlay:** a crisp pixel-art window with your party, battles in
   the games' own style and achievement banners, ready for OBS, with the
   launcher's music if you'd like it.

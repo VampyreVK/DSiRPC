@@ -195,7 +195,7 @@ static int count_unlocks(const uint8_t *buf, size_t n)
         uint32_t sum = 0x5AA5;
         for (int w = 0; w < 7; w++)
             sum += get16(s + w * 2);
-        if (get32(s) != 0 && valid_code(s + 4) && (sum & 0xFFFF) == get16(s + 14))
+        if (get32(s) != 0 && get32(s) != PLAYTIME_ID && valid_code(s + 4) && (sum & 0xFFFF) == get16(s + 14))
             count++;
     }
     return count;

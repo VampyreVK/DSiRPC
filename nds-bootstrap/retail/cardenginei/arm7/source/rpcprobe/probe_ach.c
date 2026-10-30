@@ -81,6 +81,7 @@
 #define ACH_UNLOCK_FILE     (ACH_UNLOCK_SLOT * ACH_UNLOCK_SLOTS)
 #define ACH_UNLOCK_MAGIC    0x4C555244 // "DRUL"
 #define ACH_UNLOCK_FORMAT   0x00100001 // version 1, 16-byte slots
+#define ACH_PLAYTIME_ID     0xFFFFFFFF // a slot with this start's playtime in seconds instead (offline.PLAYTIME_ID)
 #define ACH_SET_SPACE       (DSIRPC_ACH_SIZE - ACH_UNLOCK_FILE - DSIRPC_WATCH_RING_SIZE) // DSiRPC's offline.ACH_MEMORY
 #define ACH_PENDING         8          // unlocks waiting to be saved (a power of 2)
 #define ACH_VBLANKS_X1000   59826      // VBlanks in 1000 s (59.8261 Hz)
@@ -125,6 +126,10 @@ static u8 recentCount, recentNext;
 // pendTail, each only moving its own index.
 static aFile unlockFile;
 static u16 unlockNext;                 // the next free slot (0: no RPCUNLK.BIN to save to)
+static u16 timeSlot;                   // this start's playtime slot (0: none yet)
+static u8 timeTick;                    // seconds toward its next minute
+static volatile u8 timePending;        // a minute more to save
+static u32 timeGame;
 static u32 pendId[ACH_PENDING], pendWhen[ACH_PENDING];
 static volatile u8 pendHead, pendTail;
 static u32 clockStart, clockSeconds;   // the console's clock (seconds since 2000) at clockSeconds 0; seconds of VBlanks since
@@ -237,6 +242,7 @@ static u32 slotId(const u8 *s, u32 game) {
 // game's unlocks already in it aren't checked again. No file (the game
 // wasn't started from the launcher) or not ours: nothing gets saved.
 static void loadUnlocks(u32 game) {
+	timeGame = game;
 	getBootFileCluster(&unlockFile, "RPCUNLK.BIN", 0);
 	if (unlockFile.firstCluster == CLUSTER_FREE) return;
 
@@ -304,8 +310,9 @@ void ProbeAch_Load(const void *ndsHeader) {
 	listCount = 0;
 	aFile file;
 	getBootFileCluster(&file, "RPCSET.BIN", 0);
-	if (file.firstCluster == CLUSTER_FREE) { // no set: nothing to do
+	if (file.firstCluster == CLUSTER_FREE) { // no set: nothing to check, but the playtime counts
 		anchorStart(ndsHeader, DSIRPC_MENU_NO_SET);
+		loadUnlocks(rd32((const u8 *)ndsHeader + 0x0C));
 		return;
 	}
 
@@ -536,6 +543,10 @@ void ProbeAch_Tick(u16 tickStart, int idleAlive) {
 	if (clockPart >= ACH_VBLANKS_X1000) {
 		clockPart -= ACH_VBLANKS_X1000;
 		clockSeconds++;
+		if (unlockNext && ++timeTick >= 60) { // the playtime: saved each minute
+			timeTick = 0;
+			timePending = 1;
+		}
 	}
 	if (stage == STAGE_OFF) return;
 	stats.idle = (u8)idleAlive;
@@ -587,10 +598,22 @@ void ProbeAch_TakeStats(ProbeAchStats *out) {
 }
 
 int ProbeAch_SavePending(void) {
-	return pendHead != pendTail;
+	return pendHead != pendTail || timePending;
 }
 
 void ProbeAch_SaveOne(void) {
+	if (timePending) { // this start's playtime, in a slot of its own from its first minute on,
+	                   // rewritten each minute: the game, its seconds (the VBlanks', as the clock).
+	                   // The launcher adds it up and clears it.
+		timePending = 0;
+		if (!timeSlot && unlockNext < ACH_UNLOCK_SLOTS) timeSlot = unlockNext++;
+		if (timeSlot) {
+			u32 slot[4] = { ACH_PLAYTIME_ID, timeGame, clockSeconds, timeSlot };
+			slot[3] |= (u32)slotCheck((const u8 *)slot) << 16;
+			fileWrite((const char *)slot, &unlockFile, timeSlot * ACH_UNLOCK_SLOT, ACH_UNLOCK_SLOT);
+		}
+		return;
+	}
 	u8 tail = pendTail;
 	if (tail == pendHead) return;
 	if (!unlockNext || unlockNext >= ACH_UNLOCK_SLOTS) {

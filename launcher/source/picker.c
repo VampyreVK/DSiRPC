@@ -743,12 +743,12 @@ static void achievements_screen(Game *g, const char *sets_dir)
         snprintf(line, sizeof(line), "%d/%d", earned, l.count);
         int rx = ui_header_right(line, earned == l.count ? UI_GREEN : UI_DIM);
         ui_text_fit(c, 8, 5, g->title, rx - 16, UI_SOFT);
-        // The playtime, under the header
+        // The DSiRPC playtime, under the header
         format_playtime(when, sizeof(when), st != NULL ? st->seconds : 0);
         if (when[0] != '\0')
-            snprintf(line, sizeof(line), "Played for %s", when);
+            snprintf(line, sizeof(line), "DSiRPC playtime: %s", when);
         else
-            snprintf(line, sizeof(line), "No playtime from DSiRPC yet");
+            snprintf(line, sizeof(line), "No DSiRPC playtime yet");
         ui_text_fit(c, 8, UI_BAR_H + 2, line, UI_W - 16, UI_DIM);
         for (int row = 0; row < rows && top + row < n; row++)
         {

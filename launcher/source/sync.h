@@ -15,6 +15,9 @@
 #define UNLOCKS_PATH     "sd:/RPCUNLK.BIN"   // unlocks waiting for DSiRPC
 #define STAGED_SET_PATH  "sd:/RPCSET.BIN"    // the started game's set
 #define SETS_FOLDER      "sets"              // in the launcher's folder: CODE.DRS
+// An unlock file slot with the playtime of one start of a game (the game's
+// side writes it, rpcprobe/probe_ach.c), not an unlock: stats.c adds it up
+#define PLAYTIME_ID      0xFFFFFFFFu
 
 typedef struct
 {

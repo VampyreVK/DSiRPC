@@ -6,7 +6,8 @@
 //   unlockfile <path>     RPCUNLK.BIN's contents for the next `set` (else an
 //                         empty file)
 //   set <path> [code]     load RPCSET.BIN from a file, as a game whose header
-//                         says `code` (default: the set's own)
+//                         says `code` (default: the set's own); path "-": no
+//                         RPCSET.BIN (a game without a set)
 //   w <addr> <hexbytes>   write the game's memory (RetroAchievements address)
 //   frame <idle> <visits> [romwait] [fresh] [nullwait]
 //                         a VBlank: the frame lane samples, then the tick (the
@@ -88,7 +89,9 @@ int main(void) {
 			unlockFileGiven = 1;
 		} else if (!strcmp(cmd, "set")) {
 			char path[512], code[8] = "";
-			if (sscanf(line + 4, "%511s %7s", path, code) < 1 || !readFile(path, setFile, sizeof setFile, &setLen)) return 4;
+			if (sscanf(line + 4, "%511s %7s", path, code) < 1) return 4;
+			if (!strcmp(path, "-")) setLen = 0;
+			else if (!readFile(path, setFile, sizeof setFile, &setLen)) return 4;
 			if (!unlockFileGiven) {
 				memset(unlockFile, 0, sizeof unlockFile);
 				memcpy(unlockFile, "DRUL\x01\x00\x10\x00\x00\x01", 10);

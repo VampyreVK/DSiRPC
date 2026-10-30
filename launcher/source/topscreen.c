@@ -607,7 +607,7 @@ void top_game(const TopGame *g)
         ui_text_right(&cv, W - 16, ry, "No set yet", C_DIM);
     }
     ry += 25;
-    ui_text(&cv, 16, ry, "Playtime", C_LINES);
+    ui_text(&cv, 16, ry, "DSiRPC playtime", C_LINES);
     format_playtime(line, sizeof(line), g->playtime);
     ui_text_right(&cv, W - 16, ry, line, g->playtime ? C_TEXT : C_DIM);
     ry += 14;

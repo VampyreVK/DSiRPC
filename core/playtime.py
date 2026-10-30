@@ -1,8 +1,12 @@
 """
-playtime.py - how long each game has been played while DSiRPC was watching
-(the console said hello and kept answering), and when it was last played,
-for the launcher's game picker and achievement list in its modern look
-(launcher/source/stats.c is the console's side).
+playtime.py - each game's DSiRPC playtime: how long it has been played,
+and when it was last played, for the launcher's game picker and achievement
+list in its modern look (launcher/source/stats.c is the console's side).
+DSiRPC counts the time it was watching (the console said hello and kept
+answering); the console counts each start from the launcher itself, offline
+too. Each side takes the other's number when it's higher, so time both
+counted counts once, and a game played offline, with another PC (or with a
+DSiRPC that lost its file) still adds up.
 
     ra/cache/playtime.json    {"CPUE": {"seconds": 148320, "last": 1730239200}}
 
@@ -12,23 +16,27 @@ for the launcher's game picker and achievement list in its modern look
 
 The time between two ticks of the same game counts, unless they're more than
 GAP apart (the console slept, or went away and came back); the file is
-written at most every SAVE_EVERY seconds, and by flush(). Offline play isn't
-counted: DSiRPC doesn't see it.
+written at most every SAVE_EVERY seconds, and by flush(). Offline play
+arrives with the console's numbers.
 
 The launcher asks after its first sync, over the offline sync's TCP port
 (core/console_sync.py hands over any connection that starts with "DRGS").
 Little-endian:
 
-    request:  "DRGS" | version u16 (1) | MAC[6] | console model u8 | 7 bytes 0
+    request:  "DRGS" | version u16 (2) | MAC[6] | console model u8 | 7 bytes 0
               (20 bytes, as long as the offline sync's request, so a DSiRPC
-              from before playtimes turns it down at once)
+              from before playtimes turns it down at once), then in version
+              2 the console's: n u16, n x the answer's entries (version 1:
+              nothing more; a DSiRPC that only knows 1 turns 2 down, and the
+              launcher asks again with 1)
     answer:   "DRGA" | status u16 (0 OK, 4 bad request) | n u16 | flags u8
               (bit 0: Discord connected) | PC name length u8 | the
               RetroAchievements user's length u8 | 1 byte 0, then the PC's
               name and the user's (ASCII, up to 32 each; no user: not signed
               in), then n x (4 game code | u32 seconds played | u32 last
               played: seconds since 2000-01-01 by the PC's clock, local time,
-              as the console dates things)
+              as the console dates things), each the higher of the PC's and
+              the console's
 """
 
 import calendar
@@ -45,7 +53,7 @@ from . import ra_set
 
 PLAYTIME_FILE = os.path.join(ra_set.RA_DIR, "cache", "playtime.json")
 MAGIC = b"DRGS"
-VERSION = 1
+VERSION = 2                    # the newest; 1 still works (no numbers from the console)
 HEADER = struct.Struct("<4sH6sB7x")
 ANSWER = struct.Struct("<4sHHBBBx")
 ENTRY = struct.Struct("<4sII")
@@ -67,6 +75,14 @@ def console_time(t):
     if not t:
         return 0
     return max(0, calendar.timegm(time.localtime(t)) - UNIX_2000)
+
+
+def unix_time(c):
+    """console_time()'s way back: seconds since 2000 in local time as a Unix
+    time (0 stays 0)"""
+    if not c:
+        return 0
+    return int(time.mktime(time.gmtime(c + UNIX_2000)[:8] + (-1,)))
 
 
 def pc_name():
@@ -136,6 +152,22 @@ class Playtime:
             if now - self._saved >= SAVE_EVERY:
                 self._write()
 
+    def merge(self, code, seconds, last):
+        """The console's numbers for a game (last: a Unix time): each one
+        taken where it's higher than this DSiRPC's."""
+        if not valid_code(code or ""):
+            return
+        with self._lock:
+            g = self._games.setdefault(code, {'seconds': 0.0, 'last': 0})
+            if seconds > g['seconds']:
+                g['seconds'] = float(seconds)
+                self._dirty = True
+            if last > g['last']:
+                g['last'] = int(last)
+                self._dirty = True
+            if self._dirty:
+                self._write()
+
     def flush(self):
         with self._lock:
             if self._dirty:
@@ -158,9 +190,20 @@ def handle(magic, read, send, playtime, info=None):
     'discord': connected}."""
     rest = read(HEADER.size - 4)
     _, version, _, _ = HEADER.unpack(magic + rest)
-    if version != VERSION:
+    if version not in (1, VERSION):
         send(ANSWER.pack(b"DRGA", BAD_REQUEST, 0, 0, 0, 0))
         return
+    if version >= 2:
+        # The console's numbers first: the higher of each one counts
+        n = struct.unpack("<H", read(2))[0]
+        if n > MAX_GAMES:
+            send(ANSWER.pack(b"DRGA", BAD_REQUEST, 0, 0, 0, 0))
+            return
+        data = read(n * ENTRY.size)
+        for i in range(n):
+            code, secs, last = ENTRY.unpack_from(data, i * ENTRY.size)
+            if playtime is not None:
+                playtime.merge(code.decode("ascii", "replace"), secs, unix_time(last))
     info = info or {}
     pc, ra = _ascii(info.get('pc')), _ascii(info.get('ra'))
     have = sorted((playtime.games() if playtime else {}).items())[:MAX_GAMES]
@@ -172,8 +215,14 @@ def handle(magic, read, send, playtime, info=None):
 
 # -- a console, for tests ------------------------------------------------------
 
-def request(mac=b"\0\x09\xbf\x12\x3f\x21", model=0, version=VERSION):
-    return HEADER.pack(MAGIC, version, mac, model)
+def request(mac=b"\0\x09\xbf\x12\x3f\x21", model=0, version=VERSION, games=None):
+    """games {code: (seconds, last as the console counts)}: the console's
+    numbers (version 2)"""
+    out = HEADER.pack(MAGIC, version, mac, model)
+    if version >= 2:
+        games = sorted((games or {}).items())
+        out += struct.pack("<H", len(games)) + b"".join(ENTRY.pack(c.encode(), s, t) for c, (s, t) in games)
+    return out
 
 
 def parse_answer(data):

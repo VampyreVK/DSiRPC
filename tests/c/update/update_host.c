@@ -22,6 +22,10 @@
 //   stats index_dir                      the playtimes (stats.c):
 //                                        stats r|pc|ra|discord|count|msg, then
 //                                        game lines: code|seconds|last
+//   played index_dir|unlock file         each start's playtime from the
+//                                        unlock file added (stats.c):
+//                                        played r|count, then game lines:
+//                                        code|seconds
 //
 // argv[1]: DSiRPC's port (the console looks for it at 127.0.0.1).
 
@@ -153,6 +157,16 @@ int main(int argc, char *argv[])
             for (int i = 0; i < st.count; i++)
                 printf("game %s|%u|%u\n", st.games[i].code, (unsigned)st.games[i].seconds,
                        (unsigned)st.games[i].last);
+            stats_free(&st);
+        }
+        else if (strcmp(line, "played") == 0 && nf == 2)
+        {
+            int r = stats_add_played(f[0], f[1]);
+            StatsList st;
+            stats_load(f[0], &st);
+            printf("played %d|%d\n", r, st.count);
+            for (int i = 0; i < st.count; i++)
+                printf("game %s|%u\n", st.games[i].code, (unsigned)st.games[i].seconds);
             stats_free(&st);
         }
         else if (strcmp(line, "settings") == 0 && nf == 2)

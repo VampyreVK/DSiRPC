@@ -29,6 +29,24 @@
 
 ## Progress log
 
+- 2026-10-30 (late night): **Updates for the desktop, and playtime offline.**
+  The README's banner has the new tagline and six feature chips beside the
+  DSi (redrawn twice: the first was too small to read on GitHub, the second
+  too bubbly; the tagline is now the plain font on a finer grid). The
+  `DSiRPC` folder lives in `roms/nds`, so the launcher leaves its own folder
+  out of the game list. The save sync says what it does: uploading,
+  backing up, downloading or restoring, instead of "taking" a save. The
+  Windows and Mac apps update themselves (`app/updates.py`): they look at
+  GitHub's latest release a minute after starting and every day, say so in
+  their menu, and on a yes download it, check its size and SHA-256, and put
+  it in place once DSiRPC quits (`app/update_apply.py` on Windows, keeping
+  the old files until everything's in; a script that swaps the app on a
+  Mac), then start it again. Playtime is now DSiRPC playtime: the game
+  keeps each start's playtime in a slot of `RPCUNLK.BIN` once a minute,
+  offline too (192 bytes in nds-bootstrap's ARM7 part), the launcher adds
+  it up as it starts, and the exchange sends the console's numbers too, so
+  both sides keep the higher of each.
+
 - 2026-10-30 (night): **The music freeze, found.** The watchdog build
   crashed at boot on the 3DS, and this time the ARM7 left a crash screen: an
   undefined instruction in maxmod's `mmLockChannels()`, with the address

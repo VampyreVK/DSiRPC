@@ -189,11 +189,15 @@ plus:
   charging), the DSi is drawn 3x with a note under it (which PC DSiRPC is
   on, or what went wrong), and the game list and save sync show the picked
   game's or save's details instead.
-- **Playtimes** (`source/stats.c`): after its first sync, the launcher asks
-  DSiRPC how long each game ran while it watched, with the PC's name and
-  whether it's signed in to RetroAchievements and has Discord on
-  ([DOCUMENTATION.md](../docs/DOCUMENTATION.md#playtimes-tcp-4245)), and
-  keeps the answer in `stats.idx`, so the game list has it offline too.
+- **DSiRPC playtime** (`source/stats.c`): as it starts, the launcher adds
+  the last game's playtime to `stats.idx` (`stats_add_played()`: the game
+  keeps it in `RPCUNLK.BIN` each minute, offline too). After its first sync,
+  it sends DSiRPC its numbers and gets how long each game ran while DSiRPC
+  watched, with the PC's name and whether it's signed in to
+  RetroAchievements and has Discord on
+  ([DOCUMENTATION.md](../docs/DOCUMENTATION.md#playtimes-tcp-4245)). Each side
+  keeps the higher of each number (time played with another PC carries
+  over), the launcher in `stats.idx`, so the game list has it offline too.
 
 ### Updates
 
@@ -359,7 +363,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `music/*.m8s` | The two songs, as the M8 saves them ([music/README.md](music/README.md): changing them) |
 | `audio/*.xm` | The songs for maxmod, made by `tools/make_music.py` (don't edit by hand; tested against the songs: `tests/test_music.py`) |
 | `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
-| `source/stats.c` | DSiRPC's playtimes, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
+| `source/stats.c` | DSiRPC playtime: each start's from `RPCUNLK.BIN` added up, the higher of the console's and DSiRPC's, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
 | `source/browser.c` | The file browser (START: the last game) |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
 | `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file; finding DSiRPC (broadcast or the address in the settings) |

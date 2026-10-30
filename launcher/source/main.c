@@ -1151,7 +1151,10 @@ int main(int argc, char *argv[])
     settings_apply(&settings);
     find_self(argc, argv, dir, launcher_path, sizeof(launcher_path));
     if (have_fat)
+    {
         saves_changed = saves_quick_check(games_dir(), dir);
+        stats_add_played(dir, UNLOCKS_PATH);   // the last game's playtime, before any sync
+    }
     find_last_title();
 
     printf("Connecting to Wi-Fi...\n");

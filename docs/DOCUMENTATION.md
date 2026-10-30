@@ -153,10 +153,10 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCSET.BIN` | SD root | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
 | `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
 | `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
-| `stats.idx` | Next to the launcher | DSiRPC's playtimes and how it was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
+| `stats.idx` | Next to the launcher | Each game's DSiRPC playtime (the higher of the console's and DSiRPC's, offline play added from `RPCUNLK.BIN` as the launcher starts) and how DSiRPC was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
 | `update.idx` | Next to the launcher | The CRC32 of the launcher's file and nds-bootstrap's, with their sizes and times, so the update check only reads a file that changed ([section 7](#console-updates-tcp-4245)) |
-| `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`), and the launcher clears it once DSiRPC has them |
+| `RPCUNLK.BIN` | SD root | Unlocks the console made (online or offline), waiting for DSiRPC; the launcher makes it (4096 bytes), the game writes a slot per unlock (nds-bootstrap's `rpcprobe/probe_ach.c`) and one with each start's playtime, and the launcher clears them once DSiRPC has the unlocks (the playtime as it starts, once it's added to `stats.idx`) |
 
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
@@ -816,7 +816,7 @@ numbers mean.
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
 | `core/console_sync.py` | `ConsoleSync`: UDP and TCP port 4245 on its own thread, answering the launcher's sync with the engine's sets and passing on the unlocks (which the console clears, unless the engine says to leave them: a dry run). `on_console(ip, game, console)` hears about each sync as it starts: once the launcher's connected (no game) and again as it starts a game. Connections starting with `DRSV` go to `save_session.py`, `DRUP` to `console_update.py`, `DRGS` to `playtime.py` |
-| `core/playtime.py` | `Playtime`: how long each game ran while DSiRPC watched, and when it last did (`ra/cache/playtime.json`), ticked by the engine; `handle()`, the launcher's playtime exchange (section 7) |
+| `core/playtime.py` | `Playtime`: each game's DSiRPC playtime, how long it ran while DSiRPC watched, and when it last did (`ra/cache/playtime.json`), ticked by the engine, and the console's higher numbers (offline play too) merged in (`merge()`); `handle()`, the launcher's playtime exchange (section 7) |
 | `core/unlocks.py` | `UnlockLedger`: every unlock DSiRPC has seen, on the console (offline, or its checker while connected) or the PC, sent to RetroAchievements or not (`ra/cache/local_unlocks.json`). The console's sets mark them earned; before the started game's set, the engine checks it with RetroAchievements (`RALink.refresh_unlocks()`, 5 s at most): its unlocks come in, and the ones it lacks are sent if sending is on |
 | `core/console_update.py` | The launcher's updates (section 7): `ConsoleFiles` (the console's files this DSiRPC came with, their CRCs, `pc_version()`'s label) and `handle()`, the exchange |
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
@@ -1307,6 +1307,14 @@ its last reading, or `RPCHAND.TXT`'s `time=`, plus the VBlanks since; 0 if
 there was neither, and DSiRPC then uses the time it gets them). The game's
 unlocks already in the file when it starts aren't checked again, so a
 session never saves the same achievement twice.
+One slot per start isn't an unlock: from the game's first minute on, it
+keeps that start's playtime, rewritten each minute in the same 16-byte
+write (achievement ID `0xFFFFFFFF`, the game's code, the seconds played in
+place of `when`; the VBlanks counted, so the in-game menu and sleep don't
+count). The launcher adds it to `stats.idx` as it starts and zeroes it
+first (`stats_add_played()`), before any sync, so no start is counted
+twice and DSiRPC never gets one (`core/offline.py` leaves out any that it
+does, and so does the launcher's unlock count).
 The console saves every unlock, online too, so DSiRPC leaves out the ones it
 already knows about (`engine._offline_unlocks()`, `RALink.known_unlocks()`).
 
@@ -1475,16 +1483,26 @@ DSiRPC counts how long each game runs while it watches it
 (`core/playtime.py`, in `ra/cache/playtime.json`): the engine ticks it at
 each of the hub's updates while the game answers, and the time between two
 ticks of the same game counts unless they're more than a minute apart (the
-console slept, or went away). Offline play isn't seen, so it isn't counted.
-After its first sync, the launcher asks for the numbers (`launcher/source/stats.c`;
+console slept, or went away). The console counts each start from the
+launcher itself, offline too: the game keeps the start's playtime in a slot
+of `RPCUNLK.BIN` (its format is above), and the launcher adds it to
+`stats.idx` as it starts; the launcher calls the total DSiRPC playtime.
+After its first sync, the launcher
+sends its numbers and gets DSiRPC's (`launcher/source/stats.c`;
 `core/console_sync.py` hands connections that start with `DRGS` to
-`playtime.handle()`) and keeps them in `stats.idx`, for the modern look's
-game list and achievement list. The request is 20 bytes, like the others,
-so a DSiRPC from before playtimes takes it for a sync request and turns it
-down at once (`DRSA`), and the launcher leaves `stats.idx` as it was:
+`playtime.handle()`), and each side keeps the higher seconds and the later
+last-played of every game (`Playtime.merge()`, the launcher's `stats.idx`),
+so time played with another PC carries over both ways, and time both sides
+counted (played near the PC) only once. The request's head
+is 20 bytes, like the others, so a DSiRPC from before playtimes takes it
+for a sync request and turns it down at once (`DRSA`), and the launcher
+leaves `stats.idx` as it was. A DSiRPC that only knows version 1 turns 2
+down, and the launcher asks again with 1 (no numbers sent) and keeps the
+higher numbers itself:
 
 ```
-"DRGS" | version u16 (1) | MAC[6] | console model u8 | 7 bytes 0
+"DRGS" | version u16 (2) | MAC[6] | console model u8 | 7 bytes 0
+         | (version 2) n u16 | n x ( 4 game code | seconds played u32 | last played u32 )
 answer: "DRGA" | status u16 (0 OK, 4 bad request) | n u16 | flags u8 (bit 0: Discord on)
         | PC name length u8 | RetroAchievements user length u8 | u8 0
         | the PC's name | the user (none: not signed in)
@@ -1569,7 +1587,7 @@ All paths below are under `nds-bootstrap/retail/`.
 | `probe_watch.c/.h` | Per-frame capture: the watch list (up to 8 values), a record per VBlank into a 2 KB ring (in main RAM), and the `'W'`/`'F'` handlers. Also the ARM7 side of the ARM9 half: finds its block (by its magic, in the ARM9 cardengine's region), looks for the game's `OS_Halt` in its ARM9 binary in the ARM7's idle time (`ProbeWatch_Game()`, `ProbeWatch_Idle()`), and every VBlank (`ProbeWatch_Tick()`) asks the ARM9 to patch it while it isn't and notes whether a write-back came since the last VBlank (`ProbeWatch_Fresh()`: the capture marks its records by it, the checker counts `fc=`). |
 | `probe_net.c/.h` | Builds LLC/SNAP + IPv4 + UDP frames for the (broadcast) hellos |
 | `rpcprobe_config.c/.h` | Reads `RPCHAND.TXT` (`time=` is the fallback for dating unlocks); defines the UDP port (4244) |
-| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, samples the frame lane at the start of every VBlank, checks both lanes in the game's idle time (or in the VBlank when that can't be used), dates each unlock by the console's clock, saves it into `RPCUNLK.BIN` and keeps the latest for the report (below), marks the console's unlocks (and DSiRPC's, `'U'`) in the set's list for the in-game menu |
+| `probe_ach.c/.h` | Offline play's achievement checker: loads `RPCSET.BIN` and `RPCUNLK.BIN` on the first VBlank, checks the set's CRC, samples the frame lane at the start of every VBlank, checks both lanes in the game's idle time (or in the VBlank when that can't be used), dates each unlock by the console's clock, saves it into `RPCUNLK.BIN` and keeps the latest for the report (below), keeps the start's playtime there each minute, marks the console's unlocks (and DSiRPC's, `'U'`) in the set's list for the in-game menu |
 | `probe_ach_vm.c/.h` | The checker's interpreter: a port of rcheevos 12.5's evaluation, without floating point, for the program DSiRPC builds, that skips an achievement whose memory values and hits didn't change (with the same results). `AchVm_Sample()` and `AchVm_RunSampled()` split a pass into sampling and checking for the frame lane. Plain C; the same file is tested against rcheevos on a PC |
 | `rpcprobe_build.h` | `RPCPROBE_REQUESTS` (1 = answer memory requests, 0 = hellos only), `RPCPROBE_RX_CMD53` / `RPCPROBE_TX_CMD53` (1 = CMD53 for receiving / sending, 0 = CMD52 only), `RPCPROBE_HELLO_CMD52_EVERY`, the per-VBlank receive limits, and the checker's `RPCPROBE_ACH` (0 = off), `RPCPROBE_ACH_IDLE_LINES_PER_VISIT` and `RPCPROBE_ACH_IDLE_LINES_PER_FRAME` (its idle-time budget), `RPCPROBE_ACH_IDLE_DEAD`, `RPCPROBE_ACH_LINES_PER_VBLANK` and `RPCPROBE_ACH_SKIP_AFTER_LINES` (its VBlank budget when the idle time can't be used), `RPCPROBE_ACH_SAVE_FALLBACK`, and `RPCPROBE_WATCH_SCAN_LINES` (4: scanlines a visit to the game's idle time may spend looking for `OS_Halt`) |
 | `DEBUGGING.md`, `TWL_RX_NOTES.md` | Debugging guide (hello fields, RAM viewer byte, debug builds) and chip notes |
@@ -1681,7 +1699,8 @@ the console only runs the result:
   idles, outside interrupts, and serves the ARM9's ROM reads there under
   `saveMutex`. `Probe_HaltTick()` takes the same lock with `tryLockMutex()`
   (so never while a save or ROM read is under way) and writes one 16-byte slot
-  (section 7). For a game whose swiHalt nds-bootstrap couldn't hook, the
+  (section 7): an unlock, or once a minute the start's playtime. For a game
+  whose swiHalt nds-bootstrap couldn't hook, the
   VBlank does it after two seconds without a halt, and for an `altReadMethod`
   game (whose ROM reads use the SD card from the IPC interrupt, which can
   come in the middle of the hook) every VBlank, both under the same lock and

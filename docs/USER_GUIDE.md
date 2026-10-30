@@ -75,8 +75,8 @@ exit connected) clears DSiRPC's "connected" right away.
 **Games** on the launcher's main screen lists every game in `roms/nds` (and
 its folders) with its own icon and name, as the DSi menu shows them, and
 how many of its achievements you have. The top screen shows the game you're
-on: its icon, its publisher, its achievements, how long you've played it
-and when you last did.
+on: its icon, its publisher, its achievements, its DSiRPC playtime and
+when you last played it.
 
 - **A** starts the game, **B** goes back, and **START** starts the game you
   last started from the launcher.
@@ -90,9 +90,13 @@ and when you last did.
   from the game's achievement set on the SD card, which DSiRPC puts there
   the first time you start the game while it's around.
 
-Playtime is the time DSiRPC saw the game running, so it counts when you
-play near your PC, not offline. The launcher asks DSiRPC for it as it
-starts, and keeps it on the SD card for when you're away.
+**DSiRPC playtime** is the time you've played each game started from the
+launcher, near your PC or offline: the game keeps count each minute on the
+SD card, and the launcher adds it up the next time it starts (time in the
+in-game menu or with the console asleep doesn't count). As the launcher
+starts, it and DSiRPC compare numbers and each keeps the higher one for
+every game, so time played with another PC (your laptop, say) carries over;
+the launcher keeps them on the SD card for when you're away.
 
 The first time, the list takes a moment to read every game's name; after
 that, only new games are read. Everything on this screen works with the

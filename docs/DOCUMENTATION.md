@@ -220,11 +220,9 @@ nds-bootstrap's ARM7 file lookup only matches short names.
 
 ### 3.4 Sprites on GitHub Pages
 
-Discord loads the images from `https://vampyrevk.github.io/DSiRPC/Assets/...`,
-so new or changed assets only show up after they are committed and pushed.
-Until then, Discord shows an empty image slot. `Assets/` must stay at the
-repo root, and `.nojekyll` makes Pages serve the files as they are. See
-[section 10](#10-sprite-assets-pipeline).
+Discord loads the sprites from GitHub Pages, so they show up once they're
+pushed: [DEVELOPMENT.md, section 6](DEVELOPMENT.md#6-sprites-github-pages).
+How each folder is made is in [section 10](#10-sprite-assets-pipeline).
 
 ---
 
@@ -1738,8 +1736,9 @@ the console only runs the result:
 
 The original hand-rolled DS-mode Wi-Fi + WPA2 driver (from before the
 DSi-mode handoff) has been removed. It was never committed to any repository,
-so the only copy is in the backup made before the cleanup. How it worked is
-described in [HISTORY.md](HISTORY.md).
+so the only copy is in the backup made before the cleanup. How it worked was
+described in HISTORY.md's early sections, which git history keeps (they were
+taken out on 2026-10-30).
 
 ### Rules the ARM7 code must follow
 
@@ -1794,10 +1793,10 @@ Addresses are hardware addresses (main RAM starts at `0x02000000`).
 RetroAchievements addresses are the hardware address minus `0x02000000`.
 
 This map was checked against a melonDS RAM dump, the pret/pokeplatinum
-decompilation and live hardware reads. It supersedes the memory-map section
-in [HISTORY.md](HISTORY.md), which is out of date (it says party battle stats
-are unencrypted and has the wrong playtime offset). More verified fields that
-aren't read yet are in [research.md](research.md).
+decompilation and live hardware reads. It supersedes the project's first
+memory map (in HISTORY.md's early sections, which git history keeps), which
+had party battle stats as unencrypted and the wrong playtime offset. More
+verified fields that aren't read yet are in [research.md](research.md).
 
 ### Save block: `S = [0x02101D40]`
 
@@ -2123,6 +2122,11 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 
 ### Symptoms
 
+The everyday ones (Discord, the firewall, the launcher's messages, a game
+without its set) are in the user guide's
+[troubleshooting](USER_GUIDE.md#troubleshooting); these are the technical
+ones.
+
 | Symptom | Likely cause / fix |
 |---|---|
 | No hellos at all | Launcher not in DSi mode, SELECT pressed instead of START, stock nds-bootstrap launched (or a build without `DSIRPC_KEEP_DSI_WIFI`, which drops the connection), `RPCHAND.TXT` missing, the firewall blocking UDP 4244, or a network that drops broadcasts (try `--dsi-ip` with the launcher's IP) |
@@ -2136,16 +2140,12 @@ Quit DSiRPC (tray menu > Quit) first: these all need its UDP port.
 | Loading is slow (battles, sprites), at full frame rate | Anything DSiRPC runs in the game's ARM9 interrupts can do this: Pokémon Black and White's battle intro took up to a minute instead of 21 seconds with a VBlank hook, even a few microseconds of work, before or after the game's own VBlank handler (2026-10-19; now nothing runs there, and the ARM9 only writes its cache back in the game's idle time). Compare with stock nds-bootstrap, check the once-a-minute "VBlank tick" line in `dsirpc.log` for the ARM7 side, and try a build with `-DDSIRPC_NO_ARM9_HOOK` (no ARM9 half: `-e DSIRPC_CFLAGS=-DDSIRPC_NO_ARM9_HOOK` on the build command, [DEVELOPMENT.md, section 4](DEVELOPMENT.md#4-building-the-console-files)) to tell the halves apart. (`RPCPROBE_ROM_BUSY_VBLANKS`, which kept the ARM7's VBlank tick short during ROM reads, didn't help, as hardware showed, and is gone.) |
 | The game stutters | rpcprobe runs inside the ARM7's VBlank interrupt and drains every frame the Wi-Fi chip receives: with CMD53 (`rxm=53`, the default) one SDIO command per frame, up to 8 frames a VBlank; with CMD52 one per byte, 128 bytes a VBlank. With a set loaded, the achievement checker adds up to 20 scanlines. Check `vb=` in the hellos and `l=` in the checker's report (section 7), and compare with DSiRPC stopped (if the stutter only happens while it polls, the replies are the cost) and with `RPCSET.BIN` renamed (the checker). The DS refreshes at about 59.83 Hz, which is normal and not the cause. |
 | Wrong game boots | Started our nds-bootstrap from the menu (launcher's X): it boots what `sd:/_nds/nds-bootstrap.ini` names, the last game TWiLight or the launcher set up. Use START in the launcher |
-| "This game has no save file yet" | Start the game once from TWiLight Menu++, which makes the save, then use the launcher |
 | "Pick nds-bootstrap-dsirpc.nds" | Our build isn't next to the launcher as `nds-bootstrap-dsirpc.nds` (or there are several `nds-bootstrap*.nds` there): pick it, or move it there |
 | Picking a game goes back to TWiLight, or the screen stays black | Starting nds-bootstrap directly didn't work on this console (launcher/CHAINLOAD.md); X in the launcher still exits connected the two-step way |
-| The in-game menu says "no set loaded" or "another game's" | The game wasn't started with START in the launcher (X, or straight from TWiLight), so `RPCSET.BIN` is missing or another game's; or DSiRPC had no set for it at the last sync |
 | No achievement LED | It's DSi only, and it's the LED TWiLight's ROM read LED setting picks (None turns it off). It pulses only while there are unlocks you haven't seen in the in-game menu |
-| Two activities in Discord | Vencord CustomRPC (or another presence tool) is still on |
 | Presence stays up for a while after closing the game | Expected: DSiRPC waits for about 30 s without data before clearing it |
 | "DSiRPC is already running" | Another DSiRPC (look in the tray, by the clock) or a tool from `tools/` holds UDP 4244 |
 | The tray icon's dot is red | Discord isn't running, or there's no application ID (run Setup); the menu's "Discord: ..." line says which |
-| Another game shows only its name | No set yet. The tray's RetroAchievements line says why (no clear title match, no connection, ...): run Setup while the game runs and pick its set (section 6, "Finding the set") |
 | An achievement didn't unlock (or unlocked early) | It depends on who checked it (section 6, "RetroAchievements"): the console's frame lane and DSiRPC's every-frame checking see every frame; the console's pass lane and DSiRPC's once-a-second checking can miss a moment. DSiRPC's log says which ("by the console's checker", "checked every frame"), and so does the console's report (`f=`, `fd=`). For a game started from the launcher, a large `fd=` means the frame lane's checking falls behind on that game. `logs\achievements.log` lists every unlock and whether it was sent |
 | Unlocks say "not sent" | Sending is off (setup, step 3), you're not signed in, or it's a `--dry-run`. Ones that failed to send wait in `ra\cache\pending_unlocks.json` |
 | Blank image in Discord | Asset not pushed yet, wrong folder case, or a missing ID |
@@ -2255,55 +2255,11 @@ section is the technical side.
 
 ## 13. Repository layout
 
-| Path | What |
-|---|---|
-| `README.md` | Using DSiRPC, how it works in short, and pointers for developers |
-| `docs/DEVELOPMENT.md` | Running from the source code, building, the command line and tools, releases |
-| `packaging/` | The Windows download: `build_release.py` and the `README.txt`, license list and release notes it includes; `packaging/macos/`: the macOS app (`build_app.py`, `DSiRPC.spec`, the entry point `dsirpc_app.py`, its `README.txt`) |
-| `Setup.bat`, `DSiRPC.bat` | Setup, and DSiRPC in the tray |
-| `dsirpc.py`, `app/` | DSiRPC: the command line, and the engine, tray, setup and Start with Windows |
-| `ra/` | RetroAchievements set files, and `ra/cache/` (RetroAchievements' game lists, the game-file index, unlocks waiting to be sent, the unlocks you have); all gitignored |
-| `third_party/rcheevos/` | Prebuilt rcheevos (RetroAchievements' rule engine), MIT, with DSiRPC's `dsirpc_offline.c` (offline play's set compiler) built in |
-| `overlay/` | The stream overlay window |
-| `core/`, `rpc/`, `utils/` | Python modules (section 5) |
-| `tools/` | Testing tools (`dsi_status.py`, `ra_tool.py`, `frame_check.py`, `hello_listener.py`, `dsirpc_overlay.py`), `arm7_model/` (the checker's cycle counter) and `charmap/` (hex-editor tables generated from the Gen IV charmap) |
-| `Assets/` | Sprites served by GitHub Pages, plus the scripts that made them |
-| `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
-| `launcher/` | The DSi-mode launcher (`source/`: connecting, the modern look's drawing and game list, the file browser, the ini, starting nds-bootstrap, the sync for offline play, the save sync, the playtimes, the settings) and `loader/` (the bootstub and nds-bootloader it starts nds-bootstrap with, GPLv2+) |
-| `nds-bootstrap/` | Our modified nds-bootstrap (section 8) |
-| `docs/DOCUMENTATION.md` | This file |
-| `docs/research.md` | Verified research notes beyond this map, plus leads |
-| `docs/HISTORY.md` | The original project log (history; parts are outdated) |
-| `docs/memory-map/` | RetroAchievements code notes and ProjectPokemon breakpoints |
-| `spikes/` | Stages 1-3, the early experiments |
-| `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
-| `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
-| `.github/workflows/build.yml` | GitHub Action: builds both `.nds` files, the Windows download and the macOS app, publishes a release for `v*` tags |
-| `tests/`, `pytest.ini`, `.github/workflows/tests.yml` | The tests ([tests/README.md](../tests/README.md)): the console's checker, capture and idle-time write-back built for the PC against rcheevos, the launcher's ini handling, and DSiRPC's side against a fake DSi; GitHub runs them whenever that code changes |
+What's in each folder: [DEVELOPMENT.md, section 1](DEVELOPMENT.md#1-repository-layout).
 
 ---
 
 ## 14. History and credits
 
-The short version of how it got here:
-
-1. Stages 1-2 proved DSi-to-PC UDP with standalone homebrew.
-2. A hand-rolled DS-mode Wi-Fi + WPA2 driver inside nds-bootstrap followed.
-   It compiled but was replaced before it ever worked on hardware.
-3. The approach was then turned around: the DSi-mode launcher connects with
-   the console's own saved settings and hands the live connection to the
-   game. Getting that to survive meant keeping the board in DSi mode,
-   keeping SD access out of the VBlank interrupt, and patching Platinum's
-   wireless search.
-4. Stage 5 added memory requests.
-5. The PC side grew from a raw-read client into the parser, the status tool
-   and the Rich Presence, merged with the earlier melonDS-RPC-Suite, then
-   the tray app, the overlay window and RetroAchievements.
-6. Offline play: the launcher's sync, the console's own achievement
-   checker and unlock saving, the achievement LED and the in-game menu's
-   achievements.
-7. Pokémon Black and White, the macOS app, the 3DS, and save backups
-   through the launcher.
-
-The dated details are in [HISTORY.md](HISTORY.md), and the credits, with
-links, in the README's [Credits](../README.md#credits).
+How it got here, in short and by date: [HISTORY.md](HISTORY.md). The
+credits, with links, are the README's [Credits](../README.md#credits).

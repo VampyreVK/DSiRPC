@@ -37,8 +37,9 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
 | `packaging/` | The Windows download: `build_release.py`, and the `README.txt`, license list and release notes that go with it; `packaging/macos/`: the macOS app (below) |
 | `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references), `images/` (the README's banner and icons, from `tools/readme_art.py`) |
-| `spikes/` | Early experiments (stages 1-3), kept for reference |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
+| `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
+| `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
 | `.github/workflows/tests.yml` | The GitHub Action that runs the tests (see [Tests](#10-tests)) |
 | `.github/workflows/renders.yml` | The GitHub Action that draws the launcher's screens and its demo, and keeps the README's pictures on the `renders` branch up to date with the latest release (see [Builds and releases](#9-builds-and-releases)) |

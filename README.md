@@ -168,8 +168,8 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 
 - [ ] Full presence for more games and versions, and ordinary trainers'
       names in Black and White's battles.
-- [ ] Location artwork for the big image, and more overworld states (running,
-      biking, surfing). Leads are in [docs/research.md](docs/research.md).
+- [ ] Location artwork for the large Discord RPC image, and more overworld states (running,
+      biking, surfing) in Platinum. Leads are in [docs/research.md](docs/research.md).
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
       browser-source panels for OBS.
 - [ ] Handle WPA2 group-key renewal in game, if a router ever disconnects

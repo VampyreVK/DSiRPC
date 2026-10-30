@@ -58,7 +58,7 @@ Its settings, log, achievement sets and save backups are in
    connects to Wi-Fi, ticking off each step on the bottom screen (the DSi on
    the top screen turns its Wi-Fi sign green), and finds DSiRPC. (Away from
    your PC? Press **B** to [play offline](#playing-offline).)
-3. Open **Play** (or press **START** to start the game you played last) and
+3. Open **Games** (or press **START** to start the game you played last) and
    pick your game ([the game list](#the-game-list)). The launcher starts
    it, still connected.
 4. Within about 15 seconds, Discord shows what you're playing and the tray
@@ -71,7 +71,7 @@ exit connected) clears DSiRPC's "connected" right away.
 
 ## The game list
 
-**Play** on the launcher's main screen lists every game in `roms/nds` (and
+**Games** on the launcher's main screen lists every game in `roms/nds` (and
 its folders) with its own icon and name, as the DSi menu shows them, and
 how many of its achievements you have. The top screen shows the game you're
 on: its icon, its publisher, its achievements, how long you've played it
@@ -107,6 +107,7 @@ Right-click it (on a Mac, click it in the menu bar) for the menu:
 | **Discord presence** | Show the game on Discord, or not |
 | **Console icon** | The picture Discord shows for games without their own presence |
 | **Overlay window** | The [stream overlay](#stream-overlay-window) (a left click on the icon toggles it too) |
+| **Ambient music** | The launcher's menu music while the overlay window is open: **Off** (at first), **Bright** or **Subtle** |
 | **Console updates** | Let the launcher [update its files](#updating-and-removing) from this DSiRPC |
 | **Start with Windows** | Start DSiRPC when you sign in (**Open at Login** on a Mac) |
 | **Setup...** | Run setup again, to change an answer |
@@ -231,8 +232,10 @@ and **B** goes back. Syncing everything asks about each `!` first, shows how
 it's going, then a summary.
 
 The launcher only reads the saves whose size or time changed since the last
-sync, so checking is quick, and its main screen says how many changed on
-the console (newer saves on the PC show up in the list).
+sync, so checking is quick. As it connects it also asks DSiRPC what the
+saves need (the checklist's **Saves** step), so the **Saves** tile counts
+newer saves on the PC (from your other console) as well as the ones that
+changed here.
 
 ## The launcher's settings
 
@@ -252,7 +255,7 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
   for picking games). It changes as soon as you pick it.
 - **Sounds:** the modern look's soft menu sounds, on or off.
 - **Music:** the modern look's menu music: **Bright** (an airy loop, the
-  default), **Subtle** (a quiet lounge one) or **Off**. It changes as soon
+  default), **Subtle** (a quiet lounge tune) or **Off**. It changes as soon
   as you pick it, and fades out when a game starts.
 
 ## Stream overlay window
@@ -274,6 +277,10 @@ stay crisp. Add it to OBS with **Window Capture** (for a Chroma Key filter,
 set `chroma`, a colour like `00FF00`, in `dsirpc.cfg`), or share the window
 on Discord. Keys **1**-**6** change its size, and **V** switches to the party
 screen (all six Pokémon with their moves, PP, nature and held item) and back.
+
+Tray menu > **Ambient music** plays the launcher's menu music, **Bright** or
+**Subtle**, while the window is open (paused while it's minimized). It's off
+at first, so it never surprises a stream.
 
 ## Troubleshooting
 

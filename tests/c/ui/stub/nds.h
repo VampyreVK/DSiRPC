@@ -75,6 +75,7 @@ typedef struct PrintConsole
 {
     ConsoleFont font;
 } PrintConsole;
+void defaultExceptionHandler(void);
 PrintConsole *consoleDemoInit(void);
 void consoleClear(void);
 const PrintConsole *consoleGetDefault(void);

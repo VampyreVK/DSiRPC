@@ -285,6 +285,24 @@ in this table before assuming it's missing from RA entirely.
 
 ## Progress log
 
+- 2026-10-30 (later still): **The music freeze, and polish.** On a 3DS the
+  launcher froze a few minutes into its music, the music stopping with it.
+  The ARM7 was the likely culprit: DSWiFi's `Wifi_Update()` runs from the
+  VBlank handler and from its FIFO handler, which libnds calls with
+  interrupts on, so one update could start inside another, and maxmod's
+  music timer (which turns interrupts on too) made that much likelier.
+  BlocksDS fixed it after 1.24.0 (DSWiFi 59d2636), so the launcher builds
+  its own copy of the default ARM7 core (`launcher/arm7/`) with the same
+  guard linked in (`-Wl,--wrap=Wifi_Update`), and both CPUs show a crash's
+  details instead of freezing. Also: Subtle's lowest bass notes (F2) moved
+  up an octave (the speakers rattled); the Play tile is now Games, with a
+  game icon; the connecting screen's checklist ends with a Saves step that
+  asks DSiRPC, so the Saves tile counts the PC's newer saves too; the
+  console's name chip has its text a pixel lower (it smudged when the 3DS
+  scales the screen); the Settings tile says "PC, saves, music". DSiRPC's
+  tray got **Ambient music** (Off, Bright, Subtle): the overlay window plays
+  the launcher's own modules with pygame while it's open.
+
 - 2026-10-30 (later): **Menu music.** Two songs made on a Dirtywave M8
   (`launcher/music/`): Bright, an airy Eb major loop that opens on a
   falling maj9 chord with an echo, and Subtle, a quiet lounge loop. Viv

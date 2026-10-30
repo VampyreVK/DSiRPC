@@ -51,6 +51,7 @@ static const uint8_t RGBS[UI_SPIN][3] = {
     [UI_AMBER] = { 240, 192, 48 }, [UI_AMBER_DARK] = { 42, 32, 8 },
     [UI_RED] = { 232, 72, 56 }, [UI_RED_DARK] = { 44, 14, 10 },
     [UI_SCROLL] = { 74, 92, 120 }, [UI_ICON] = { 201, 208, 220 },
+    [UI_SLATE] = { 94, 107, 132 }, [UI_SKY] = { 165, 197, 229 },
 };
 
 // The spinner's dots (2x2, clockwise from the top) and their colors, the lit

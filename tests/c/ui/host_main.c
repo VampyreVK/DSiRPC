@@ -34,6 +34,10 @@ void host_main_screens(const char *rom)
     show_step(STEP_SETS, STEP_ACTIVE, "CPUE");
     host_shot("syncing");
 
+    host_connected();
+    show_step(STEP_SAVES, STEP_DONE, "2 to sync");
+    host_shot("ready");
+
     restore_steps();
     draw_connecting();
     top_set(TOP_FAILED);
@@ -59,7 +63,7 @@ void host_main_screens(const char *rom)
     host_shot("home_settings");
 
     online = false;
-    home_tile = TILE_PLAY;
+    home_tile = TILE_GAMES;
     top_set(TOP_OFFLINE);
     top_note("Playing offline", "Unlocks wait on the SD card for DSiRPC");
     draw_main();

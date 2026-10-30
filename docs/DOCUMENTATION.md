@@ -240,7 +240,7 @@ repo root, and `.nojekyll` makes Pages serve the files as they are. See
    which it then tells every 5 s that it's still there, and asks for its
    playtimes ([section 7](#playtimes-tcp-4245)). Y opens the save sync, L+R
    the settings.
-2. **Pick the game.** The modern look's game list (Play, or START for the
+2. **Pick the game.** The modern look's game list (Games, or START for the
    game last started) or the classic look's file browser (START), in
    `sd:/roms/nds` (or the launcher's folder); START in the browser picks the
    game last started from the launcher. The launcher finds our nds-bootstrap next to itself
@@ -330,8 +330,9 @@ Discord shows and the RetroAchievements state (signed in or not, the game's
 progress, or why there's no set), then **Discord presence**, **Console
 icon** (a submenu with every picture in `Assets/Consoles`, plus "None", for
 Discord's small image; section 6), **Overlay window** (also a left click on
-the icon), **Console updates** (whether the launcher may update its files
-from here; section 7) and **Start with Windows** (`app/startup.py`: a
+the icon), **Ambient music** (Off, Bright or Subtle: the launcher's menu
+songs while the overlay window is open; below), **Console updates** (whether
+the launcher may update its files from here; section 7) and **Start with Windows** (`app/startup.py`: a
 `DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
 then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC
@@ -447,6 +448,13 @@ its options in [DEVELOPMENT.md](DEVELOPMENT.md#7-command-line). The sprites
 come from `Assets/`; a sprite that isn't there (a release download only has
 `Assets/Consoles`) is downloaded from GitHub Pages on the loader thread the
 first time it's needed and kept (`overlay/sprites.py`).
+While it's open and not minimized it can loop one of the launcher's menu
+songs (`overlay/music.py`): the same XM modules the launcher plays
+(`launcher/audio`), through pygame's mixer, at half volume, fading in, from
+one song to the next and out as the window closes. The tray picks it
+(`Engine.set_music()`, `ambient_music` in `[app]`, off at first); the window
+follows between frames, on its own thread (on a Mac the choice goes through
+`remote.py`'s pipe). The Windows and Mac builds ship `launcher/audio` for it.
 During a battle the hub reads only the battlers, about three times a
 second, instead of the whole state every 2 s (see `DsiSource` in the module
 table), so HP and moves show up quickly.
@@ -787,7 +795,7 @@ numbers mean.
 | `core/bw_parser.py` | `BWParser.parse()`: Pokémon Black and White (US) from main RAM (section 9): one prefetch batch for the fixed addresses, then the battle copies and their Pokémon. Same state layout as Platinum's plus `'kind': 'bw'`, `version`, `season`, `zone`, `repel`, `badge_shine`, `route` (trainers beaten and items found here), `subway`, `institute` and `league` (only in those places, else None), battlers' `pp_max` and `owned` (a wild foe you've caught before), the location's `form` (bike, surf) and the player object's address and position for the hub's quick field reads (`field_ranges()` / `apply_field()`, which work out the `gait` with `motion()`), and the battle's `style` and `trainer_id`. Returns None when what it reads doesn't look like the game (party checksums, zone, trainer name), and also before you're in the field (`on_menu`: the zone reads 0, Black City's, and there's no player map object, so the Continue menu and the intro don't show as Black City in spring). `read_clock()` reads the in-game clock (two places tried, PC clock otherwise), the field's weather and the music are read too, and `identify()` names a battle's kind and, for a Gym Leader, Elite Four member or the Champion, who. `quick_ranges()` / `apply_quick()` are the hub's battlers-only reads (with the music). `decode_text()` decodes Gen V text (UTF-16) |
 | `core/bw_data.py` | Black and White's tables, on top of `platinum_data`: Pokémon to #649, moves to #559 with type, category and PP (`MOVE_INFO`, a superset of Platinum's), Gen V's type order, badges, seasons, zone IDs to place names (`ZONES`, from the RetroAchievements rich presence for game 3887), `terrain()` for the battle backgrounds, `opponent()` (Gym Leader rooms with the leader music, the Elite Four's and Champion's rooms; Striaton's leader by your first partner, Opelucid's by version), `WEATHER` (the field weather byte to the battle view's weather), `time_of_day()` (the season's hours), `ROUTE_FLAGS` / `route_stats()` (each place's trainer and item flags), the Battle Subway's trains, the Battle Institute's ranks, the League's rooms and order, `shine_row()` (badge shine to the trainer card's look), the catch and low-HP music, and `ITEMS` / `item_name()` (held items by the games' numbers, from IronMon Tracker's Gen 5 table: Gen IV's numbering, a few of its slots reused, such as the Drives at 116-119 and the new Mail at 137-148, and Gen V's own items from 468 on) |
 | `rpc/discord_client.py` | pypresence wrapper. `update()` takes `activity_type`, `party_size` and `name` (the game's name instead of the application's, pypresence 4.6+; older versions leave it out) and returns whether Discord accepted it. `close()` clears the activity and disconnects, and cleans up properly even if Discord was closed in the meantime. Repeated identical errors are logged once. |
-| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon, console_updates), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `save()` writes every setting back, with comments. |
+| `utils/config.py` | `Config`: reads `dsirpc.cfg` (or the old `PokemonPlatinumRPC.cfg` while there's no `dsirpc.cfg`): `[connection]`, `[app]` (discord, overlay, overlay_scale, chroma, console_icon, console_updates, ambient_music), `[ra]` (username, token, roms, profile, achievements, submit_unlocks, interval, racache, auto_import). `save()` writes every setting back, with comments. |
 | `rpc/platinum_presence.py` | Platinum's presence (section 6): `build_presence()`, the sprite URLs, `playtime_start()` for the timer |
 | `rpc/bw_presence.py` | Black and White's presence (section 6): `build_presence()`, the turf-matched image URLs (`foe_image()`, `trainer_image()`), `game_code()` and `playtime_start()` |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
@@ -816,7 +824,7 @@ numbers mean.
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 

@@ -157,15 +157,19 @@ or soft square wave with a volume envelope, or a hit of filtered noise for
 the drums, an echo on the lead and the bell, and each song's groove. To
 change a song, edit it on the M8, copy it over `music/bright.m8s` or
 `music/subtle.m8s` and run `python tools/make_music.py` (the M8's FX
-commands, tables and effects aren't carried over).
+commands, tables and effects aren't carried over; the steps are in
+[music/README.md](music/README.md)). DSiRPC's overlay window plays the same
+modules on the PC (its tray's Ambient music).
 
 The screens are the classic ones' with the same keys, drawn differently,
 plus:
 
-- **Connecting:** a checklist (Wi-Fi, IP address, DSiRPC, Achievements),
-  the update's card under it (`source/update.c`), and a card when it can't
-  connect.
-- **The main screen:** four tiles, Play, Saves (with how many changed),
+- **Connecting:** a checklist (Wi-Fi, IP address, DSiRPC, Achievements,
+  Saves), the update's card under it (`source/update.c`), and a card when it
+  can't connect. The Saves step asks DSiRPC what the saves need, as the Saves
+  screen does (`check_saves()`), so the main screen's count takes in newer
+  saves on the PC too; B skips it.
+- **The main screen:** four tiles, Games, Saves (with how many to sync),
   Settings and Exit, picked with the D-pad and A or a tap. **START** starts
   the game last started (`LAST_GAME`) without the list.
 - **The game list** (`source/picker.c`): the games in `sd:/roms/nds` and its
@@ -305,7 +309,12 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 ```
 
 The output is `dsirpc-launcher.nds`. The same command first builds the loader
-in `loader/` (it ends up inside the launcher). Copy the launcher to the SD
+in `loader/` (it ends up inside the launcher) and the ARM7 core in `arm7/`:
+BlocksDS's default one (DSWiFi and maxmod), with a guard that keeps
+`Wifi_Update()` from running inside itself, which BlocksDS added after 1.24.0.
+Without it the launcher froze a few minutes into its music on a 3DS (the
+music's timer interrupt made the overlap likely). Once the SDK has the fix,
+`ARM7ELF` can point at its prebuilt core again. Copy the launcher to the SD
 card next to our nds-bootstrap build (`nds-bootstrap-dsirpc.nds`), for example
 both in `sd:/DSiRPC/` as in the release download, and start it in DSi mode.
 
@@ -335,7 +344,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread; the modern look's bar (status chip, battery), note and details |
 | `source/ui.c` | The modern look's drawing: the bitmap, text, icons, banner icons, panels, key hints, the spinner, taps and sounds |
 | `source/music.c` | The menu music, with maxmod (the setting's wiring is tested on a PC: `tests/test_launcher_ui.py`) |
-| `music/*.m8s` | The two songs, as the M8 saves them |
+| `music/*.m8s` | The two songs, as the M8 saves them ([music/README.md](music/README.md): changing them) |
 | `audio/*.xm` | The songs for maxmod, made by `tools/make_music.py` (don't edit by hand; tested against the songs: `tests/test_music.py`) |
 | `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
 | `source/stats.c` | DSiRPC's playtimes, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
@@ -349,6 +358,7 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
+| `arm7/` | The ARM7 core: BlocksDS's default one, with the `Wifi_Update()` guard (above, Build) |
 | `icon.gif` | The launcher's animated icon (made by `tools/make_pixel_dsi.py`, don't edit by hand) |
 
 ## License

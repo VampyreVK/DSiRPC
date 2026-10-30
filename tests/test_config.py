@@ -1,6 +1,7 @@
-"""dsirpc.cfg's one Discord application (utils/config.py): a release's
-default, your own (saved, and only that), and files from when Platinum and
-the other games each had one, which still load."""
+"""dsirpc.cfg (utils/config.py): its one Discord application (a release's
+default, your own, saved, and only that, and files from when Platinum and
+the other games each had one, which still load), and the overlay window's
+ambient music."""
 
 import pytest
 
@@ -44,3 +45,17 @@ def test_files_from_when_other_games_had_their_own(folder):
     assert cfg.discord_client_id == cfg.release_client_id == FOUR
     path.write_text(f"[connection]\ndiscord_client_id: {FIVE}\n")
     assert config.Config(str(path)).discord_client_id == FIVE     # yours over the release's
+
+
+def test_ambient_music(folder):
+    path = folder / "dsirpc.cfg"
+    cfg = config.Config(str(path))
+    assert cfg.ambient_music == "off"           # off at first: the window may be on a stream
+    cfg.ambient_music = "subtle"
+    cfg.save()
+    assert "ambient_music: subtle" in path.read_text()
+    assert config.Config(str(path)).ambient_music == "subtle"
+    path.write_text("[app]\nambient_music: Bright\n")
+    assert config.Config(str(path)).ambient_music == "bright"
+    path.write_text("[app]\nambient_music: loud\n")
+    assert config.Config(str(path)).ambient_music == "off"

@@ -24,6 +24,9 @@ console_icon: DSiXL
 # differ from the ones that came with this DSiRPC, the launcher offers to
 # update them from here (the tray menu's "Console updates")
 console_updates: yes
+# Music while the overlay window is open: the launcher's menu songs, off,
+# bright or subtle (the tray menu's "Ambient music")
+ambient_music: off
 
 [ra]
 # Your RetroAchievements account: setup signs in with your password once and

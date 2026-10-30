@@ -107,6 +107,12 @@ def actions(lines):
             for ln in lines if ln.startswith("action ")}
 
 
+def pending(lines):
+    """What the plan leaves to do, as the main screen counts it"""
+    assert any(ln.startswith("plan 1") for ln in lines), lines
+    return next(int(ln.split()[1]) for ln in lines if ln.startswith("pending "))
+
+
 def test_a_dsi_and_a_3ds_share_their_saves(host, pc, tmp_path):
     port, store = pc
     dsi = Console(host, port, str(tmp_path / "dsi"))
@@ -185,6 +191,32 @@ def test_dated_copies_and_saves_already_in_sync(host, pc, tmp_path):
     three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"black")
     assert actions(three.run("plan")) == {("Pokemon Black", 0): saves.IN_SYNC}
     assert three.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
+
+
+def test_the_main_screens_count(host, pc, tmp_path):
+    """The connecting screen's Saves step: the count on the Saves tile takes
+    in what changed on the PC (another console's newer save), not only what
+    changed here; a console that only backs up isn't offered the PC's saves,
+    so they don't count."""
+    port, _ = pc
+    dsi = Console(host, port, str(tmp_path / "dsi"))
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    for c in (dsi, three):
+        c.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+        c.put("sd:/roms/nds/Picross.nds", rom("APKE", 0x0042))
+    dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"start")
+    assert pending(dsi.run("plan")) == 1         # never backed up
+    dsi.run("plan", "sync *")
+    assert pending(dsi.run("plan")) == 0
+    # The 3DS takes Black, plays it and starts Picross: nothing changed on
+    # the DSi's SD card, but two saves wait for it on the PC
+    three.run("plan", "sync *")
+    three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the 3DS's adventure")
+    three.put("sd:/roms/nds/saves/Picross.sav", b"picross")
+    three.run("plan", "sync *")
+    assert dsi.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
+    assert pending(dsi.run("plan")) == 2
+    assert pending(Console(host, port, str(tmp_path / "dsi"), DSI_BACKUP).run("plan")) == 0
 
 
 def test_conflicts_both_ways(host, pc, tmp_path):

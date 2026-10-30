@@ -5,7 +5,8 @@
 #     half)
 #   - the launcher's nds-bootstrap.ini handling (launcher/source/bootstrap_ini.c)
 #   - the launcher's menu music: the M8 songs and the XM modules made from
-#     them (launcher/music, launcher/audio, tools/make_music.py)
+#     them (launcher/music, launcher/audio, tools/make_music.py), and the
+#     overlay window playing them (overlay/music.py)
 #   - the PC side: the offline formats, the launcher sync, the protocol
 #     client, the Black/White parser and the hub against a fake DSi on the
 #     loopback network
@@ -20,6 +21,7 @@ on:
       - "core/**"
       - "app/engine.py"
       - "utils/config.py"
+      - "overlay/music.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -34,6 +36,7 @@ on:
       - "core/**"
       - "app/engine.py"
       - "utils/config.py"
+      - "overlay/music.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -69,6 +72,7 @@ jobs:
             core
             app
             utils
+            overlay
             tools
             tests
             third_party/rcheevos
@@ -84,7 +88,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install pytest
+      - name: Install pytest and pygame
         run: python -m pip install -r tests/requirements.txt
 
       - name: Restore rcheevos

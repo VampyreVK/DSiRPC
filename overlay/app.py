@@ -12,6 +12,9 @@ talks to the DSi itself.
 Keys: N next demo scene, V the party screen and back (to the battle in a
       battle, else the main view; a battle starting or ending goes back
       to its own), 1-6 window scale.
+
+While it's open (and not minimized) it can play the launcher's menu music
+(the tray's "Ambient music", overlay/music.py).
 """
 
 import logging
@@ -23,6 +26,7 @@ import threading
 import pygame
 
 from core.paths import DATA, ROOT
+from .music import Music
 from .scenes import Overlay, W, H
 from .sprites import SpriteBank
 from . import ui
@@ -44,10 +48,11 @@ def parse_color(text):
 
 
 class OverlayWindow:
-    def __init__(self, hub, scale=3, chroma=None, fps=60, on_scale=None):
+    def __init__(self, hub, scale=3, chroma=None, fps=60, on_scale=None, music="off"):
         """hub: a StateHub (it may already be running). chroma: 'RRGGBB' to
         fill the background with, for a chroma key. on_scale(n) is called
-        when the window size is changed with the 1-6 keys."""
+        when the window size is changed with the 1-6 keys. music: the song
+        to play while it's open (utils.config.MUSIC_CHOICES)."""
         self.hub = hub
         self.scale = max(1, min(6, int(scale)))
         self.fps = fps
@@ -55,6 +60,7 @@ class OverlayWindow:
         self.stop_event = threading.Event()
         ui.THEME['chroma'] = parse_color(chroma) if chroma else None  # ValueError if it isn't RRGGBB
         self._events = queue.Queue()
+        self.music = Music(music)
 
     def _on_update(self, snap, events):
         for e in events:
@@ -63,6 +69,10 @@ class OverlayWindow:
     def stop(self):
         """Closes the window from another thread (run() returns soon after)."""
         self.stop_event.set()
+
+    def set_music(self, name):
+        """Another song, or off, from another thread (the window's loop follows)."""
+        self.music.want = name
 
     @staticmethod
     def _set_icon(win):
@@ -166,6 +176,11 @@ class OverlayWindow:
                                 window = pygame.display.set_mode((W * scale, H * scale))
                             if self.on_scale:
                                 self.on_scale(scale)
+                    elif e.type in (pygame.WINDOWMINIMIZED, pygame.WINDOWHIDDEN):
+                        self.music.pause(True)
+                    elif e.type in (pygame.WINDOWRESTORED, pygame.WINDOWSHOWN, pygame.WINDOWMAXIMIZED):
+                        self.music.pause(False)
+                self.music.tick()
 
                 t_ms = pygame.time.get_ticks()
                 evs = []
@@ -191,6 +206,10 @@ class OverlayWindow:
             logging.exception("The overlay window crashed")
         finally:
             self.hub.remove_listener(self._on_update)
+            try:
+                self.music.close()
+            except pygame.error as e:
+                logging.info(f"Ambient music: {e}")
             if win:
                 win.destroy()
             pygame.quit()

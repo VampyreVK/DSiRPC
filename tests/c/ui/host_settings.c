@@ -16,4 +16,6 @@ void host_settings_screens(void)
     host_shot("settings");
     draw_modern(&s, ROW_ADDRESS, true, octet, 3);
     host_shot("settings_address");
+    draw_modern(&s, ROW_MUSIC, false, octet, -1);
+    host_shot("settings_music");
 }

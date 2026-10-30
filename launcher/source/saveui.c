@@ -167,20 +167,7 @@ static void item_name(char *out, size_t outsz, const SaveItem *it, int cols)
 
 static bool to_do(const SaveItem *it)
 {
-    if (it->excluded || it->done)
-        return false;
-    switch (it->action)
-    {
-    case SA_UPLOAD:
-    case SA_BACKUP:
-    case SA_CONFLICT:
-        return true;
-    case SA_DOWNLOAD:
-    case SA_DOWNLOAD_NEW:
-        return !console.backup_only;
-    default:
-        return false;
-    }
+    return saves_needs_sync(it, console.backup_only);
 }
 
 // ---------------------------------------------------------------------------

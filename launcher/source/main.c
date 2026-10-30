@@ -196,8 +196,8 @@ static void say_status(const char *text)
 // The modern look's checklist: the connecting screen's steps, and the
 // starting screen's (the classic look prints as it goes instead)
 
-enum { STEP_WIFI, STEP_IP, STEP_DSIRPC, STEP_SETS, STEPS };
-static const char *step_label[STEPS] = { "Wi-Fi", "IP address", "DSiRPC", "Achievements" };
+enum { STEP_WIFI, STEP_IP, STEP_DSIRPC, STEP_SETS, STEP_SAVES, STEPS };
+static const char *step_label[STEPS] = { "Wi-Fi", "IP address", "DSiRPC", "Achievements", "Saves" };
 static StepState step_state[STEPS];
 static char step_value[STEPS][48];
 static int row_dsirpc = STEP_DSIRPC, row_sets = STEP_SETS;   // where the syncs' steps are
@@ -738,15 +738,16 @@ static void print_keys(void)
 // ---------------------------------------------------------------------------
 // The modern look's main screen: four tiles
 
-enum { TILE_PLAY, TILE_SAVES, TILE_SETTINGS, TILE_EXIT, TILES };
+enum { TILE_GAMES, TILE_SAVES, TILE_SETTINGS, TILE_EXIT, TILES };
 #define TILE_W  117
 #define TILE_H  66
 
 static int home_tile;
 
 // The tiles' icons, 8x8, drawn 2x: 1-3 their colors
-static const char *const ICON_PLAY[8] = {
-    ".1......", ".11.....", ".111....", ".1111...", ".1111...", ".111....", ".11.....", ".1......",
+// A game: its screen and its label
+static const char *const ICON_GAMES[8] = {
+    "11111111", "12222221", "12222221", "12222221", "12222221", "11111111", "13331111", "11111111",
 };
 static const char *const ICON_SAVES[8] = {
     "11222211", "11222211", "11222211", "11111111", "11111111", "13333331", "13333331", "13333331",
@@ -780,9 +781,10 @@ static void draw_tile(int i)
     ui_fill(c, x + 2, y + 2, TILE_W - 4, 2, UI_PANEL_HI);
     ui_fill(c, x + 2, y + TILE_H - 4, TILE_W - 4, 2, UI_PANEL_LO);
 
-    static const char *const *const ICONS[TILES] = { ICON_PLAY, ICON_SAVES, ICON_SETTINGS, ICON_EXIT };
+    static const char *const *const ICONS[TILES] = { ICON_GAMES, ICON_SAVES, ICON_SETTINGS, ICON_EXIT };
     static const uint8_t COLORS[TILES][3] = {
-        { UI_GREEN, 0, 0 }, { UI_CYAN, UI_TEXT, UI_BG }, { UI_ICON, UI_PANEL, 0 }, { UI_DIM, UI_BAR, UI_AMBER },
+        { UI_SLATE, UI_SKY, UI_ICON }, { UI_CYAN, UI_TEXT, UI_BG }, { UI_ICON, UI_PANEL, 0 },
+        { UI_DIM, UI_BAR, UI_AMBER },
     };
     static const uint8_t DIMMED[3] = { UI_SCROLL, UI_PANEL_HI, UI_PANEL_LO };
     for (int py = 0; py < 8; py++)
@@ -795,11 +797,11 @@ static void draw_tile(int i)
         }
     }
 
-    static const char *const TITLES[TILES] = { "Play", "Saves", "Settings", "Exit" };
+    static const char *const TITLES[TILES] = { "Games", "Saves", "Settings", "Exit" };
     char sub[48];
     switch (i)
     {
-    case TILE_PLAY:
+    case TILE_GAMES:
         if (last_title[0] != '\0')
             snprintf(sub, sizeof(sub), "Last: %.41s", last_title);
         else
@@ -816,7 +818,7 @@ static void draw_tile(int i)
             snprintf(sub, sizeof(sub), "All backed up");
         break;
     case TILE_SETTINGS:
-        snprintf(sub, sizeof(sub), "PC, saves, look");
+        snprintf(sub, sizeof(sub), "PC, saves, music");
         break;
     default:
         snprintf(sub, sizeof(sub), online ? "X: stay online" : "Back to the menu");
@@ -844,7 +846,10 @@ static void draw_home(void)
         snprintf(chip, sizeof(chip), "%s %02X%02X", model, mac_bytes[4], mac_bytes[5]);
     else
         snprintf(chip, sizeof(chip), "%s", model);
-    ui_chip(c, 6, 3, chip, UI_CHIP, UI_TEXT);
+    // As ui_chip(), with the text a pixel lower: at the chip's top edge it
+    // smudges when the 3DS scales the screen
+    ui_fill(c, 6, 3, ui_chip_width(chip), 12, UI_CHIP);
+    ui_text(c, 10, 6, chip, UI_TEXT);
     ui_header_right(online ? ip_str : "Offline", UI_DIM);
     for (int i = 0; i < TILES; i++)
         draw_tile(i);
@@ -1004,6 +1009,69 @@ static void fetch_stats(const char *dir, bool warned)
     top_note(line1, line2);
 }
 
+// The connecting screen's last step: what the saves need, asked of DSiRPC as
+// the Saves screen does, so the Saves tile counts what changed on the PC
+// (another console's newer save) too, not only what changed here. B skips
+// it, and the count stays the one from the SD card.
+static void check_saves(const char *dir)
+{
+    if (sync_found_addr == 0)
+    {
+        show_step(STEP_SAVES, STEP_SKIPPED, "Not synced");
+        return;
+    }
+    printf("\nChecking the saves (B: skip)\n");
+    if (ui_on())
+    {
+        static const UiKey keys[] = { { "B", "Skip", KEY_B } };
+        ui_footer(keys, 1);
+    }
+    show_step(STEP_SAVES, STEP_ACTIVE, "Looking");
+    SaveList list;
+    int found = saves_scan(&list, games_dir(), dir, NULL);
+    if (found < 0 || list.roms == 0)
+    {
+        show_step(STEP_SAVES, STEP_SKIPPED, found < 0 ? "Out of memory" : "No games");
+        saves_free(&list);
+        return;
+    }
+
+    show_step(STEP_SAVES, STEP_ACTIVE, "Asking DSiRPC");
+    SyncJob job = {
+        .console_model = console_model(),
+        .server_addr = settings_server_addr(&settings),
+        .cancelled = b_pressed,
+    };
+    SaveConsole console = { .model = console_model(), .backup_only = settings.backup_only };
+    memcpy(console.mac, mac_bytes, sizeof(console.mac));
+    struct sockaddr_in server;
+    char msg[160];
+    int r = saves_plan(&job, &console, &list, &server, msg, sizeof(msg));
+    if (r > 0)
+    {
+        saves_write_index(&list);   // as the Saves screen does: what stage 2 found, and what's in sync
+        int n = 0;
+        for (int i = 0; i < list.count; i++)
+            n += saves_needs_sync(&list.items[i], console.backup_only);
+        saves_changed = n;
+        char text[32];
+        if (n == 0)
+            snprintf(text, sizeof(text), "All backed up");
+        else
+            snprintf(text, sizeof(text), "%d to %s", n, console.backup_only ? "back up" : "sync");
+        printf("Saves: %s\n", text);
+        show_step(STEP_SAVES, STEP_DONE, text);
+    }
+    else
+    {
+        if (msg[0] != '\0')
+            printf("%s\n", msg);
+        show_step(STEP_SAVES, r == 0 && msg[0] == '\0' ? STEP_SKIPPED : STEP_FAILED,
+                  r == 0 && msg[0] == '\0' ? "Skipped" : "Not checked");
+    }
+    saves_free(&list);
+}
+
 // The modern look's connecting screen, as it starts
 static void draw_connecting(void)
 {
@@ -1019,7 +1087,7 @@ static void draw_connecting(void)
     top_note("B: play offline", NULL);
 }
 
-// The game last started, for the Play tile: its banner's name, or its file's
+// The game last started, for the Games tile: its banner's name, or its file's
 static void find_last_title(void)
 {
     last_title[0] = '\0';
@@ -1042,6 +1110,7 @@ static void find_last_title(void)
 
 int main(int argc, char *argv[])
 {
+    defaultExceptionHandler();      // a crash shows its registers, not just its kind
     consoleDemoInit();
     top_init();
     ui_init();
@@ -1159,13 +1228,17 @@ int main(int argc, char *argv[])
                 top_note("DSiRPC wasn't found", "Saves and sets wait for it");
             if (settings.auto_update && sync_found_addr != 0 && !offer_update(dir, &redraw))
                 return 0;
+            if (redraw && ui_on())
+                draw_steps("Getting ready", STEPS, NULL, 0);   // back from the update's card, for the last step
+            check_saves(dir);
         }
         else
         {
             show_step(STEP_DSIRPC, STEP_SKIPPED, "No SD card");
             show_step(STEP_SETS, STEP_SKIPPED, NULL);
+            show_step(STEP_SAVES, STEP_SKIPPED, NULL);
         }
-        if (ui_on() && !redraw)
+        if (ui_on())
             wait_frames(30);    // the checklist, done, for a moment
     }
 

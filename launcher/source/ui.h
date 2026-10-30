@@ -47,6 +47,7 @@ enum
     UI_RED, UI_RED_DARK,
     UI_SCROLL,                  // the scroll bar's thumb
     UI_ICON,                    // icon grey
+    UI_SLATE, UI_SKY,           // the Games icon's card and screen
     UI_SPIN,                    // 8: the spinner's dots, lit in turn
     UI_COLORS = UI_SPIN + 8,
     UI_BANNERS = 48,            // the banner icons' palettes, 16 entries each

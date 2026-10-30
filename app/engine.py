@@ -588,6 +588,14 @@ class Engine:
     def set_discord(self, on):
         self.discord.set_enabled(on)
 
+    def set_music(self, name):
+        """The overlay window's ambient music (utils.config.MUSIC_CHOICES),
+        straight away if the window's open."""
+        self.cfg.ambient_music = name
+        window = self.overlay_window
+        if window is not None:
+            window.set_music(name)
+
     def _apply_overlay(self, on):
         """Reads faster (and battles every 0.3 s) only while the overlay shows them."""
         if hasattr(self.source, 'fast_battles'):
@@ -611,12 +619,14 @@ class Engine:
             from overlay.remote import RemoteOverlay
             os.makedirs(LOG_DIR, exist_ok=True)
             return RemoteOverlay(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
-                                 log_file=os.path.join(LOG_DIR, "overlay.log"))
+                                 log_file=os.path.join(LOG_DIR, "overlay.log"), music=self.cfg.ambient_music)
         try:
-            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale)
+            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
+                                   music=self.cfg.ambient_music)
         except ValueError as e:
             logging.warning(f"chroma in {os.path.basename(self.cfg.path)}: {e}; ignoring it")
-            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, on_scale=save_scale)
+            window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, on_scale=save_scale,
+                                   music=self.cfg.ambient_music)
         return window
 
     def run_overlay_here(self):

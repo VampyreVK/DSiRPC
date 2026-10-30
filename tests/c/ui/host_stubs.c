@@ -55,6 +55,7 @@ void *bgGetMapPtr(int id) { (void)id; return main_map; }
 void lcdMainOnTop(void) {}
 void setBrightness(int screen, int level) { (void)screen; (void)level; }
 
+void defaultExceptionHandler(void) {}
 PrintConsole *consoleDemoInit(void) { return &console; }
 void consoleClear(void) {}
 const PrintConsole *consoleGetDefault(void) { return &console; }

@@ -54,6 +54,8 @@ FOLDERS = [
     # The tray's Console icon menu lists these. The overlay's sprites are
     # downloaded when first needed (overlay/sprites.py).
     "Assets/Consoles",
+    # The launcher's menu songs, the overlay window's ambient music (overlay/music.py)
+    "launcher/audio",
 ]
 SKIP = ["__pycache__", "*.pyc", "*.pyo", "tools/charmap", "*.so", "*.dylib", "*.tmp"]
 

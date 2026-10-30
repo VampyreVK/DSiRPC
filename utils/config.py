@@ -27,6 +27,8 @@ from core.paths import DATA  # noqa: E402
 CONFIG_NAME = "dsirpc.cfg"
 OLD_CONFIG_NAME = "PokemonPlatinumRPC.cfg"
 DEFAULTS_NAME = "defaults.cfg"
+# The overlay window's ambient music: the launcher's menu songs (overlay/music.py)
+MUSIC_CHOICES = ("off", "bright", "subtle")
 
 
 def _bool(text, default):
@@ -73,6 +75,9 @@ class Config:
         # Offer the launcher the console's files that came with this DSiRPC
         # when its own differ (core/console_update.py)
         self.console_updates = True
+        # The launcher's menu song the overlay window plays while it's open
+        # (MUSIC_CHOICES); off at first, as the window may be on a stream
+        self.ambient_music = "off"
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
@@ -151,6 +156,9 @@ class Config:
             if "console_icon" in a:
                 self.console_icon = _clean(a.get("console_icon", ""))
             self.console_updates = _bool(a.get("console_updates"), self.console_updates)
+            music = _clean(a.get("ambient_music", "")).lower()
+            if music in MUSIC_CHOICES:
+                self.ambient_music = music
         if "ra" in parser:
             r = parser["ra"]
             self.racache = _clean(r.get("racache", ""))
@@ -215,6 +223,9 @@ console_icon: {self.console_icon}
 # differ from the ones that came with this DSiRPC, the launcher offers to
 # update them from here (the tray menu's "Console updates")
 console_updates: {yn(self.console_updates)}
+# Music while the overlay window is open: the launcher's menu songs, off,
+# bright or subtle (the tray menu's "Ambient music")
+ambient_music: {self.ambient_music}
 
 [ra]
 # Your RetroAchievements account. Setup signs in with your password once and

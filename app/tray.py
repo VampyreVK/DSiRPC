@@ -11,6 +11,7 @@ Right-click the icon for the menu:
     Discord presence                   on/off
     Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
+    Ambient music  >                   Off, Bright or Subtle: the launcher's menu music while it's open
     Console updates                    on/off: the launcher may update its files from here
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
@@ -41,6 +42,7 @@ import sys
 import threading
 
 from core.paths import DATA
+from utils.config import MUSIC_CHOICES
 from . import startup
 from .engine import Engine, PortInUse, LOG_FILE, ROOT
 
@@ -279,6 +281,15 @@ def run_tray(cfg, **engine_args):
         items.append(console_item("", "None (RetroAchievements icon)"))
         return Menu(*items)
 
+    def music_item(key):
+        def pick(icon_, item):
+            engine.set_music(key)
+            engine.save_config()
+
+        def checked(item):
+            return engine.cfg.ambient_music == key
+        return Item(key.capitalize(), pick, checked=checked, radio=True)
+
     def toggle_startup(icon_, item):
         try:
             startup.set_enabled(not startup.is_enabled())
@@ -296,6 +307,7 @@ def run_tray(cfg, **engine_args):
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
+        Item("Ambient music", Menu(*(music_item(key) for key in MUSIC_CHOICES))),
         Item("Console updates", toggle_console_updates, checked=lambda i: engine.cfg.console_updates),
         Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),

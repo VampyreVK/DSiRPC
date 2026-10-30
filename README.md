@@ -24,7 +24,7 @@ overlay and achievement unlocks. No emulator, no capture card: just your
 console and your PC.
 
 <p align="center">
-  <img src="docs/images/launcher-home.svg" width="200" alt="The launcher on a DSi: the pixel DSi and the PC it found on the top screen, tiles for Play, Saves, Settings and Exit below">
+  <img src="docs/images/launcher-home.svg" width="200" alt="The launcher on a DSi: the pixel DSi and the PC it found on the top screen, tiles for Games, Saves, Settings and Exit below">
   <img src="docs/images/launcher-games.svg" width="200" alt="The game list: each game's icon and achievements below, the picked game's icon, achievements, playtime and last played on the top screen">
   <img src="docs/images/launcher-achievements.svg" width="200" alt="A game's achievements, earned ones checked, with the picked one's description and points on the top screen">
   <img src="docs/images/launcher-saves.svg" width="200" alt="The save sync: what happens to each save below, the picked save's dates on the console and the PC on the top screen">
@@ -53,7 +53,8 @@ console and your PC.
   music (Bright or Subtle) and the touch screen. The original text screens
   are one setting away.
 - **A stream overlay:** a crisp pixel-art window with your party, battles in
-  the games' own style and achievement banners, ready for OBS.
+  the games' own style and achievement banners, ready for OBS, with the
+  launcher's music if you'd like it.
 - **Updates over Wi-Fi:** new versions reach the console without taking the
   SD card out.
 - **Quick to set up:** one download with everything included, a few setup
@@ -93,7 +94,7 @@ Within about 15 seconds, Discord shows what you're playing. The zip's
 
 | Button | What it does |
 |---|---|
-| **A** (or a tap) | Open a tile: **Play** (pick a game, and start it still connected), **Saves**, **Settings** or **Exit** |
+| **A** (or a tap) | Open a tile: **Games** (pick a game, and start it still connected), **Saves**, **Settings** or **Exit** |
 | **START** | Start the last game you played |
 | **Y** | Back up your saves, and take newer ones from your other console |
 | **L + R** | Settings: how to find your PC, the save mode, updates, the look, sounds and music |

@@ -799,6 +799,24 @@ int saves_quick_check(const char *games_dir, const char *index_dir)
     return changed;
 }
 
+bool saves_needs_sync(const SaveItem *item, bool backup_only)
+{
+    if (item->excluded || item->done)
+        return false;
+    switch (item->action)
+    {
+    case SA_UPLOAD:
+    case SA_BACKUP:
+    case SA_CONFLICT:
+        return true;
+    case SA_DOWNLOAD:
+    case SA_DOWNLOAD_NEW:
+        return !backup_only;
+    default:
+        return false;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Talking to DSiRPC
 

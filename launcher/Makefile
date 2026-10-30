@@ -21,7 +21,8 @@ AUDIODIRS	:= audio
 # Libraries
 # ---------
 
-ARM7ELF		:= $(BLOCKSDS)/sys/arm7/main_core/arm7_dswifi_maxmod.elf
+# Our own build of BlocksDS's default ARM7 core (arm7/, see its main.c)
+ARM7ELF		:= arm7/build/arm7.elf
 
 LIBS		:= -lmm9 -ldswifi9 -lnds9
 LIBDIRS		:= $(BLOCKSDS)/libs/maxmod \
@@ -47,3 +48,15 @@ loader/build/bootstub.bin: loader/build/load.bin
 clean: clean-loader
 clean-loader:
 	@$(MAKE) --no-print-directory -C loader clean
+
+# The ARM7 core, built before the ROM is put together
+
+$(ROM): $(ARM7ELF)
+
+$(ARM7ELF): $(wildcard arm7/source/*) arm7/Makefile
+	@$(MAKE) --no-print-directory -C arm7
+
+.PHONY: clean-arm7
+clean: clean-arm7
+clean-arm7:
+	@$(MAKE) --no-print-directory -C arm7 clean

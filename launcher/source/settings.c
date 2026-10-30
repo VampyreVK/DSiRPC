@@ -224,7 +224,7 @@ static const char *const HELP[ROWS] = {
     "it starts.",
     "Modern: these screens, with the games' icons, sounds, music and the battery. Classic: the text screens.",
     "Soft sounds as you move around and pick things.",
-    "Bright: an airy loop (the default). Subtle: a quiet lounge one. Off: no music.",
+    "Bright: an airy loop (default).\nSubtle: a quiet lounge tune.\nOff: no music.",
 };
 static const char *const MUSIC_NAMES[MUSIC_CHOICES] = { "Off", "Bright", "Subtle" };
 

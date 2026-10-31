@@ -24,6 +24,7 @@ on:
       publish:
         description: "Also replace the README's pictures, the demo and the music (the renders branch)"
         type: boolean
+        required: false
         default: false
   push:
     paths:

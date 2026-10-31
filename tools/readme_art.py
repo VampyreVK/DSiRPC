@@ -33,7 +33,7 @@ from helpers import REPO, launcher_ui as lui  # noqa: E402
 SOURCE = os.path.join(REPO, "launcher", "source")
 OUT = os.path.join(REPO, "docs", "images")
 
-TAGLINE = ["Same native DS games,", "same original hardware,", "modern features."]
+TAGLINE = ["Same native DS games,", "same original hardware,", "now with modern features."]
 # The features, as the launcher's chips (dark like its header bar) in two
 # columns under the tagline: what DSiRPC does down the first, in the colors
 # the launcher gives them, where it runs down the second; each chip's text

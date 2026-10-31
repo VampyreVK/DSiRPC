@@ -7,9 +7,14 @@ An older PokemonPlatinumRPC.cfg is still read when there's no dsirpc.cfg, and
 its settings move to dsirpc.cfg the first time anything is saved.
 
 A release download can also have a defaults.cfg next to it (written by
-packaging/build_release.py): the Discord applications it comes with, used
-until dsirpc.cfg names others. It's replaced with each release, so its values
-aren't copied into dsirpc.cfg.
+packaging/build_release.py): the Discord application it comes with, used
+until dsirpc.cfg names another. It's replaced with each release, so its value
+isn't copied into dsirpc.cfg.
+
+There's one Discord application for every game: DSiRPC sends each game's
+name, which Discord shows after "Playing". Files from when Platinum and the
+other games each had one ([discord_apps]) still load: their Platinum
+application is the one, or, without it, their other games' default.
 """
 
 import configparser
@@ -22,6 +27,8 @@ from core.paths import DATA  # noqa: E402
 CONFIG_NAME = "dsirpc.cfg"
 OLD_CONFIG_NAME = "PokemonPlatinumRPC.cfg"
 DEFAULTS_NAME = "defaults.cfg"
+# The overlay window's ambient music: the launcher's menu songs (overlay/music.py)
+MUSIC_CHOICES = ("off", "bright", "subtle")
 
 
 def _bool(text, default):
@@ -55,12 +62,8 @@ class Config:
                 self.loaded_from = None
         self.config_file = self.loaded_from or self.path
 
-        # [connection]: the Discord application for Pokemon Platinum (and the
-        # fallback for every other game)
+        # [connection]: the Discord application DSiRPC shows every game through
         self.discord_client_id = ""
-        # [discord_apps]: Discord application IDs for other games, by game
-        # code, plus "default" for any game without its own.
-        self.discord_apps = {}
         # [app]: what's on when DSiRPC starts (the tray menu saves these)
         self.discord = True
         self.overlay = False
@@ -72,6 +75,13 @@ class Config:
         # Offer the launcher the console's files that came with this DSiRPC
         # when its own differ (core/console_update.py)
         self.console_updates = True
+        # The launcher's menu song the overlay window plays while it's open
+        # (MUSIC_CHOICES); off at first, as the window may be on a stream
+        self.ambient_music = "off"
+        # Look for a new DSiRPC release when it starts and once a day, and
+        # say so (app/updates.py; the tray menu's "Check for updates..."
+        # looks whatever this says)
+        self.check_updates = True
         # [ra]: an RA emulator's folder (or its RACache), to find set files in
         self.racache = ""
         self.ra_auto_import = True
@@ -91,26 +101,26 @@ class Config:
         self.saves_folder = ""
         self.save_versions = 10
 
-        # The Discord applications a release comes with (defaults.cfg), if any
+        # The Discord application a release comes with (defaults.cfg), if any
         self.release_client_id = ""
-        self.release_default_app = ""
         self._load_defaults()
         self._load_config()
 
-    def client_id_for(self, game_code, platinum=False):
-        """The Discord application to use for a game: its own from
-        [discord_apps], else (for games other than Platinum) the [discord_apps]
-        default, else discord_client_id."""
-        code = (game_code or "").upper()
-        if code in self.discord_apps:
-            return self.discord_apps[code]
-        if not platinum and self.discord_apps.get("DEFAULT"):
-            return self.discord_apps["DEFAULT"]
-        return self.discord_client_id
-
     @property
     def has_discord_id(self):
-        return bool(self.discord_client_id or any(self.discord_apps.values()))
+        return bool(self.discord_client_id)
+
+    @staticmethod
+    def _client_id(parser):
+        """A file's Discord application: [connection]'s, or (a file from when
+        other games had their own) [discord_apps]'s default."""
+        if "connection" in parser:
+            found = _clean(parser["connection"].get("discord_client_id", ""))
+            if found:
+                return found
+        if "discord_apps" in parser:
+            return _clean(parser["discord_apps"].get("default", ""))
+        return ""
 
     def _load_defaults(self):
         path = os.path.join(ROOT, DEFAULTS_NAME)
@@ -122,13 +132,7 @@ class Config:
         except (configparser.Error, UnicodeDecodeError) as e:
             logging.warning(f"Can't read {path}: {e}")
             return
-        if "connection" in parser:
-            self.release_client_id = _clean(parser["connection"].get("discord_client_id", ""))
-        if "discord_apps" in parser:
-            self.release_default_app = _clean(parser["discord_apps"].get("default", ""))
-        self.discord_client_id = self.release_client_id
-        if self.release_default_app:
-            self.discord_apps["DEFAULT"] = self.release_default_app
+        self.release_client_id = self.discord_client_id = self._client_id(parser)
 
     def _load_config(self):
         if not self.loaded_from:
@@ -142,15 +146,8 @@ class Config:
             logging.warning(f"Can't read {self.loaded_from}: {e}; using defaults")
             return
 
-        if "connection" in parser:
-            # Empty means "the default" (defaults.cfg's, or none)
-            self.discord_client_id = _clean(parser["connection"].get("discord_client_id", "")) or \
-                self.discord_client_id
-        if "discord_apps" in parser:
-            for key, value in parser["discord_apps"].items():
-                value = _clean(value)
-                if value:
-                    self.discord_apps[key.upper()] = value
+        # Empty means "the default" (defaults.cfg's, or none)
+        self.discord_client_id = self._client_id(parser) or self.discord_client_id
         if "app" in parser:
             a = parser["app"]
             self.discord = _bool(a.get("discord"), self.discord)
@@ -163,6 +160,10 @@ class Config:
             if "console_icon" in a:
                 self.console_icon = _clean(a.get("console_icon", ""))
             self.console_updates = _bool(a.get("console_updates"), self.console_updates)
+            music = _clean(a.get("ambient_music", "")).lower()
+            if music in MUSIC_CHOICES:
+                self.ambient_music = music
+            self.check_updates = _bool(a.get("check_updates"), self.check_updates)
         if "ra" in parser:
             r = parser["ra"]
             self.racache = _clean(r.get("racache", ""))
@@ -198,30 +199,19 @@ class Config:
         """Writes every setting to self.path (dsirpc.cfg), with comments."""
         def yn(v):
             return "yes" if v else "no"
-        apps = "".join(f"{code}: {cid}\n" for code, cid in sorted(self.discord_apps.items())
-                       if code != "DEFAULT")
-        # The release's own applications stay in defaults.cfg, so a newer
-        # release can change them
+        # The release's own application stays in defaults.cfg, so a newer
+        # release can change it
         client_id = "" if self.discord_client_id == self.release_client_id else self.discord_client_id
-        default_app = self.discord_apps.get("DEFAULT", "")
-        if default_app == self.release_default_app:
-            default_app = ""
         text = f"""# DSiRPC settings ('dsirpc.py setup' writes this file; see dsirpc.cfg.sample).
 # Keep it to yourself: when you're signed in to RetroAchievements, it holds
 # your login token.
 
 [connection]
-# The Discord application for Pokemon Platinum, and for any game without its
-# own below. Its name is what Discord shows after "Playing". Empty: the one
-# this download came with (defaults.cfg), if any.
+# The Discord application DSiRPC shows every game through. Discord shows the
+# game's own name after "Playing" (the application's name only where it
+# can't). Empty: the one this download came with (defaults.cfg), if any.
 discord_client_id: {client_id}
 
-# Discord applications for other games, by game code (e.g. AMCE: 1234...).
-# "default" is for every game without its own. DSiRPC also sends the game's
-# name, which Discord shows instead of the application's where it can.
-[discord_apps]
-default: {default_app}
-{apps}
 [app]
 # What's on when DSiRPC starts (the tray menu changes these)
 discord: {yn(self.discord)}
@@ -238,6 +228,13 @@ console_icon: {self.console_icon}
 # differ from the ones that came with this DSiRPC, the launcher offers to
 # update them from here (the tray menu's "Console updates")
 console_updates: {yn(self.console_updates)}
+# Music while the overlay window is open: the launcher's menu songs, off,
+# bright or subtle (the tray menu's "Ambient music")
+ambient_music: {self.ambient_music}
+# Look for a new release of DSiRPC when it starts and once a day: the tray
+# menu then offers it ("Update to ..."). Its "Check for updates..." looks
+# whatever this says
+check_updates: {yn(self.check_updates)}
 
 [ra]
 # Your RetroAchievements account. Setup signs in with your password once and

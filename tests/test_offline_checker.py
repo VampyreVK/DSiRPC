@@ -8,19 +8,21 @@ the VBlank doing the checking). The frame lane's unlocks must match
 rcheevos frame for frame, order included; DSiRPC's pushed unlocks never
 trigger and show as earned in the in-game menu's list; a starved idle side
 counts its gaps; unlocks saved to RPCUNLK.BIN read back in core/offline.py
-as the console wrote them and aren't checked again in the next session.
+as the console wrote them and aren't checked again in the next session; and
+each start's playtime keeps a slot of its own there, a minute at a time.
 """
 
 import ctypes
 import datetime
 import os
 import random
+import struct
 import subprocess
 
 import pytest
 
 from core import offline, ra_set
-from helpers import C_DIR, COMMON_INCLUDE, RPCPROBE, cbuild, gen_set, puzzle_game
+from helpers import C_DIR, COMMON_INCLUDE, RPCPROBE, cbuild, gen_set, launcher_ui, puzzle_game
 from helpers.puzzle_game import RAM_SIZE
 
 # What the puzzle game writes (gen_set.py's memory map)
@@ -189,6 +191,39 @@ def test_saved_unlocks_read_back_and_stay_unlocked(ach_host, rcheevos, tmp_path)
     assert out[0].startswith("loaded ") and out[0].endswith(f"waiting {len(console)}"), out[0]
     again = [int(line.split()[1]) for line in out if line.startswith("T ")]
     assert not set(again) & set(console)
+
+
+def test_each_start_keeps_its_playtime(ach_host, tmp_path):
+    """Every game the launcher starts, with a set or without, keeps how long
+    it has played (the VBlanks': not while it sleeps or the menu is open) in
+    the unlock file's next free slot once a minute is up, rewritten each
+    minute; never taken for an unlock"""
+    dump = tmp_path / "RPCUNLK.BIN"
+    minute = ["frame 0 0"] * 3590                   # 60 s of VBlanks (59.83 a second)
+
+    def slot(data, i):
+        aid, code, secs, seq, check = struct.unpack_from("<I4sIHH", data, i * 16)
+        assert check == offline._check(data[i * 16:i * 16 + 14])
+        return aid, code.decode(), secs, seq
+
+    # A game without a set: not a minute yet, nothing; then two, one slot
+    out = _session(ach_host, ["set - ABCE"] + minute[:-60] + ["save", f"dump {dump}"])
+    assert out[0] == "loaded 0 waiting 0" and out[-1].startswith("saved 0 ")
+    assert dump.read_bytes()[16:32] == bytes(16)
+    out = _session(ach_host, ["set - ABCE"] + minute * 2 + ["save", f"dump {dump}"])
+    data = dump.read_bytes()
+    assert out[-1].startswith("saved 1 ") and slot(data, 1) == (offline.PLAYTIME_ID, "ABCE", 120, 1)
+    assert offline.count_unlocks(data) == 0 and offline.read_unlocks(data) == []
+
+    # A game with a set and two unlocks waiting: the playtime after them,
+    # rewritten in place
+    s, data, info, path = _set(tmp_path, 7, 5)
+    (tmp_path / "waiting.bin").write_bytes(launcher_ui.unlock_file([(11, "TEST", 0), (12, "TEST", 0)]))
+    out = _session(ach_host, [f"unlockfile {tmp_path / 'waiting.bin'}", f"set {path}"] + minute + ["save"]
+                   + minute + ["save", f"dump {dump}"])
+    data = dump.read_bytes()
+    assert slot(data, 3) == (offline.PLAYTIME_ID, "TEST", 120, 3)
+    assert [u["id"] for u in offline.read_unlocks(data)] == [11, 12] and data[64:80] == bytes(16)
 
 
 def test_bad_sets_are_refused(ach_host, rcheevos, tmp_path):

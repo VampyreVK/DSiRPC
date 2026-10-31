@@ -13,6 +13,19 @@
 //   settings path|on, off or -           writes the settings (- leaves
 //                                        AUTO_UPDATE out), reads them back:
 //                                        settings saved|auto_update
+//   look path|classic|sounds|sort|music  writes LOOK, SOUNDS, GAME_SORT and
+//                                        MUSIC (classic, sounds 0/1, sort 0-2,
+//                                        music 0 off, 1 bright, 2 subtle; - for
+//                                        all: only reads them), reads them
+//                                        back: look saved|classic|sounds|sort|
+//                                        music
+//   stats index_dir                      the playtimes (stats.c):
+//                                        stats r|pc|ra|discord|count|msg, then
+//                                        game lines: code|seconds|last
+//   played index_dir|unlock file         each start's playtime from the
+//                                        unlock file added (stats.c):
+//                                        played r|count, then game lines:
+//                                        code|seconds
 //
 // argv[1]: DSiRPC's port (the console looks for it at 127.0.0.1).
 
@@ -24,6 +37,7 @@
 #include <netinet/in.h>
 
 #include "settings.h"
+#include "stats.h"
 #include "update.h"
 
 static SyncJob job;
@@ -77,8 +91,8 @@ int main(int argc, char *argv[])
             *rest++ = '\0';
         else
             rest = line + strlen(line);
-        char *f[4] = { 0 };
-        int nf = split(rest, f, 4);
+        char *f[5] = { 0 };
+        int nf = split(rest, f, 5);
         char msg[160] = "";
 
         if (strcmp(line, "check") == 0 && nf == 3)
@@ -116,6 +130,44 @@ int main(int argc, char *argv[])
             int r = sync_find(&job, &found, msg, sizeof(msg));
             struct in_addr a = { .s_addr = sync_found_addr };
             printf("find %d|%s|%d|%s\n", r, sync_found_addr ? inet_ntoa(a) : "-", sync_found_port, flat(msg));
+        }
+        else if (strcmp(line, "look") == 0 && nf == 5)
+        {
+            LauncherSettings s;
+            settings_load(f[0], &s);    // the defaults, if it's not there
+            int saved = 0;
+            if (strcmp(f[1], "-") != 0)
+            {
+                s.classic_look = atoi(f[1]) != 0;
+                s.sounds = atoi(f[2]) != 0;
+                s.game_sort = (uint8_t)atoi(f[3]);
+                s.music = (uint8_t)atoi(f[4]);
+                saved = settings_save(f[0], &s);
+            }
+            LauncherSettings back;
+            settings_load(f[0], &back);
+            printf("look %d|%d|%d|%d|%d\n", saved, back.classic_look, back.sounds, back.game_sort, back.music);
+        }
+        else if (strcmp(line, "stats") == 0 && nf == 1)
+        {
+            int r = stats_fetch(&job, mac, 2, &server, f[0], msg, sizeof(msg));
+            StatsList st;
+            stats_load(f[0], &st);
+            printf("stats %d|%s|%s|%d|%d|%s\n", r, st.pc, st.ra_user, st.discord, st.count, flat(msg));
+            for (int i = 0; i < st.count; i++)
+                printf("game %s|%u|%u\n", st.games[i].code, (unsigned)st.games[i].seconds,
+                       (unsigned)st.games[i].last);
+            stats_free(&st);
+        }
+        else if (strcmp(line, "played") == 0 && nf == 2)
+        {
+            int r = stats_add_played(f[0], f[1]);
+            StatsList st;
+            stats_load(f[0], &st);
+            printf("played %d|%d\n", r, st.count);
+            for (int i = 0; i < st.count; i++)
+                printf("game %s|%u\n", st.games[i].code, (unsigned)st.games[i].seconds);
+            stats_free(&st);
         }
         else if (strcmp(line, "settings") == 0 && nf == 2)
         {

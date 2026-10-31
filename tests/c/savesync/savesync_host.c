@@ -5,8 +5,10 @@
 //
 //   console MAC(12 hex)|model|sync or backup
 //   scan games_dir|index_dir        item lines: name|slot|present|changed|excluded|crc|base|path
-//   plan                            action lines: name|slot|action|pc_crc|versions|source
-//                                   (saves.idx written after it, as the screen does)
+//   plan                            action lines: name|slot|action|pc_crc|versions|source,
+//                                   then "pending N": what's left to do, as the main
+//                                   screen counts it (saves.idx written after it, as the
+//                                   screen does)
 //   sync name|slot[|keep or take]   (name "*": every item with something to do)
 //   exclude name|slot
 //   versions name|slot              version lines: version|size|crc|source
@@ -131,6 +133,10 @@ int main(int argc, char *argv[])
                     printf("action %s|%d|%d|%08X|%d|%s\n", it->name, it->slot, it->action, it->pc_crc, it->versions,
                            it->pc_source);
             }
+            int pending = 0;
+            for (int i = 0; i < list.count; i++)
+                pending += saves_needs_sync(&list.items[i], console.backup_only);
+            printf("pending %d\n", pending);
         }
         else if (strcmp(line, "sync") == 0 && nf >= 1)
         {

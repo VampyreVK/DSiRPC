@@ -13,6 +13,7 @@ import socket
 import struct
 import subprocess
 import threading
+import time
 
 import pytest
 
@@ -61,11 +62,14 @@ class Console:
         self.host, self.port, self.root, self.console = host, port, folder, console
         os.makedirs(os.path.join(folder, "sd:", "DSiRPC"), exist_ok=True)
 
-    def put(self, path, data):
+    def put(self, path, data, when=None):
+        """Writes a file on the SD card (when: its time, as a Unix time)."""
         p = os.path.join(self.root, path)
         os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "wb") as f:
             f.write(data)
+        if when is not None:
+            os.utime(p, (when, when))
 
     def read(self, path):
         with open(os.path.join(self.root, path), "rb") as f:
@@ -101,6 +105,12 @@ def actions(lines):
     assert any(ln.startswith("plan 1") for ln in lines), lines
     return {(ln[7:].split("|")[0], int(ln[7:].split("|")[1])): int(ln[7:].split("|")[2])
             for ln in lines if ln.startswith("action ")}
+
+
+def pending(lines):
+    """What the plan leaves to do, as the main screen counts it"""
+    assert any(ln.startswith("plan 1") for ln in lines), lines
+    return next(int(ln.split()[1]) for ln in lines if ln.startswith("pending "))
 
 
 def test_a_dsi_and_a_3ds_share_their_saves(host, pc, tmp_path):
@@ -183,6 +193,32 @@ def test_dated_copies_and_saves_already_in_sync(host, pc, tmp_path):
     assert three.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
 
 
+def test_the_main_screens_count(host, pc, tmp_path):
+    """The connecting screen's Saves step: the count on the Saves tile takes
+    in what changed on the PC (another console's newer save), not only what
+    changed here; a console that only backs up isn't offered the PC's saves,
+    so they don't count."""
+    port, _ = pc
+    dsi = Console(host, port, str(tmp_path / "dsi"))
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    for c in (dsi, three):
+        c.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+        c.put("sd:/roms/nds/Picross.nds", rom("APKE", 0x0042))
+    dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"start")
+    assert pending(dsi.run("plan")) == 1         # never backed up
+    dsi.run("plan", "sync *")
+    assert pending(dsi.run("plan")) == 0
+    # The 3DS takes Black, plays it and starts Picross: nothing changed on
+    # the DSi's SD card, but two saves wait for it on the PC
+    three.run("plan", "sync *")
+    three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the 3DS's adventure")
+    three.put("sd:/roms/nds/saves/Picross.sav", b"picross")
+    three.run("plan", "sync *")
+    assert dsi.run("quick sd:/roms/nds|sd:/DSiRPC", scan=False)[-1] == "quick 0"
+    assert pending(dsi.run("plan")) == 2
+    assert pending(Console(host, port, str(tmp_path / "dsi"), DSI_BACKUP).run("plan")) == 0
+
+
 def test_conflicts_both_ways(host, pc, tmp_path):
     port, store = pc
     key = saves.game_key("IRBO", 0x1A2B)
@@ -205,9 +241,9 @@ def test_conflicts_both_ways(host, pc, tmp_path):
     assert "sync Pokemon Black|0 1 " in out
     assert three.read("sd:/roms/nds/saves/Pokemon Black.sav") == b"the DSi's adventure"
     assert store.backed_up(key, 0, saves.crc32(b"the 3DS's adventure"))
-    # And the other way: the 3DS plays on and keeps its own over the DSi's
-    three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the 3DS again")
-    dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the DSi again")
+    # And the other way: the 3DS plays on (last) and keeps its own over the DSi's
+    three.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the 3DS again", when=time.time() - 60)
+    dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"the DSi again", when=time.time() - 120)
     dsi.run("plan", "sync *")
     out = three.run("plan", "sync Pokemon Black|0|keep")
     assert "sync Pokemon Black|0 1 " in out
@@ -250,8 +286,9 @@ def test_a_save_changed_behind_saves_idxs_back(host, pc, tmp_path):
     assert actions(out)[("Platinum", 0)] == UPLOAD and "sync Platinum|0 1 " in out
     assert store.read(key, 0)[0] == b"third!" * 1000
 
-    # The 3DS's save is the live one now; the DSi's changes in place again
-    three.put(path, b"the 3DS's")
+    # The 3DS's save (played after the DSi's) is the live one now; the DSi's
+    # changes in place again
+    three.put(path, b"the 3DS's", when=later + 10)
     three.run("plan", "sync Platinum|0|keep")
     in_place(b"fourth" * 1000)
     out = dsi.run("plan", "sync Platinum|0")
@@ -260,6 +297,36 @@ def test_a_save_changed_behind_saves_idxs_back(host, pc, tmp_path):
     assert dsi.read(path) == b"fourth" * 1000                          # not replaced
     assert store.backed_up(key, 0, saves.crc32(b"fourth" * 1000))     # and on the PC
     assert actions(dsi.run("plan"))[("Platinum", 0)] == CONFLICT       # yours to settle
+
+
+def test_never_a_download_over_a_newer_save(host, pc, tmp_path, monkeypatch):
+    """A save written after the PC's is never replaced without asking: when
+    the DSi puts an older version back, the 3DS (whose save is newer) is
+    asked, not handed the older one, and the launcher holds to that even
+    when DSiRPC plans the download (one from before this, say)."""
+    port, store = pc
+    save = "sd:/roms/nds/saves/Pokemon Black.sav"
+    dsi = Console(host, port, str(tmp_path / "dsi"))
+    three = Console(host, port, str(tmp_path / "3ds"), THREE_DS)
+    for c in (dsi, three):
+        c.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+    now = time.time()
+    dsi.put(save, b"monday", when=now - 3 * 86400)
+    dsi.run("plan", "sync *")
+    three.put(save, b"wednesday", when=now - 86400)
+    assert "sync Pokemon Black|0 1 " in three.run("plan", "sync Pokemon Black|0|keep")
+
+    # The DSi puts Monday's back: the live save is older than the 3DS's now
+    out = dsi.run("plan", "versions Pokemon Black|0")
+    monday = next(ln[8:].split("|")[0] for ln in out
+                  if ln.startswith("version ") and int(ln[8:].split("|")[2], 16) == saves.crc32(b"monday"))
+    assert "restore 1 " in dsi.run("plan", f"restore Pokemon Black|0|{monday}")
+    assert actions(three.run("plan"))[("Pokemon Black", 0)] == CONFLICT
+
+    monkeypatch.setattr(saves.SaveStore, "_newer_than_live", lambda *a: False)    # a DSiRPC that would
+    out = three.run("plan", "sync Pokemon Black|0")
+    assert actions(out)[("Pokemon Black", 0)] == CONFLICT and "sync Pokemon Black|0 0 " in out
+    assert three.read(save) == b"wednesday"
 
 
 def test_restore_an_older_version(host, pc, tmp_path):
@@ -355,11 +422,19 @@ class FlakyProxy:
 
     def __init__(self, target, meddle):
         self.target, self.meddle, self.count = target, dict(meddle), 0
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.bind(("127.0.0.1", 0))
-        self.port = self.udp.getsockname()[1]
-        self.tcp = socket.socket()
-        self.tcp.bind(("127.0.0.1", self.port))
+        for left in reversed(range(20)):    # a number free for both, as ConsoleSync's port 0
+            self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.tcp = socket.socket()
+            try:
+                self.udp.bind(("127.0.0.1", 0))
+                self.port = self.udp.getsockname()[1]
+                self.tcp.bind(("127.0.0.1", self.port))
+                break
+            except OSError:
+                self.udp.close()
+                self.tcp.close()
+                if not left:
+                    raise
         self.tcp.listen(8)
         for fn in (self._answer, self._accept):
             threading.Thread(target=fn, daemon=True).start()

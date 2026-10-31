@@ -8,10 +8,12 @@ It connects with the WPA2 settings saved in DSi connection slots 4-6 using
 BlocksDS + DSWiFi (MIT licensed), and no Wi-Fi password is stored in any file.
 Once the game is running, the Wi-Fi chip does the WPA2 encryption itself.
 
-The text is on the bottom screen. The top screen shows DSiRPC's pixel DSi,
-as on the desktop app's waiting screen (`source/topscreen.c`): its Wi-Fi
-sign lights up arc by arc while the launcher connects, green once it's
-connected, red if it can't, dark offline.
+The top screen shows DSiRPC's pixel DSi, as on the desktop app's waiting
+screen (`source/topscreen.c`): its Wi-Fi sign lights up arc by arc while the
+launcher connects, green once it's connected, red if it can't, dark offline.
+The bottom screen has two looks ([below](#the-modern-look)): the modern one
+(the default) draws panels, tiles and the games' icons; the classic one is
+the text console.
 
 ## What it does
 
@@ -41,8 +43,8 @@ connected, red if it can't, dark offline.
    - points `sd:/_nds/nds-bootstrap.ini` at the game (below), and remembers
      it for **START** in the browser (`LAST_GAME` in `launcher.ini`);
    - syncs with DSiRPC again, naming the game, so DSiRPC can send its set;
-   - copies the game's set to `sd:/RPCSET.BIN` (or deletes that file if
-     there's no set), makes sure `sd:/RPCUNLK.BIN` is there, and rewrites
+   - copies the game's set to `RPCSET.BIN` in its folder (or deletes that
+     file if there's no set), makes sure `RPCUNLK.BIN` is there, and rewrites
      `RPCHAND.TXT` with the current time;
    - starts nds-bootstrap directly, still connected ([CHAINLOAD.md](CHAINLOAD.md)).
 
@@ -77,7 +79,9 @@ DSiRPC (`core/saves.py`) compares each save three ways (the console's now,
 the PC's live save, and what the console had at its last sync: its own
 `saves.idx` says, or else what DSiRPC remembers it sent or took) and
 answers with a plan: back up, take the newer one (and whose it is), ask
-(changed on both), or nothing. The launcher shows it, with the console each
+(changed on both), or nothing. A save written after the PC's live one (by
+the consoles' clocks) is never replaced without asking: whatever the plan
+says, the launcher makes a download over it a conflict. The launcher shows it, with the console each
 save came from, and carries out what you pick, one request per connection
 (`core/save_session.py` describes the exchange). An upload carries the
 save's time, which dates DSiRPC's copy; DSiRPC keeps it as one of that
@@ -109,8 +113,91 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
   them to the other consoles).
 - `AUTO_UPDATE`: `on` (ask DSiRPC for [updates](#updates) as the launcher
   starts) or `off`.
-- `LAST_GAME`: the game last started from the launcher, for **START** in
-  the game browser (not on the settings screen).
+- `LOOK`: `modern` or `classic` ([below](#the-modern-look)). It changes as
+  soon as it's picked on the settings screen.
+- `SOUNDS`: `on` or `off`, the modern look's menu sounds (the classic look
+  has none, so it has no Sounds row either).
+- `MUSIC`: `bright` (the default), `subtle` or `off`, the modern look's menu
+  music ([below](#the-menu-music)); no row in the classic look either.
+- `GAME_SORT`: `recent`, `name` or `favorites`, the modern game list's order
+  (L/R there, not on the settings screen).
+- `LAST_GAME`: the game last started from the launcher, for **START** on the
+  main screen and in the game browser (not on the settings screen).
+
+### The modern look
+
+`source/ui.c` draws the bottom screen as an 8-bit bitmap (BG3 in mode 5, 64
+KB into VRAM C, above the text console's font and map, which stay where
+`consoleDemoInit()` put them for the classic look): the frame is drawn in
+memory and the rows that changed are copied over (VRAM takes no 8-bit
+writes), the text is the console's own 8x8 font with each letter as wide as
+it is, and the colors are the desktop app's. The spinner on the
+connecting screen's current step turns by palette, from a cothread, so it
+keeps turning while the launcher works (the network code waits a frame at a
+time). The menu sounds are short samples made at startup (soft sine notes
+that fade), so they end by themselves. They play on channels 12-15, which
+the music leaves to them.
+
+### The menu music
+
+Two songs, made on a Dirtywave M8 tracker: Bright (an airy Eb major loop at
+122 BPM that opens on a falling maj9 chord with an echo) and Subtle (a quiet
+lounge loop in F major at 100 BPM, with swung 8ths). `music/*.m8s` are the
+songs; `tools/make_music.py` turns them into XM modules in `audio/`, and the
+build packs those into maxmod's soundbank (mmutil). `source/music.c` plays
+them with maxmod, on the ARM7, so they keep time whatever the launcher is
+doing (a save sync, reading the games' banners): from `settings_apply()`
+in the modern look, faded out before a game starts (and back if it
+doesn't) and as the launcher leaves.
+
+The DS doesn't try to sound like the M8: its voices are the songs' browser
+preview's, picked by each instrument's name (`LEAD`, `KEYS`, `BASS`, `BELL`,
+`KICK`, `SNAP`, `HAT`, `RIM`, `SHAKER`): a single cycle of a sine, triangle
+or soft square wave with a volume envelope, or a hit of filtered noise for
+the drums, an echo on the lead and the bell, and each song's groove. To
+change a song, edit it on the M8, copy it over `music/bright.m8s` or
+`music/subtle.m8s` and run `python tools/make_music.py` (the M8's FX
+commands, tables and effects aren't carried over; the steps are in
+[music/README.md](music/README.md)). DSiRPC's overlay window plays the same
+modules on the PC (its tray's Ambient music).
+
+The screens are the classic ones' with the same keys, drawn differently,
+plus:
+
+- **Connecting:** a checklist (Wi-Fi, IP address, DSiRPC, Achievements,
+  Saves), the update's card under it (`source/update.c`), and a card when it
+  can't connect. The Saves step asks DSiRPC what the saves need, as the Saves
+  screen does (`check_saves()`), so the main screen's count takes in newer
+  saves on the PC too; B skips it.
+- **The main screen:** four tiles, Games, Saves (with how many to sync),
+  Settings and Exit, picked with the D-pad and A or a tap. **START** starts
+  the game last started (`LAST_GAME`) without the list.
+- **The game list** (`source/picker.c`): the games in `sd:/roms/nds` and its
+  folders (found as the save sync finds them), each with its banner icon at
+  half size, its name and its achievements (earned / all, counted from its
+  set's list and the unlocks waiting in `RPCUNLK.BIN`). **L**/**R** change
+  the order, **Y** makes a favorite, **X** lists the achievements, with the
+  one picked described on the top screen. `games.idx` keeps each game's
+  name, publisher and code from its banner by the file's size and time, so
+  only new or changed games are read, plus the favorites and when each game
+  was last started from the launcher (written in the classic look too, when
+  a game starts). If nds-bootstrap isn't next to the launcher, the classic
+  file browser asks for it.
+- **The top screen** (`top_modern()`): the bar has a status chip
+  (Connecting, Connected, No Wi-Fi, Offline) and the battery icon (filled to
+  the DSi's step: 100, 75, 50, 25 or 10%, a DS only high or low; cyan while
+  charging), the DSi is drawn 3x with a note under it (which PC DSiRPC is
+  on, or what went wrong), and the game list and save sync show the picked
+  game's or save's details instead.
+- **DSiRPC playtime** (`source/stats.c`): as it starts, the launcher adds
+  the last game's playtime to `stats.idx` (`stats_add_played()`: the game
+  keeps it in `RPCUNLK.BIN` each minute, offline too). After its first sync,
+  it sends DSiRPC its numbers and gets how long each game ran while DSiRPC
+  watched, with the PC's name and whether it's signed in to
+  RetroAchievements and has Discord on
+  ([DOCUMENTATION.md](../docs/DOCUMENTATION.md#playtimes-tcp-4245)). Each side
+  keeps the higher of each number (time played with another PC carries
+  over), the launcher in `stats.idx`, so the game list has it offline too.
 
 ### Updates
 
@@ -180,15 +267,16 @@ Without Wi-Fi (**B** while connecting, or **START** when it couldn't), the
 launcher turns Wi-Fi off and works the same way, minus the syncs.
 `RPCHAND.TXT` then holds only `mode=offline`, `time=` and `end`; with no
 `ip` or `mac`, the in-game side leaves the network alone. The keys are
-**START** (pick a game) and **SELECT** (exit).
+**START** (pick a game) and **SELECT** (exit); in the modern look, the Saves
+tile waits for DSiRPC.
 
 ### The files on the SD card
 
 | File | What |
 |---|---|
 | `sets/CODE.DRS` (next to the launcher) | Each game's achievement set, as DSiRPC sent it: the achievements left to unlock, already turned into the program the console's checker runs, and the list of all the game's achievements for nds-bootstrap's in-game menu |
-| `sd:/RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name in the root; nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
-| `sd:/RPCUNLK.BIN` | Unlocks waiting for DSiRPC: 4096 bytes, made at full size by the launcher so the in-game side (`rpcprobe/probe_ach.c`) only ever writes into it, a 16-byte slot per unlock |
+| `RPCSET.BIN` | A copy of the started game's set, so the in-game side only needs a fixed name (nds-bootstrap finds it beside itself); nds-bootstrap's checker (`rpcprobe/probe_ach.c`) runs it |
+| `RPCUNLK.BIN` | Unlocks waiting for DSiRPC (moved here from the root, where older launchers kept it): 4096 bytes, made at full size by the launcher so the in-game side (`rpcprobe/probe_ach.c`) only ever writes into it, a 16-byte slot per unlock |
 
 The formats are in DSiRPC's `core/offline.py` and in
 [docs/DOCUMENTATION.md](../docs/DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245).
@@ -225,9 +313,25 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 ```
 
 The output is `dsirpc-launcher.nds`. The same command first builds the loader
-in `loader/` (it ends up inside the launcher). Copy the launcher to the SD
-card next to our nds-bootstrap build (`nds-bootstrap-dsirpc.nds`), for example
-both in `sd:/DSiRPC/` as in the release download, and start it in DSi mode.
+in `loader/` (it ends up inside the launcher) and the ARM7 core in `arm7/`:
+BlocksDS's default one (DSWiFi and maxmod), changed for the menu music.
+maxmod's music tick, `mmFrame()`, lets other interrupts in partway through,
+and so do the FIFO's callbacks, the DSi's SD card reads among them. So a
+read that came while the music was working could let the next tick start
+`mmFrame()` again inside the first, which maxmod isn't made for: the launcher
+froze a minute or so into its music on a 3DS, or crashed as it read the saves
+at boot. The core runs the ticks one at a time (a tick that comes meanwhile
+waits until the last one is done), gives the IRQ and SVC stacks 4 KB and 1 KB
+(BlocksDS's 256 bytes each hold six interrupts inside one another), and
+keeps `Wifi_Update()` from running inside itself (BlocksDS added that after
+1.24.0). It also keeps a record for the launcher's watchdog
+(`source/watchdog.c`): if the ARM7 stops, the bottom screen shows how much of
+those stacks was used, and how often a music tick had to wait, for a photo.
+Copy the launcher to the SD card next to our nds-bootstrap build
+(`nds-bootstrap-dsirpc.nds`), for example both in `sd:/roms/nds/DSiRPC/` as
+the release download's instructions say, and start it in DSi mode. Its
+settings and the sets go in its folder, wherever that is (the game list
+leaves that folder out).
 
 In the DSi's menus (and TWiLight Menu++) it shows as "DSiRPC / RPC & RA
 Tracking / VampyreVK" with an animated icon: the pixel DSi from DSiRPC's
@@ -251,18 +355,26 @@ What each field means is in [docs/DOCUMENTATION.md, section 7](../docs/DOCUMENTA
 
 | File | What it is |
 |---|---|
-| `source/main.c` | Connecting (with the retries), the results screen and the keys |
-| `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread |
+| `source/main.c` | Connecting (with the retries), the results screen and the keys; the modern look's checklist, main screen and starting screen |
+| `source/topscreen.c` | The top screen: the pixel DSi and its Wi-Fi sign, animated from a cothread; the modern look's bar (status chip, battery), note and details |
+| `source/ui.c` | The modern look's drawing: the bitmap, text, icons, banner icons, panels, key hints, the spinner, taps and sounds |
+| `source/music.c` | The menu music, with maxmod (the setting's wiring is tested on a PC: `tests/test_launcher_ui.py`) |
+| `source/watchdog.c`, `source/arm7watch.h` | The watchdog: if the ARM7 stops or the music stops moving, the bottom screen shows the ARM7's record (its interrupt stacks, the music's waits) instead of freezing |
+| `music/*.m8s` | The two songs, as the M8 saves them ([music/README.md](music/README.md): changing them) |
+| `audio/*.xm` | The songs for maxmod, made by `tools/make_music.py` (don't edit by hand; tested against the songs: `tests/test_music.py`) |
+| `source/picker.c` | The modern look's game list (`games.idx`), and each game's achievements |
+| `source/stats.c` | DSiRPC playtime: each start's from `RPCUNLK.BIN` added up, the higher of the console's and DSiRPC's, in `stats.idx` (tested on a PC against DSiRPC: `tests/test_playtime.py`) |
 | `source/browser.c` | The file browser (START: the last game) |
 | `source/bootstrap_ini.c` | Pointing `nds-bootstrap.ini` at the game, finding its save, DS mode for DSi-enhanced games (tested on a PC: `tests/test_launcher_ini.py`) |
 | `source/sync.c` | Offline play: the sync with DSiRPC, the sets and the unlock file; finding DSiRPC (broadcast or the address in the settings) |
 | `source/savesync.c` | The save sync's work: finding the saves, `saves.idx`, the exchange with DSiRPC, safe downloads (tested on a PC against DSiRPC: `tests/test_save_sync.py`) |
-| `source/saveui.c` | The save sync's screens: the list, conflicts, older versions, progress |
-| `source/settings.c` | `launcher.ini` (and the last game) and the settings screen |
+| `source/saveui.c` | The save sync's screens, in both looks: the list, conflicts, older versions, progress |
+| `source/settings.c` | `launcher.ini` (and the last game) and the settings screen, in both looks |
 | `source/update.c` | Updates from DSiRPC: the check, `update.idx`, safe downloads, the swap and its screens (tested on a PC against DSiRPC: `tests/test_console_update.py`) |
 | `source/chainload.c` | Starting nds-bootstrap without going back to the menu |
 | `source/loader_blobs.s` | Embeds the two files built in `loader/` |
 | `loader/` | The bootstub and loader `chainload.c` installs ([loader/README.md](loader/README.md)) |
+| `arm7/` | The ARM7 core: BlocksDS's default one, with the music's ticks one at a time, bigger interrupt stacks and the `Wifi_Update()` guard (above, Build) |
 | `icon.gif` | The launcher's animated icon (made by `tools/make_pixel_dsi.py`, don't edit by hand) |
 
 ## License

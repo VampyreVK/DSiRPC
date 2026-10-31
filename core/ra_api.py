@@ -22,6 +22,7 @@ DSiRPC only ever asks for softcore (h=0).
     api.award(achievement_id)                        # softcore unlock
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -30,7 +31,6 @@ import urllib.error
 import urllib.request
 
 HOST = "https://retroachievements.org"
-DSIRPC_VERSION = "0.3.0"
 RCHEEVOS_VERSION = "12.5"   # RCHEEVOS_VERSION_STRING: the patch number is left out when it's 0
 _UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
 
@@ -52,10 +52,20 @@ def encode_form(fields):
     return "&".join(f"{k}={enc(v)}" for k, v in fields.items())
 
 
+@functools.lru_cache(maxsize=1)
+def dsirpc_version():
+    """This DSiRPC's version, as RetroAchievements sees it: a release's
+    ("1.0.0", from version.txt or the Mac app), else a development build's
+    ("dev-abc1234", "dev")"""
+    from .console_update import pc_version
+    version = pc_version()
+    return version[1:] if version.startswith("v") else version
+
+
 def user_agent():
     system = platform.system() or "Unknown"
     release = platform.version() if system == "Windows" else platform.release()
-    return f"DSiRPC/{DSIRPC_VERSION} ({system} {release}) rcheevos/{RCHEEVOS_VERSION}"
+    return f"DSiRPC/{dsirpc_version()} ({system} {release}) rcheevos/{RCHEEVOS_VERSION}"
 
 
 class RAError(Exception):

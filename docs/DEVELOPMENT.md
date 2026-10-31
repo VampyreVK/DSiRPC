@@ -24,7 +24,7 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 |---|---|
 | `Setup.bat`, `DSiRPC.bat` | First-time setup, and DSiRPC in the tray (Windows). They use a release's bundled Python (`python\`) if there is one, else the `.venv` Setup.bat makes |
 | `dsirpc.py` | DSiRPC itself: `setup`, `tray`, or running in a console (see [Command line](#7-command-line)) |
-| `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows |
+| `app/` | The parts `dsirpc.py` puts together: the engine (hub + Discord + overlay), the tray icon, the setup wizard, Start with Windows, and the app updating itself (`updates.py`, with `update_apply.py` for the Windows download) |
 | `overlay/` | The stream overlay window (pygame-ce) |
 | `core/` | DSi protocol client (`dsirpc_client.py`), RAM reader (`dsi_memory.py`), Platinum parser (`parser.py`), name tables (`platinum_data.py`), text decoding (`charmap.py`), state hub (`hub.py`), other games (`other_game.py`), RetroAchievements: sets (`ra_set.py`, `ra_cache.py`), achievements and rich presence (`ra_game.py`, `ra_presence.py`, `rcheevos.py`), the server (`ra_api.py`, `ra_link.py`), ROM hashes (`ra_hash.py`), game titles (`game_titles.py`), offline play (`offline.py`, `console_sync.py`), save backups (`saves.py`, `save_session.py`), demo data (`demo.py`) |
 | `rpc/`, `utils/` | Discord: Platinum's and other games' presence, the hub connector, the pypresence wrapper; the config reader |
@@ -36,11 +36,13 @@ command line and tools, and how releases are made. For using DSiRPC, see the
 | `launcher/` | The DSi-mode launcher: connects to Wi-Fi, then starts our nds-bootstrap with the game you pick ([launcher/README.md](../launcher/README.md)) |
 | `nds-bootstrap/` | Modified nds-bootstrap (GPLv3) with the in-game memory server. See [nds-bootstrap/DSIRPC_CHANGES.md](../nds-bootstrap/DSIRPC_CHANGES.md) |
 | `packaging/` | The Windows download: `build_release.py`, and the `README.txt`, license list and release notes that go with it; `packaging/macos/`: the macOS app (below) |
-| `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references) |
-| `spikes/` | Early experiments (stages 1-3), kept for reference |
+| `docs/` | This file, [DOCUMENTATION.md](DOCUMENTATION.md) (technical reference), [research.md](research.md) (verified research notes), [HISTORY.md](HISTORY.md) (original project log), `memory-map/` (RetroAchievements and ProjectPokemon references), `images/` (the README's banner and icons, from `tools/readme_art.py`) |
 | `art-source/` | Affinity (`.af`) source files for the sprite backgrounds |
+| `dsirpc.cfg.sample` | Every setting, by hand (setup writes the real `dsirpc.cfg`, which is gitignored) |
+| `logs/` | `dsirpc.log`, `achievements.log`, `state.json`, and `tools/frame_check.py --save` outputs (gitignored) |
 | `.github/workflows/build.yml` | The GitHub Action that builds everything and publishes releases (see [Builds and releases](#9-builds-and-releases)) |
 | `.github/workflows/tests.yml` | The GitHub Action that runs the tests (see [Tests](#10-tests)) |
+| `.github/workflows/renders.yml` | The GitHub Action that draws the launcher's screens and its demo, and keeps the README's pictures on the `renders` branch up to date with the latest release (see [Builds and releases](#9-builds-and-releases)) |
 
 ## 2. Requirements
 
@@ -102,7 +104,7 @@ docker run --rm -v "C:\Projects\DSiRPC\nds-bootstrap:/build" -w /build devkitpro
 ```
 
 The output is `nds-bootstrap\retail\bin\nds-bootstrap-nightly.nds`. Copy it to
-the SD card as `sd:/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
+the SD card as `sd:/roms/nds/DSiRPC/nds-bootstrap-dsirpc.nds`, away from TWiLight
 Menu++'s own copy, so you always know which one you are launching (or let
 the launcher take it: DSiRPC run from the source code offers its own builds
 as updates). The build prints a few harmless `fatal: not a git repository`
@@ -125,17 +127,17 @@ docker run --rm -v "C:\Projects\DSiRPC\launcher:/work" -w /work --entrypoint mak
 ```
 
 The output is `launcher\dsirpc-launcher.nds` (the same command builds the
-loader in `launcher/loader/` first). Copy it next to our nds-bootstrap, as
-`sd:/DSiRPC/dsirpc-launcher.nds`: it looks for `nds-bootstrap-dsirpc.nds` in
+loader in `launcher/loader/` and the launcher's ARM7 core in `launcher/arm7/`
+first). Copy it next to our nds-bootstrap, as
+`sd:/roms/nds/DSiRPC/dsirpc-launcher.nds`: it looks for `nds-bootstrap-dsirpc.nds` in
 its own folder. It must be started in **DSi mode**. Details are in
 [launcher/README.md](../launcher/README.md).
 
 Nothing else needs setting up on the SD card. The launcher writes its own
-`RPCHAND.TXT` to the SD root on every run, the Wi-Fi password comes from the
+`RPCHAND.TXT` next to itself on every run, the Wi-Fi password comes from the
 console's saved settings, and the console broadcasts its hello packets, so it
 never needs to know your PC's IP. For offline play it also makes
-`RPCUNLK.BIN` and `RPCSET.BIN` in the SD root and a `sets` folder next to
-itself, and finds DSiRPC with a broadcast on port 4245, or at the address
+`RPCUNLK.BIN`, `RPCSET.BIN` and a `sets` folder next to itself, and finds DSiRPC with a broadcast on port 4245, or at the address
 in its settings (`launcher.ini`)
 ([DOCUMENTATION.md, section 7](DOCUMENTATION.md#offline-play-the-launchers-sync-tcpudp-4245)).
 The save sync keeps `saves.idx` next to it, and its updates `update.idx`.
@@ -146,23 +148,25 @@ so they don't need copying by hand.
 
 ## 5. Discord applications
 
-DSiRPC shows the game through a Discord application, whose name is what
-Discord shows after "Playing" / "Competing in".
+DSiRPC shows every game through one Discord application. It sends each
+game's name, which Discord shows after "Playing" / "Competing in" (the
+application's own name only where Discord can't).
 
-- **Release downloads** come with one: the Action writes the application IDs
-  in the repository variables `DISCORD_CLIENT_ID` (Platinum, and every game
-  without its own) and `DISCORD_DEFAULT_CLIENT_ID` (optional: games other
-  than Platinum) into the download's `defaults.cfg` (Settings > Secrets and
-  variables > Actions > Variables). Application IDs aren't secret. Setup
-  offers them as the default, and `dsirpc.cfg` can name others; an empty
-  value there means "the default" (`utils/config.py`).
+- **Release downloads** come with one: the Action writes the application ID
+  in the repository variable `DISCORD_CLIENT_ID` (or, from when other games
+  had their own, `DISCORD_DEFAULT_CLIENT_ID`) into the download's
+  `defaults.cfg` (Settings > Secrets and variables > Actions > Variables).
+  Application IDs aren't secret. Setup offers it as the default, and
+  `dsirpc.cfg` can name another; an empty value there means "the default"
+  (`utils/config.py`).
 - **From the source code**, make your own: create an application in the
-  [Discord Developer Portal](https://discord.com/developers/applications),
-  name it **Pokémon Platinum**, and give setup its **Application ID**
-  (General Information page). For other games DSiRPC also sends the game's
-  name, which Discord shows instead where it can; a second application named
-  like "Nintendo DS" can be the default for them. `--client-id` overrides
-  both for one run.
+  [Discord Developer Portal](https://discord.com/developers/applications)
+  (name it like "Nintendo DS") and give setup its **Application ID**
+  (General Information page). `--client-id` overrides it for one run.
+
+A `dsirpc.cfg` from when Platinum and the other games each had an
+application (`[discord_apps]`) still works: its Platinum application is the
+one, or, without it, its other games' default.
 
 ## 6. Sprites (GitHub Pages)
 
@@ -198,7 +202,7 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
 | `--dsi-ip`, `--interval`, `--client-id` | The DSi's IP (if your network drops broadcasts), seconds between reads (default 5, or 2 with the overlay), a Discord application ID for every game |
-| `--demo` | The overlay with made-up scenes (battles, a shiny, a level-up, another game's card), for styling without the DSi; **N** skips to the next scene |
+| `--demo` | The overlay with made-up scenes (Black's main view, battles and places, another game's card, then Platinum's battles, a shiny and a level-up), for styling without the DSi; **N** skips to the next scene |
 | `--name Vivi` | With `--demo`: the trainer name to show |
 | `--scale 4` | Overlay size as a multiple of 256x192 (default 3, or `overlay_scale` in `dsirpc.cfg`) |
 | `--chroma 00FF00` | Fill the overlay's background with a key colour, for OBS's Chroma Key filter (`chroma` in `dsirpc.cfg`) |
@@ -227,6 +231,11 @@ For testing and development, run from the repo root:
 | `tools/dsirpc_overlay.py` | The overlay window on its own (`dsirpc.py --overlay --no-discord`); `--discord` adds the presence, `--demo` plays made-up scenes |
 | `tools/frame_check.py` | Checks that the per-frame capture sees every frame. On Platinum it needs no options |
 | `tools/hello_listener.py` | Prints the DSi's hello packets. The first thing to run if nothing works |
+| `tools/render_launcher.py` | Draws the launcher's modern look with its own code on the PC (the test host in `tests/c/ui`; gcc on Linux or WSL): the README's pictures as SVGs, `--png` every screen as a PNG and a contact sheet, `--demo` a walk through the screens (`demo.mp4` with the Bright song and `demo.gif`, both through ffmpeg), `--music` the menu music as MP3s (a loop of each song, through ffmpeg). Into `renders/` (`--out` for another folder). The renders workflow runs it for the README |
+| `tools/render_overlay.py` | Draws the overlay window with its own code from the demo's scenes (`core/demo.py`), without opening a window (SDL's dummy driver), on a made-up clock so the same pictures come out every time: the README's four (Black's main view and a battle, Platinum's rival at night, another game's card) as SVGs, `--png` as PNGs too. Needs pygame-ce and Pillow; `.github/workflows/renders.yml` runs it with `render_launcher.py` and puts the SVGs on the `renders` branch |
+| `tools/readme_art.py` | Draws the README's banner and its sections' icons (`docs/images/`) from the launcher's own pixel art, read from `launcher/source/` (the DSi, the title, the diamonds, the colors, the tiles' icons and the font); `--png` stills to look at (Pillow). Run it after changing that art (`tests/test_readme_art.py` says when) |
+| `tools/m8s.py` | Reads an M8 song for `make_music.py`; `python tools/m8s.py SONG.m8s` prints it as it reads it (tempo, groove, each instrument's notes and range, with the M8's note names; `--notes` every note) |
+| `tools/make_music.py` | Makes the launcher's menu music: reads the two M8 songs (`launcher/music/*.m8s`, with `tools/m8s.py`) and writes them as XM modules (`launcher/audio/*.xm`) with the voices of their browser preview. Run it after changing a song on the M8 (the steps: [launcher/music/README.md](../launcher/music/README.md)) |
 | `tools/make_pixel_dsi.py` | Makes the pixel DSi's GIFs from `overlay/ui.py`'s: Discord's "Pixel DSi" console picture (`Assets/Consoles/Pixel.gif`) and the launcher's animated icon (`launcher/icon.gif`). Run it after changing the DSi; needs pygame and Pillow |
 | `tools/arm7_model/arm7_model.py` | How many ARM7 cycles the console's achievement checker takes a pass, and where they go (`--profile`), from a set in `ra/`; `--compare` a changed copy of the checker. Needs Docker (devkitARM) and `pip install unicorn`; see its [README](../tools/arm7_model/README.md) |
 | `core/dsirpc_client.py` | Raw memory reads, e.g. `--read 0x02000BBC:8` (should print `21 06 C0 DE DE C0 06 21`), and `--watch` to print whatever changes in some ranges while you play |
@@ -264,12 +273,40 @@ The release is named after the tag. Its notes start with
 `packaging/RELEASE_NOTES.md` (how to install), followed by notes generated
 from the commits, and it has the Windows and macOS zips and both `.nds` files attached.
 
+Published releases are what DSiRPC updates itself to (`app/updates.py`): a
+minute after it starts and once a day it asks GitHub for the latest release
+(drafts and pre-releases aren't), and when its tag is a newer version than
+its own (`version.txt`, the app's `DSiRPCVersion`), its menu offers it. So
+keep the tags versions (`v1.2.3`), the zips' names
+(`DSiRPC-<tag>-windows.zip`, `DSiRPC-<tag>-macos.zip`) and the version they
+say they are. It downloads its zip, checks it against the SHA-256 GitHub
+gives for it, unpacks it in the data folder's `update/`, and starts the step
+that puts it in place once DSiRPC has quit: on Windows the new release's own
+Python runs a copy of `app/update_apply.py`, which swaps the program's
+folders and files (whatever else is in the folder is yours: `dsirpc.cfg`,
+`ra/`, `logs/`, `saves/`, the downloaded sprites) and puts it all back if
+something can't go in; on a Mac a shell script swaps DSiRPC.app. Then it
+starts DSiRPC again. A dev build (`dev-...`) or a source checkout never
+updates itself; it only says what the latest release is.
+
+Publishing it also runs [`.github/workflows/renders.yml`](../.github/workflows/renders.yml):
+it draws the launcher's screens from the release's code (`tools/render_launcher.py`),
+puts the README's pictures, the demo and the menu music as MP3s on the
+`renders` branch (one commit, replaced each time; the README shows the
+pictures from there, so they're always the latest release's), and attaches
+the demo video to the release (`DSiRPC-launcher-demo.mp4`). Run it by hand
+(Actions tab > **Renders** > **Run workflow**, from any branch) to try
+changes: every screen as a PNG, the demo and the music are the run's
+artifact, and only go on the `renders` branch if you tick **publish**.
+GitHub shows the button once the workflow is on `main`.
+
 ### The Windows download
 
 `packaging/build_release.py` makes the zip: one `DSiRPC` folder with
 
 - DSiRPC's files (`dsirpc.py`, `app/`, `core/`, `overlay/`, `rpc/`, `utils/`,
-  `tools/`, `third_party/rcheevos/`, `Assets/Consoles/`, the two `.bat` files);
+  `tools/`, `third_party/rcheevos/`, `Assets/Consoles/`, `launcher/audio/` for
+  the overlay's ambient music, the two `.bat` files);
 - `python/`: Python's embeddable package for Windows x64 (`PYTHON_VERSION` in
   the script), its `._pth` file set up to find `Lib\site-packages` and
   DSiRPC's folder, and the packages from `requirements.txt` installed there as
@@ -288,9 +325,8 @@ python packaging\build_release.py --nds-dir <folder with both .nds files> --vers
 ```
 
 `--check` (Windows only) starts the bundled Python once and imports
-everything DSiRPC uses. The zip goes in `dist\`; `--discord-client-id` and
-`--discord-default-id` (or the `DISCORD_CLIENT_ID` and
-`DISCORD_DEFAULT_CLIENT_ID` environment variables) write `defaults.cfg`.
+everything DSiRPC uses. The zip goes in `dist\`; `--discord-client-id` (or
+the `DISCORD_CLIENT_ID` environment variable) writes `defaults.cfg`.
 
 The zip holds no settings, sets or logs, so unzipping a newer one over an
 older folder updates DSiRPC and keeps the user's `dsirpc.cfg`, `ra\` and
@@ -340,10 +376,11 @@ How the app differs from the Windows download:
 [`tests/`](../tests/README.md) checks what decides whether an achievement is
 missed: nds-bootstrap's achievement checker, per-frame capture and idle-time
 write-back (built for the PC with gcc, with AddressSanitizer and UBSan on)
-against rcheevos frame by frame, the launcher's save sync and updates (built
-for the PC), and DSiRPC's side (the offline formats, the launcher's sync,
-the protocol client, the Black/White parser, the hub) against a fake DSi on
-the loopback network. From the repo root:
+against rcheevos frame by frame, the launcher's save sync, updates,
+playtimes and modern look's screens (built for the PC), and DSiRPC's side
+(the offline formats, the launcher's sync, the protocol client, the
+Black/White parser, the hub) against a fake DSi on the loopback network.
+From the repo root:
 
 ```
 python -m pip install -r tests/requirements.txt

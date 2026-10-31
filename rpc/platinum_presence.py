@@ -24,6 +24,10 @@ SPRITES = "https://vampyrevk.github.io/DSiRPC/Assets"
 WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x464, 0x470
 
 
+# What Discord shows after "Playing" (the one Discord application shows every game)
+GAME_NAME = "Pokémon Platinum"
+
+
 def front_sprite(species_id, shiny=False):
     folder = "Shiny-Battle-NormalLarge" if shiny else "Pokemon-Battle-NormalLarge"
     return f"{SPRITES}/{folder}/{species_id}.gif?raw=true"
@@ -102,6 +106,7 @@ def battle_presence(d):
         small_text += f" and {mon_name(mine2)} (Lv {mine2['level']}, {mine2['curr_hp']}/{mine2['max_hp']} HP)"
 
     return {
+        'name': GAME_NAME,
         'activity_type': ActivityType.COMPETING,
         'details': details,
         'state': state[:128],
@@ -117,6 +122,7 @@ def overworld_presence(d):
     party = [m for m in d['party'] if not m.get('egg')]
     alive = sum(1 for m in party if m['curr_hp'] > 0)
     presence = {
+        'name': GAME_NAME,
         'activity_type': ActivityType.PLAYING,
         'details': f"Exploring {loc['name']}",
         'state': f"Badges: {len(d['badges'])} | Pokédex: {d['pokedex']['caught']}",

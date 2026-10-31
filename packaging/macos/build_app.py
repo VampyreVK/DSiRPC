@@ -85,9 +85,7 @@ def main():
     ap.add_argument("--nds-dir", help="folder with dsirpc-launcher.nds and nds-bootstrap-dsirpc.nds")
     ap.add_argument("--require-nds", action="store_true", help="fail if the .nds files aren't there")
     ap.add_argument("--discord-client-id", default=os.environ.get("DISCORD_CLIENT_ID", ""),
-                    help="Discord application for Platinum and other games (default: $DISCORD_CLIENT_ID)")
-    ap.add_argument("--discord-default-id", default=os.environ.get("DISCORD_DEFAULT_CLIENT_ID", ""),
-                    help="Discord application for games other than Platinum (default: $DISCORD_DEFAULT_CLIENT_ID)")
+                    help="the Discord application the download comes with (default: $DISCORD_CLIENT_ID)")
     ap.add_argument("--out", default=os.path.join(ROOT, "dist"), help="where the zip goes (default dist/)")
     ap.add_argument("--work", default=os.path.join(ROOT, "build", "macos"), help="scratch folder")
     args = ap.parse_args()
@@ -100,7 +98,7 @@ def main():
     extra = os.path.join(args.work, "extra")
     shutil.rmtree(extra, ignore_errors=True)
     os.makedirs(extra)
-    build_release.add_defaults(extra, args.discord_client_id.strip(), args.discord_default_id.strip())
+    build_release.add_defaults(extra, args.discord_client_id.strip())
     defaults = os.path.join(extra, "defaults.cfg")
     app = build_app(args.version, defaults if os.path.exists(defaults) else None, args.nds_dir, args.work,
                     os.path.join(args.work, "dist"))

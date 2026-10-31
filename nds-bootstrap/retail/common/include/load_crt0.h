@@ -77,6 +77,7 @@ typedef struct loadCrt0 {
 	u16 cacheBlockSize;
 	char bannerSavPath[64];
 	unsigned char version[20];
+	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
 } loadCrt0;
 
 #endif // LOAD_CRT0_H

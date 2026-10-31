@@ -54,6 +54,8 @@ FOLDERS = [
     # The tray's Console icon menu lists these. The overlay's sprites are
     # downloaded when first needed (overlay/sprites.py).
     "Assets/Consoles",
+    # The launcher's menu songs, the overlay window's ambient music (overlay/music.py)
+    "launcher/audio",
 ]
 SKIP = ["__pycache__", "*.pyc", "*.pyo", "tools/charmap", "*.so", "*.dylib", "*.tmp"]
 
@@ -168,19 +170,17 @@ def add_text(pkg, version, nds_dir):
         log("Warning: nds-bootstrap's license wasn't found (licenses/nds-bootstrap-GPLv3.txt)")
 
 
-def add_defaults(pkg, client_id, default_id):
-    if not (client_id or default_id):
+def add_defaults(pkg, client_id):
+    if not client_id:
         log("No Discord application given: setup will ask for one (--discord-client-id)")
         return
-    for value in (client_id, default_id):
-        if value and not (value.isdigit() and 17 <= len(value) <= 20):
-            raise SystemExit(f"{value!r} isn't a Discord application ID")
+    if not (client_id.isdigit() and 17 <= len(client_id) <= 20):
+        raise SystemExit(f"{client_id!r} isn't a Discord application ID")
     with open(os.path.join(pkg, "defaults.cfg"), "w", newline="\r\n") as f:
-        f.write("# The Discord applications this download of DSiRPC comes with. dsirpc.cfg\n"
-                "# (your settings, which setup writes) can name others instead. This file is\n"
+        f.write("# The Discord application this download of DSiRPC comes with. dsirpc.cfg\n"
+                "# (your settings, which setup writes) can name another instead. This file is\n"
                 "# replaced by each new release.\n\n"
-                f"[connection]\ndiscord_client_id: {client_id}\n\n"
-                f"[discord_apps]\ndefault: {default_id}\n")
+                f"[connection]\ndiscord_client_id: {client_id}\n")
 
 
 def check(pkg):
@@ -217,9 +217,7 @@ def main():
     ap.add_argument("--require-nds", action="store_true", help="fail if the .nds files aren't there")
     ap.add_argument("--python", default=PYTHON_VERSION, help=f"Python version to bundle (default {PYTHON_VERSION})")
     ap.add_argument("--discord-client-id", default=os.environ.get("DISCORD_CLIENT_ID", ""),
-                    help="Discord application for Platinum and other games (default: $DISCORD_CLIENT_ID)")
-    ap.add_argument("--discord-default-id", default=os.environ.get("DISCORD_DEFAULT_CLIENT_ID", ""),
-                    help="Discord application for games other than Platinum (default: $DISCORD_DEFAULT_CLIENT_ID)")
+                    help="the Discord application the download comes with (default: $DISCORD_CLIENT_ID)")
     ap.add_argument("--out", default=os.path.join(ROOT, "dist"), help="where the zip goes (default dist/)")
     ap.add_argument("--work", default=os.path.join(ROOT, "build", "package"), help="scratch folder")
     ap.add_argument("--check", action="store_true", help="start the bundled Python once (Windows only)")
@@ -249,7 +247,7 @@ def main():
     add_python(args.python, pkg, os.path.join(args.work, "cache"))
     add_sd_card(pkg, args.nds_dir, args.require_nds)
     add_text(pkg, args.version, args.nds_dir)
-    add_defaults(pkg, args.discord_client_id.strip(), args.discord_default_id.strip())
+    add_defaults(pkg, args.discord_client_id.strip())
     if args.check:
         check(pkg)
     out_file = os.path.join(args.out, f"DSiRPC-{args.version}-windows.zip")

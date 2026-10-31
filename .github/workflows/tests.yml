@@ -4,9 +4,15 @@
 #     per-frame capture, and the idle-time write-back (rpcprobe and the ARM9
 #     half)
 #   - the launcher's nds-bootstrap.ini handling (launcher/source/bootstrap_ini.c)
+#   - the launcher's menu music: the M8 songs and the XM modules made from
+#     them (launcher/music, launcher/audio, tools/make_music.py), and the
+#     overlay window playing them (overlay/music.py)
+#   - the README's banner and icons (docs/images), drawn from the launcher's
+#     pixel art by tools/readme_art.py
 #   - the PC side: the offline formats, the launcher sync, the protocol
 #     client, the Black/White parser and the hub against a fake DSi on the
-#     loopback network
+#     loopback network, and the app updating itself (app/updates.py,
+#     app/update_apply.py)
 # rcheevos (with DSiRPC's dsirpc_offline.c) is built here from its tag, as
 # the macOS build does, and cached.
 
@@ -17,22 +23,36 @@ on:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "app/updates.py"
+      - "app/update_apply.py"
+      - "utils/config.py"
+      - "overlay/music.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
       - "nds-bootstrap/retail/**"
       - "launcher/source/**"
+      - "launcher/music/**"
+      - "launcher/audio/**"
+      - "docs/images/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   pull_request:
     paths:
       - "core/**"
       - "app/engine.py"
+      - "app/updates.py"
+      - "app/update_apply.py"
+      - "utils/config.py"
+      - "overlay/music.py"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
       - "nds-bootstrap/retail/**"
       - "launcher/source/**"
+      - "launcher/music/**"
+      - "launcher/audio/**"
+      - "docs/images/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   workflow_dispatch:
@@ -55,11 +75,13 @@ jobs:
     timeout-minutes: 20
     steps:
       # Only what the tests use (the repository's art is most of its size)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: |
             core
             app
+            utils
+            overlay
             tools
             tests
             third_party/rcheevos
@@ -67,18 +89,21 @@ jobs:
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe
             nds-bootstrap/retail/cardenginei/arm9/source
             launcher/source
+            launcher/music
+            launcher/audio
+            docs/images
           filter: blob:none
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
-      - name: Install pytest
+      - name: Install pytest and pygame
         run: python -m pip install -r tests/requirements.txt
 
       - name: Restore rcheevos
         id: rcheevos
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: third_party/rcheevos/librcheevos.so
           key: rcheevos-${{ env.RCHEEVOS_TAG }}-${{ runner.os }}-${{ hashFiles('third_party/rcheevos/dsirpc_offline.c') }}

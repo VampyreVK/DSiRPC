@@ -799,6 +799,24 @@ int saves_quick_check(const char *games_dir, const char *index_dir)
     return changed;
 }
 
+bool saves_needs_sync(const SaveItem *item, bool backup_only)
+{
+    if (item->excluded || item->done)
+        return false;
+    switch (item->action)
+    {
+    case SA_UPLOAD:
+    case SA_BACKUP:
+    case SA_CONFLICT:
+        return true;
+    case SA_DOWNLOAD:
+    case SA_DOWNLOAD_NEW:
+        return !backup_only;
+    default:
+        return false;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Talking to DSiRPC
 
@@ -933,6 +951,13 @@ static int plan_exchange(const SyncJob *job, SaveList *list, const struct sockad
         it->pc_size = get32(p + 8);
         it->pc_crc = get32(p + 12);
         it->pc_time = get32(p + 16);
+        // Never a download over a save written after the PC's (as the
+        // consoles' clocks have it: the PC dates a save by when its console
+        // wrote it): that's a conflict, for the player to settle, whatever
+        // DSiRPC planned
+        if (it->action == SA_DOWNLOAD && it->present && it->pc_time != 0 && it->mtime > UNIX_TIME_2000 &&
+            (uint32_t)(it->mtime - UNIX_TIME_2000) > it->pc_time)
+            it->action = SA_CONFLICT;
         it->versions = p[20];
         snprintf(it->pc_source, sizeof(it->pc_source), "%.32s", source);
         it->choice = SC_ASK;
@@ -1235,7 +1260,8 @@ static int download(const SyncJob *job, const SaveConsole *console, const struct
 }
 
 // The PC's save (version, from: the console it came from) replaces the
-// console's, which goes to the PC first.
+// console's, which is backed up on the PC first: downloading, or restoring
+// an older version.
 static int take_from_pc(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
                         SaveItem *it, uint8_t version, const char *from, uint8_t flags, const uint32_t *listed,
                         SaveProgress progress, char *msg, size_t msgsz)
@@ -1243,7 +1269,7 @@ static int take_from_pc(const SyncJob *job, const SaveConsole *console, const st
     char what[96];
     if (it->present)
     {
-        snprintf(what, sizeof(what), "Keeping %s's save on the PC first", it->name);
+        snprintf(what, sizeof(what), "Backing up %s first", it->name);
         int r = upload(job, console, server, it, PUT_SAFETY, what, progress, msg, msgsz);
         if (r <= 0)
             return r;
@@ -1252,14 +1278,14 @@ static int take_from_pc(const SyncJob *job, const SaveConsole *console, const st
         // for you to decide
         if (listed != NULL && it->crc != *listed)
         {
-            snprintf(msg, msgsz, "This save changed since the\nlist was made. It's kept on\nthe PC; open the list again.");
+            snprintf(msg, msgsz, "This save changed since the\nlist was made. It's backed up\non the PC; open the list again.");
             return -1;
         }
     }
     if (from != NULL && from[0] != '\0')
-        snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Taking", it->name, from);
+        snprintf(what, sizeof(what), "%s %s\nfrom: %s", version ? "Restoring" : "Downloading", it->name, from);
     else
-        snprintf(what, sizeof(what), version ? "Restoring %s" : "Taking %s from the PC", it->name);
+        snprintf(what, sizeof(what), version ? "Restoring %s" : "Downloading %s from the PC", it->name);
     return download(job, console, server, it, version, flags, what, progress, msg, msgsz);
 }
 
@@ -1295,7 +1321,9 @@ int saves_sync_item(const SyncJob *job, const SaveConsole *console, const struct
         {
         case SA_UPLOAD:
         case SA_BACKUP:
-            snprintf(what, sizeof(what), "Backing up %s", it->name);
+            // Uploading: it becomes the save the other consoles get;
+            // backing up (back up only): a copy the PC keeps
+            snprintf(what, sizeof(what), action == SA_UPLOAD ? "Uploading %s" : "Backing up %s", it->name);
             r = upload(job, console, server, it, action == SA_UPLOAD ? PUT_SYNC : PUT_BACKUP, what, progress, msg,
                        msgsz);
             if (r > 0)

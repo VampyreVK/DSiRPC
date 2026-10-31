@@ -1,289 +1,163 @@
 # DSiRPC project history
 
-> **This is the original project log, kept for history.** It was the repo's
-> README while the project was being figured out, so parts of it are out of
-> date: the memory-map section (party stats *are* encrypted, playtime is at
-> `+0x9E`), the old DS-mode WPA2 driver plan, and the folder names (`vendor/`,
-> `stage4-handoff-spike/`, `stage5-memory/`). For the current state, see the
-> [README](../README.md) and [DOCUMENTATION.md](DOCUMENTATION.md). The progress
-> log at the bottom is newest first.
+> The project's log, newest first. It began as the repo's README while the
+> project was being figured out; the design notes, stage plans and first
+> memory map from then went out of date and are gone (git history has them,
+> and the stage 1-3 experiments). How it works now is in the
+> [README](../README.md) and [DOCUMENTATION.md](DOCUMENTATION.md).
 
-## End goal
+## How it started
 
-Code injected at boot alongside nds-bootstrap on a modded Nintendo DSi that reads
-live game memory (test case: Pokemon Platinum, using memory addresses similar to
-what RetroAchievements uses) and streams it over Wi-Fi/UDP to a PC, which drives
-a custom Discord Rich Presence status. The DSi-side code needs to persist
-alongside an actual running retail game, not run as a standalone/separately
-launched homebrew app (DS/DSi has no multitasking for user code).
-
-## Architecture decisions
-
-*The plan as of 2026-09-22. The hook actually used is `myIrqHandlerVBlank`
-in the ARM7 cardengine calling `Probe_VBlankTick()` (DOCUMENTATION.md,
-section 8).*
-
-- **Integration point: nds-bootstrap's retail cardengine VBlank hook.**
-  `vendor/nds-bootstrap` has two build trees: `hb/` (homebrew loading, simple,
-  no multitasking-friendly hook) and `retail/cardenginei` (retail ROM
-  emulation via cardengine trickery, DSi-specific). `retail/cardenginei`
-  already has a proven cheat-code interpreter
-  (`arm7_cheat/source/cheat_engine.s`, ARM assembly, GPLv3, from NitroHax)
-  invoked every VBlank (`code_handler_start_vblank` in
-  `arm7/source/card_engine_header.s`) for the entire duration a retail DSi
-  game plays, on ARM7, directly against Main RAM. This is the chosen
-  injection point for persistent, alongside-the-game memory access.
-- **DS side stays a dumb memory probe, not a parser.** The DS side listens
-  for a requested address (or address range), and returns the raw memory at
-  that address. All interpretation/parsing of what those bytes mean happens
-  PC-side. This keeps the DS side minimal, expandable without new on-device
-  builds, and avoids most of the testing/reliability burden — a change to
-  what data we want is a PC-side parser change, not a new ROM build.
-- **Test-ROM validation path (`stage3-testrom`) is abandoned.** It was built
-  through `hb/`'s homebrew loader, which never exercises
-  `retail/cardenginei`'s VBlank hook — the actual mechanism we need to
-  prove out. Going straight at a real Pokemon Platinum ROM backup through
-  the retail path is the only route that actually tests the real mechanism,
-  so the synthetic test ROM doesn't buy us anything here. Kept in the repo
-  for history only.
-- **Memory map source of truth: RetroAchievements code notes**, cross-checked
-  against Viv's earlier `vendor/melonDS-RPC-Suite-unfinished` research and
-  ProjectPokemon's community breakpoints page, in that priority order. See
-  "Memory map" below.
-
-## ARM7 wifi-output gap (superseded: this driver was removed on 2026-09-23)
-
-*The launcher's DSi-mode handoff replaced it before it ever ran on hardware;
-see the progress log and DOCUMENTATION.md, section 1.*
-
-How to get probe-response data OUT over Wi-Fi from the ARM7 VBlank-hook
-context. Stages 1-2 proved the pipe using dswifi9's BSD-socket API, which
-only ever runs on ARM9 — and ARM9 is occupied by the actual retail game once
-we're past the proof-of-concept stage. ARM7 has never hosted a full IP stack
-in dswifi's history (checked both the current dswifi2.1.0+calico stack and
-the old self-contained dswifi 0.4.2 — sgIP, the TCP/IP stack, has only ever
-built for ARM9 in either generation).
-
-**Resolution: skip the IP stack, keep the radio driver.** ARM7 has always
-owned the actual wifi hardware and already does the full 802.11 auth/assoc
-handshake plus raw frame TX/RX entirely on its own, in both dswifi
-generations, with zero ARM9 involvement. sgIP only adds DHCP/ARP/TCP/sockets
-on top — none of which a stateless UDP probe needs. So: port dswifi 0.4.2's
-self-contained ARM7 driver (`wifi_arm7.c`, non-threaded, matches
-nds-bootstrap's simple polled style — unlike the modern
-dswifi2.1.0+calico/ntrwifi stack, which is RTOS-threaded and doesn't fit),
-skip AP scanning entirely (hardcode the one target network instead of the
-~150 lines of beacon/IE parsing scanning needs), and hand-roll a minimal
-LLC/SNAP + IPv4 + UDP encapsulation around the driver's raw-frame-TX
-primitive instead of sgIP.
-
-First-draft implementation is written:
-`vendor/nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe/` (`probe_wifi.*`,
-`probe_net.*`, `probe_hook.c`, plus new WPA2 support — see below). **Not yet
-compiled, not yet wired into the actual build, not yet tested on hardware**
-— see that folder's `INTEGRATION.md` for exact wiring steps and known-
-unverified pieces (the riskiest being CCMP's AAD construction — flagged
-clearly there).
-
-**WPA2 is now supported, not just open networks.** The earlier framing here
-("this driver only supports open networks") was based on a real but
-incomplete understanding: Open System Authentication — what this driver has
-always sent — is not the same thing as "no encryption." A WPA2 network uses
-the exact same open-system auth/assoc frames; WPA2's actual security is a
-separate 4-way handshake (EAPOL-Key frames) that runs *after* association,
-followed by AES-CCMP encryption of data frames. So the existing auth/assoc
-code didn't need to change — it just needed the handshake and CCMP layered
-on top. That's now written: PBKDF2-HMAC-SHA1 (passphrase → PMK, chunked
-across VBlanks so it doesn't stall a frame), the 4-way handshake state
-machine, AES-128, and CCMP encrypt/decrypt on the data path. An open or WEP
-network still works too (WEP's actual per-frame RC4 encryption still isn't
-implemented, only association — arguably not worth finishing now that WPA2
-is supported). See `INTEGRATION.md`'s "WPA2 — what's actually implemented"
-section for the full breakdown of what's solid vs. still unverified.
-
-**Nothing network-related is compiled in anymore.** SSID, BSSID, channel,
-security mode, WPA2 passphrase, PC/DSi static IPs, and UDP port all live in
-`/RPCPROBE.CFG` on the SD card, read at boot — see `INTEGRATION.md`'s
-"Configuration" section for the file format and how it's read (a small
-self-contained ARM7-side SD read, not nds-bootstrap's ARM9-side `.ini`
-pipeline — see "Why not a TWiLight Menu++-style launcher" below for why).
-
-**IP discovery**: kept the stage 1/2 pattern (DSi sends to a configured PC
-IP; the PC learns the DSi's own IP from whatever address the first packet
-arrives from, so it doesn't need to be told in advance) rather than having
-the DSi display its IP on-screen for the user to enter PC-side. The
-display-IP approach doesn't work at this integration point anyway — the
-retail-game VBlank hook has no console/screen access of its own (Platinum
-owns both screens), unlike `stage3-testrom`'s standalone homebrew context.
-
-**Why not a TWiLight Menu++-style launcher**: nds-bootstrap does have a
-real per-game `.ini` config system already (`retail/arm9/source/conf_sd.cpp`,
-the same one TWiLight Menu++ itself uses) — but it's ARM9-only, and no
-ARM9→ARM7 bridge for arbitrary app config was found anywhere in the
-codebase. Building a whole separate launcher application (TWiLight Menu++
-is a full multi-game frontend with its own UI and game database) to solve
-"get a few settings to ARM7" would be a lot of new surface area for what
-turned out to be a problem ARM7 could already solve on its own — cardengine.c
-opens a named file off the SD card root today for its own debug log, and
-`RpcProbeConfig_Load()` just follows that same pattern. Lower risk (nothing
-shared gets touched) and less to build.
-
-## Stage progress
-
-*As of 2026-09-22. The protocol became `'R'`/`'D'` with up to 16 ranges and
-192 bytes a request (DOCUMENTATION.md, section 7).*
-
-- **Stage 1 — DONE.** `stage1-listen/`: standalone DSi homebrew app connects
-  to Wi-Fi, sends one hardcoded UDP packet to a PC listener
-  (`stage1-listen/pc/listener.py`). Proved the wifi pipe works end to end.
-- **Stage 2 — DONE.** `stage2-echo/`: call-and-response test. DSi sends a
-  startup ping, binds a UDP socket, and echoes back a reversed string for
-  whatever it receives (`EXIT` breaks the loop). PC side
-  (`stage2-echo/pc/echo_test.py`) auto-discovers the DSi's address from its
-  startup ping rather than using a hardcoded IP.
-- **Stage 3 — IN PROGRESS, pivoted.** Original plan was a synthetic test ROM
-  (`stage3-testrom/`) to validate against known values before touching real
-  game memory; abandoned per the decision above. Current direction: build the
-  generic memory-probe protocol (request: address + length; response: raw
-  bytes) and get it running inside `nds-bootstrap`'s `retail/cardenginei`
-  VBlank hook against a real Pokemon Platinum ROM backup. The wire protocol
-  is implemented: request is `'Q' + address(u32) + length(u16)` (7 bytes),
-  response is `'A' + address(u32) + length(u16) + raw bytes` (7+N bytes),
-  both over UDP port 4244. Responses are capped at 64 bytes on purpose —
-  per Viv's call, lots of small polled requests beat one big payload, to
-  avoid frame drops and to allow lazy-loading slow-changing fields (trainer
-  name, etc.) separately from fast-changing ones. See the ARM7 wifi-output
-  gap section above for where the implementation stood.
-
-## Repo layout
-
-*As of 2026-09-22. The current layout is in DOCUMENTATION.md, section 13.*
-
-- `stage1-listen/` — Stage 1 artifact (standalone, kept for reference).
-- `stage2-echo/` — Stage 2 artifact (standalone, kept for reference).
-- `stage3-testrom/` — Stage 3's abandoned test-ROM approach (kept for history).
-- `vendor/nds-bootstrap/` — DS-Homebrew/nds-bootstrap, full clone.
-  `retail/cardenginei/arm7/source/rpcprobe/` holds the new memory-probe wifi
-  driver, including WPA2 support (first draft, unbuilt — see that folder's
-  `INTEGRATION.md`). One existing file has been touched:
-  `retail/cardenginei/arm7/Makefile` (added `source/rpcprobe` to `SOURCES`
-  so the new files actually get compiled) — everything else in this clone
-  is still untouched, including the VBlank hook wiring itself, which is
-  flagged but deliberately not done yet (see `INTEGRATION.md`).
-- `tools/rpcprobe-crypto-test/` — host-side (regular gcc, no devkitARM
-  needed) test harness for the WPA2 crypto primitives (SHA-1, HMAC-SHA1,
-  PBKDF2-HMAC-SHA1, AES-128, CCMP), checked against published test vectors.
-  All passing as of this commit — see that folder's README.
-- `vendor/melonDS-RPC-Suite-unfinished/` — Viv's earlier, separate project:
-  partial Pokemon Platinum memory-mapping work against a modified melonDS
-  (via melonDS-shmem), used here as a reference/cross-check, not as the
-  source of truth.
-- `docs/memory-map/` — Reference material pulled in for the Platinum memory
-  map: raw RetroAchievements code notes export and ProjectPokemon's
-  "Notable Breakpoints" page. See "Memory map" below for the digested,
-  cross-checked version.
-
-## Memory map (Pokemon Platinum (USA) (Rev 1))
-
-*Superseded by DOCUMENTATION.md, section 9, which has the verified map; some
-entries below are wrong (see the note at the top).*
-
-All addresses below are hardware ARM9 addresses (`0x02000000`-based Main RAM).
-RetroAchievements' own addressing scheme is offset by `-0x02000000` from
-hardware (their docs: "system memory at address $00000000, immediately
-followed by cartridge memory") — so an RA note address of `0x101d40` is
-hardware `0x02101d40`. Keep that translation in mind when cross-referencing
-`docs/memory-map/Pokemon Platinum Code Notes (RetroAchievements).md` directly.
-
-**Anchor pointer: `0x02101D40`.** Static, never moves. Dereferencing it gives
-the current address of the live save-data block (the game relocates this
-block on the heap as it transitions overworld/menu/battle, so this pointer
-must be re-resolved on every read, not cached). Confirmed independently by:
-RA code notes (game 11732, note on `0x101d40`), a second independent RA note
-on the same address from a related Platinum-hack game entry ("Professor Oak
-Challenge", RA game notes doc, second block), and all three of Viv's earlier
-melonDS-project docs. Also matches the `B2101D40` Action Replay code
-convention referenced in that earlier research.
-
-Offsets below are from the resolved live-save-block pointer unless noted
-otherwise. Source column: RA = RetroAchievements code notes (community
-vetted, treat as ground truth), PP = ProjectPokemon Notable Breakpoints
-(community vetted), melonDS-doc = Viv's earlier project docs (treat as
-unverified until cross-checked — see conflict note below).
-
-| Offset / Address | Field | Size | Source |
-|---|---|---|---|
-| `+0x8C` | Trainer ID | 16-bit | RA (confirmed 2x independently) |
-| `+0x8E` | Secret Trainer ID | 16-bit | RA (confirmed 2x independently) |
-| `+0x90` | Money | 32-bit | RA (confirmed 2x independently) |
-| `+0x7C` | Trainer Name | 16 bytes (8x u16, Gen4 char encoding) | melonDS-doc (`parser.py`), hand-verified by Viv via HxD/ImHex |
-| `+0x96` | Badges Obtained | bitfield | RA |
-| `+0xAC` | Party capacity (slots usable) / Playtime (unverified, see note) | 32-bit | RA / melonDS-doc |
-| `+0xB0` | Party count (# Pokemon) | 32-bit | RA |
-| `+0xB4` | Party Slot 1 data | 236 bytes | RA |
-| `+0x1A0` / `+0x28C` / `+0x378` / `+0x464` / `+0x550` | Party Slots 2-6 | 236 bytes each | RA |
-| `+0x644` | Bag — Items pocket start | 32-bit entries | RA (confirmed 2x independently) |
-| `+0x8D8` | Bag — Key Items pocket start | 32-bit entries | RA |
-| `+0x9A0` | Bag — TMs/HMs pocket start | 32-bit entries | RA |
-| `+0xB30` | Bag — Mail pocket start | 32-bit entries | RA |
-| `+0xB60` | Bag — Medicine pocket start | 32-bit entries | RA |
-| `+0xC00` | Bag — Berries pocket start | 32-bit entries | RA |
-| `+0xD00` | Bag — Poke Balls pocket start | 32-bit entries | RA |
-| `+0xD3C` | Bag — Battle Items pocket start | 32-bit entries | RA |
-| `+0x1294` | Current Map ID | 16/32-bit (RA notes disagree on width) | RA (2 notes) |
-| `+0x12AC` | Pokedex caught flags | bitfield | RA |
-| `+0x1380` | Pokedex seen flags (National Dex order) | 62 bytes | RA |
-| `+0x1656` | Pokedex available flag | bit0 | RA |
-| `+0x1657` | National Dex obtained flag | bit0 | RA |
-| `+0x285AC..+0x285C8` | Per-badge "shining" flags (8 badges, 4 bytes apart) | 32-bit each | RA |
-
-Within a 236-byte **party** Pokemon struct (offsets below are relative to the
-start of that Pokemon's own 236 bytes, e.g. `+0xB4 +0x8C` for lead's level):
-
-| Offset | Field | Size | Source |
-|---|---|---|---|
-| `+0x8C` | Current level | 8-bit | RA / melonDS-doc (agree) |
-| `+0x8E` | Current HP | 16-bit | RA / melonDS-doc (agree) |
-| `+0x90` | Max HP | 16-bit | RA / melonDS-doc (agree) |
-
-This unencrypted battle-stat tail (bytes `0x88`-`0xEB` of the 236-byte
-struct) is why level/HP don't need the full Gen4 decrypt/unshuffle
-pipeline — only the first 136 bytes (species, IVs, PID, etc.) are encrypted
-and block-shuffled.
-
-**Overworld player position** — direct hardware addresses (not anchor-relative,
-per RA note, described as "mirror" values): X `0x021C5CCE`, Y `0x021C5CD2`,
-Z `0x021C5CD6`, all 16-bit. These come from RA and should be preferred over
-the melonDS-doc's guessed `0x0223B48A`-range addresses (see conflict note).
-
-**Trainer name conflict — resolved.** Viv's three earlier melonDS-project
-docs disagreed on the trainer-name offset (`+0x64`, `+0x68`, `+0x7C` were all
-seen). Per Viv: `parser.py`'s `+0x7C` is the one she hand-verified against
-real save data with HxD/ImHex and trusts (it was the first field she parsed
-and tested reliably) — treat `parser.py` as accurate going forward unless a
-specific field is later shown otherwise. This also lines up structurally
-with RA's data: `+0x7C` + 16 bytes = `+0x8C`, exactly where RA's
-independently-confirmed Trainer ID begins — i.e. the trainer name field
-fits perfectly in the gap immediately before it, which is good corroborating
-evidence on top of Viv's own testing.
-
-**Playtime — still unverified.** `parser.py`'s `+0xAC` is the current
-working guess (per the same "trust parser.py for now" call above), but
-unlike trainer name it hasn't been independently hand-verified or cross-
-checked against RA (RA's notes don't cover it), and it collides with RA's
-confirmed "party capacity" field at the same offset — worth resolving before
-relying on it, e.g. by checking whether party capacity is even a real,
-separately-stored field in Platinum (it might always just equal 6) versus
-Viv's parser having mis-identified playtime's true offset.
-
-**Not yet extracted from RA notes:** battle-state detection (in-battle
-flag), opponent Pokemon data during battle, player facing/movement state.
-The raw RA export (`docs/memory-map/Pokemon Platinum Code Notes
-(RetroAchievements).md`) is large (~160 notes, 6.5MB raw scrape) and has
-plenty more in it than what's digested above — grep it for anything not yet
-in this table before assuming it's missing from RA entirely.
+1. Stages 1-2 proved DSi-to-PC UDP with standalone homebrew.
+2. A hand-rolled DS-mode Wi-Fi + WPA2 driver inside nds-bootstrap followed.
+   It compiled but was replaced before it ever worked on hardware.
+3. The approach was then turned around: the DSi-mode launcher connects with
+   the console's own saved settings and hands the live connection to the
+   game. Getting that to survive meant keeping the board in DSi mode,
+   keeping SD access out of the VBlank interrupt, and patching Platinum's
+   wireless search.
+4. Stage 5 added memory requests: the console only answers "give me these
+   bytes", and everything else happens on the PC.
+5. The PC side grew from a raw-read client into the parser, the status tool
+   and the Rich Presence, merged with the earlier melonDS-RPC-Suite, then
+   the tray app, the overlay window and RetroAchievements.
+6. Offline play: the launcher's sync, the console's own achievement
+   checker and unlock saving, the achievement LED and the in-game menu's
+   achievements.
+7. Pokémon Black and White, the macOS app, the 3DS, save backups through
+   the launcher, and the launcher's modern look and music.
 
 ## Progress log
+
+- 2026-10-30 (late night): **Updates for the desktop, and playtime offline.**
+  The README's banner has the new tagline and six feature chips beside the
+  DSi (redrawn twice: the first was too small to read on GitHub, the second
+  too bubbly; the tagline is now the plain font on a finer grid). The
+  `DSiRPC` folder lives in `roms/nds`, so the launcher leaves its own folder
+  out of the game list. The save sync says what it does: uploading,
+  backing up, downloading or restoring, instead of "taking" a save. The
+  Windows and Mac apps update themselves (`app/updates.py`): they look at
+  GitHub's latest release a minute after starting and every day, say so in
+  their menu, and on a yes download it, check its size and SHA-256, and put
+  it in place once DSiRPC quits (`app/update_apply.py` on Windows, keeping
+  the old files until everything's in; a script that swaps the app on a
+  Mac), then start it again. Playtime is now DSiRPC playtime: the game
+  keeps each start's playtime in a slot of `RPCUNLK.BIN` once a minute,
+  offline too (192 bytes in nds-bootstrap's ARM7 part), the launcher adds
+  it up as it starts, and the exchange sends the console's numbers too, so
+  both sides keep the higher of each.
+
+- 2026-10-30 (night): **The music freeze, found.** The watchdog build
+  crashed at boot on the 3DS, and this time the ARM7 left a crash screen: an
+  undefined instruction in maxmod's `mmLockChannels()`, with the address
+  where `mmFrame()` turns interrupts back on in r12. Viv pointed out the bug
+  was new since 0.9.1, and the new thing on the ARM7 was the music: 0.9.1
+  linked maxmod in but never started it. `mmFrame()`, maxmod's music tick,
+  lets other interrupts in once its timing-critical part is done, and libnds
+  runs the FIFO's callbacks with interrupts on too, the DSi's SD card reads
+  among them. So a read that came while the music was working (as the
+  launcher reads the changed saves at boot, the moment it locks maxmod's
+  channels) let the next tick start `mmFrame()` again inside the first one,
+  which maxmod isn't made for. The launcher's ARM7 core now runs the ticks
+  one at a time (maxmod's `irqSet()` gets a wrapper that keeps the timer's
+  interrupt off while `mmFrame()` runs, so a tick that comes meanwhile waits
+  in REG_IF), and gives the IRQ and SVC stacks 4 KB and 1 KB instead of
+  256 bytes each. The watchdog's per-interrupt counting went (every interrupt
+  paid for it); its record now has the stacks' high-water marks (painted at
+  boot) and how often a tick had to wait. Also: the Achievements step says
+  "2 down, 1 sent" (it was cut off), RetroAchievements sees DSiRPC's real
+  version, and `spikes/` is gone (git history keeps it). Then: playtimes
+  call a Mac "macOS", the renders workflow makes the menu music into MP3s
+  (and, run by hand, keeps everything as the run's artifact unless told to
+  publish), the note when DSiRPC isn't found says "Saves+achievements not
+  synced", the settings' Address says "Auto" while the launcher finds
+  DSiRPC itself, and the README's demo GIF moves like the video (it was a
+  still a scene, so its diamonds stood still).
+
+- 2026-10-30 (evening): **Still freezing, a watchdog, and a README to show
+  off.** The 3DS still froze after a minute or so with the guard in, the
+  note playing ringing on: the ARM7 stops. Rather than guess again, the
+  launcher keeps watch: its ARM7 core counts every interrupt handler into a
+  record the ARM9 checks at each VBlank (`arm7watch.h`, `watchdog.c`), and
+  if the ARM7's VBlanks or the music stop for 4 s, the bottom screen shows
+  which handlers were running, how deep, the stack and the timers, for a
+  photo. Tools for the release: `tools/render_launcher.py` draws every
+  screen as a PNG (`--png`) and a walk through them (`--demo`: `demo.mp4`
+  with the Bright song, `demo.gif`), `tools/m8s.py` prints a song, and
+  `.github/workflows/renders.yml` puts the README's pictures and the demo
+  on the `renders` branch for each release. The README got a banner drawn
+  from the launcher's own art (`tools/readme_art.py`: the top screen made
+  wide, its diamonds drifting and the Wi-Fi sign connecting), the tiles'
+  icons by its sections, and its pictures and demo from the `renders`
+  branch, so they're always the latest release's.
+
+- 2026-10-30 (later still): **The music freeze, and polish.** On a 3DS the
+  launcher froze a few minutes into its music, the music stopping with it.
+  The ARM7 was the likely culprit: DSWiFi's `Wifi_Update()` runs from the
+  VBlank handler and from its FIFO handler, which libnds calls with
+  interrupts on, so one update could start inside another, and maxmod's
+  music timer (which turns interrupts on too) made that much likelier.
+  BlocksDS fixed it after 1.24.0 (DSWiFi 59d2636), so the launcher builds
+  its own copy of the default ARM7 core (`launcher/arm7/`) with the same
+  guard linked in (`-Wl,--wrap=Wifi_Update`), and both CPUs show a crash's
+  details instead of freezing. Also: Subtle's lowest bass notes (F2) moved
+  up an octave (the speakers rattled); the Play tile is now Games, with a
+  game icon; the connecting screen's checklist ends with a Saves step that
+  asks DSiRPC, so the Saves tile counts the PC's newer saves too; the
+  console's name chip has its text a pixel lower (it smudged when the 3DS
+  scales the screen); the Settings tile says "PC, saves, music". DSiRPC's
+  tray got **Ambient music** (Off, Bright, Subtle): the overlay window plays
+  the launcher's own modules with pygame while it's open.
+
+- 2026-10-30 (later): **Menu music.** Two songs made on a Dirtywave M8
+  (`launcher/music/`): Bright, an airy Eb major loop that opens on a
+  falling maj9 chord with an echo, and Subtle, a quiet lounge loop. Viv
+  preferred their browser preview to the M8 itself, so the DS plays the
+  preview's voices: `tools/make_music.py` reads the songs (`tools/m8s.py`)
+  and writes XM modules with those waves, envelopes and echoes, and maxmod
+  plays them on the ARM7, where they keep time while the launcher works.
+  Music: Off, Bright (the default) or Subtle, under Sounds; the menu
+  sounds keep channels 12-15. Making the songs turned up how the M8 counts
+  notes: its notes are MIDI's, so its C-6 is middle C (the first sketch
+  was two octaves low).
+
+- 2026-10-30: **Never an older save over a newer one.** Viv's Platinum on
+  the 3DS: the Mac's live save was from the 21st, and the 3DS's saves from
+  the 24th and 26th were only there as copies kept before downloads
+  replaced them; the fix of the day before counted those copies as syncs
+  (DSiRPC "knew" the 26th), so the 3DS was handed the 21st again. A last
+  sync only counts now if its save was live on that DSiRPC (or it noted the
+  console had it), and a download over a save written after the live one,
+  by the consoles' clocks, is a conflict, on the PC and, whatever the plan
+  says, on the console. Later: the top screen's battery is only its icon
+  (the DSi reports a few steps, not a percent), and a card in the middle
+  of the bottom screen clears what's behind it (the save sync's conflict
+  card left the picked row's frame peeking out around it).
+
+- 2026-10-29 (evening): **The launcher's modern look, and a save sync fix
+  for two PCs.** The bottom screen used to be the text console; now it
+  draws in the desktop app's colors (`launcher/source/ui.c`): a checklist
+  while it connects, with a spinner on the step it's on and the update's
+  card under it, tiles for the main screen, and a game list with the games'
+  own banner icons, sorted by when they were last played, by name or with
+  the favorites first, with each game's achievements (X lists them, marking
+  the ones waiting for DSiRPC) and, on the top screen, its details and
+  playtime. The top screen got a status chip and the battery. Soft menu
+  sounds, the touch screen, and Look in the settings to go back to the
+  text screens, which are as they were. DSiRPC counts the playtimes
+  (`core/playtime.py`) and hands them over after the first sync. The save
+  sync fix: Viv's Black save, changed on the console on the 29th and synced
+  to the PC, then offered from the Mac as a download of the 24th, because
+  the console's base was from its sync with the PC; a base this DSiRPC
+  doesn't know now doesn't count, so that's a conflict.
+
+- 2026-10-29: **One Discord application, and a README for sharing.** Setup
+  asked for two Discord applications (Pokémon Platinum's and the other
+  games'); DSiRPC sends every game's name, which Discord shows after
+  "Playing", so one does for all of them now, and Platinum sends its name
+  too. Older settings files still load. The README became the project's
+  front page (what it does, the features, getting started, the launcher's
+  buttons), and its detailed sections moved to docs/USER_GUIDE.md.
 
 - 2026-10-22: **Saves that failed to sync.** Viv's log from the 3DS: the
   small saves always arrived, the 256 KB ones (Mario Kart, Animal Crossing)

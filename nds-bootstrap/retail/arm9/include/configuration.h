@@ -98,6 +98,7 @@ typedef struct configuration {
 	char* manualPath;
 	bool saveRelocation;
 	u16 cacheBlockSize;
+	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
 } configuration;
 
 #endif // CONFIGURATION_H

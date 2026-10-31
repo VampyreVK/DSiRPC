@@ -46,11 +46,12 @@ STEP 1: THE PC
 
 STEP 2: THE SD CARD
 ---------------------------------------------------------------------
-Copy the DSiRPC folder from the "SD card" folder here to the root of
-your console's SD card. You should end up with:
+Copy the entire DSiRPC folder from the "SD card" folder here to
+/roms/nds on your console's SD card, with your games. You should end up
+with:
 
-    sd:/DSiRPC/dsirpc-launcher.nds
-    sd:/DSiRPC/nds-bootstrap-dsirpc.nds
+    sd:/roms/nds/DSiRPC/dsirpc-launcher.nds
+    sd:/roms/nds/DSiRPC/nds-bootstrap-dsirpc.nds
 
 Keep those two files together, in the same folder. This is the only time
 they need copying: after that, the launcher updates them from DSiRPC
@@ -62,20 +63,18 @@ STEP 3: PLAYING
 1. Start DSiRPC on the PC (DSiRPC.bat), or turn on "Start with Windows"
    in its menu so it's always there.
 
-2. On the console, open DSiRPC/dsirpc-launcher.nds from TWiLight Menu++.
-   It connects to Wi-Fi (the DSi on the top screen turns its Wi-Fi sign
-   green) and shows the console's IP address. X exits and stays connected,
-   SELECT disconnects and exits.
+2. On the console, open the DSiRPC folder in roms/nds from TWiLight
+   Menu++ and start dsirpc-launcher.nds. It connects to Wi-Fi and finds
+   DSiRPC (the top screen says which PC it's on).
 
-3. Press START and pick your game (it opens in roms/nds): A opens a
-   folder or picks the game, B goes up, START picks the game you last
-   started from the launcher, SELECT goes back. The game starts, still
-   connected.
+3. Open Games and pick your game: A starts it, still connected, and B goes
+   back. Next time, START on the main screen starts the game you played
+   last.
 
 4. Within about 15 seconds, Discord shows what you're playing.
 
 Save backups: Y in the launcher backs up your games' saves to the PC and
-takes newer ones from it (from your other console, say; the launcher
+downloads newer ones from it (from your other console, say; the launcher
 says whose). The PC keeps the live save your consoles share and each
 console's last 10 backups in its saves folder (tray menu > Open save
 backups). L+R opens the launcher's settings: how it finds DSiRPC, and
@@ -126,9 +125,12 @@ IF SOMETHING DOESN'T WORK
 
 UPDATING AND REMOVING
 ---------------------------------------------------------------------
-To update, unzip the new release over this folder (replace the files
-when asked). Your settings (dsirpc.cfg), achievement sets (ra) and save
-backups (saves) stay.
+DSiRPC updates itself: when there's a new release, it says so, and its
+menu says "Update to v...". Pick it and say yes: DSiRPC downloads it and
+restarts with it. ("Check for updates..." in the menu looks right away.)
+Your settings (dsirpc.cfg), achievement sets (ra), logs and save backups
+(saves) stay. By hand: unzip the new release over this folder (replace
+the files when asked).
 
 The next time the launcher finds DSiRPC, it offers the new SD card files
 (A updates, B not now): it downloads and checks them over Wi-Fi, swaps

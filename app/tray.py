@@ -11,9 +11,11 @@ Right-click the icon for the menu:
     Discord presence                   on/off
     Console icon  >                    the small picture for games without their own presence
     Overlay window                     on/off (a left click on the icon does this too)
+    Ambient music  >                   Off, Bright or Subtle: the launcher's menu music while it's open
     Console updates                    on/off: the launcher may update its files from here
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
+    Check for updates...               looks for a new release ("Update to v1.1.0..." once there's one)
     Setup...                           'dsirpc.py setup' in a console window (Terminal on a Mac)
     Open log / Open DSiRPC folder      (on a Mac, the folder with your settings)
     Open save backups                  the launcher's save sync folder
@@ -23,6 +25,10 @@ Right-click the icon for the menu:
 The dot on the icon is green while the game answers, amber while DSiRPC
 waits for the DSi, and red when Discord can't be reached or has no
 application ID. The on/off choices are saved in dsirpc.cfg.
+
+DSiRPC updates itself from its GitHub releases (app/updates.py): a minute
+after it starts and then once a day it looks for a new one, and says so;
+"Update to ..." downloads it, and DSiRPC restarts with it.
 
 Only one DSiRPC can run at a time (it needs the DSi's UDP port, 4244); a
 second one says so and exits.
@@ -39,10 +45,13 @@ import os
 import subprocess
 import sys
 import threading
+import webbrowser
 
 from core.paths import DATA
+from utils.config import MUSIC_CHOICES
 from . import startup
 from .engine import Engine, PortInUse, LOG_FILE, ROOT
+from .updates import Updater
 
 MAC = sys.platform == "darwin"
 
@@ -67,6 +76,22 @@ def message_box(text, title="DSiRPC"):
                         f"{_applescript_text(title)} buttons {{\"OK\"}} default button 1"], check=False)
     else:
         print(f"{title}: {text}")
+
+
+def ask_box(text, title="DSiRPC"):
+    """A question answered Yes or No (a Windows message box, a dialog on a
+    Mac); True for Yes. Elsewhere it's printed and the answer is No."""
+    if sys.platform == "win32":
+        import ctypes
+        # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST; IDYES
+        return ctypes.windll.user32.MessageBoxW(None, text, title, 0x4 | 0x20 | 0x10000 | 0x40000) == 6
+    if MAC:
+        r = subprocess.run(["osascript", "-e", f"display dialog {_applescript_text(text)} with title "
+                            f"{_applescript_text(title)} buttons {{\"No\", \"Yes\"}} default button \"Yes\""],
+                           capture_output=True, text=True, check=False)
+        return "button returned:Yes" in r.stdout
+    print(f"{title}: {text} (no)")
+    return False
 
 
 def make_icon(status):
@@ -232,8 +257,8 @@ def run_tray(cfg, **engine_args):
                         body += "\n(not sent to RetroAchievements)"
                     notify(body[:255], "Achievement unlocked!")
                 elif e['type'] == 'saves_synced':
-                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "synced up"), ('backed_up', "backed up"),
-                                                             ('downloaded', "taken from the PC"),
+                    parts = [f"{e[k]} {what}" for k, what in (('uploaded', "uploaded"), ('backed_up', "backed up"),
+                                                             ('downloaded', "downloaded"),
                                                              ('failed', "failed")) if e[k]]
                     notify(", ".join(parts) or "Everything was in sync", f"DSiRPC: saves from the {e['console']}")
                 elif e['type'] == 'offline_unlocks':
@@ -279,6 +304,15 @@ def run_tray(cfg, **engine_args):
         items.append(console_item("", "None (RetroAchievements icon)"))
         return Menu(*items)
 
+    def music_item(key):
+        def pick(icon_, item):
+            engine.set_music(key)
+            engine.save_config()
+
+        def checked(item):
+            return engine.cfg.ambient_music == key
+        return Item(key.capitalize(), pick, checked=checked, radio=True)
+
     def toggle_startup(icon_, item):
         try:
             startup.set_enabled(not startup.is_enabled())
@@ -288,6 +322,9 @@ def run_tray(cfg, **engine_args):
     def quit_(icon_, item):
         icon.stop()
 
+    updater = Updater(cfg, notify, ask_box, message_box, webbrowser.open, lambda: on_main(icon.stop),
+                      lambda: on_main(icon.update_menu))
+
     menu = Menu(
         Item(lambda i: engine.headline(), None, enabled=False),
         Item(lambda i: f"Discord: {engine.discord.status}", None, enabled=False),
@@ -296,10 +333,12 @@ def run_tray(cfg, **engine_args):
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
+        Item("Ambient music", Menu(*(music_item(key) for key in MUSIC_CHOICES))),
         Item("Console updates", toggle_console_updates, checked=lambda i: engine.cfg.console_updates),
         Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),
         Menu.SEPARATOR,
+        Item(lambda i: updater.label(), lambda i, it: updater.clicked(), enabled=lambda i: updater.state == "idle"),
         Item("Setup...", lambda i, it: open_setup()),
         Item("Open log", lambda i, it: _open(LOG_FILE)),
         Item("Open DSiRPC folder", lambda i, it: _open(DATA)),
@@ -324,6 +363,7 @@ def run_tray(cfg, **engine_args):
                 open_setup()   # the first time: there's no dsirpc.cfg yet
             if cfg.overlay:
                 engine.set_overlay(True, on_closed=overlay_closed)
+            updater.start()
             on_main(refresh)
         except Exception:
             logging.exception("Tray setup failed")
@@ -332,6 +372,7 @@ def run_tray(cfg, **engine_args):
     try:
         icon.run(setup=setup)
     finally:
+        updater.stop()
         engine.stop()
         logging.info("DSiRPC stopped")
     return 0

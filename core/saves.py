@@ -571,13 +571,19 @@ class SaveStore:
                 s = self._slot(key, e["slot"])
                 live = s["live"] if s else None
                 had = (s["consoles"].get(console) if s and console else None) or {}
-                base = e["base"] or had.get("crc", 0)
+                # What the console had at its last sync only counts if that
+                # sync was with this DSiRPC: a save it never had live came
+                # from another one (synced with the PC, then with the Mac, the
+                # console would otherwise take the Mac's older save as the
+                # newer one). Then what this DSiRPC remembers it had decides.
+                known = self._synced(s, e["base"], console, backup_only)
+                base = (e["base"] if known else 0) or had.get("crc", 0)
                 action = self._decide(key, e, live, base, backup_only, console)
                 if s and e["present"]:
                     # What the console has, as far as anyone can tell
                     if live and e["crc"] == live["crc"]:
                         changed |= self._note_console(s, console, live["crc"], live["source"])
-                    elif e["base"]:
+                    elif known:
                         whose = self._whose(s, e["base"])
                         changed |= self._note_console(s, console, e["base"], whose["source"] if whose else None)
                 if action is None:
@@ -596,6 +602,31 @@ class SaveStore:
             if changed:
                 self._save()
         return items
+
+    @staticmethod
+    def _synced(s, crc, console, backup_only=False):
+        """Whether a save with this CRC was synced through this DSiRPC: the
+        live save, one that was live before, or what it noted `console` had
+        (for a back-up-only console, its backups too). A copy kept of a
+        console's save about to be replaced, or a back-up-only console's
+        backup to a console that syncs, doesn't count: neither was ever the
+        live save the consoles share."""
+        if not s or not crc:
+            return False
+        if s["live"] and s["live"]["crc"] == crc:
+            return True
+        if (s["consoles"].get(console) or {}).get("crc") == crc:
+            return True
+        skip = ("replaced",) if backup_only else ("replaced", "backup")
+        return any(b["crc"] == crc and b.get("reason") not in skip for b in s["backups"])
+
+    def _newer_than_live(self, key, slot, crc, live):
+        """Whether a copy of the save with this CRC here (any of them, the
+        copies kept before a replace too) was written after the live save,
+        by the times the consoles gave them."""
+        s = self._slot(key, slot)
+        times = [b["time"] for b in s["backups"] if b["crc"] == crc] if s else []
+        return bool(times) and max(times) > live["time"]
 
     def _decide(self, key, e, live, base, backup_only, console):
         if e["excluded"]:
@@ -616,5 +647,11 @@ class SaveStore:
         if base and base == pc:
             return UPLOAD                       # nothing newer from the others since: only this one changed
         if base and base == mine:
-            return DOWNLOAD                     # unchanged here since; newer from another console
+            # Unchanged here since; newer from another console. But never a
+            # download over a save written after the live one (a restore of
+            # an older version, or a console's save kept just before it was
+            # to be replaced): that's for the player to settle
+            if self._newer_than_live(key, e["slot"], mine, live):
+                return CONFLICT
+            return DOWNLOAD
         return CONFLICT

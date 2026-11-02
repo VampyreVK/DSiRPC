@@ -7,6 +7,9 @@
 #   - the launcher's menu music: the M8 songs and the XM modules made from
 #     them (launcher/music, launcher/audio, tools/make_music.py), and the
 #     overlay window playing them (overlay/music.py)
+#   - the overlay's README pictures (tools/render_overlay.py): one scene
+#     drawn as the Renders workflow draws them, with the art the checkout
+#     has (the Pokemon sprites aren't in it)
 #   - the README's banner and icons (docs/images), drawn from the launcher's
 #     pixel art by tools/readme_art.py
 #   - the PC side: the offline formats, the launcher sync, the protocol
@@ -26,7 +29,7 @@ on:
       - "app/updates.py"
       - "app/update_apply.py"
       - "utils/config.py"
-      - "overlay/music.py"
+      - "overlay/**"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -44,7 +47,7 @@ on:
       - "app/updates.py"
       - "app/update_apply.py"
       - "utils/config.py"
-      - "overlay/music.py"
+      - "overlay/**"
       - "tools/**"
       - "tests/**"
       - "third_party/**"
@@ -84,6 +87,9 @@ jobs:
             overlay
             tools
             tests
+            Assets/PokemonBlackUI
+            Assets/Unova-Trainer-Overworld
+            Assets/Sinnoh-Trainer-Overworld
             third_party/rcheevos
             nds-bootstrap/retail/common/include
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe

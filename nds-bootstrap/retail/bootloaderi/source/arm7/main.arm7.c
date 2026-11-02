@@ -128,6 +128,7 @@ extern u32 patchOffsetCacheFileCluster;
 extern u32 ramDumpCluster;
 extern u32 srParamsFileCluster;
 extern u32 screenshotCluster;
+extern u32 rpcClusters[3]; // DSiRPC
 extern u32 apFixOverlaysCluster;
 extern u32 pageFileCluster;
 extern u32 manualCluster;
@@ -2452,6 +2453,7 @@ int arm7_main(void) {
 			usesCloneboot,
 			getRomPartLocation(ndsHeader, !laterSdk, isSdk5(moduleParams), scfgBios9i())
 		);
+		tonccpy(((cardengineArm7*)ce7Location)->rpcClusters, rpcClusters, sizeof(rpcClusters)); // DSiRPC: for rpcprobe
 		if (errorCode == ERR_NONE) {
 			// dbg_printf("Card hook 7 successful\n\n");
 		} else {

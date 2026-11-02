@@ -259,6 +259,10 @@ bannerSavPath:
 	.space	64
 version:
 	.space	20
+	.balign	4
+	.global rpcClusters
+rpcClusters: @ DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
+	.word	0, 0, 0
 .align 4
 
 startUp:

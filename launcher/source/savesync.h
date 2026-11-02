@@ -129,6 +129,11 @@ int saves_quick_check(const char *games_dir, const char *index_dir);
 // Writes saves.idx: every save's state at its last sync, and the exclusions.
 bool saves_write_index(const SaveList *list);
 
+// Whether a planned item still has something to do (what the Saves screen
+// and the main screen's count go by): a save to back up, a conflict, or a
+// newer save on the PC unless backup_only.
+bool saves_needs_sync(const SaveItem *item, bool backup_only);
+
 // Sends the list to DSiRPC (found first; *server is filled in) and takes its
 // plan: each item's action and the PC's side. Items for saves DSiRPC has but
 // this console doesn't (for its games) are added, and the saves it says are

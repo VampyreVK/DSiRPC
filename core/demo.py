@@ -1,15 +1,14 @@
 """
 demo.py - DemoSource: a made-up game state that plays through a loop of
 scenes, so the overlay can be styled without the DSi or a save file:
-overworld, a wild battle by day, a shiny in the evening rain, the rival at
-night (who switches Pokemon), a snowy route, a legendary in a cave, a level
-up, Pokemon Black (its own main view, with an achievement unlocking, a
-battle in the rain in Pinwheel Forest ending in a catch, Burgh at the
-Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four
-room, each in another season),
-another game (the game card every game
-without its own parser gets, with an achievement unlocking), and the DSi
-going offline.
+Pokemon Black (its own main view, with an achievement unlocking, a battle
+in the rain in Pinwheel Forest ending in a catch, Burgh at the Castelia
+Gym, and the Battle Subway, Battle Institute and an Elite Four room, each
+in another season), another game (the game card every game without its own
+parser gets, with an achievement unlocking), Pokemon Platinum (overworld, a
+wild battle by day, a shiny in the evening rain, the rival at night (who
+switches Pokemon), a snowy route, a legendary in a cave, a level up), and
+the DSi going offline.
 
 All of the data here is invented. It follows the same dict layout as
 core/parser.py (and core/bw_parser.py for Black), so anything that works
@@ -164,10 +163,11 @@ BW_UNLOCK_AT = 6.0
 # (name, seconds) in playing order. The short overworld stretches between
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
+    ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
+    ('other', 16),
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
-    ('levelup', 8), ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
-    ('other', 16),
+    ('levelup', 8),
     ('offline', 6),
 ]
 

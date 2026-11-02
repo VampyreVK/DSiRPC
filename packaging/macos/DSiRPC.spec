@@ -9,9 +9,10 @@
 #
 # The app is a menu bar app (LSUIElement: no Dock icon), with the icon set in
 # Assets/icons (adaptive.icns, light and dark). What it ships: DSiRPC's code,
-# the console pictures, the charmap, the rcheevos library, defaults.cfg and
-# the console's two .nds files (in "SD card/DSiRPC", for the launcher's
-# updates: core/console_update.py); everything it writes goes to
+# the console pictures, the launcher's menu songs (the overlay's ambient
+# music), the charmap, the rcheevos library, defaults.cfg and the console's
+# two .nds files (in "SD card/DSiRPC", for the launcher's updates:
+# core/console_update.py); everything it writes goes to
 # ~/Library/Application Support/DSiRPC (core/paths.py).
 
 import os
@@ -47,6 +48,8 @@ datas = [
     # The overlay window's Dock icon (overlay/app.py)
     (os.path.join(ROOT, "Assets", "icons", "Exports", "DSiRPC-iOS-Default-1024@1x.png"),
      os.path.join("Assets", "icons", "Exports")),
+    # The launcher's menu songs, the overlay window's ambient music (overlay/music.py)
+    (os.path.join(ROOT, "launcher", "audio"), os.path.join("launcher", "audio")),
 ]
 if DEFAULTS:
     datas.append((DEFAULTS, "."))

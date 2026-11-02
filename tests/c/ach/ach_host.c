@@ -6,7 +6,8 @@
 //   unlockfile <path>     RPCUNLK.BIN's contents for the next `set` (else an
 //                         empty file)
 //   set <path> [code]     load RPCSET.BIN from a file, as a game whose header
-//                         says `code` (default: the set's own)
+//                         says `code` (default: the set's own); path "-": no
+//                         RPCSET.BIN (a game without a set)
 //   w <addr> <hexbytes>   write the game's memory (RetroAchievements address)
 //   frame <idle> <visits> [romwait] [fresh] [nullwait]
 //                         a VBlank: the frame lane samples, then the tick (the
@@ -43,10 +44,12 @@ u16 hostVcount(void) { if (++vreads % perLine == 0) vline = (vline + 1) % 263; r
 // The console's clock: 2026-10-09 12:00:00
 int hostRtc(u8 *t) { t[0] = 26; t[1] = 10; t[2] = 9; t[3] = 5; t[4] = 12; t[5] = 0; t[6] = 0; return 1; }
 
-void getBootFileCluster(aFile *f, const char *name, int x) {
+// nds-bootstrap's loader finds the files (RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN)
+u32 rpcClusters[3] = { 1, 2, 3 };
+void getFileFromCluster(aFile *f, u32 cluster, int x) {
 	(void)x;
-	if (!strcmp(name, "RPCSET.BIN")) { f->firstCluster = setLen ? 1 : 0; f->which = 0; }
-	else { f->firstCluster = haveUnlockFile ? 1 : 0; f->which = 1; }
+	if (cluster == 2) { f->firstCluster = setLen ? 1 : 0; f->which = 0; }
+	else { f->firstCluster = cluster == 3 && haveUnlockFile ? 1 : 0; f->which = 1; }
 }
 uint32_t fileRead(char *buf, aFile *f, uint32_t at, uint32_t len) {
 	uint8_t *src = f->which ? unlockFile : setFile;
@@ -88,7 +91,9 @@ int main(void) {
 			unlockFileGiven = 1;
 		} else if (!strcmp(cmd, "set")) {
 			char path[512], code[8] = "";
-			if (sscanf(line + 4, "%511s %7s", path, code) < 1 || !readFile(path, setFile, sizeof setFile, &setLen)) return 4;
+			if (sscanf(line + 4, "%511s %7s", path, code) < 1) return 4;
+			if (!strcmp(path, "-")) setLen = 0;
+			else if (!readFile(path, setFile, sizeof setFile, &setLen)) return 4;
 			if (!unlockFileGiven) {
 				memset(unlockFile, 0, sizeof unlockFile);
 				memcpy(unlockFile, "DRUL\x01\x00\x10\x00\x00\x01", 10);

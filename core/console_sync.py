@@ -24,7 +24,9 @@ The launcher's save sync uses the same port: a connection that starts with
 "DRSV" instead of "DRSQ" goes to core/save_session.py, with the SaveStore
 saves() returns (None: save backups are off) and on_saves(event). So does
 its update check: "DRUP" goes to core/console_update.py, with the
-ConsoleFiles updates() returns (None: console updates are off).
+ConsoleFiles updates() returns (None: console updates are off). And its
+playtimes: "DRGS" goes to core/playtime.py, with the (Playtime, info) that
+stats() returns.
 """
 
 import logging
@@ -34,7 +36,7 @@ import struct
 import threading
 import time
 
-from . import console_update, offline, save_session
+from . import console_update, offline, playtime, save_session
 
 ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
@@ -42,7 +44,7 @@ HANGUP_TIMEOUT = 5.0
 
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
-                 saves=None, on_saves=None, on_here=None, updates=None):
+                 saves=None, on_saves=None, on_here=None, updates=None, stats=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
@@ -50,6 +52,7 @@ class ConsoleSync:
         self.saves = saves
         self.on_saves = on_saves
         self.updates = updates
+        self.stats = stats
         self.port = port
         self.host = host
         self.udp = None
@@ -59,17 +62,24 @@ class ConsoleSync:
         self.last = None          # what the last exchange did, for the log and tests
 
     def start(self):
-        """Opens the ports (OSError if one is taken) and starts listening."""
-        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            udp.bind((self.host, self.port))
-            tcp.bind((self.host, udp.getsockname()[1]))  # the same number (port 0: tests)
-            tcp.listen(2)
-        except OSError:
-            udp.close()
-            tcp.close()
-            raise
+        """Opens the ports (OSError if one is taken) and starts listening.
+        Port 0 (the tests) takes any number free for both: the one the
+        system picks for UDP can be taken for TCP (by a connection that just
+        closed, say), so then it tries another."""
+        tries = 20 if self.port == 0 else 1
+        for left in reversed(range(tries)):
+            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                udp.bind((self.host, self.port))
+                tcp.bind((self.host, udp.getsockname()[1]))  # the same number
+                tcp.listen(2)
+                break
+            except OSError:
+                udp.close()
+                tcp.close()
+                if not left:
+                    raise
         self.udp, self.tcp = udp, tcp
         self.port = tcp.getsockname()[1]
         self._thread = threading.Thread(target=self._run, name="ConsoleSync", daemon=True)
@@ -143,6 +153,11 @@ class ConsoleSync:
         if magic == console_update.MAGIC:
             files = self.updates() if self.updates else None
             console_update.handle(magic, read, conn.sendall, files)
+            self._await_hangup(conn)
+            return
+        if magic == playtime.MAGIC:
+            times, info = self.stats() if self.stats else (None, None)
+            playtime.handle(magic, read, conn.sendall, times, info)
             self._await_hangup(conn)
             return
         try:

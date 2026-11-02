@@ -548,11 +548,12 @@ bool update_install(UpdatePlan *plan, char *msg, size_t msgsz)
 #include <dswifi9.h>
 
 #include "topscreen.h"
+#include "ui.h"
 
 static bool b_pressed(void)
 {
     scanKeys();
-    return (keysDown() & KEY_B) != 0;
+    return ((keysDown() | ui_footer_key()) & KEY_B) != 0;
 }
 
 static void release_keys(void)
@@ -570,10 +571,44 @@ static u32 wait_keys(u32 keys)
     {
         sync_frame();
         scanKeys();
-        u32 down = keysDown() & keys;
+        u32 down = (keysDown() | ui_footer_key()) & keys;
         if (down)
             return down;
     }
+}
+
+// The modern look's card, under the connecting screen's steps: a title, a
+// line, and more lines (dimmer, split at '\n')
+static void card(const char *title, uint8_t accent, const char *line, const char *more, const UiKey *keys, int n)
+{
+    Canvas *c = ui_screen();
+    ui_fill(c, 0, 96, UI_W, UI_FOOT_Y - 96, UI_BG);
+    ui_panel(8, 98, UI_W - 16, 70, accent);
+    ui_text(c, 16, 106, title, accent);
+    if (line != NULL)
+        ui_text_fit(c, 16, 120, line, UI_W - 32, UI_SOFT);
+    if (more != NULL)
+        ui_text_wrap(c, 16, 132, more, UI_W - 32, 3, UI_DIM);
+    ui_footer(keys, n);
+    ui_present();
+}
+
+// "The launcher and nds-bootstrap"
+static void needed_names(const UpdatePlan *plan, char *out, size_t outsz)
+{
+    out[0] = '\0';
+    int done = 0;
+    for (int i = 0; i < plan->count; i++)
+    {
+        if (!plan->files[i].needed)
+            continue;
+        size_t n = strlen(out);
+        const char *name = update_file_name(plan->files[i].id);
+        snprintf(out + n, outsz - n, "%s%s", done ? " and " : "", name);
+        done++;
+    }
+    if (out[0] >= 'a' && out[0] <= 'z')
+        out[0] = (char)(out[0] - 'a' + 'A');
 }
 
 static void title(const char *text)
@@ -589,6 +624,19 @@ static void progress(const char *what, uint32_t done, uint32_t total)
     if (pct == last_pct && done != 0)
         return;
     last_pct = pct;
+    if (ui_on())
+    {
+        Canvas *c = ui_screen();
+        char line[48], num[8];
+        ui_fill(c, 12, 118, UI_W - 24, 30, UI_PANEL);
+        snprintf(line, sizeof(line), "Downloading %s", what);
+        snprintf(num, sizeof(num), "%d%%", pct);
+        ui_text_fit(c, 16, 120, line, UI_W - 32 - 30, UI_SOFT);
+        ui_text_right(c, UI_W - 16, 120, num, UI_TEXT);
+        ui_bar(c, 16, 134, UI_W - 32, 10, pct, UI_CYAN);
+        ui_present();
+        return;
+    }
     char bar[25];
     int fill = pct * 24 / 100;
     for (int i = 0; i < 24; i++)
@@ -630,26 +678,62 @@ UpdateOutcome update_offer(const UpdateUi *ui)
                      ui->index_dir, &plan, msg, sizeof(msg)) != 1)
         return UPDATE_NONE;
 
-    title("Update available");
-    printf("DSiRPC on the PC has other\nversions of:\n\n");
-    list_files(&plan, true);
-    if (plan.label[0] != '\0')
-        printf("\nFrom DSiRPC %.18s.\n", plan.label);
-    printf("\nEach file is downloaded and\nchecked before it replaces the\nold one. Keep the console on\n"
-           "until it's done.\n");
-    printf("\x1b[23;0HA: update   B: not now");
+    if (ui_on())
+    {
+        static const UiKey keys[] = { { "A", "Update", KEY_A }, { "B", "Later", KEY_B } };
+        char names[64], more[160];
+        needed_names(&plan, names, sizeof(names));
+        snprintf(more, sizeof(more), "%s%s%sEach file is checked before it replaces the old one.",
+                 plan.label[0] != '\0' ? "From DSiRPC " : "", plan.label, plan.label[0] != '\0' ? ". " : "");
+        ui_sound(SND_TOGGLE);
+        card("Update available", UI_CYAN, names, more, keys, 2);
+    }
+    else
+    {
+        title("Update available");
+        printf("DSiRPC on the PC has other\nversions of:\n\n");
+        list_files(&plan, true);
+        if (plan.label[0] != '\0')
+            printf("\nFrom DSiRPC %.18s.\n", plan.label);
+        printf("\nEach file is downloaded and\nchecked before it replaces the\nold one. Keep the console on\n"
+               "until it's done.\n");
+        printf("\x1b[23;0HA: update   B: not now");
+    }
     release_keys();
     if (wait_keys(KEY_A | KEY_B) & KEY_B)
+    {
+        ui_sound(SND_BACK);
         return UPDATE_SHOWN;
+    }
+    ui_sound(SND_SELECT);
 
-    title("Updating");
-    printf("\x1b[6;0HB: cancel\n");
+    if (ui_on())
+    {
+        static const UiKey keys[] = { { "B", "Cancel", KEY_B } };
+        card("Updating", UI_CYAN, NULL, NULL, keys, 1);
+    }
+    else
+    {
+        title("Updating");
+        printf("\x1b[6;0HB: cancel\n");
+    }
     int r = update_download(&job, ui->mac, ui->console_model, &server, &plan, progress, msg, sizeof(msg));
     if (r <= 0)
     {
-        title("The update didn't finish");
-        printf("%s\n\nNothing on the SD card changed.\n", r == 0 ? "Cancelled." : msg);
-        printf("\x1b[23;0HA: go back");
+        if (ui_on())
+        {
+            static const UiKey keys[] = { { "A", "Back", KEY_A } };
+            char more[200];
+            snprintf(more, sizeof(more), "%s\nNothing on the SD card changed.", r == 0 ? "Cancelled." : msg);
+            ui_sound(SND_ERROR);
+            card("The update didn't finish", UI_RED, NULL, more, keys, 1);
+        }
+        else
+        {
+            title("The update didn't finish");
+            printf("%s\n\nNothing on the SD card changed.\n", r == 0 ? "Cancelled." : msg);
+            printf("\x1b[23;0HA: go back");
+        }
         release_keys();
         wait_keys(KEY_A | KEY_B);
         return UPDATE_SHOWN;
@@ -657,8 +741,15 @@ UpdateOutcome update_offer(const UpdateUi *ui)
 
     // Everything's here and checked: the Wi-Fi goes off (DSiRPC is told the
     // launcher's leaving), and with no file open, the files are swapped in
-    title("Updating");
-    printf("Swapping the files in...\n");
+    if (ui_on())
+    {
+        card("Updating", UI_CYAN, "Swapping the files in...", NULL, NULL, 0);
+    }
+    else
+    {
+        title("Updating");
+        printf("Swapping the files in...\n");
+    }
     sync_bye();
     Wifi_DisconnectAP();
     Wifi_DisableWifi();
@@ -666,7 +757,20 @@ UpdateOutcome update_offer(const UpdateUi *ui)
     for (int i = 0; i < 30; i++)
         cothread_yield_irq(IRQ_VBLANK);
 
-    if (update_install(&plan, msg, sizeof(msg)))
+    bool installed = update_install(&plan, msg, sizeof(msg));
+    if (ui_on())
+    {
+        static const UiKey keys[] = { { "START", "Exit", KEY_START } };
+        char names[64];
+        needed_names(&plan, names, sizeof(names));
+        ui_sound(installed ? SND_DONE : SND_ERROR);
+        if (installed)
+            card("Update complete", UI_GREEN, names,
+                 "The Wi-Fi is off now. Press START to exit, then open the launcher again.", keys, 1);
+        else
+            card("The update didn't finish", UI_RED, NULL, msg, keys, 1);
+    }
+    else if (installed)
     {
         title("Update complete");
         printf("Updated from DSiRPC%s%.30s:\n", plan.label[0] != '\0' ? "\n" : "", plan.label);
@@ -678,7 +782,8 @@ UpdateOutcome update_offer(const UpdateUi *ui)
         title("The update didn't finish");
         printf("%s\n", msg);
     }
-    printf("\x1b[23;0HSTART: exit");
+    if (!ui_on())
+        printf("\x1b[23;0HSTART: exit");
     release_keys();
     wait_keys(KEY_START);
     return UPDATE_EXIT;

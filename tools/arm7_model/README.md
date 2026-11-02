@@ -73,7 +73,7 @@ python tools/arm7_model/arm7_model.py --set CPUE.DRS
 | Option | Meaning |
 |---|---|
 | `CODE` | A game with a set in `ra/` (DSiRPC downloads it the first time the game runs) |
-| `--set FILE` | A set file instead (`sd:/DSiRPC/sets/CODE.DRS` from the SD card) |
+| `--set FILE` | A set file instead (`sd:/roms/nds/DSiRPC/sets/CODE.DRS` from the SD card) |
 | `--ram FILE` | A 4 MB RAM dump of that game. Without one, memory is all zeros, so pointer chains all lead to address 0. Platinum's costs about 10% more with its dump |
 | `--profile functions` / `lines` | Where the instructions go in a pass: by function (with how often each is entered), or by source line (with the line) |
 | `--compare FOLDER...` | Also run the checker in these folders and show the difference |

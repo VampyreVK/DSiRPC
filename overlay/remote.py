@@ -7,8 +7,8 @@ RemoteOverlay stands in for OverlayWindow in the tray's process (same run()
 and stop()): it starts the window's process and sends it the hub's snapshot
 and events through a pipe each time they change. The window's process draws
 them with the usual OverlayWindow, from _PipeHub, which gives it what it
-needs of a StateHub. The window sends back its new size (the 1-6 keys) and
-whether it was closed.
+needs of a StateHub, and the ambient music the tray picks. The window sends
+back its new size (the 1-6 keys) and whether it was closed.
 """
 
 import logging
@@ -56,13 +56,16 @@ class _PipeHub:
                     listeners = list(self._listeners)
                 for fn in listeners:
                     fn(self._snap, events)
+            elif msg[0] == 'music':
+                if self.window:
+                    self.window.set_music(msg[1])
             elif msg[0] == 'stop':
                 break
         if self.window:
             self.window.stop()
 
 
-def _window_process(conn, scale, chroma, log_file):
+def _window_process(conn, scale, chroma, log_file, music="off"):
     """The window's process: draws until the window is closed or the tray
     says stop."""
     logging.basicConfig(filename=log_file, level=logging.INFO,
@@ -76,10 +79,10 @@ def _window_process(conn, scale, chroma, log_file):
         except (OSError, ValueError):
             pass
     try:
-        window = OverlayWindow(hub, scale=scale, chroma=chroma, on_scale=on_scale)
+        window = OverlayWindow(hub, scale=scale, chroma=chroma, on_scale=on_scale, music=music)
     except ValueError as e:
         logging.warning(f"chroma: {e}; ignoring it")
-        window = OverlayWindow(hub, scale=scale, on_scale=on_scale)
+        window = OverlayWindow(hub, scale=scale, on_scale=on_scale, music=music)
     hub.window = window
     threading.Thread(target=hub.pump, name="Pipe", daemon=True).start()
     closed = window.run()
@@ -92,12 +95,13 @@ def _window_process(conn, scale, chroma, log_file):
 class RemoteOverlay:
     """OverlayWindow's run() and stop(), with the window in its own process."""
 
-    def __init__(self, hub, scale=3, chroma=None, on_scale=None, log_file=None):
+    def __init__(self, hub, scale=3, chroma=None, on_scale=None, log_file=None, music="off"):
         self.hub = hub
         self.scale = scale
         self.chroma = chroma
         self.on_scale = on_scale
         self.log_file = log_file
+        self.music = music
         self._stop = threading.Event()
         self._send_lock = threading.Lock()
         self._conn = None
@@ -123,18 +127,24 @@ class RemoteOverlay:
         """Closes the window from another thread (run() returns soon after)."""
         self._stop.set()
 
+    def set_music(self, name):
+        """Another song, or off (as OverlayWindow's)."""
+        self.music = name
+        self._send(('music', name))
+
     def run(self):
         """Starts the window's process and feeds it until the window closes
         (or stop() is called). Returns True if the user closed it."""
         ctx = multiprocessing.get_context('spawn')
         here, there = ctx.Pipe()
         proc = ctx.Process(target=_window_process, name="DSiRPC overlay",
-                           args=(there, self.scale, self.chroma, self.log_file), daemon=True)
+                           args=(there, self.scale, self.chroma, self.log_file, self.music), daemon=True)
         proc.start()
         there.close()
         self._conn = here
         self.hub.add_listener(self._forward)
         self._send(('snap', self.hub.snapshot(), []))
+        self._send(('music', self.music))   # in case it changed while the process started
         closed = False
         try:
             while proc.is_alive():

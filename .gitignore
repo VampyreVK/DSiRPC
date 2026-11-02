@@ -10,6 +10,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+# tools/render_launcher.py's pictures, PNGs and demo
+/renders/
 develop-eggs/
 dist/
 downloads/

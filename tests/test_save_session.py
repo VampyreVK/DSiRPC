@@ -7,6 +7,7 @@ and save backups turned off."""
 import os
 import socket
 import struct
+import time
 
 import pytest
 
@@ -99,22 +100,29 @@ def server(tmp_path):
 def test_plan_upload_download(server):
     port, store, events = server()
     v1, v2 = b"\x01" * 512, b"\x02" * 512
+    yesterday, before = (saves.to_console_time(time.time() - days * 86400) for days in (1, 2))
     magic, status, items = plan(port, [entry(v1)])
     assert (magic, status) == (b"DRSP", ss.OK)
     assert [(i["slot"], i["action"]) for i in items] == [(0, saves.UPLOAD)]
-    assert put(port, v1, saves.PUT_SYNC) == (b"DRSK", ss.OK)
+    assert put(port, v1, saves.PUT_SYNC, when=yesterday) == (b"DRSK", ss.OK)
     assert store.latest("IRBO-1A2B", 0)["source"] == "DSi 3F21"
-    # The 3DS hasn't played since its last sync: it's offered the DSi's newer save, keeps its own in
-    # history first, then takes it
+    # The 3DS hasn't played since its last sync (with this PC: its save is here as a backup): it's
+    # offered the DSi's newer save, keeps its own in history first, then takes it
+    assert put(port, v2, saves.PUT_BACKUP, model=2, when=before) == (b"DRSK", ss.OK)
     _, _, items = plan(port, [entry(v2, base=crc32(v2))], model=2)
     assert items[0]["action"] == saves.DOWNLOAD and items[0]["crc"] == crc32(v1) and items[0]["source"] == "DSi 3F21"
-    _, _, items = plan(port, [entry(v2, base=crc32(b"an older save"))], model=2)
+    _, _, items = plan(port, [entry(b"\x03" * 512, base=crc32(v2))], model=2)
     assert items[0]["action"] == saves.CONFLICT                       # played on both since
     assert put(port, v2, saves.PUT_SAFETY, model=2) == (b"DRSK", ss.OK)
     magic, status, data, crc = get(port)
     assert (magic, status, data, crc) == (b"DRSD", ss.OK, v1, crc32(v1))
     assert talk(port, ss.request(ss.OP_DONE, ss.DONE.pack(1, 1, 0, 0), MAC, 2),
                 lambda read: struct.unpack("<4sH", read(6))) == (b"DRSK", ss.OK)
+    # The event comes after the answer (the console isn't kept waiting for the
+    # tray), so it may be a moment behind it
+    deadline = time.monotonic() + 5
+    while events[-1]["type"] != "saves_synced" and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert events[-1] == {"type": "saves_synced", "console": "3DS 3F21", "uploaded": 1, "downloaded": 1,
                           "backed_up": 0, "failed": 0}
 

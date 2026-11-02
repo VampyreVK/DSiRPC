@@ -1,0 +1,124 @@
+# Draws the launcher's screens with its own code (tools/render_launcher.py, on
+# the tests' host in tests/c/ui): the README's pictures (SVG), every screen as
+# a PNG, a demo of the modern look (demo.mp4 with the Bright song, and
+# demo.gif), and the menu music as MP3s (a loop of each song); and the
+# desktop app's overlay window in four of its demo's scenes
+# (tools/render_overlay.py, SVG and PNG). They're kept as the run's artifact,
+# to look over by hand.
+#
+# When a release is published, the README's pictures, the demo and the music
+# go to the renders branch, which the README shows them from, so they're
+# always the latest release's, and the video goes on the release too. Run by
+# hand (Actions > Renders > Run workflow, from any branch) to try changes: the
+# renders are only the run's artifact, unless "publish" is ticked to put them
+# on the renders branch too. A push of this file runs it as well (artifact
+# only).
+
+name: Renders
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also replace the README's pictures, the demo and the music (the renders branch)"
+        type: boolean
+        required: false
+        default: false
+  push:
+    paths:
+      - ".github/workflows/renders.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: renders
+  cancel-in-progress: false
+
+jobs:
+  renders:
+    name: Renders
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The launcher's code, the tests' host and the songs; the overlay's
+      # code and its small art (the Pokemon sprites it needs come from
+      # GitHub Pages, as in the app)
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            tests
+            tools
+            launcher/source
+            launcher/audio
+            core
+            overlay
+            Assets/PokemonBlackUI
+            Assets/Unova-Trainer-Overworld
+            Assets/Sinnoh-Trainer-Overworld
+            Assets/Consoles
+          filter: blob:none
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # Ubuntu's ffmpeg plays XM modules (libopenmpt), for the video's song
+      - name: Install Pillow, pygame-ce and ffmpeg
+        run: |
+          python -m pip install --disable-pip-version-check Pillow pygame-ce
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+
+      - name: Draw the screens and play the music
+        run: python tools/render_launcher.py --out renders --png --demo --music
+
+      - name: Draw the overlay window
+        run: python tools/render_overlay.py --out renders --png
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: launcher-renders
+          path: renders
+          if-no-files-found: error
+
+      - name: Put the demo on the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cp renders/demo.mp4 DSiRPC-launcher-demo.mp4
+          gh release upload "$TAG" DSiRPC-launcher-demo.mp4 --clobber --repo "$GITHUB_REPOSITORY"
+
+      # One commit, replaced each time, so the branch doesn't grow
+      - name: Update the renders branch
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          LABEL="${TAG:-$GITHUB_REF_NAME at ${GITHUB_SHA::7}}"
+          mkdir pictures
+          cp renders/*.svg renders/demo.gif renders/demo.mp4 renders/*.mp3 pictures/
+          cat > pictures/README.md <<EOF
+          # DSiRPC's renders
+
+          The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`),
+          its demo, its menu music as MP3s (\`bright.mp3\`, \`subtle.mp3\`: a loop
+          of each song), and the desktop app's overlay window in its demo's scenes
+          (\`overlay-*.svg\`, \`tools/render_overlay.py\`), for ${LABEL}. The README shows the pictures;
+          \`.github/workflows/renders.yml\` replaces all of them when a release is
+          published, so don't edit them here.
+          EOF
+          cd pictures
+          git init -q -b renders
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "The launcher's renders for ${LABEL}"
+          git push -q -f "$remote" renders
+          echo "Pushed the renders branch for ${LABEL}"

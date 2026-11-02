@@ -5,6 +5,7 @@ dates, damaged uploads, saves put in the folder by hand (External ones and
 copies of backups), the first layout upgraded, and the manifest surviving a
 restart."""
 
+import datetime
 import json
 import os
 
@@ -123,6 +124,63 @@ def test_what_a_console_had_counts_when_it_forgot(store):
                                                       "time": store.console_had(KEY, 0, "DSi 0001")["time"]}
 
 
+def test_a_console_that_last_synced_with_another_pc(tmp_path):
+    """A console synced its newer save with one PC (its saves.idx says so),
+    then meets another PC whose live save is older: that PC never saw the
+    console's base, so it's no reason to take its save. It's a conflict, not
+    a download over the newer save (Pokemon Black from the 29th, offered the
+    Mac's from the 24th)."""
+    pc, mac = SaveStore(str(tmp_path / "pc"), keep=3), SaveStore(str(tmp_path / "mac"), keep=3)
+    older, newer = b"the 24th, from the 3DS", b"the 29th, on the DSi"
+    mac.put(KEY, 0, "Pokemon Black", older, crc32(older), PUT_SYNC, "3DS 0002")
+    pc.put(KEY, 0, "Pokemon Black", newer, crc32(newer), PUT_SYNC, "DSi 0001")    # the DSi's base is now this
+    assert actions(mac, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, CONFLICT)]
+    assert mac.console_had(KEY, 0, "DSi 0001") is None       # and the PC's base isn't taken as what it had
+    assert actions(pc, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, IN_SYNC)]
+
+    # What the Mac remembers of the console still decides
+    mac.put(KEY, 0, "Pokemon Black", older, crc32(older), PUT_SAFETY, "DSi 0001")
+    assert actions(mac, [entry(data=newer, base=crc32(newer))], console="DSi 0001") == [(0, CONFLICT)]
+    mine = b"the DSi, after the Mac's"
+    mac.put(KEY, 0, "Pokemon Black", mine, crc32(mine), PUT_SYNC, "DSi 0001")
+    pc_base = crc32(newer)                                    # its saves.idx still has the PC's
+    assert actions(mac, [entry(data=mine, base=pc_base)], console="DSi 0001") == [(0, IN_SYNC)]
+
+
+def test_never_a_download_over_a_newer_console_save(tmp_path):
+    """Viv's Platinum on the Mac: the live save from the 21st, and the 3DS's
+    saves from the 24th and the 26th kept there only as copies made just
+    before downloads replaced them. The 3DS's base is the 26th (synced with
+    the PC since): a copy kept before a replace is no sync, so the Mac never
+    hands it the 21st over the 26th without asking."""
+    def day(d):
+        return datetime.datetime(2026, 10, d, 12).timestamp()
+    old, d24, d26 = b"the 21st", b"the 24th", b"the 26th"
+
+    def mac_with(live_from):
+        mac = SaveStore(str(tmp_path / live_from), keep=3)
+        mac.put(KEY, 0, "Platinum", old, crc32(old), PUT_SYNC, live_from, when=day(21))
+        mac.put(KEY, 0, "Platinum", d24, crc32(d24), PUT_SAFETY, "3DS CC5D", when=day(24))
+        mac.put(KEY, 0, "Platinum", d26, crc32(d26), PUT_SAFETY, "3DS CC5D", when=day(26))
+        return mac
+
+    # The 21st was another console's: the Mac can't tell what the 3DS had
+    mac = mac_with("DSi 3F21")
+    assert actions(mac, [entry(data=d26, base=crc32(d26))], console="3DS CC5D") == [(0, CONFLICT)]
+    # The 3DS synced the 21st with the Mac: only the 3DS changed since, so its save goes up
+    mac = mac_with("3DS CC5D")
+    assert actions(mac, [entry(data=d26, base=crc32(d26))], console="3DS CC5D") == [(0, UPLOAD)]
+    # An older DSiRPC noted the 26th as what the 3DS had: still never the
+    # 21st over it, since the Mac's copy of the 26th is newer than the 21st
+    mac = mac_with("DSi 3F21")
+    mac._note_console(mac._slot(KEY, 0), "3DS CC5D", crc32(d26), "3DS CC5D")
+    assert actions(mac, [entry(data=d26, base=crc32(d26))], console="3DS CC5D") == [(0, CONFLICT)]
+    # A newer save from another console still comes down
+    new = b"the 28th, on the DSi"
+    mac.put(KEY, 0, "Platinum", new, crc32(new), PUT_SYNC, "DSi 3F21", when=day(28))
+    assert actions(mac, [entry(data=d26, base=crc32(d26))], console="3DS CC5D") == [(0, DOWNLOAD)]
+
+
 def test_a_replaced_console_save_goes_to_history(store):
     pc, console = b"the PC's", b"the console's"
     store.put(KEY, 0, "Pokemon Black", pc, crc32(pc), PUT_SYNC, "DSi 0001")
@@ -142,8 +200,9 @@ def test_restore(store):
     # Still the DSi's save (the 3DS only restored it), and the replaced live save is kept
     assert rec["source"] == "DSi 0001" and rec["restored_by"] == "3DS 0002"
     assert store.history(KEY, 0)[1]["crc"] == crc32(new)
-    # Every console in sync with `new` is offered the restored save
-    assert actions(store, [entry(data=new, base=crc32(new))]) == [(0, DOWNLOAD)]
+    # A console in sync with `new` is asked: the restored save is older than
+    # its own, and that's never replaced without asking
+    assert actions(store, [entry(data=new, base=crc32(new))]) == [(0, CONFLICT)]
 
 
 def test_dated_by_the_consoles_time(store, tmp_path):
@@ -191,7 +250,7 @@ def test_a_save_copied_into_the_folder_by_hand(store, tmp_path):
     # A copy of one of the backups instead: the live save again, as that console's
     latest.write_bytes(v1)
     os.utime(latest, (1_800_000_100, 1_800_000_100))
-    assert actions(store, [entry(data=b"x", base=crc32(b"x"))]) == [(0, DOWNLOAD)]
+    assert actions(store, [entry(data=b"x", base=crc32(b"x"))]) == [(0, CONFLICT)]   # a base it never saw
     assert store.latest(KEY, 0)["source"] == "DSi 0001"
     latest.unlink()                                                       # deleted by hand: the console's goes up again
     assert actions(store, [entry(data=v1, base=crc32(v1))]) == [(0, UPLOAD)]

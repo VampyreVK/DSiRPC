@@ -18,10 +18,10 @@
 #   release with all four.
 #
 # The .nds files use the same Docker images as the local build commands in
-# docs/DEVELOPMENT.md. The Windows and macOS downloads bake in the Discord applications
-# in the repository variables DISCORD_CLIENT_ID (Platinum, and every game
-# without its own) and DISCORD_DEFAULT_CLIENT_ID (optional: other games), if
-# they're set (Settings > Secrets and variables > Actions > Variables).
+# docs/DEVELOPMENT.md. The Windows and macOS downloads bake in the Discord
+# application in the repository variable DISCORD_CLIENT_ID (or, from when
+# other games had their own, DISCORD_DEFAULT_CLIENT_ID), if it's set
+# (Settings > Secrets and variables > Actions > Variables).
 
 name: Build DSiRPC
 
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Only nds-bootstrap/ is needed, so skip downloading the sprites.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: nds-bootstrap
           filter: blob:none
@@ -97,7 +97,7 @@ jobs:
           cp nds-bootstrap/retail/bin/nds-bootstrap-nightly.nds nds-bootstrap-dsirpc.nds
           cp nds-bootstrap/LICENSE LICENSE-nds-bootstrap.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nds-bootstrap-dsirpc
           path: |
@@ -109,7 +109,7 @@ jobs:
     name: launcher
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: launcher
           filter: blob:none
@@ -117,7 +117,7 @@ jobs:
       - name: Build launcher
         run: docker run --rm -v "$GITHUB_WORKSPACE/launcher:/work" -w /work --entrypoint make skylyrac/blocksds:slim-latest
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dsirpc-launcher
           path: launcher/dsirpc-launcher.nds
@@ -129,8 +129,9 @@ jobs:
     runs-on: windows-latest
     steps:
       # DSiRPC's own files; of Assets/, only the console pictures (the
-      # overlay downloads its sprites when it needs them)
-      - uses: actions/checkout@v4
+      # overlay downloads its sprites when it needs them); and the
+      # launcher's songs, the overlay's ambient music
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: |
             app
@@ -143,24 +144,24 @@ jobs:
             ra
             packaging
             Assets/Consoles
+            launcher/audio
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: nds
           merge-multiple: true
 
       # Only runs pip: the zip gets Python's embeddable package
       # (PYTHON_VERSION in packaging/build_release.py, the same 3.x)
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
       - name: Build the zip
         shell: bash
         env:
-          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
-          DISCORD_DEFAULT_CLIENT_ID: ${{ vars.DISCORD_DEFAULT_CLIENT_ID }}
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || vars.DISCORD_DEFAULT_CLIENT_ID }}
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
           python packaging/build_release.py --version "$version" --nds-dir nds --require-nds --check
@@ -177,8 +178,9 @@ jobs:
     needs: [nds-bootstrap, launcher]
     runs-on: macos-latest   # Apple silicon
     steps:
-      # DSiRPC's own files, the console pictures and the app's icon
-      - uses: actions/checkout@v4
+      # DSiRPC's own files, the console pictures, the app's icon and the
+      # launcher's songs (the overlay's ambient music)
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: |
             app
@@ -190,14 +192,15 @@ jobs:
             packaging
             Assets/Consoles
             Assets/icons
+            launcher/audio
           filter: blob:none
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: nds
           merge-multiple: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
 
@@ -205,8 +208,7 @@ jobs:
       # library first and checks the app once it's made
       - name: Build the app
         env:
-          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID }}
-          DISCORD_DEFAULT_CLIENT_ID: ${{ vars.DISCORD_DEFAULT_CLIENT_ID }}
+          DISCORD_CLIENT_ID: ${{ vars.DISCORD_CLIENT_ID || vars.DISCORD_DEFAULT_CLIENT_ID }}
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then version="$GITHUB_REF_NAME"; else version="dev-${GITHUB_SHA::7}"; fi
           python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller certifi
@@ -227,7 +229,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           sparse-checkout: packaging
           filter: blob:none

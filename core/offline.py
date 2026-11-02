@@ -4,15 +4,16 @@ offline.py - the files and messages for playing without DSiRPC nearby
 DSiRPC the next time the launcher finds it. DSiRPC does all the work; the
 console only stores what it's given and what it unlocked.
 
-On the SD card (the launcher writes them; see launcher/source/sync.c):
+On the SD card, in the launcher's folder (the launcher writes them; see
+launcher/source/sync.c):
 
-    sd:/RPCUNLK.BIN       unlocks waiting for DSiRPC (written in game by
+    RPCUNLK.BIN           unlocks waiting for DSiRPC (written in game by
                           nds-bootstrap's rpcprobe/probe_ach.c; read and
                           cleared by the launcher)
     <launcher>/sets/CODE.DRS
                           each game's achievements, from DSiRPC (build_set())
-    sd:/RPCSET.BIN        the set of the game being started (a copy, so the
-                          in-game side only needs a fixed name in the root);
+    RPCSET.BIN            the set of the game being started (a copy, so the
+                          in-game side only needs a fixed name);
                           nds-bootstrap's rpcprobe/probe_ach.c checks it
 
 RPCUNLK.BIN (version 1): 4096 bytes, 256 slots of 16 bytes, little-endian.
@@ -35,6 +36,12 @@ VBlanks since, which stop while it sleeps); 0 if there was no clock.
 Achievements already in the file
 aren't checked again. Unlocks DSiRPC made itself (playing online) come back
 this way too; engine.py leaves out the ones it knows about.
+
+One slot isn't an unlock: each start of a game keeps its playtime in the
+next free slot, rewritten each minute (achievement ID PLAYTIME_ID, the game's
+code, its seconds in place of when). The launcher adds it to the game's
+playtime as it starts and clears it before any sync, so DSiRPC never gets
+one; if it does, it's left out.
 
 CODE.DRS (an offline set, version 4), little-endian:
 
@@ -125,6 +132,7 @@ BYE = b"DSiRPC bye"
 UNLOCK_MAGIC = b"DRUL"
 UNLOCK_SLOT = 16
 UNLOCK_SLOTS = 256
+PLAYTIME_ID = 0xFFFFFFFF           # a start's playtime, not an unlock
 UNLOCK_FILE_SIZE = UNLOCK_SLOT * UNLOCK_SLOTS
 
 SET_MAGIC = b"DRSE"
@@ -211,7 +219,7 @@ def _slots(data):
     for i in range(1, min(slots, len(data) // UNLOCK_SLOT)):
         slot = data[i * UNLOCK_SLOT:(i + 1) * UNLOCK_SLOT]
         aid, code, when, seq, check = struct.unpack("<I4sIHH", slot)
-        if aid != 0 and check == _check(slot[:14]) and valid_code(code):
+        if aid not in (0, PLAYTIME_ID) and check == _check(slot[:14]) and valid_code(code):
             out.append((aid, code, when, seq))
     return out
 

@@ -30,6 +30,12 @@ int Probe_HaltTick(int *sdMutex, int (*romWaiting)(void));
 // VBlank ticks stop while the menu is open.
 void Probe_LidClosed(void);
 
+// "Stay connected" (nds-bootstrap's sleep mode off, so the game doesn't
+// sleep): the screens' backlights and the volume off while the lid is
+// closed (closed != 0), back as they were when it opens. Probe_VBlankTick()
+// calls it itself; the in-game menu does while it's open.
+void Probe_LidDark(int closed);
+
 // nds-bootstrap's in-game menu opened: the achievements unlocked so far
 // count as seen, so the achievement LED stops pulsing (probe_hook.c), and
 // the menu can show them (probe_ach.c, dsirpc_ach_menu.h).

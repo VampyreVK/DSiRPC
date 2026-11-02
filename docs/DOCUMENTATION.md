@@ -151,7 +151,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `RPCHAND.TXT` | Next to the launcher | Written by the launcher every time; don't edit it. nds-bootstrap finds it (and `RPCSET.BIN`, `RPCUNLK.BIN`) beside itself as it starts, at the root with an older launcher, and hands the in-game side where each file is (`rpcClusters`) |
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | Next to the launcher | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
-| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
+| `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, Lid closed (sleep, or stay connected), the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
 | `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
 | `stats.idx` | Next to the launcher | Each game's DSiRPC playtime (the higher of the console's and DSiRPC's, offline play added from `RPCUNLK.BIN` as the launcher starts) and how DSiRPC was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
@@ -161,7 +161,10 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 The launcher also edits TWiLight's `sd:/_nds/nds-bootstrap.ini` (`NDS_PATH`,
 `SAV_PATH`, and the last game's per-game values) when you pick a game it
 doesn't already name, and sets a DSi-enhanced game to DS mode (`DSI_MODE =
-0`) every time, since DSiRPC's part of nds-bootstrap only runs in DS mode
+0`) every time, since DSiRPC's part of nds-bootstrap only runs in DS mode,
+and `DSIRPC_STAY_CONNECTED` to the Lid closed setting (1: stay connected;
+only DSiRPC's nds-bootstrap reads it, so games TWiLight starts with its own
+still sleep)
 ([launcher/README.md](../launcher/README.md#the-game-the-ini-and-your-save)).
 Apart from that there's no config file: the Wi-Fi settings come from the DSi's
 own saved connections, and the in-game side broadcasts its hellos, so it
@@ -1795,6 +1798,15 @@ taken out on 2026-10-30).
   byte stage 5); the checker and its saves carry on, as in offline play.
   nds-bootstrap's in-game menu, which runs instead of the VBlank ticks while
   it's open, calls `Probe_LidClosed()` before its own sleep.
+  **Unless the game doesn't sleep:** the launcher's "Lid closed: Stay
+  connected" writes `DSIRPC_STAY_CONNECTED = 1` to `nds-bootstrap.ini`, and on
+  a DSi our nds-bootstrap then turns its sleep mode off (`conf_sd.cpp`), so
+  its existing patch keeps the game from sleeping, as a Wi-Fi game would.
+  Then the lid closing turns the screens' backlights (the PM's control
+  register, as nds-bootstrap's menu does) and the volume (the MCU, over I2C)
+  off instead, and opening it turns them back as they were
+  (`Probe_LidDark()`, from the VBlank and from the in-game menu's loop); the
+  Wi-Fi stays connected. 132 bytes of the ARM7's space.
 - **The achievement LED only changes from the VBlank.** On a DSi, the LED
   TWiLight's ROM read LED setting picks (`romRead_LED`: 1 Wi-Fi, 2 power,
   3 camera, 0 none) pulses while achievements unlocked this game haven't
@@ -2221,12 +2233,14 @@ section is the technical side.
   ([launcher/CHAINLOAD.md](../launcher/CHAINLOAD.md)).
 - **Offline achievements need the launcher:** a game started from TWiLight
   Menu++ has no set staged (`RPCSET.BIN`) and no unlock file to write to.
-- **On a DSi, closing the lid ends the Wi-Fi for that game.** A DSi that
-  sleeps with the chip connected switches itself off, so the console
-  disconnects as soon as the lid closes (section 8, "Rules the ARM7 code
-  must follow"). Discord and the overlay stop until a game is started from
-  the launcher again; achievements are still checked and saved, and sent at
-  the next sync. A 3DS keeps its Wi-Fi.
+- **On a DSi, closing the lid ends the Wi-Fi for that game**, unless the
+  launcher's Lid closed setting is Stay connected. A DSi that sleeps with
+  the chip connected switches itself off, so the console disconnects as soon
+  as the lid closes (section 8, "Rules the ARM7 code must follow"). Discord
+  and the overlay stop until a game is started from the launcher again;
+  achievements are still checked and saved, and sent at the next sync. With
+  Stay connected the game doesn't sleep (screens and sound off, more
+  battery), so nothing drops. A 3DS keeps its Wi-Fi.
 - **The in-game menu's achievement screens are English only**, and titles
   and descriptions are plain ASCII (accents dropped), since the menu's font
   is whatever language nds-bootstrap is set to. Times are the console's

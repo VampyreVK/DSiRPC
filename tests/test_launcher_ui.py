@@ -13,7 +13,7 @@ import pytest
 from helpers import launcher_ui as lui
 
 SCREENS = ["connecting", "syncing", "ready", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
-           "update_progress", "update_done", "settings", "settings_address", "settings_music", "games",
+           "update_progress", "update_done", "settings", "settings_address", "settings_music", "settings_lid", "games",
            "achievements", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
 
 # Palette colors as the DS shows them (5 bits a channel)

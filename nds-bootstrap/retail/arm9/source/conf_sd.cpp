@@ -521,6 +521,16 @@ static void load_conf(configuration* conf, const char* fn) {
 	// Sleep mode
 	conf->sleepMode = (bool)strtol(config_file.fetch("NDS-BOOTSTRAP", "SLEEP_MODE", "1").c_str(), NULL, 0);
 
+	// DSiRPC: the launcher's "Lid closed: Stay connected". A DSi that sleeps
+	// with the Wi-Fi connected switches itself off, so the game doesn't sleep
+	// at all, as a Wi-Fi game wouldn't, and rpcprobe turns the screens and the
+	// sound off while the lid is closed. Only this build reads the key, so
+	// games TWiLight Menu++ starts with its own nds-bootstrap still sleep; a
+	// 3DS keeps its Wi-Fi asleep, so it sleeps as usual.
+	if (conf->consoleModel < 2 && strtol(config_file.fetch("NDS-BOOTSTRAP", "DSIRPC_STAY_CONNECTED", "0").c_str(), NULL, 0)) {
+		conf->sleepMode = false;
+	}
+
 	// Boost CPU
 	switch(strtol(config_file.fetch("NDS-BOOTSTRAP", "BOOST_CPU", "-1").c_str(), NULL, 0)) {
 		case 0:

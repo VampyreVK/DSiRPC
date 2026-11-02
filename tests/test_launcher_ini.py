@@ -48,7 +48,7 @@ def lib(cc, tmp_path_factory):
     lib.find_save.argtypes = [ctypes.c_char_p] * 3 + [ctypes.c_char_p, ctypes.c_size_t]
     lib.find_save.restype = ctypes.c_bool
     lib.nds_unit_code.argtypes = [ctypes.c_char_p]
-    lib.bootstrap_ini_prepare.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+    lib.bootstrap_ini_prepare.argtypes = [ctypes.c_char_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_size_t]
     return lib
 
 
@@ -75,9 +75,9 @@ def nds(unit_code):
     return bytes(header)
 
 
-def prepare(lib, game):
+def prepare(lib, game, stay_connected=False):
     msg = ctypes.create_string_buffer(256)
-    r = lib.bootstrap_ini_prepare(game.encode(), msg, len(msg))
+    r = lib.bootstrap_ini_prepare(game.encode(), stay_connected, msg, len(msg))
     return r, msg.value.decode()
 
 
@@ -143,6 +143,32 @@ def test_the_same_game_switched_back_to_dsi_mode(lib, sd):
     os.utime(sd.root / INI, (1000, 1000))
     assert prepare(lib, game) == (0, "")
     assert (sd.root / INI).read_bytes() == after and os.stat(sd.root / INI).st_mtime == 1000
+
+
+def test_the_lid_setting_goes_to_dsirpcs_nds_bootstrap(lib, sd):
+    """The settings' "Lid closed: Stay connected" is DSIRPC_STAY_CONNECTED,
+    which only DSiRPC's nds-bootstrap reads (TWiLight's own doesn't, so the
+    games it starts still sleep): written for a new game and for the one
+    already set up whenever it changes, TWiLight's SLEEP_MODE left alone."""
+    sd(INI, TWILIGHT_INI)
+    game = sd("sd:/roms/nds/Pokemon Black.nds", nds(2))
+    sd("sd:/roms/nds/saves/Pokemon Black.sav", b"save")
+    sleep_mode = get(lib, "SLEEP_MODE")
+    assert prepare(lib, game, stay_connected=True) == (0, "")
+    assert get(lib, "DSIRPC_STAY_CONNECTED") == "1" and get(lib, "SLEEP_MODE") == sleep_mode
+    # The same game, the setting off: only that key changes
+    before = (sd.root / INI).read_bytes()
+    assert prepare(lib, game) == (0, "")
+    assert (sd.root / INI).read_bytes() == before.replace(b"DSIRPC_STAY_CONNECTED = 1", b"DSIRPC_STAY_CONNECTED = 0")
+    # Unchanged: the file isn't touched
+    os.utime(sd.root / INI, (1000, 1000))
+    assert prepare(lib, game) == (0, "") and os.stat(sd.root / INI).st_mtime == 1000
+    assert prepare(lib, game, stay_connected=True) == (0, "")
+    assert get(lib, "DSIRPC_STAY_CONNECTED") == "1"
+    # Another game: written with the rest
+    other = sd("sd:/roms/nds/Other.nds", nds(0))
+    sd("sd:/roms/nds/saves/Other.sav", b"save")
+    assert prepare(lib, other) == (0, "") and get(lib, "DSIRPC_STAY_CONNECTED") == "0"
 
 
 def test_no_dsi_mode_key_means_dsi_mode(lib, sd):

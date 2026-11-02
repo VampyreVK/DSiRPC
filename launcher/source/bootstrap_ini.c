@@ -356,8 +356,9 @@ int console_model(void)
 
 // ---------------------------------------------------------------------------
 
-int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
+int bootstrap_ini_prepare(const char *game, bool stay_connected, char *msg, size_t msgsz)
 {
+    const char *stay = stay_connected ? "1" : "0";
     char prev_nds[PATH_LEN] = "", prev_sav[PATH_LEN] = "";
     int r = ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "NDS_PATH", prev_nds, sizeof(prev_nds));
     if (r < 0)
@@ -378,13 +379,20 @@ int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
     if (r == 1 && strcasecmp(prev_nds, game) == 0)
     {
         // Already set up for this game, but TWiLight may have switched DSi
-        // mode on since
-        char dsi[16] = "";
-        if (!ds_mode || (ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "DSI_MODE", dsi, sizeof(dsi)) == 1
+        // mode on since, and the lid setting may have changed
+        const char *key[2], *value[2];
+        int n = 0;
+        char dsi[16] = "", was[16] = "";
+        if (ds_mode && !(ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "DSI_MODE", dsi, sizeof(dsi)) == 1
                          && strcmp(dsi, "0") == 0))
+            key[n] = "DSI_MODE", value[n++] = "0";
+        if (ini_get(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, "DSIRPC_STAY_CONNECTED", was, sizeof(was)) != 1)
+            snprintf(was, sizeof(was), "0");     // nds-bootstrap's default
+        if (strcmp(was, stay) != 0)
+            key[n] = "DSIRPC_STAY_CONNECTED", value[n++] = stay;
+        if (n == 0)
             return 0;
-        const char *key[] = { "DSI_MODE" }, *value[] = { "0" };
-        if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, key, value, 1) != 0)
+        if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, key, value, n) != 0)
         {
             snprintf(msg, msgsz, "Can't write %s.", BOOTSTRAP_INI_PATH);
             return -1;
@@ -404,14 +412,14 @@ int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz)
     const char *keys[] = {
         "NDS_PATH", "SAV_PATH", "HOMEBREW_ARG", "MANUAL_PATH",
         "DONOR_SDK_VER", "PATCH_MPU_REGION", "PATCH_MPU_SIZE",
-        "DSI_MODE",
+        "DSIRPC_STAY_CONNECTED", "DSI_MODE",
     };
     const char *values[] = {
         game, sav, "", "",
         "0", "0", "0",
-        "0",
+        stay, "0",
     };
-    if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, keys, values, ds_mode ? 8 : 7) != 0)
+    if (ini_set(BOOTSTRAP_INI_PATH, BOOTSTRAP_SECTION, keys, values, ds_mode ? 9 : 8) != 0)
     {
         snprintf(msg, msgsz, "Can't write %s.", BOOTSTRAP_INI_PATH);
         return -1;

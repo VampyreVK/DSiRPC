@@ -1798,15 +1798,23 @@ taken out on 2026-10-30).
   byte stage 5); the checker and its saves carry on, as in offline play.
   nds-bootstrap's in-game menu, which runs instead of the VBlank ticks while
   it's open, calls `Probe_LidClosed()` before its own sleep.
-  **Unless the game doesn't sleep:** the launcher's "Lid closed: Stay
-  connected" writes `DSIRPC_STAY_CONNECTED = 1` to `nds-bootstrap.ini`, and on
-  a DSi our nds-bootstrap then turns its sleep mode off (`conf_sd.cpp`), so
-  its existing patch keeps the game from sleeping, as a Wi-Fi game would.
-  Then the lid closing turns the screens' backlights (the PM's control
-  register, as nds-bootstrap's menu does) and the volume (the MCU, over I2C)
-  off instead, and opening it turns them back as they were
-  (`Probe_LidDark()`, from the VBlank and from the in-game menu's loop); the
-  Wi-Fi stays connected. 132 bytes of the ARM7's space.
+  **Unless the launcher's "Lid closed: Stay connected" is on**
+  (`DSIRPC_STAY_CONNECTED = 1` in `nds-bootstrap.ini`, which only our build
+  reads, on a DSi: the loader's `rpcFlags` bit 0). Then the bootloader points
+  the game's ARM7 `SVC_Sleep` (`swi 0x070000; bx lr`, found anywhere in the
+  ARM7 binary) at the engine's `newSwiSleep` (`patchSwiSleep()`: an `ldr pc`
+  and its address, `rpcFlags` bit 1), so the game pauses and turns its own
+  screens and sound off as it goes to sleep, but at the moment the console
+  would sleep, `Probe_SleepWait()` sends "DSiRPC lid pause" and waits awake
+  for the lid to open, the Wi-Fi still connected, and the game carries on
+  (the in-game menu calls it before its own sleep too). With the
+  launcher's connection down it says to sleep after all. Where that call
+  can't be found (a Thumb ARM7, say), the sleep mode goes off instead, so
+  nds-bootstrap's existing patch keeps the game from sleeping at all, as a
+  Wi-Fi game would; the lid then turns the screens' backlights (the PM's
+  control register, as nds-bootstrap's menu does) and the volume (the MCU,
+  over I2C) off, and back as they were when it opens (`Probe_LidDark()`,
+  from the VBlank and the in-game menu's loop).
 - **The achievement LED only changes from the VBlank.** On a DSi, the LED
   TWiLight's ROM read LED setting picks (`romRead_LED`: 1 Wi-Fi, 2 power,
   3 camera, 0 none) pulses while achievements unlocked this game haven't
@@ -2239,8 +2247,8 @@ section is the technical side.
   as the lid closes (section 8, "Rules the ARM7 code must follow"). Discord
   and the overlay stop until a game is started from the launcher again;
   achievements are still checked and saved, and sent at the next sync. With
-  Stay connected the game doesn't sleep (screens and sound off, more
-  battery), so nothing drops. A 3DS keeps its Wi-Fi.
+  Stay connected the game pauses with the console awake (more battery), so
+  nothing drops. A 3DS keeps its Wi-Fi.
 - **The in-game menu's achievement screens are English only**, and titles
   and descriptions are plain ASCII (accents dropped), since the menu's font
   is whatever language nds-bootstrap is set to. Times are the console's

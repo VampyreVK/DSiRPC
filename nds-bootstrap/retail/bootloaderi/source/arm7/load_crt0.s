@@ -263,6 +263,9 @@ version:
 	.global rpcClusters
 rpcClusters: @ DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
 	.word	0, 0, 0
+	.global rpcFlags
+rpcFlags: @ DSiRPC: bit 0 "Stay connected", bit 1 the game's SVC_Sleep hooked
+	.word	0
 .align 4
 
 startUp:

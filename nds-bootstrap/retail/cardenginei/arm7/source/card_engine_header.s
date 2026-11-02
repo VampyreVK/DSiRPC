@@ -175,6 +175,15 @@ romMap:
 	.global rpcClusters
 rpcClusters: @ DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN, from nds-bootstrap's loader (0: not there)
 	.word	0, 0, 0
+	.global rpcFlags
+rpcFlags: @ DSiRPC: from the loader: bit 0 "Stay connected", bit 1 the game's SVC_Sleep goes to newSwiSleep
+	.word	0
+rpcSleepHook: @ DSiRPC: for the loader to point the game's SVC_Sleep at
+#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+	.word	newSwiSleep
+#else
+	.word	0
+#endif
 .align	4
 
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -449,6 +458,22 @@ newSwiHalt:
 	swi	#0x060000
 	pop	{pc}
 @---------------------------------------------------------------------------------
+
+#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+@---------------------------------------------------------------------------------
+@ DSiRPC: the game's SVC_Sleep with "Stay connected" (the bootloader's
+@ patchSwiSleep()): rpcprobe waits awake for the lid to open, with the Wi-Fi
+@ still connected, or says to sleep after all (0)
+newSwiSleep:
+@---------------------------------------------------------------------------------
+	push	{lr}
+	bl	Probe_SleepWait
+	cmp	r0, #0
+	swieq	#0x070000
+	pop	{lr}
+	bx	lr
+@---------------------------------------------------------------------------------
+#endif
 
 	.thumb
 @---------------------------------------------------------------------------------

@@ -36,7 +36,9 @@ compared with DSiRPC's own. push_unlocks() tells the console about
 achievements DSiRPC unlocked itself ('U'), so nds-bootstrap's in-game menu
 shows them and the console stops checking them. On a DSi, "DSiRPC lid ..."
 says the lid closed, so the console turned its Wi-Fi off for the rest of the
-game; that's logged too.
+game, or ("DSiRPC lid pause ...", the launcher's Lid closed: Stay connected)
+that the game paused with the Wi-Fi still on, until the lid opens; those are
+logged too.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -216,6 +218,9 @@ class DSiClient:
                 print(f"  hello: {self.last_hello}")
         elif data.startswith(b"DSiRPC ach "):
             self.ach.take(data.decode(errors="replace"))
+        elif data.startswith(b"DSiRPC lid pause"):
+            logging.info("Console: its lid closed, so the game paused with the Wi-Fi still on; "
+                         "it picks up again when the lid opens")
         elif data.startswith(b"DSiRPC lid"):
             logging.info("Console: its lid closed, so it turned its Wi-Fi off until a game is started "
                          "from the launcher again (it still checks and saves achievements)")

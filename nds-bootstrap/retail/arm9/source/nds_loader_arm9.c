@@ -339,6 +339,7 @@ int runNds(u32 cluster, u32 saveCluster, u32 donorTwlCluster, /* u32 gbaCluster,
 	tonccpy(loader->bannerSavPath, conf->bannerSavPath, strlen(conf->bannerSavPath));
 	tonccpy(loader->version, VER_NUMBER, sizeof(VER_NUMBER));
 	tonccpy(loader->rpcClusters, conf->rpcClusters, sizeof(loader->rpcClusters)); // DSiRPC
+	loader->rpcFlags = conf->rpcFlags; // DSiRPC
 
 	nocashMessage("irqDisable(IRQ_ALL);");
 	irqDisable(IRQ_ALL);

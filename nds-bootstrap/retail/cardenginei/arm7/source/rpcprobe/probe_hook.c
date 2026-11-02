@@ -36,12 +36,16 @@
 // game. The checker and its saves carry on, so it's offline play from then
 // on: unlocks are sent at the next sync.
 //
-// Unless the game doesn't sleep: with the launcher's "Lid closed: Stay
-// connected", nds-bootstrap's sleep mode is off (DSIRPC_STAY_CONNECTED in
-// nds-bootstrap.ini), so the game carries on with the lid closed, as a
-// Wi-Fi game does. Then the lid closing turns the screens' backlights and
-// the volume off instead, and opening it turns them back on as they were
-// (Probe_LidDark()); the Wi-Fi stays connected.
+// Unless the launcher's "Lid closed: Stay connected" is on
+// (DSIRPC_STAY_CONNECTED in nds-bootstrap.ini, rpcFlags bit 0): then the
+// bootloader points the game's ARM7 SVC_Sleep at Probe_SleepWait(), so the
+// game pauses and turns its screens and sound off as it sleeps, but instead
+// of the console sleeping, rpcprobe waits awake for the lid to open, the
+// Wi-Fi still connected ("DSiRPC lid pause"), and the game carries on.
+// Where that call can't be found, nds-bootstrap's sleep mode is off instead:
+// the game carries on with the lid closed, as a Wi-Fi game does, and the lid
+// turns the screens' backlights and the volume off until it opens
+// (Probe_LidDark()).
 //
 // Achievement LED: while achievements unlocked this game haven't been seen
 // in nds-bootstrap's in-game menu yet, the LED of TWiLight's "ROM read LED"
@@ -86,6 +90,8 @@ enum { HO_LOAD = 0, HO_PROBE = 1, HO_RUN = 2, HO_FAILED = 3, HO_RESTORE = 4, HO_
 
 extern u8 consoleModel; // card_engine_header.s: 0-1 = DSi, 2-3 = 3DS
 extern u32 valueBits;   // card_engine_header.s
+extern u32 rpcFlags;    // card_engine_header.s, from the loader
+#define RPC_SLEEP_HOOKED 2    // rpcFlags: the game's SVC_Sleep goes to Probe_SleepWait()
 #define VB_SLEEP_MODE BIT(17) // nds-bootstrap's sleep mode (off: "Stay connected")
 extern int writePowerManagement(int reg, int command); // libnds/spi.c
 #define PM_BACKLIGHTS 0x0C    // the PM's control register (0): both screens' backlights
@@ -352,13 +358,14 @@ static void achSave(int *sdMutex) {
 #endif
 
 // "DSiRPC lid n=<hellos sent>": tells DSiRPC the Wi-Fi is going off because
-// the lid closed (and shows the lid rule ran before the console slept). Sent
-// with CMD52, then given about 3 ms to go out before the chip is told to
-// leave the access point.
-static void lidSend(void) {
-	static char msg[24];
+// the lid closed (and shows the lid rule ran before the console slept), or
+// with "pause" that the game paused with it still connected. Sent with CMD52,
+// then given about 3 ms to go out (before the chip is told to leave the
+// access point).
+static void lidSend(int pause) {
+	static char msg[32];
 	int n = 0;
-	n += putStr(&msg[n], "DSiRPC lid n=");
+	n += putStr(&msg[n], pause ? "DSiRPC lid pause n=" : "DSiRPC lid n=");
 	n += putDec(&msg[n], hoSent);
 	u16 llcLen = (u16)ProbeNet_BuildUdpFrame(hoFrame, (const u8 *)msg, (u16)n);
 	TwlWifi_SendLlcFrame(hoBroadcastMac, rpcProbeHandoff.dsiMac, hoFrame, llcLen, 0);
@@ -373,12 +380,21 @@ void Probe_LidClosed(void) {
 	if (rpcProbeHandoff.valid) {
 		// In DS mode the chip can't be reached over SDIO
 		if (!(HO_REG_GPIO_WIFI & 0x100)) {
-			if (hoStage == HO_RUN) lidSend();
+			if (hoStage == HO_RUN) lidSend(0);
 			TwlWifi_Shutdown();
 		}
 		ProbeLed_WifiPowerOff();
 	}
 	hoStage = HO_OFF;
+}
+
+int Probe_SleepWait(void) {
+	// Only while the launcher's connection is up: else the real sleep (a DSi
+	// whose launcher went offline sleeps fine)
+	if (!(rpcFlags & RPC_SLEEP_HOOKED) || !rpcProbeHandoff.valid || hoStage == HO_LOAD || hoStage == HO_OFF) return 0;
+	if (hoStage == HO_RUN) lidSend(1);   // (running: the chip's back in DSi mode)
+	while (HO_REG_KEYXY & 0x80) swiDelay(0x20000);
+	return 1;
 }
 
 void Probe_LidDark(int closed) {
@@ -435,7 +451,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// the screens and the sound when the game doesn't sleep
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
 	if (!(valueBits & VB_SLEEP_MODE)) Probe_LidDark(lidClosed);
-	else if (lidClosed) Probe_LidClosed();
+	else if (lidClosed && !(rpcFlags & RPC_SLEEP_HOOKED)) Probe_LidClosed();
 #if RPCPROBE_REQUESTS
 	// Did the ARM9 write its cache back since the last VBlank (the samples
 	// below say so), and is OS_Halt patched (if not, ask)

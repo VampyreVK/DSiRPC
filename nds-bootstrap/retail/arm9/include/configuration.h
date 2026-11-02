@@ -99,6 +99,7 @@ typedef struct configuration {
 	bool saveRelocation;
 	u16 cacheBlockSize;
 	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
+	u32 rpcFlags; // DSiRPC: bit 0 the launcher's "Stay connected" (a DSi only)
 } configuration;
 
 #endif // CONFIGURATION_H

@@ -135,6 +135,8 @@ typedef struct cardengineArm7 {
 	u32 romMapLines;
 	u32 romMap[8][3]; // 0: ROM part start, 1: ROM part start in RAM, 2: ROM part end in RAM
 	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there); retail only
+	u32 rpcFlags;       // DSiRPC: bit 0 "Stay connected", bit 1 the game's SVC_Sleep goes to rpcSleepHook; retail only
+	u32 rpcSleepHook;   // DSiRPC: newSwiSleep (0: not in this build)
 } cardengineArm7;
 
 //

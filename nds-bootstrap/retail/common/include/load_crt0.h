@@ -78,6 +78,7 @@ typedef struct loadCrt0 {
 	char bannerSavPath[64];
 	unsigned char version[20];
 	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
+	u32 rpcFlags;       // DSiRPC: bit 0 the launcher's "Stay connected" (a DSi only); bit 1 set by the bootloader once the game's SVC_Sleep is hooked
 } loadCrt0;
 
 #endif // LOAD_CRT0_H

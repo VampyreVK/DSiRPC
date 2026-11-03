@@ -80,23 +80,43 @@ def test_a_tetris_and_a_new_level_are_events():
     assert hub.diff_events(state(36, 4), state(38, 4)) == []
 
 
+def test_the_demo_loop_ends_where_it_starts():
+    from core import demo
+    steps, flash_at, length = demo.tetris_loop()
+    start = demo.tetris_board(0)[0]
+    t = 0.0
+    while t < length:                                             # a frame at a time
+        board, piece, _ = demo.tetris_board(t)
+        if piece:                                                 # inside the board's columns, never in a block
+            for dx, dy in tr.cells(piece['kind'], piece['turn']):
+                c, r = piece['x'] + dx, piece['y'] + dy
+                assert 0 <= c < tr.COLS and (r >= tr.ROWS or not board[r][c]), (t, piece)
+        t += 0.04
+    end, piece, flashing = demo.tetris_board(length - 0.01)
+    assert piece is None and flashing == [0, 1, 2, 3]
+    assert all(all(end[r]) for r in range(4))                    # four full rows: a Tetris
+    assert end[4:8] == start[:4] and not any(any(row) for row in end[8:])   # then the start again
+    assert all(not row[9] for row in start) and sorted(k for k, _, _ in demo.TETRIS_PIECES) == sorted("LTZSOTZJI")
+
+
 def test_the_view_draws():
     pygame = pytest.importorskip("pygame")
     from core import demo
     from overlay.scenes import Overlay
     from overlay.sprites import SpriteBank
+    from overlay.tetris import BOARD_X, BOARD_Y, CELL, COLORS
     pygame.init()
     try:
         canvas = pygame.Surface((256, 192), 0, 32)
         overlay = Overlay(SpriteBank("Assets"))
         source = demo.DemoSource()
-        source.t0 = time.time() - sum(d for s, d in demo.SCENES[:demo.SCENES.index(('tetris', 12))]) - 3
+        steps = demo.tetris_loop()[0]
+        scene_at = sum(d for _, d in demo.SCENES[:[s for s, _ in demo.SCENES].index('tetris')])
+        source.t0 = time.time() - scene_at - steps[-1][0] - 0.2      # just after the last piece, the I, comes in
         d = source.read()
-        assert d['tetris']['piece']['kind'] == 'I'
-        overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 0, 16)
-        # the I coming down the well: a blue cell in the board's last column
-        from overlay.tetris import BOARD_X, BOARD_Y, CELL, COLORS
         p = d['tetris']['piece']
+        assert p['kind'] == 'I' and p['turn'] == 1                   # the I coming down the well
+        overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 0, 16)
         x, y = BOARD_X + 9 * CELL + 3, BOARD_Y + (19 - p['y']) * CELL + 3
         assert canvas.get_at((x, y))[:3] == COLORS['I']
         d['tetris'] = dict(d['tetris'], paused=True)

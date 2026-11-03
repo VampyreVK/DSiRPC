@@ -54,6 +54,27 @@ GAME_OVER = 7
 
 RANGES = [(IN_GAME, 1), (MENU, 3), (BOARD, COLS * ROWS), (PIECE, 0x24), (HIDDEN, 1)]
 
+# Each piece's cells as it spawns, from its centre of rotation (x right, y
+# up, as the board's rows count), as in the Super Rotation System; the I
+# turns about the corner up and to the right of its (0, 0) cell, the O not at all.
+SHAPES = {
+    'T': [(-1, 0), (0, 0), (1, 0), (0, 1)],
+    'S': [(-1, 0), (0, 0), (0, 1), (1, 1)],
+    'Z': [(-1, 1), (0, 1), (0, 0), (1, 0)],
+    'J': [(-1, 1), (-1, 0), (0, 0), (1, 0)],
+    'L': [(1, 1), (-1, 0), (0, 0), (1, 0)],
+    'I': [(-1, 0), (0, 0), (1, 0), (2, 0)],
+    'O': [(0, 0), (1, 0), (0, 1), (1, 1)],
+}
+
+
+def cells(kind, turn):
+    """A piece's cells (dx, dy) from its centre, turned clockwise `turn` times."""
+    out = SHAPES[kind]
+    for _ in range(turn % 4 if kind != 'O' else 0):
+        out = [(y + 1, -x) if kind == 'I' else (y, -x) for x, y in out]
+    return out
+
 
 def _piece(n):
     return PIECES[n] if 0 <= n < len(PIECES) else None

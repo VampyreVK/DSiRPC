@@ -11,13 +11,16 @@ game card's header and footer (overlay/gamecard.py), with in between:
 The blocks are drawn here in code, in the game's colours (RetroAchievements'
 code notes: Z red, S green, L orange, J purple, T pink, O yellow, I blue).
 Paused, the board is hidden, as the game hides it; after a game over it
-greys out. Anywhere else in the game (its menus, the other modes) the game
+greys out. Rows in the state's 'clearing' (only the demo's, core/demo.py)
+flash white. Anywhere else in the game (its menus, the other modes) the game
 card shows instead.
 """
 
 import time
 
 import pygame
+
+from core.tetris_reader import SHAPES, cells
 
 from . import ui
 from .gamecard import FOOTER_Y, HEADER_H, NEW_FOR_S, NEXT_EVERY_MS, W, ago
@@ -35,28 +38,6 @@ COLORS = {
     'T': (232, 96, 200), 'O': (240, 208, 40), 'I': (56, 136, 240), 'X': (140, 148, 156),
 }
 BOARD_BG, BOARD_GRID, BOARD_FRAME = (18, 22, 28), (28, 34, 42), (61, 75, 95)
-
-# Each piece's cells as it spawns, from its centre of rotation (x right, y
-# up, as the board's rows count), as in the Super Rotation System; the I
-# turns about the corner up and to the right of its (0, 0) cell, the O not at all.
-SHAPES = {
-    'T': [(-1, 0), (0, 0), (1, 0), (0, 1)],
-    'S': [(-1, 0), (0, 0), (0, 1), (1, 1)],
-    'Z': [(-1, 1), (0, 1), (0, 0), (1, 0)],
-    'J': [(-1, 1), (-1, 0), (0, 0), (1, 0)],
-    'L': [(1, 1), (-1, 0), (0, 0), (1, 0)],
-    'I': [(-1, 0), (0, 0), (1, 0), (2, 0)],
-    'O': [(0, 0), (1, 0), (0, 1), (1, 1)],
-}
-
-
-def cells(kind, turn):
-    """A piece's cells (dx, dy) from its centre, turned clockwise `turn` times."""
-    out = SHAPES[kind]
-    for _ in range(turn % 4 if kind != 'O' else 0):
-        out = [(y + 1, -x) if kind == 'I' else (y, -x) for x, y in out]
-    return out
-
 
 _blocks = {}
 
@@ -170,6 +151,10 @@ class TetrisView:
                 c, r = p['x'] + dx, p['y'] + dy
                 if 0 <= c < COLS and 0 <= r < ROWS:
                     self._cell(canvas, c, r, COLORS[p['kind']], False)
+        for r in tet.get('clearing') or ():   # full rows on their way out (the demo's): flashing white
+            if (t_ms // 120) % 2 == 0:
+                for c in range(COLS):
+                    canvas.blit(block((236, 240, 248)), (BOARD_X + c * CELL, BOARD_Y + (ROWS - 1 - r) * CELL))
         if over:
             self._banner(canvas, "GAME OVER")
 

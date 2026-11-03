@@ -160,10 +160,10 @@ Beyond Pokémon, DSiRPC reads a game's own memory when it knows its layout,
 and every other game still gets a card of its own.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-tetris.svg" width="400" alt="The overlay with Tetris DS: an I piece coming down the well into the stack, the stored T block, the score, lines and level, and the latest achievement">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-tetris.gif" width="400" alt="The overlay with Tetris DS, moving: nine pieces build up the stack, an I comes down the well for a Tetris, and the board is back where it started; beside it the stored T block, the score, lines and level, and the latest achievement">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
 </p>
-<p align="center"><sub>The overlay window with Tetris DS, and the card every other game gets.</sub></p>
+<p align="center"><sub>The overlay window with Tetris DS (a Tetris, on a loop), and the card every other game gets.</sub></p>
 
 - **Tetris DS (USA):** in Marathon, Line Clear and VS CPU the overlay shows
   the board as you play it, the falling piece, your stored block, and your

@@ -387,49 +387,22 @@ class SeasonFX:
                     canvas.set_at((x + xx, y + yy), colors[1])
 
     def _light(self, season, when):
-        """The season's and the time of day's gradients in one see-through
-        layer (cached), for blitting onto the canvas."""
         key = (season, when)
         surf = self._light_cache.get(key)
         if surf is None:
-            layers = []
+            surf = pygame.Surface((W, H), pygame.SRCALPHA)
             lights = LIGHT.get(season, [])
             if when == 'night':  # no sun at night
                 lights = [lt for lt in lights if lt[2] != 'corner']
             for color, alpha, where in lights + TIME_LIGHT.get(when, []):
                 if season == 'winter' and when == 'night':
                     alpha = alpha * 3 // 5  # the snow keeps winter nights bright (and the aurora's enough)
-                layers.append(self._gradient(color, alpha, where))
-            surf = self._light_cache[key] = self._merge(layers)
+                self._gradient(surf, color, alpha, where)
+            self._light_cache[key] = surf
         return surf
 
     @staticmethod
-    def _merge(layers):
-        """The layers blended into one, in order, the way pygame blends a
-        see-through surface onto another (ALPHA_BLEND in pygame-ce's
-        alphablit.c), but done here: on a Mac pygame's own came out as flat
-        bands (autumn's top and bottom), while see-through onto the canvas
-        comes out right there."""
-        if not layers:
-            return pygame.Surface((W, H), pygame.SRCALPHA)
-        out = bytearray(pygame.image.tobytes(layers[0], "RGBA"))
-        for layer in layers[1:]:
-            src = pygame.image.tobytes(layer, "RGBA")
-            for i in range(3, len(out), 4):
-                sa = src[i]
-                if not sa:
-                    continue
-                da = out[i]
-                if not da:
-                    out[i - 3:i + 1] = src[i - 3:i + 1]
-                    continue
-                for c in range(i - 3, i):
-                    out[c] += ((src[c] - out[c]) * sa + src[c]) >> 8
-                out[i] = sa + da - sa * da // 255
-        return pygame.image.frombytes(bytes(out), (W, H), "RGBA")
-
-    @staticmethod
-    def _gradient(color, alpha, where):
+    def _gradient(surf, color, alpha, where):
         layer = pygame.Surface((W, H), pygame.SRCALPHA)
         if where == 'all':
             layer.fill((*color, alpha))
@@ -450,7 +423,7 @@ class SeasonFX:
             for rr in range(150, 0, -6):
                 a = int(alpha * (1 - rr / 150) ** 1.4)
                 pygame.draw.circle(layer, (*color, a), (W - 10, -10), rr)
-        return layer
+        surf.blit(layer, (0, 0))
 
     def _rays(self, canvas, t_ms):
         layer = pygame.Surface((W, H), pygame.SRCALPHA)

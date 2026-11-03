@@ -326,27 +326,30 @@ class Overlay:
     def present(self, window, canvas):
         """Scales the frame up into `window`: the canvas, then the queued
         sprites at the window's own resolution, then the layer above them.
-        The canvas is scaled in its own format and then blitted, which
-        converts it to the window's (a Mac's window has an alpha byte, the
-        canvas doesn't: see app.py)."""
+        It's all put together in the canvas's own format (no alpha byte),
+        then copied to the window in one blit, which converts it to the
+        window's: a Mac's window has an alpha byte, and see-through things
+        blended straight onto it came out wrong there (see app.py; the
+        season's light on the layer, autumn's top and bottom fades, showed
+        as flat bands)."""
         size = window.get_size()
         if self._big is None or self._big.get_size() != size:
             self._big = pygame.Surface(size, 0, canvas)
-        pygame.transform.scale(canvas, size, self._big)
-        window.blit(self._big, (0, 0))
-        if not self.hires:
-            return
-        s = size[0] / canvas.get_width()
-        old = window.get_clip()
-        for surf, (x, y, w, h), clip, dim in self.hires:
-            window.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
-            window.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim), (round(x * s), round(y * s)))
-        window.set_clip(old)
-        if self.layer is not None:
-            if self._over_big is None or self._over_big.get_size() != size:
-                self._over_big = pygame.Surface(size, pygame.SRCALPHA)
-            pygame.transform.scale(self.layer, size, self._over_big)
-            window.blit(self._over_big, (0, 0))
+        frame = self._big
+        pygame.transform.scale(canvas, size, frame)
+        if self.hires:
+            s = size[0] / canvas.get_width()
+            for surf, (x, y, w, h), clip, dim in self.hires:
+                frame.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
+                frame.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim),
+                           (round(x * s), round(y * s)))
+            frame.set_clip(None)
+            if self.layer is not None:
+                if self._over_big is None or self._over_big.get_size() != size:
+                    self._over_big = pygame.Surface(size, pygame.SRCALPHA)
+                pygame.transform.scale(self.layer, size, self._over_big)
+                frame.blit(self._over_big, (0, 0))
+        window.blit(frame, (0, 0))
 
     def _sharp_scale(self, surf, size, dim=False):
         """`surf` at `size`: pixels multiplied up to the next whole multiple,

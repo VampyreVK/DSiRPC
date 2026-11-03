@@ -82,10 +82,10 @@ def panel(surf, rect, fill=None, border=None, hi=None, lo=None, radius=2):
     lo = lo or t['panel_lo']
     x, y, w, h = rect
     r = radius
-    # Fill, stepped at the corners.
+    # Fill, stepped at the corners: right up to the border's stair steps
     pygame.draw.rect(surf, fill, (x + 1, y + 1 + r, w - 2, h - 2 - 2 * r))
     for i in range(r + 1):
-        inset = r - i
+        inset = max(0, r - 1 - i)
         pygame.draw.line(surf, fill, (x + 1 + inset, y + 1 + i), (x + w - 2 - inset, y + 1 + i))
         pygame.draw.line(surf, fill, (x + 1 + inset, y + h - 2 - i), (x + w - 2 - inset, y + h - 2 - i))
     # Border.

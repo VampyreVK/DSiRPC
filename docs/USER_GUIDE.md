@@ -288,8 +288,14 @@ games' pixel-art style:
 - **Black and White:** a view in those games' look (party, trainer, badges,
   the season, achievements), and battles in their style, with Gym Leaders,
   the Elite Four and the Champion making their entrances.
+- **Tetris DS:** in Marathon, Line Clear and VS CPU, the board as you play
+  it, the falling piece, your stored block, the score, lines and level, and
+  your achievements beside it, with a banner for every Tetris and new level.
 - **Any other game:** a card with its name, how long you've played, what
   you're doing (its rich presence) and your achievement progress.
+
+If the console's Wi-Fi drops out for a few seconds, a small Wi-Fi sign shows
+under the header's right end until it's back.
 
 It draws at the DS's 256x192 and scales up by a whole number, so the pixels
 stay crisp. Add it to OBS with **Window Capture** (for a Chroma Key filter,
@@ -314,6 +320,7 @@ at first, so it never surprises a stream.
 | The in-game menu says "no set loaded" or "another game's" | Start the game from the launcher (**Games**, or **START** for the last one), not from TWiLight Menu++: that's what puts its set on the SD card. |
 | A game shows only its name | It has no achievement set yet; the tray menu's RetroAchievements line says why. Run setup while the game runs to pick its set. |
 | Discord stopped after the DSi's lid was closed | On purpose: a DSi that sleeps while connected switches itself off, so its Wi-Fi goes off with the lid. Achievements are still checked and saved. Start the game from the launcher again to reconnect, or set **Lid closed** to **Stay connected** in [its settings](#the-launchers-settings) so the game doesn't sleep. |
+| The overlay shows a small Wi-Fi sign | The console hasn't been heard from for a few seconds (a Wi-Fi dropout). It usually comes back by itself; if it's gone for good, start the game from the launcher again. |
 | Two activities on Discord | Another Rich Presence tool (like Vencord's CustomRPC) is still on. |
 | The launcher never offers an update | **Auto-update** is off in [its settings](#the-launchers-settings), **Console updates** is off in the tray menu, or the launcher is from v0.8.1 or older: copy the SD card files by hand once. |
 

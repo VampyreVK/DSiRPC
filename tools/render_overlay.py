@@ -53,6 +53,8 @@ PICTURES = [
      "A battle in Pokemon Platinum: the rival at night, with animated sprites on the right terrain"),
     ("overlay-other.svg", "other", 8.0,
      "The overlay with any other game: what you're doing in it (its rich presence) and its achievements"),
+    ("overlay-tetris.svg", "tetris", 6.5,
+     "The overlay with Tetris DS: an I piece coming down the well, the stored block, the score and the achievements"),
 ]
 FPS = 30
 SCALE = 2           # the window's scale

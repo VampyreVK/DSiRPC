@@ -33,11 +33,14 @@ console and your PC.
 - **The full treatment for Pokémon Platinum, Black and White:** where you
   are, your party, badges and Pokédex, and who you're battling, with animated
   sprites set on the right terrain.
+- **Tetris DS, live:** the board as you play it, your stored block, score,
+  lines and level, in the overlay and on Discord.
 - **RetroAchievements on real hardware:** achievements are checked while you
   play, by your PC and by the console itself. They show up in a menu in-game on the
   console (L + Down + B), blink the DSi power LED when you have a new unlock, and can go straight to your RetroAchievements profile if you choose.
 - **Play anywhere:** away from your Wi-Fi, the console keeps checking
-  achievements and hands them over the next time it sees your PC.
+  achievements and hands them over the next time it sees your PC. A
+  hotspot that drops out for a few seconds doesn't lose it either.
 - **Save backups and sync:** one button backs up every save to your PC,
   keeps the last 10 versions from each console, and carries your progress
   between your DSi and 3DS.
@@ -124,9 +127,8 @@ the real thing.
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black.svg" width="400" alt="The overlay with Pokémon Black: the place and season, the party with HP and status, the latest achievement and the next one, the trainer, money, badges and Pokédex">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-black-battle.svg" width="400" alt="A battle in Pokémon Black in the rain in Pinwheel Forest, in the game's own style: Dewott's Water Gun splashing a wild Sewaddle, with the game's message box">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-platinum-battle.svg" width="400" alt="A battle in Pokémon Platinum at night: Piplup against the rival's Turtwig on grass platforms under the stars, with each move's PP">
-  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
 </p>
-<p align="center"><sub>The desktop app's overlay window, drawn by its own code from its demo for the latest release: Pokémon Black, a battle in Black's Pinwheel Forest, Platinum's rival at night, and the card every other game gets.</sub></p>
+<p align="center"><sub>The desktop app's overlay window, drawn by its own code from its demo for the latest release: Pokémon Black, a battle in Black's Pinwheel Forest, and Platinum's rival at night.</sub></p>
 
 - **On Discord:** where you are ("Exploring Route 209", or running, biking
   and surfing through Unova), your badges and Pokédex, how many of your
@@ -152,10 +154,42 @@ the real thing.
   get a banner, and so do achievements, with your progress, the latest
   unlock and the next one to earn on the main view.
 
+## <img src="docs/images/icons/blocks.svg" width="26" height="26" alt="">&nbsp;Other integrations
+
+Beyond Pokémon, DSiRPC reads a game's own memory when it knows its layout,
+and every other game still gets a card of its own.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-tetris.svg" width="400" alt="The overlay with Tetris DS: an I piece coming down the well into the stack, the stored T block, the score, lines and level, and the latest achievement">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
+</p>
+<p align="center"><sub>The overlay window with Tetris DS, and the card every other game gets.</sub></p>
+
+- **Tetris DS (USA):** in Marathon, Line Clear and VS CPU the overlay shows
+  the board as you play it, the falling piece, your stored block, and your
+  score, lines (lines left in Line Clear) and level, with the achievements
+  beside it and a banner for every Tetris and new level. Discord shows the
+  mode and level, then the score, lines and the block you're holding
+  ("Marathon · Level 5", "Score 24,680 · 42 lines · Holding Z"). The menus
+  and the other modes get the game card.
+- **Any other game:** its name, box art and your console on Discord, plus
+  what you're doing in it when RetroAchievements has a rich presence for it.
+  The overlay's card shows the same, with your achievements: progress, the
+  latest unlock and the next one to earn.
+
 ## <img src="docs/images/icons/bolt.svg" width="26" height="26" alt="">&nbsp;Good to know
 
 - Pokémon Platinum (USA, Rev 1) and Black and White (USA) get the full
-  presence; every other game gets its name, box art and rich presence.
+  presence, Tetris DS (USA) its board; every other game gets its name, box
+  art and rich presence.
+- **Wi-Fi hiccups:** a network that drops out for a few seconds (a phone's
+  hotspot, say) is usually ridden out: the overlay shows a small Wi-Fi sign
+  meanwhile, and DSiRPC picks up again the moment the console's back. After
+  a longer outage, start the game from the launcher again to reconnect.
+- **Closing the lid (DSi):** a DSi can't sleep with its Wi-Fi on, so by
+  default closing the lid ends the Wi-Fi for that game. With the launcher's
+  **Lid closed: Stay connected**, it pauses the game instead and stays
+  connected, at the cost of some battery. A 3DS sleeps either way.
 - **Achievements away from your PC:** the console checks almost every
   achievement on its own, but a few only unlock while DSiRPC is watching
   (near your PC): ones that need decimal math, which the console's second
@@ -214,8 +248,10 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 
 ## <img src="docs/images/icons/flag.svg" width="26" height="26" alt="">&nbsp;Roadmap
 
-- [ ] Full presence for more games and versions (Mario Kart DS on in my radar currently), and ordinary trainers'
+- [ ] Full presence for more games and versions (Mario Kart DS is on my radar currently), and ordinary trainers'
       names in Black and White's battles.
+- [ ] Tetris DS's next pieces in the overlay, and its other modes (Push,
+      Touch, Puzzle, Mission, Catch).
 - [ ] Location artwork for the large Discord RPC image, and more overworld states (running,
       biking, surfing) in Platinum. Leads are in [docs/research.md](docs/research.md).
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
@@ -238,8 +274,9 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
   (GPLv2+) for starting the game from it.
 - [pret/pokeplatinum](https://github.com/pret/pokeplatinum) for struct
   layouts, the save layout and the name tables.
-- [RetroAchievements](https://retroachievements.org/) code notes (game 11732)
-  and [ProjectPokemon](https://projectpokemon.org/)'s notable breakpoints for
+- [RetroAchievements](https://retroachievements.org/) code notes (Pokémon
+  Platinum, game 11732, and Tetris DS, game 9878, by Brylefi) and
+  [ProjectPokemon](https://projectpokemon.org/)'s notable breakpoints for
   memory addresses.
 - [pypresence](https://github.com/qwertyquerty/pypresence) for Discord IPC,
   [pystray](https://github.com/moses-palmer/pystray) for the tray icon,
@@ -257,5 +294,6 @@ bootstub) is GPLv2 or later, and so is the built `dsirpc-launcher.nds`,
 which includes it. The Windows download's `licenses` folder lists everything
 it bundles.
 
-Pokémon is © Nintendo / Creatures Inc. / GAME FREAK inc. This is an
-unofficial fan project and isn't affiliated with or endorsed by them.
+Pokémon is © Nintendo / Creatures Inc. / GAME FREAK inc., and Tetris is a
+trademark of The Tetris Company. This is an unofficial fan project and isn't
+affiliated with or endorsed by them.

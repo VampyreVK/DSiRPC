@@ -20,8 +20,8 @@ means "nothing new, still there". A state is Platinum's parsed dict (see
 core/parser.py; it has no 'kind'), Black or White's (core/bw_parser.py,
 {'kind': 'bw', ...}, laid out like Platinum's plus the RetroAchievements
 keys of core/other_game.py), or, for any other game, the dict from
-core/other_game.py ({'kind': 'other', ...}); is_other() and is_bw() tell
-them apart.
+core/other_game.py ({'kind': 'other', ...}; Tetris DS's also has its board
+as 'tetris', core/tetris_reader.py); is_other() and is_bw() tell them apart.
 Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
@@ -39,7 +39,7 @@ import struct
 import threading
 import time
 
-from . import bw_data, games
+from . import bw_data, games, tetris_reader
 from .bw_parser import BWParser
 from .other_game import OtherGame, ra_summary
 from .parser import PlatinumParser, TrainerMemory
@@ -110,6 +110,7 @@ class DsiSource:
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
+    TETRIS_INTERVAL = 0.2  # Tetris DS: its board read this often (two requests)
     QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
@@ -228,6 +229,8 @@ class DsiSource:
             delays.append(self.ra_game.capture_due - now)
         if games.is_platinum(self.client.game) or games.is_bw(self.client.game):
             delays.append(self.last_parse + self.parse_interval - now)
+        if games.is_tetris(self.client.game):
+            delays.append(self.TETRIS_INTERVAL)
         return max(0.05, min(delays)) if delays else None
 
     def take_events(self):
@@ -345,12 +348,23 @@ class DsiSource:
             self.last = None
             self.other = OtherGame(game, self.ra_game, self.client)
             logging.info(f"The DSi is running {games.name(game)}")
-        if not self.other.reading:
+        tetris = games.is_tetris(game)
+        if not self.other.reading and not tetris:  # (Tetris DS's board reads keep up with them)
             self.client.listen(1.0)  # keep up with the hellos, to notice a switch
         data = self.other.read()
+        if data is not None and tetris:
+            data['tetris'] = self._read_tetris()
         self.failed = data is None and self.ra_game is not None and bool(self.ra_game.runtime)
         self.last = data
         return data
+
+    def _read_tetris(self):
+        """Tetris DS's board and pieces (core/tetris_reader.py), or None
+        outside a Standard game or when the read gets no reply."""
+        try:
+            return tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT)
+        except (TimeoutError, RuntimeError):
+            return None
 
     def _read_bw(self, game):
         """Pokemon Black or White: like Platinum (battlers only during a
@@ -558,6 +572,13 @@ def diff_events(old, new):
     if is_other(old) or is_other(new):
         if is_other(old) != is_other(new) or old.get('game') != new.get('game'):
             events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
+        elif old.get('tetris') and new.get('tetris'):
+            # Tetris DS: four lines at once, a new level
+            ot, nt = old['tetris'], new['tetris']
+            if nt['lines'] - ot['lines'] == 4:
+                events.append({'type': 'tetris'})
+            if nt['level'] > ot['level'] and nt['lines'] > ot['lines']:
+                events.append({'type': 'tetris_level', 'level': nt['level']})
         return events
     if old.get('kind') != new.get('kind') or old.get('version') != new.get('version'):
         events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})

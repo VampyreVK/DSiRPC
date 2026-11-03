@@ -5,7 +5,8 @@ Pokemon Black (its own main view, with an achievement unlocking, a battle
 in the rain in Pinwheel Forest ending in a catch, Burgh at the Castelia
 Gym, and the Battle Subway, Battle Institute and an Elite Four room, each
 in another season), another game (the game card every game without its own
-parser gets, with an achievement unlocking), Pokemon Platinum (overworld, a
+parser gets, with an achievement unlocking), Tetris DS (its board, a
+Tetris down the well), Pokemon Platinum (overworld, a
 wild battle by day, a shiny in the evening rain, the rival at night (who
 switches Pokemon), a snowy route, a legendary in a cave, a level up), and
 the DSi going offline.
@@ -134,6 +135,23 @@ OTHER_SET = ra_set.RaSet({"ID": 1, "Title": "Demo Racer DS", "Achievements": [
     ], 1)]})
 OTHER_UNLOCK_AT = 6.0   # seconds into the scene that "Clean Lap" unlocks
 
+# Tetris DS (its board as core/tetris_reader.py reads it), with a set of its
+# own (made up as well; "Four at Once" unlocks with the Tetris).
+TETRIS_SET = ra_set.RaSet({"ID": 2, "Title": "Tetris DS", "Achievements": [
+    {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
+    for i, (title, desc, pts) in enumerate([
+        ("First Lines", "Clear a line in Marathon", 1),
+        ("Two by Two", "Clear two lines at once in Marathon", 2),
+        ("Four at Once", "Clear four lines at once in Marathon", 5),
+        ("Spin Doctor", "Clear a line with a T-Spin in Marathon", 10),
+        ("Level Ten", "Reach level 10 in Marathon", 10),
+        ("Marathon Runner", "Clear 200 lines in Marathon", 25),
+    ], 1)]})
+# The stack at the start, from the bottom (one letter a cell, '.' empty), the
+# well in the last column waiting for the I that comes down.
+TETRIS_STACK = ["LLLJJZZSS.", "LTTTJZZSS.", "OOTJJIIII.", "OOZZTSSLL.", ".ZZ.TT.LJ."]
+TETRIS_DROP_AT = 8.0     # the I lands (a Tetris), after falling for a few seconds
+
 # Pokemon Black, made up as well: a party, and a set (unlocked: the first
 # four; "Bug Out" unlocks during the scene).
 BW_PARTY = [
@@ -164,7 +182,7 @@ BW_UNLOCK_AT = 6.0
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
     ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
-    ('other', 16),
+    ('other', 16), ('tetris', 12),
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
     ('levelup', 8),
@@ -225,6 +243,8 @@ class DemoSource:
             return None
         if name == 'other':
             return self._other(into)
+        if name == 'tetris':
+            return self._tetris(into)
         if name == 'unova':
             return self._unova(into)
         if name == 'unova_places':
@@ -336,6 +356,31 @@ class DemoSource:
             d['league'] = {'beaten': ['Shauntal'], 'here': 'Grimsley'}
             d['misc']['clock'] = '2026-01-09 22:15'
         return d
+
+    def _tetris(self, into):
+        achs = TETRIS_SET.playable_achievements
+        earned = {1, 2}
+        board = [[c if c != '.' else 0 for c in row] for row in TETRIS_STACK] + [[0] * 10 for _ in range(15)]
+        lines, score, recent, latest = 38, 21480, [], (2, time.time() - 3 * 86400)
+        if into < TETRIS_DROP_AT:
+            # the I, upright, coming down the well
+            piece = {'kind': 'I', 'turn': 1, 'x': 8, 'y': max(2, 19 - int(into * 2.2))}
+        else:
+            board = board[4:] + [[0] * 10 for _ in range(4)]   # four lines gone
+            lines, score = lines + 4, score + 3200
+            earned.add(3)
+            recent = [(3, time.time() - (into - TETRIS_DROP_AT))]
+            latest = recent[-1]
+            piece = {'kind': 'T', 'turn': 0, 'x': 4, 'y': max(1, 19 - int((into - TETRIS_DROP_AT) * 2))}
+        return {
+            'kind': 'other', 'game': {'code': 'ATRE'}, 'title': TETRIS_SET.title, 'header_title': None,
+            'ra_set': TETRIS_SET, 'rich_presence': "Standard | Marathon | Score: 21480 | Lines Cleared: 38",
+            'progress': (len(earned), len(achs)), 'started': time.time() - into - 900,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
+            'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': 'T' if into < TETRIS_DROP_AT else 'Z',
+                       'score': score, 'lines': lines, 'level': 1 + lines // 10, 'state': 0, 'over': False,
+                       'paused': False},
+        }
 
     def _other(self, into):
         achs = OTHER_SET.playable_achievements

@@ -12,6 +12,8 @@ scenes.py - what the overlay draws on its 256x192 canvas:
     game card     any other game (overlay/gamecard.py): its name, its
                   RetroAchievements rich presence and achievement progress,
                   laid out like the party view
+    Tetris view   Tetris DS in a Standard game (overlay/tetris.py): the
+                  board, the stored block, the score and the achievements
     waiting view  shown while the DSi isn't sending data: what to do, and the
                   last game played
     toasts        short banners for events (shiny, level up, fainted, ...)
@@ -45,6 +47,7 @@ from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
+from .tetris import TetrisView
 from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
 from .unova_art import UnovaArt
 
@@ -124,6 +127,7 @@ class Overlay:
         self.font = PixelFont()
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
+        self.tetris = TetrisView(self.font, self.mini, self.card)
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
@@ -189,6 +193,10 @@ class Overlay:
                 self.toast(f"Got the {e['badges'][-1]} Badge!", sparkly=True)
             elif kind == 'dex_caught':
                 self.toast(f"Pokédex: {e['caught']} caught!")
+            elif kind == 'tetris':
+                self.toast("TETRIS!", sparkly=True)
+            elif kind == 'tetris_level':
+                self.toast(f"Level {e['level']}!")
             elif kind == 'game_changed':
                 self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
             elif kind == 'achievement':
@@ -260,6 +268,8 @@ class Overlay:
 
         if d is None:
             self.draw_waiting(canvas, snap, t_ms)
+        elif other and d.get('tetris'):
+            self.tetris.draw(canvas, d, t_ms)
         elif other:
             self.card.draw(canvas, d, t_ms)
         elif self.showing == 'party' and self.has_party:

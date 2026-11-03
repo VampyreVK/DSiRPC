@@ -578,6 +578,17 @@ table), so HP and moves show up quickly.
   unlock: this session's, else the latest RetroAchievements has a time for,
   `RaGame.latest_unlock()`), `ra_note` and `signed_in`. Pokémon Black and
   White have views of their own (below).
+- **Tetris view** (`overlay/tetris.py`): Tetris DS (`ATRE`) in a Standard
+  game (Marathon, Line Clear, VS CPU), between the game card's header and
+  footer: the stored block, then the mode, score, lines (lines left in Line
+  Clear) and level on the left; the board in the middle, the landed blocks
+  and the falling piece in the game's colours, drawn in code (the pieces
+  turn as in the Super Rotation System), hidden while the game's paused and
+  greyed after a game over; and the achievements on the right (progress,
+  the latest unlock, one to earn). A Tetris (four lines at once) and a new
+  level get a banner. In the game's menus and its other modes the game card
+  shows instead. It reads the state's `tetris` (`core/tetris_reader.py`,
+  section 9).
 - **Unova view** (`overlay/unova.py`): Pokémon Black and White's main view,
   in the games' own look, cut at runtime from the sheets in
   `Assets/PokemonBlackUI` (`overlay/unova_art.py`; no new image files). The
@@ -808,6 +819,7 @@ numbers mean.
 | `rpc/bw_presence.py` | Black and White's presence (section 6): `build_presence()`, the turf-matched image URLs (`foe_image()`, `trainer_image()`), `game_code()` and `playtime_start()` |
 | `rpc/generic_presence.py` | The presence for any game without its own parser (section 6): `from_state()` / `build_presence()` lay it out, `cover_url()` finds GameTDB box art (checked once per game), `console_icons()` / `console_icon()` the pictures in `Assets/Consoles` |
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos). `ra_summary()` builds those RetroAchievements keys; Black and White's states carry them too |
+| `core/tetris_reader.py` | Tetris DS's board, falling and stored piece, score, lines, level, mode, pause and game over, read in two requests while a Standard game is played (section 9); `DsiSource` adds it to the game card's state as `tetris` |
 | `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, decides who checks which (`_cover()`: the console the ones in the set its checker runs, the PC every frame the ones that need it most of the rest, `capture`, and the PC about once a second the remaining ones, `in_runtime`), `tick()` once a second, `capture_tick()` often, turns triggered achievements into `achievement` events (and keeps this session's in `session_unlocks`), sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way; its reports (`("report", ...)`) say which set it runs. DSiRPC's own unlocks wait in `pending_pushes()` for the console. `RaSettings` holds the `[ra]` choices |
 | `core/frame_capture.py` | `FrameCapture`: achievements checked every frame on the PC, from the DSi's per-frame capture. `use()` picks the ones that fit in its 8 watched values (each time the one needing the fewest more, the most needed of those; none with AddAddress, whose addresses move), `service()` drains the DSi's ring and runs rcheevos on every recorded frame |
 | `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `known_unlock_times()` (the same with when each was earned, for the in-game menu's list), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in. With `blank` (`--blank-ra`, `--dry-run`) it acts as if nothing were unlocked |
@@ -821,7 +833,7 @@ numbers mean.
 | `core/rcheevos.py` | ctypes binding for rcheevos (RetroAchievements' rule engine, `third_party/rcheevos/`): the runtime with rich presence and achievements (`rc_runtime_*`), and `compile_offline()`, the console's program for offline play (DSiRPC's `dsirpc_offline.c` in the library) |
 | `core/hub.py` | `StateHub`: polls a source on its own thread, keeps the latest `Snapshot` (state, `online`, status text, and `launcher`: the launcher's latest sync or "still here" while the DSi is in the launcher or starting the game picked there, from `DsiSource.launcher_state`, which the engine feeds from `ConsoleSync`'s `on_console` and `on_here`; it ends with the game's first hello, the launcher's "bye", 20 s after its last "still here", 2 minutes into starting a game that never says hello, or, for a launcher too old to say it's still there, after 15 minutes), calls listeners with events worked out by `diff_events()` (online/offline, another game, battle start/end, shiny encounter, level-up, fainted, badge, Pokédex catch, map and party changes). A state is Platinum's parsed dict, Black or White's (`is_bw()`) or another game's (`is_other()`). Sources: `DsiSource` (follows the DSi from game to game: the Platinum parser on `CPUE`, the Black/White parser on `IRBO`/`IRAO` (the game card while it doesn't recognise what it reads or you're not in the game yet, tried again every parse), `OtherGame` on anything else, and a `RaGame` for every game, ticked between parses, with its per-frame checking drained four times a second, also between the requests of a long read (`DSiClient.idle_hook`), and its unlocks pushed to the console; its events come in through `take_events()`), `FileSource` (`game=` for another game's dump). A source that returns the very same state object as last time means "nothing new" (an achievement check between parses), so `Snapshot.updated` only moves on real reads. In a battle, `DsiSource` reads only the battlers (the BattleMon fields the parser decodes, 108 bytes a battler, plus the last moves, the music and the battle pointer: two requests in a single battle) every 0.3 s and carries the rest over from the last full read. It goes back to a full read when a battler stops decoding, the music or pointer changes, five quick reads in a row get no reply, or 60 s have passed. Black and White work the same way: their quick read is each battle copy's HP and moves plus the battle flag and pointers (one request in a single battle). Outside battles they also read the player's map object, the bike byte, the zone and the battle flag every 0.3 s between full reads (one request): the facing, the position and the `gait` (standing, walking or running, by how fast the object moves: walking is 3.75 tiles a second, running 7.5; a jump of more than 25 a second is a warp; on the bike, riding or stopped), and a full read at once when the zone changes or a battle starts. |
 | `core/games.py` | Which game is running and which per-game features apply. `is_platinum()`: the Platinum parser (and so Platinum's presence, the overlay's party and battle views and `tools/dsi_status.py`) only runs on `CPUE`, or on an older rpcprobe build that doesn't report the game. `is_bw()` / `bw_version()`: Black (`IRBO`) and White (`IRAO`), US. `name()` for status lines. |
-| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, Pokémon Black (the Unova view with an achievement unlocking, a battle in the rain in Pinwheel Forest, Gym Leader Burgh at the Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four room, a season each), another game (a made-up "Demo Racer DS" with a set, for the game card) and an offline stretch |
+| `core/demo.py` | `DemoSource`: made-up states, looping through overworld, battles, a shiny, a level-up, Pokémon Black (the Unova view with an achievement unlocking, a battle in the rain in Pinwheel Forest, Gym Leader Burgh at the Castelia Gym, and the Battle Subway, Battle Institute and an Elite Four room, a season each), another game (a made-up "Demo Racer DS" with a set, for the game card), Tetris DS (a Tetris down the well, for the Tetris view) and an offline stretch |
 | `rpc/presence_connector.py` | `DiscordConnector`: the Rich Presence as a hub listener, for every game. Connects only while there's something to show, switches Discord application when the game needs another, sends only changes (at most about every 5 s), clears on offline, `set_enabled(False)` and `close()`; `status` is the tray's "Discord: ..." line |
 | `app/engine.py` | `Engine`: builds the source, hub and connector from the settings, switches the read interval with the overlay, runs the overlay window (`run_overlay_here()`, or `set_overlay()` on its own thread), writes `logs/state.json`, reloads `dsirpc.cfg` when it changes, and answers the launcher's offline sync (`ConsoleSync`; section 6, "Offline play"). `setup_logging()`, `PortInUse` |
 | `core/offline.py` | Offline play's files and messages: the unlock file (`read_unlocks()`, `count_unlocks()`), the sets (`build_set()` with `rcheevos.compile_offline()`, `split_lanes()` and `timing()` for the frame lane, `read_set()`, `state_size()`), which achievements the sets DSiRPC built check in which lane (`remember_set()`, `known_set()`, `ra/cache/console_sets.json`), the sync request and answer (section 7) |
@@ -832,7 +844,7 @@ numbers mean.
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `tetris.py` (Tetris DS's board view), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 
@@ -960,6 +972,14 @@ Version"), 1 if its letters appear in order. A set is copied to `ra/` on its
 own only with a score of 2 or more that no other set shares, and never a
 hack, homebrew or subset (RA titles with `~...~` or `[Subset`). Anything
 less clear is left to setup, which lists the candidates.
+
+### Tetris DS
+
+In a Standard game (Marathon, Line Clear, VS CPU) the board's numbers take
+the rich presence's place, with the same pictures: line 1 the mode and level
+(`Marathon · Level 5`, plus "Paused" or "Game over"), line 2 the score, the
+lines (lines to go in Line Clear) and the stored block (`Score 24,680 · 42
+lines · Holding Z`). Anywhere else in the game, its rich presence as above.
 
 ### RetroAchievements
 
@@ -2066,6 +2086,23 @@ CasualPokePlayer's black_tas_tools, rando-pokedex, SoulBuddy, yPokeStats
 (whose US party address is the French one), the libretro Action Replay
 code lists, and the RetroAchievements rich presence for game 3887 (zone
 names).
+
+### Tetris DS (USA)
+
+`core/tetris_reader.py` reads two requests every 0.2 s (`DsiSource.TETRIS_INTERVAL`)
+while Tetris DS (`ATRE`) runs, on top of the game card's state, from
+RetroAchievements' code notes for the game (by Brylefi; offsets into main
+RAM): `0x076A2C` in game (2), `0x07B3B0`-`0x07B3B2` the menu, single player
+mode and Standard mode (0, 0, then 0 Marathon, 1 Line Clear, 2 VS CPU), the
+board at `0x17DB88` (10 x 20 bytes, the bottom row first; 0 empty, 9-15 the
+Z, S, L, J, T, O and I pieces' colours), the falling piece at `0x17DD1C`
+(Z S L J T O I = 0-6), its orientation `0x17DD1D`, column `0x17DD20` and
+row `0x17DD22` (from the bottom; the centre it turns about), the next piece
+`0x17DD24` (the five after it `0x17DDA9`-`0x17DDAD`; not shown yet), the
+stored piece `0x17DD2C` (0xFF none), the state `0x17DD32` (7 game over),
+score, lines and level `0x17DD34`/`0x17DD38`/`0x17DD3C` (32-bit), and
+`0x1C4214` (pieces hidden: paused). The other modes (Push, Touch, Puzzle,
+Mission, Catch) keep their pieces elsewhere and aren't read.
 
 ---
 

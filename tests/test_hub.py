@@ -79,6 +79,21 @@ def test_a_dropout_is_waited_out_and_picked_up_quickly(hub):
     assert time.time() - t0 < 2.5 and not src.quiet_for()
 
 
+# -- Tetris DS ---------------------------------------------------------------------
+
+def test_tetris(hub):
+    from core import tetris_reader as tr
+    from test_tetris import memory
+    fake, src = hub(code="ATRE")
+    for (addr, _), data in zip(tr.RANGES, memory(board={(3, 0): 'J'}, score=99)):
+        fake.poke(addr, data)
+    d = until(src, lambda d: d.get('tetris'))
+    assert d['kind'] == 'other' and d['tetris']['board'][0][3] == 'J' and d['tetris']['score'] == 99
+    assert src.next_delay() <= src.TETRIS_INTERVAL
+    fake.poke(tr.IN_GAME, b"")                                 # back in the menus: the game card
+    until(src, lambda d: d.get('tetris') is None)
+
+
 # -- Pokemon Black and White --------------------------------------------------------
 
 def test_black_white(hub):

@@ -61,6 +61,24 @@ def until(src, cond, secs=8.0):
     raise AssertionError(f"timed out; the last state's kind: {d and d.get('kind')}")
 
 
+# -- Wi-Fi dropouts -------------------------------------------------------------------
+
+def test_a_dropout_is_waited_out_and_picked_up_quickly(hub):
+    fake, src = hub(code="ATRE")
+    until(src, lambda d: d.get('kind') == 'other')
+    fake.silent = True                                            # the hotspot drops out
+    end = time.time() + 6
+    while time.time() < end and not src.quiet_for():
+        src.read()
+    assert src.quiet_for() >= 3 and src.next_delay() == 0.0
+    t0 = time.time()
+    assert src.read() is None and time.time() - t0 < 1.5        # listening, not timing requests out
+    fake.silent = False                                           # it's back
+    t0 = time.time()
+    until(src, lambda d: d.get('kind') == 'other', secs=5)
+    assert time.time() - t0 < 2.5 and not src.quiet_for()
+
+
 # -- Pokemon Black and White --------------------------------------------------------
 
 def test_black_white(hub):

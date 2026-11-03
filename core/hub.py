@@ -62,12 +62,13 @@ class Snapshot:
     whether the game answered recently, `launcher` that the DSi is in the
     DSiRPC launcher before a game says hello (DsiSource.launcher_state)."""
 
-    def __init__(self, state=None, online=False, updated=0.0, status="starting", launcher=None):
+    def __init__(self, state=None, online=False, updated=0.0, status="starting", launcher=None, quiet=0.0):
         self.state = state
         self.online = online
         self.updated = updated      # time.time() of the last good parse
         self.status = status        # short human-readable source status
         self.launcher = launcher    # {'ip', 'game', 'title', 'at'} or None
+        self.quiet = quiet          # seconds the DSi's been quiet while online (a Wi-Fi dropout), else 0
 
 
 class DsiSource:
@@ -109,6 +110,7 @@ class DsiSource:
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
+    QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
                  ra_settings=None):
@@ -212,6 +214,8 @@ class DsiSource:
     def next_delay(self):
         if self.client.dsi_ip is None:
             return None
+        if self.quiet_for():
+            return 0.0  # straight back to listening for its hellos
         now = time.time()
         delays = []
         if self.fast_battles and self._in_battle():
@@ -297,6 +301,13 @@ class DsiSource:
             # Short wait so the hub thread can still be stopped quickly.
             if not self.client.wait_for_dsi(max_wait=1.0):
                 return None
+        if self.quiet_for():
+            # A Wi-Fi dropout: no requests (they'd only time out), just its
+            # hellos, so reading starts again the moment it's back
+            if not self.client.wait_for_hello(self.QUIET_LISTEN_S):
+                return None
+            self.last_parse = 0.0  # everything read again straight away
+            self.fast_misses = 0
         game = self.client.game
         self._switch_ra(game)
         self._capture_tick()
@@ -479,6 +490,13 @@ class DsiSource:
         data['battle'] = dict(last['battle'], mons=mons)
         return data
 
+    def quiet_for(self):
+        """Seconds the DSi has been quiet for, past the hellos' second
+        (a Wi-Fi dropout), else 0."""
+        from .dsirpc_client import HELLO_GAP_S
+        q = self.client.quiet_for()
+        return q if q >= HELLO_GAP_S else 0.0
+
     def forget_dsi(self):
         """The DSi went quiet: learn its IP again from the next hello (its
         DHCP lease can change), unless it was given with --dsi-ip. The game
@@ -617,7 +635,7 @@ class StateHub:
     def snapshot(self):
         with self._lock:
             s = self._snap
-            return Snapshot(s.state, s.online, s.updated, s.status, s.launcher)
+            return Snapshot(s.state, s.online, s.updated, s.status, s.launcher, s.quiet)
 
     def start(self):
         self._thread.start()
@@ -644,12 +662,14 @@ class StateHub:
             take = getattr(self.source, 'take_events', None)
             if take:
                 events += take()
+            quiet_for = getattr(self.source, 'quiet_for', None)
+            quiet = quiet_for() if quiet_for else 0.0
             with self._lock:
                 snap = self._snap
                 if data is not None and data is prev and snap.online:
                     # Nothing new: the source was only checking achievements.
                     snap = Snapshot(snap.state, True, snap.updated, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet)
                 elif data:
                     if not snap.online:
                         events.append({'type': 'online', 'console': getattr(self.source, 'console', 'DSi')})
@@ -657,7 +677,7 @@ class StateHub:
                     prev = data
                     last_ok = time.time()
                     snap = Snapshot(data, True, last_ok, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet)
                 else:
                     online = snap.online and (time.time() - last_ok) < self.offline_after
                     if snap.online and not online:
@@ -667,7 +687,7 @@ class StateHub:
                         if forget:
                             forget()
                     snap = Snapshot(snap.state, online, snap.updated, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet if online else 0.0)
                 self._snap = snap
 
             for fn in list(self._listeners):

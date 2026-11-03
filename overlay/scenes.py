@@ -57,6 +57,7 @@ SLOT_POS = [(3, 18), (129, 18), (3, 66), (129, 66), (3, 114), (129, 114)]
 WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x464, 0x470
 
 TOAST_MS = 3500
+RECONNECTING_S = 3.0  # the DSi quiet this long (a Wi-Fi dropout): the reconnecting sign shows
 WIPE_MS = 700
 
 # Move types, categories and PP: Black and White's table holds every Gen IV
@@ -272,6 +273,8 @@ class Overlay:
 
         top = self.layer or canvas
         self.draw_toasts(top, t_ms)
+        if d is not None and getattr(snap, 'quiet', 0.0) >= RECONNECTING_S:
+            self.draw_reconnecting(top, t_ms)
         if wipe is not None:
             ui.wipe(top, wipe)
 
@@ -1200,6 +1203,14 @@ class Overlay:
             ui.dsi_wifi(canvas, ix, iy, on=ui.THEME['hp_green'])
         else:
             ui.dsi_wifi(canvas, ix, iy, lit=1 + (t_ms // 400) % 4, off=(46, 56, 70))
+
+    def draw_reconnecting(self, canvas, t_ms):
+        """A small Wi-Fi sign under the header's right end, its arcs lighting
+        up one by one as in the waiting view, while the DSi's gone quiet (a
+        Wi-Fi dropout) but isn't given up on yet."""
+        x, y = W - 18, HEADER_H + 2
+        ui.panel(canvas, (x, y, 15, 12), fill=(22, 27, 33), border=(61, 75, 95), hi=(48, 62, 79), lo=(17, 21, 27))
+        ui.dsi_wifi(canvas, x + 2 - 12, y + 2 - 6, lit=1 + (t_ms // 300) % 4, off=(46, 56, 70))
 
     # -- toasts ----------------------------------------------------------------
 

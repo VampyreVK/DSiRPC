@@ -198,6 +198,7 @@ class DSiClient:
         self.last_hello = None
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
+        self.heard_at = None  # time.time() the DSi was last heard from (a hello or a reply)
         self._tick_report_due = 0.0  # when to log the console's VBlank tick next (_tick_report)
         self.ach = AchReport()
         self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
@@ -207,6 +208,8 @@ class DSiClient:
 
     def _handle_other(self, data, addr):
         """Anything that isn't the reply we're waiting for (mostly hellos)."""
+        if data.startswith(b"DSiRPC") and addr[0] == self.dsi_ip:
+            self.heard_at = time.time()
         if data.startswith(b"DSiRPC hello"):
             self.last_hello = data.decode(errors="replace")
             self._dropout_report(self.last_hello)
@@ -215,6 +218,7 @@ class DSiClient:
             self._tick_report()
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
+                self.heard_at = time.time()
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
             elif self.verbose:
                 print(f"  hello: {self.last_hello}")
@@ -275,6 +279,23 @@ class DSiClient:
         current while no requests are being sent."""
         _listen_until(self, time.time() + seconds)
 
+    def quiet_for(self):
+        """Seconds since the DSi was last heard from (0 before it's found):
+        over HELLO_GAP_S, its Wi-Fi has dropped out (it says hello once a
+        second whatever else it's doing)."""
+        return time.time() - self.heard_at if self.heard_at else 0.0
+
+    def wait_for_hello(self, max_wait):
+        """Takes in what comes for up to `max_wait` seconds, back as soon as
+        the DSi says hello. True if it did."""
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            before = self.heard_at
+            _listen_until(self, min(deadline, time.time() + 0.1))
+            if self.heard_at != before:
+                return True
+        return False
+
     def wait_for_dsi(self, max_wait=15.0):
         """Block until a hello tells us the DSi's IP (if not given)."""
         deadline = time.time() + max_wait
@@ -309,6 +330,7 @@ class DSiClient:
                     _, seq, count, status = struct.unpack(">cHBB", data[:5])
                     if seq != self.seq:
                         continue  # late reply to an older request
+                    self.heard_at = time.time()
                     if status != 0:
                         raise Refused(status, count)
                     return count, data[5:]

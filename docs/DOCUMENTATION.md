@@ -407,6 +407,11 @@ However it's started, DSiRPC behaves the same way:
   isn't running, or is closed later, it keeps retrying and logs the error
   once.
 - It only sends to Discord when the presence actually changes.
+- When the DSi's hellos stop for 3 s (a Wi-Fi dropout, a flaky hotspot), it
+  stops sending requests (they'd only time out) and just listens, so reading
+  starts again the moment the next hello arrives. The overlay window shows a
+  small Wi-Fi sign under the header's right end meanwhile, its arcs lighting
+  up one by one.
 - After about 30 s without data (game closed, DSi off), it clears the
   presence, disconnects from Discord and goes back to waiting for a hello
   (unless `--dsi-ip` was given), so a new IP from the router is picked up.

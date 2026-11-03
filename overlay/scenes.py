@@ -1222,7 +1222,8 @@ class Overlay:
         up one by one as in the waiting view, while the DSi's gone quiet (a
         Wi-Fi dropout) but isn't given up on yet."""
         x, y = W - 18, HEADER_H + 2
-        ui.panel(canvas, (x, y, 15, 12), fill=(22, 27, 33), border=(61, 75, 95), hi=(48, 62, 79), lo=(17, 21, 27))
+        # (the highlight a shade off the fill: brighter, it read as a border twice as thick)
+        ui.panel(canvas, (x, y, 15, 12), fill=(22, 27, 33), border=(61, 75, 95), hi=(30, 37, 46), lo=(17, 21, 27))
         ui.dsi_wifi(canvas, x + 2 - 12, y + 2 - 6, lit=1 + (t_ms // 300) % 4, off=(46, 56, 70))
 
     # -- toasts ----------------------------------------------------------------

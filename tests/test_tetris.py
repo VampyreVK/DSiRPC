@@ -82,21 +82,26 @@ def test_a_tetris_and_a_new_level_are_events():
 
 def test_the_demo_loop_ends_where_it_starts():
     from core import demo
-    steps, flash_at, length = demo.tetris_loop()
-    start = demo.tetris_board(0)[0]
-    t = 0.0
+    drops, flash_at, length = demo.tetris_loop()
+    start, _, _, held = demo.tetris_board(0)
+    t, holds = 0.0, [held]
     while t < length:                                             # a frame at a time
-        board, piece, _ = demo.tetris_board(t)
+        board, piece, _, hold = demo.tetris_board(t)
         if piece:                                                 # inside the board's columns, never in a block
             for dx, dy in tr.cells(piece['kind'], piece['turn']):
                 c, r = piece['x'] + dx, piece['y'] + dy
                 assert 0 <= c < tr.COLS and (r >= tr.ROWS or not board[r][c]), (t, piece)
-        t += 0.04
-    end, piece, flashing = demo.tetris_board(length - 0.01)
-    assert piece is None and flashing == [0, 1, 2, 3]
-    assert all(all(end[r]) for r in range(4))                    # four full rows: a Tetris
-    assert end[4:8] == start[:4] and not any(any(row) for row in end[8:])   # then the start again
-    assert all(not row[9] for row in start) and sorted(k for k, _, _ in demo.TETRIS_PIECES) == sorted("LTZSOTZJI")
+        if hold != holds[-1]:
+            holds.append(hold)
+        t += 0.02
+    assert holds == ['T', 'I', 'T']                               # the I in and out of hold, for the Tetris
+    end, piece, flashing, hold = demo.tetris_board(length - 0.01)
+    assert piece is None and len(flashing) == 4 and all(all(end[r]) for r in flashing)   # a Tetris
+    assert [r for r in range(tr.ROWS) if all(end[r])] == flashing  # (the rows below have holes)
+    kept = [row for r, row in enumerate(end) if r not in flashing]
+    assert kept + [[0] * tr.COLS] * 4 == start and hold == held   # then the start again
+    assert any(any(row) for row in start[flashing[-1] + 1:])      # with pieces above what clears
+    assert sum(len(d['turns']) > 1 for d in drops) >= 3           # some turning as they fall
 
 
 def test_the_view_draws():
@@ -110,14 +115,14 @@ def test_the_view_draws():
         canvas = pygame.Surface((256, 192), 0, 32)
         overlay = Overlay(SpriteBank("Assets"))
         source = demo.DemoSource()
-        steps = demo.tetris_loop()[0]
+        well = demo.tetris_loop()[0][-1]
         scene_at = sum(d for _, d in demo.SCENES[:[s for s, _ in demo.SCENES].index('tetris')])
-        source.t0 = time.time() - scene_at - steps[-1][0] - 0.2      # just after the last piece, the I, comes in
+        source.t0 = time.time() - scene_at - well['swap_at'] - 0.2  # just after the I comes out of hold
         d = source.read()
         p = d['tetris']['piece']
         assert p['kind'] == 'I' and p['turn'] == 1                   # the I coming down the well
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 0, 16)
-        x, y = BOARD_X + 9 * CELL + 3, BOARD_Y + (19 - p['y']) * CELL + 3
+        x, y = BOARD_X + 9 * CELL + 3, BOARD_Y + (19 - (p['y'] - 2)) * CELL + 3   # its lowest cell
         assert canvas.get_at((x, y))[:3] == COLORS['I']
         d['tetris'] = dict(d['tetris'], paused=True)
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 100, 16)

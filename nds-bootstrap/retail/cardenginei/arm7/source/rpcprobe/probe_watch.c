@@ -182,6 +182,13 @@ static void ringArm9(void) {
 	}
 }
 
+void ProbeWatch_Hold(int on) {
+	volatile DsirpcWatchBlock *b = arm9Block;
+	if (!b) return;
+	b->hold = on ? DSIRPC_WATCH_HOLD : 0;
+	if (on) ringArm9();
+}
+
 void ProbeWatch_Tick(void) {
 	volatile DsirpcWatchBlock *b = arm9Block;
 	if (!b) {

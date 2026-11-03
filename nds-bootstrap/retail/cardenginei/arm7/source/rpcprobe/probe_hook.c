@@ -36,16 +36,14 @@
 // game. The checker and its saves carry on, so it's offline play from then
 // on: unlocks are sent at the next sync.
 //
-// Unless the launcher's "Lid closed: Stay connected" is on
-// (DSIRPC_STAY_CONNECTED in nds-bootstrap.ini, rpcFlags bit 0): then the
-// bootloader points the game's ARM7 SVC_Sleep at Probe_SleepWait(), so the
-// game pauses and turns its screens and sound off as it sleeps, but instead
-// of the console sleeping, rpcprobe waits awake for the lid to open, the
-// Wi-Fi still connected ("DSiRPC lid pause"), and the game carries on.
-// Where that call can't be found, nds-bootstrap's sleep mode is off instead:
-// the game carries on with the lid closed, as a Wi-Fi game does, and the lid
-// turns the screens' backlights and the volume off until it opens
-// (Probe_LidDark()).
+// Unless the launcher's "Lid closed: Stay connected" is on: then
+// nds-bootstrap's sleep mode is off (DSIRPC_STAY_CONNECTED in
+// nds-bootstrap.ini), so the game never sleeps, and the lid closing pauses
+// it the way nds-bootstrap's in-game menu does instead (lidPause()): the
+// screens' backlights and the volume off (Probe_LidDark()), the game's ARM9
+// held in its IPC interrupt (ProbeWatch_Hold(), DSiRPC's ARM9 half), and the
+// ARM7 waiting here in the VBlank until the lid opens. The Wi-Fi stays
+// connected ("DSiRPC lid pause"), so DSiRPC picks up as soon as it opens.
 //
 // Achievement LED: while achievements unlocked this game haven't been seen
 // in nds-bootstrap's in-game menu yet, the LED of TWiLight's "ROM read LED"
@@ -90,8 +88,6 @@ enum { HO_LOAD = 0, HO_PROBE = 1, HO_RUN = 2, HO_FAILED = 3, HO_RESTORE = 4, HO_
 
 extern u8 consoleModel; // card_engine_header.s: 0-1 = DSi, 2-3 = 3DS
 extern u32 valueBits;   // card_engine_header.s
-extern u32 rpcFlags;    // card_engine_header.s, from the loader
-#define RPC_SLEEP_HOOKED 2    // rpcFlags: the game's SVC_Sleep goes to Probe_SleepWait()
 #define VB_SLEEP_MODE BIT(17) // nds-bootstrap's sleep mode (off: "Stay connected")
 extern int writePowerManagement(int reg, int command); // libnds/spi.c
 #define PM_BACKLIGHTS 0x0C    // the PM's control register (0): both screens' backlights
@@ -388,15 +384,6 @@ void Probe_LidClosed(void) {
 	hoStage = HO_OFF;
 }
 
-int Probe_SleepWait(void) {
-	// Only while the launcher's connection is up: else the real sleep (a DSi
-	// whose launcher went offline sleeps fine)
-	if (!(rpcFlags & RPC_SLEEP_HOOKED) || !rpcProbeHandoff.valid || hoStage == HO_LOAD || hoStage == HO_OFF) return 0;
-	if (hoStage == HO_RUN) lidSend(1);   // (running: the chip's back in DSi mode)
-	while (HO_REG_KEYXY & 0x80) swiDelay(0x20000);
-	return 1;
-}
-
 void Probe_LidDark(int closed) {
 	static u8 dark, pm, volume;
 	if (!closed == !dark) return;
@@ -410,6 +397,19 @@ void Probe_LidDark(int closed) {
 		writePowerManagement(0, pm);
 		i2cWriteRegister(I2C_PM, I2CREGPM_VOL, volume);
 	}
+}
+
+static void lidPause(void) {
+	Probe_LidDark(1);
+	if (hoStage == HO_RUN) lidSend(1);
+#if RPCPROBE_REQUESTS
+	ProbeWatch_Hold(1);
+#endif
+	while (HO_REG_KEYXY & 0x80) swiDelay(0x20000);
+#if RPCPROBE_REQUESTS
+	ProbeWatch_Hold(0);
+#endif
+	Probe_LidDark(0);
 }
 
 void Probe_MenuOpened(void) {
@@ -448,10 +448,12 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	u16 lineStart = HO_REG_VCOUNT & 0x1FF;
 	int sentThisTick = 0;
 	// DSi: the lid closing turns the Wi-Fi off (the lid rule at the top), or
-	// the screens and the sound when the game doesn't sleep
+	// with "Stay connected" pauses the game until it opens
 	int lidClosed = consoleModel < 2 && (HO_REG_KEYXY & 0x80);
-	if (!(valueBits & VB_SLEEP_MODE)) Probe_LidDark(lidClosed);
-	else if (lidClosed && !(rpcFlags & RPC_SLEEP_HOOKED)) Probe_LidClosed();
+	if (lidClosed) {
+		if (!(valueBits & VB_SLEEP_MODE)) lidPause();
+		else Probe_LidClosed();
+	}
 #if RPCPROBE_REQUESTS
 	// Did the ARM9 write its cache back since the last VBlank (the samples
 	// below say so), and is OS_Halt patched (if not, ask)

@@ -82,6 +82,12 @@ int ProbeWatch_Idle(u16 maxLines, int (*romWaiting)(void));
 // Call first thing every VBlank: notes whether a write-back came since the
 // last VBlank (ProbeWatch_Fresh(): 1 if one did, 0 if not or there's no
 // ARM9 half), and asks the ARM9 for the patch while it isn't in.
+// Holds the game's ARM9 in its IPC interrupt (DSiRPC's ARM9 half,
+// dsirpc_watch.c) until called again with 0: the game pauses while the lid
+// is closed with "Stay connected" (probe_hook.c). Nothing before the ARM9's
+// block has been found.
+void ProbeWatch_Hold(int on);
+
 void ProbeWatch_Tick(void);
 int ProbeWatch_Fresh(void);
 

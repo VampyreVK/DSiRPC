@@ -129,7 +129,6 @@ extern u32 ramDumpCluster;
 extern u32 srParamsFileCluster;
 extern u32 screenshotCluster;
 extern u32 rpcClusters[3]; // DSiRPC
-extern u32 rpcFlags;       // DSiRPC
 extern u32 apFixOverlaysCluster;
 extern u32 pageFileCluster;
 extern u32 manualCluster;
@@ -2455,7 +2454,6 @@ int arm7_main(void) {
 			getRomPartLocation(ndsHeader, !laterSdk, isSdk5(moduleParams), scfgBios9i())
 		);
 		tonccpy(((cardengineArm7*)ce7Location)->rpcClusters, rpcClusters, sizeof(rpcClusters)); // DSiRPC: for rpcprobe
-		((cardengineArm7*)ce7Location)->rpcFlags = rpcFlags; // DSiRPC: and whether the game's sleep goes to it
 		if (errorCode == ERR_NONE) {
 			// dbg_printf("Card hook 7 successful\n\n");
 		} else {

@@ -116,12 +116,11 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
 - `LID_CLOSED`: `sleep` (the default) or `connected`. Written to
   `nds-bootstrap.ini` as `DSIRPC_STAY_CONNECTED` each time a game starts
   (`source/bootstrap_ini.c`), which only DSiRPC's nds-bootstrap reads: on a
-  DSi, `connected` points the game's sleep at rpcprobe, so the game pauses
-  as usual but the console waits awake for the lid to open, the Wi-Fi still
-  on (a DSi that sleeps with the Wi-Fi on switches itself off); games whose
-  sleep can't be found don't sleep at all instead, with the screens and the
-  sound off until the lid opens. A 3DS sleeps either way, and keeps its
-  Wi-Fi.
+  DSi, `connected` turns its sleep mode off, so closing the lid pauses the
+  game (both processors held, as nds-bootstrap's in-game menu does) with the
+  screens and the sound off, the console awake and its Wi-Fi on, until the
+  lid opens (a DSi that sleeps with the Wi-Fi on switches itself off). A 3DS
+  sleeps either way, and keeps its Wi-Fi.
 - `LOOK`: `modern` or `classic` ([below](#the-modern-look)). It changes as
   soon as it's picked on the settings screen.
 - `SOUNDS`: `on` or `off`, the modern look's menu sounds (the classic look

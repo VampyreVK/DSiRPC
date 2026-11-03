@@ -1800,21 +1800,18 @@ taken out on 2026-10-30).
   it's open, calls `Probe_LidClosed()` before its own sleep.
   **Unless the launcher's "Lid closed: Stay connected" is on**
   (`DSIRPC_STAY_CONNECTED = 1` in `nds-bootstrap.ini`, which only our build
-  reads, on a DSi: the loader's `rpcFlags` bit 0). Then the bootloader points
-  the game's ARM7 `SVC_Sleep` (`swi 0x070000; bx lr`, found anywhere in the
-  ARM7 binary) at the engine's `newSwiSleep` (`patchSwiSleep()`: an `ldr pc`
-  and its address, `rpcFlags` bit 1), so the game pauses and turns its own
-  screens and sound off as it goes to sleep, but at the moment the console
-  would sleep, `Probe_SleepWait()` sends "DSiRPC lid pause" and waits awake
-  for the lid to open, the Wi-Fi still connected, and the game carries on
-  (the in-game menu calls it before its own sleep too). With the
-  launcher's connection down it says to sleep after all. Where that call
-  can't be found (a Thumb ARM7, say), the sleep mode goes off instead, so
-  nds-bootstrap's existing patch keeps the game from sleeping at all, as a
-  Wi-Fi game would; the lid then turns the screens' backlights (the PM's
-  control register, as nds-bootstrap's menu does) and the volume (the MCU,
-  over I2C) off, and back as they were when it opens (`Probe_LidDark()`,
-  from the VBlank and the in-game menu's loop).
+  reads): on a DSi our nds-bootstrap then turns its sleep mode off
+  (`conf_sd.cpp`), so its existing patch keeps the game from ever sleeping,
+  and the lid closing pauses the game the way nds-bootstrap's in-game menu
+  does instead (`lidPause()`): the screens' backlights (the PM's control
+  register, as the menu does) and the volume (the MCU, over I2C) go off
+  (`Probe_LidDark()`), the game's ARM9 holds in its IPC interrupt (the
+  watch block's `hold` word, rung on rpcprobe's doorbell: DSiRPC's ARM9 half,
+  `dsirpc_watch.c`), and the ARM7 waits in the VBlank until the lid opens,
+  then lets go and puts the screens and the volume back. It works for any
+  game, whatever its own sleep code. The Wi-Fi stays connected ("DSiRPC lid
+  pause"); with the menu open, its loop only turns the screens and the
+  sound off, since the game's paused already.
 - **The achievement LED only changes from the VBlank.** On a DSi, the LED
   TWiLight's ROM read LED setting picks (`romRead_LED`: 1 Wi-Fi, 2 power,
   3 camera, 0 none) pulses while achievements unlocked this game haven't

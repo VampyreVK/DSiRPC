@@ -92,16 +92,11 @@ void inGameMenu(void) {
 				writePowerManagement(PM_CONTROL_REG, PM_LED_CONTROL(1));
 
 				#if !defined(ALTERNATIVE) && !defined(TWLSDK)
-				if (!Probe_SleepWait()) { // DSiRPC: "Stay connected" waits awake instead
-					Probe_LidClosed(); // DSiRPC: a DSi sleeping with Wi-Fi connected shuts off
+				Probe_LidClosed(); // DSiRPC: a DSi sleeping with Wi-Fi connected shuts off
+				#endif
 
-					// Power down till we get our interrupt.
-					swiSleep();
-				}
-				#else
 				// Power down till we get our interrupt.
 				swiSleep();
-				#endif
 
 				while (REG_EXTKEYINPUT & BIT(7)) {
 					//100ms

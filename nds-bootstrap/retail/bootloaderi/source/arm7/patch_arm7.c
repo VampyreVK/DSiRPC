@@ -206,31 +206,6 @@ static void patchSwiHalt(const cardengineArm7* ce7, const tNDSHeader* ndsHeader,
     dbg_printf("\n\n");
 }
 
-extern u32 rpcFlags; // load_crt0.s
-
-// DSiRPC: with the launcher's "Stay connected" (rpcFlags bit 0, a DSi only),
-// the game's ARM7 SVC_Sleep (swi 0x070000; bx lr) goes to rpcprobe's
-// Probe_SleepWait() (the engine's newSwiSleep), which waits awake for the
-// lid to open with the Wi-Fi still connected: a DSi that sleeps with it
-// connected switches itself off. The game still pauses, and turns its
-// screens and sound off, itself. Where that call can't be found (a Thumb
-// ARM7, say), the game doesn't sleep at all instead (the sleep mode off;
-// rpcprobe then turns the screens and the sound off while the lid is
-// closed). The pattern is ARM code, so a match is ARM code.
-static void patchSwiSleep(const cardengineArm7* ce7, const tNDSHeader* ndsHeader) {
-	static const u32 swiSleepSignature[2] = {0xEF070000, 0xE12FFF1E};
-	if (!(rpcFlags & 1)) return;
-	u32* offset = ce7->rpcSleepHook ? findOffset((u32*)ndsHeader->arm7destination, newArm7binarySize, swiSleepSignature, 2) : NULL;
-	if (offset) {
-		offset[0] = 0xE51FF004; // ldr pc, [pc, #-4]
-		offset[1] = ce7->rpcSleepHook;
-		rpcFlags |= 2;
-		dbg_printf("swiSleep hooked\n");
-	} else {
-		valueBits3 &= ~BIT(2); // no sleep mode
-	}
-}
-
 void patchScfgExt(const tNDSHeader* ndsHeader) {
 	if (ndsHeader->unitCode == 0) return;
 
@@ -872,8 +847,6 @@ u32 patchCardNdsArm7(
 	if (patchOffsetCache.srlStartOffset9) {
 		patchSrlStart(ce7, ndsHeader);
 	}
-
-	patchSwiSleep(ce7, ndsHeader); // DSiRPC: before the sleep patch, which follows the sleep mode
 
 	if (a7GetReloc(ndsHeader, moduleParams)) {
 		patchSleepInputWrite(ce7, ndsHeader, moduleParams, buttonsRemapped);

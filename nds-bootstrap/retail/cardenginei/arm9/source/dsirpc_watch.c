@@ -93,6 +93,9 @@ void dsirpcWatchService(void) {
 	// The ARM7 writes the first line straight to RAM; drop any copy the
 	// cache still holds. Never dirty here, since this side never writes it.
 	DC_InvalidateRange(b, 32);
+	// The lid closed with "Stay connected": the game holds here, in the
+	// interrupt, until the ARM7 lets go as the lid opens (probe_hook.c)
+	while (b->hold == DSIRPC_WATCH_HOLD) DC_InvalidateRange(b, 32);
 	u16 ask = b->ask;
 	if (ask == served) return;
 	served = ask;

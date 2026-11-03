@@ -36,13 +36,6 @@ void Probe_LidClosed(void);
 // calls it itself; the in-game menu does while it's open.
 void Probe_LidDark(int closed);
 
-// "Stay connected" with the game's sleep hooked (the bootloader's
-// patchSwiSleep(), the engine's newSwiSleep): while the launcher's
-// connection is up, waits awake for the lid to open, the Wi-Fi still
-// connected, and returns 1; else returns 0, for the real sleep. The in-game
-// menu calls it before its own sleep too.
-int Probe_SleepWait(void);
-
 // nds-bootstrap's in-game menu opened: the achievements unlocked so far
 // count as seen, so the achievement LED stops pulsing (probe_hook.c), and
 // the menu can show them (probe_ach.c, dsirpc_ach_menu.h).

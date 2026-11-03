@@ -264,12 +264,11 @@ Hold **L + R** on the launcher's main screen. The settings are kept in
 - **Lid closed** (for a DSi): **Sleep** (the default) or **Stay connected**.
   A DSi can't sleep with its Wi-Fi on, so with **Sleep** closing the lid ends
   the Wi-Fi for that game: start it from the launcher again to reconnect to
-  DSiRPC. With **Stay connected**, the game pauses and goes dark as usual,
-  but the console stays awake with its Wi-Fi on instead of sleeping, so
-  DSiRPC picks up again as soon as you open it. That uses more battery
-  than sleeping. (A few games can't be paused this way; they keep running
-  with the screens and the sound off instead.) A 3DS keeps its Wi-Fi while
-  it sleeps, so it sleeps either way.
+  DSiRPC. With **Stay connected**, closing the lid pauses the game with the
+  screens and the sound off, but the console stays awake with its Wi-Fi on,
+  so DSiRPC picks up again as soon as you open it. That uses more battery
+  than sleeping. A 3DS keeps its Wi-Fi while it sleeps, so it sleeps either
+  way.
 - **Look:** modern (the tiles, the game list with icons, the battery on the
   top screen) or classic (the original text screens, with a file browser
   for picking games). It changes as soon as you pick it.

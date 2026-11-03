@@ -10,7 +10,6 @@ import time
 import pytest
 
 from core import hub, tetris_reader as tr
-from rpc import generic_presence
 
 
 def memory(mode=0, board=None, piece=4, turn=0, x=4, y=18, hold=0xFF, state=0, score=1234, lines=12, level=2,
@@ -61,6 +60,8 @@ def test_the_pieces_turn_as_the_game_turns_them():
 
 
 def test_discord_shows_the_numbers():
+    # (rpc/ and pypresence aren't in the Tests workflow's checkout: skipped there)
+    generic_presence = pytest.importorskip("rpc.generic_presence", exc_type=ImportError)
     t = tr.parse(memory(score=24680, lines=42, level=5, hold=tr.PIECES.index('Z')))
     p = generic_presence.from_state({'game': {'code': 'ATRE'}, 'title': "Tetris DS", 'tetris': t,
                                      'rich_presence': "Standard | Marathon"}, check_images=False)

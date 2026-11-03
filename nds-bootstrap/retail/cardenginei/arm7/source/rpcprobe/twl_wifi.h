@@ -70,6 +70,15 @@ int TwlWifi_TxCmd53Errors(void);
 // they never arrive (the chip didn't complain, but the PC keeps asking).
 void TwlWifi_TxGiveUpCmd53(void);
 
+// Makes the chip ride out a few seconds without the access point (a flaky
+// hotspot) instead of dropping it, so the same connection carries on once
+// it's back: no rejoining, no keys. Raises how long the chip goes without
+// beacons before counting the access point as lost (about 5 s), and how long
+// it then keeps trying before it gives up (60 s; the launcher's DSWiFi set
+// 5). Two WMI commands; call once, at the start. Returns 0 if the chip took
+// both, negative at the first it didn't.
+int TwlWifi_KeepThroughGaps(void);
+
 // Turns the connection off for good, the way the launcher does when it
 // goes offline (DSWiFi's Wifi_DisconnectAP() then Wifi_DisableWifi()): asks
 // the chip to leave the access point (WMI_DISCONNECT_CMD), then turns off

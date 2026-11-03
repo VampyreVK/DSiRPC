@@ -171,3 +171,23 @@ def test_watch_prints_what_changes(dsi, monkeypatch, capsys):
     after_settling = out.split("Go!", 1)[1].rsplit("value(s) changed", 1)[0]
     assert "0x0224F930" not in after_settling and "0x0224F925" in after_settling   # the timer muted
     assert dc.parse_values("0-3,0x40") == {0, 1, 2, 3, 64}
+
+
+def test_dropouts_are_logged(monkeypatch, caplog):
+    client = dc.DSiClient(port=free_port())
+    now = [1000.0]
+    monkeypatch.setattr(dc.time, "time", lambda: now[0])
+    hello = lambda n: (f"DSiRPC hello #{n} gc=IRBO rep=0 vb=3".encode(), ("127.0.0.2", 4244))
+    with caplog.at_level("INFO"):
+        client._handle_other(*hello(10))
+        now[0] += 1
+        client._handle_other(*hello(11))
+        assert not caplog.records                                 # once a second: nothing to say
+        now[0] += 6
+        client._handle_other(*hello(12))                          # a hotspot dropout it rode out
+        assert "again after 6 s" in caplog.records[-1].message
+        caplog.clear()
+        now[0] += 30
+        client._handle_other(*hello(0))                           # a new game: not a dropout
+        assert not caplog.records
+    client.sock.close()

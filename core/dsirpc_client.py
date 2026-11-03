@@ -62,6 +62,7 @@ import time
 MAX_RANGES = 16
 MAX_DATA = 192
 MAX_WATCHES = 8
+HELLO_GAP_S = 3.0         # hellos come once a second: this long without one is a dropout (_dropout_report)
 MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
 REC_ARM7 = 0x8000         # in a record's scanline field: no ARM9 write-back since the record before
@@ -208,6 +209,7 @@ class DSiClient:
         """Anything that isn't the reply we're waiting for (mostly hellos)."""
         if data.startswith(b"DSiRPC hello"):
             self.last_hello = data.decode(errors="replace")
+            self._dropout_report(self.last_hello)
             self.hellos.append((time.time(), self.last_hello))
             self.game = game_from_hello(self.last_hello)
             self._tick_report()
@@ -226,6 +228,18 @@ class DSiClient:
                          "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def _dropout_report(self, text):
+        """Logs the console's Wi-Fi riding out a dropout (a flaky hotspot,
+        rpcprobe's TwlWifi_KeepThroughGaps()): its hellos (once a second)
+        coming back after a gap, in the same game. One whose chip gave up
+        on the hotspot stays quiet until a game is started from the launcher
+        again."""
+        now = time.time()
+        last = self.hellos[-1] if self.hellos else None
+        # (a higher #N: the same game, not a new one)
+        if last and now - last[0] >= HELLO_GAP_S and _hello_number(text) > _hello_number(last[1]):
+            logging.info(f"Console: heard from it again after {now - last[0]:.0f} s without hellos")
 
     def _tick_report(self):
         """Once a minute, what rpcprobe cost the console's ARM7 (its hellos'
@@ -417,6 +431,12 @@ class DSiClient:
 
 def _hello_fields(text):
     return {k: v for k, v in re.findall(r"(\w+)=(\S+)", text)}
+
+
+def _hello_number(text):
+    """A hello's #N (counts up from 0 as a game runs), -1 if it has none."""
+    m = re.match(r"DSiRPC hello #(\d+)", text)
+    return int(m.group(1)) if m else -1
 
 
 def split_values(raw, sizes):

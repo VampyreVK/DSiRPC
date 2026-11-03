@@ -4,8 +4,9 @@
 // source/arm7/twl/sdio.twl.c, the byte-wise mailbox write path of
 // card.twl.c (wifi_card_write_func_byte / wifi_card_mbox0_send_packet /
 // wifi_card_mbox0_sendbytes), mbox_hdr_tx_data_packet from
-// common/common_twl_defs.h, and for TwlWifi_Shutdown(), wmi_disconnect_cmd()
-// and wifi_card_deinit().
+// common/common_twl_defs.h, for TwlWifi_Shutdown(), wmi_disconnect_cmd()
+// and wifi_card_deinit(), and for TwlWifi_KeepThroughGaps(), the
+// WMI_SET_DISCONNECT_TIMEOUT_CMD from wmi_scan_mode_start().
 //
 // Packets are moved with CMD53 block transfers (RPCPROBE_RX_CMD53 and
 // RPCPROBE_TX_CMD53, from the non-NDMA path of DSWiFi's
@@ -99,6 +100,16 @@
 #define MBOX_TYPE_WMI       0x01
 #define MBOX_REQACK         0x01
 #define WMI_DISCONNECT_CMD  0x0003
+// Used by TwlWifi_KeepThroughGaps(). Beacon miss: how long without the
+// access point's beacons (u16 time in TUs of 1.024 ms, u16 beacons) before
+// the chip counts it as lost; 5000 TUs and 50 beacons are the most
+// Atheros' AR6000-family drivers ask for. Disconnect timeout (u8 seconds): how long after
+// that it keeps trying to get it back before it gives up (DSWiFi sets 5).
+#define WMI_SET_BMISS_TIME_CMD          0x000C
+#define WMI_SET_DISCONNECT_TIMEOUT_CMD  0x000D
+#define KEEP_BMISS_TUS      5000
+#define KEEP_BMISS_BEACONS  50
+#define KEEP_DISCONNECT_S   60
 
 // Mailbox packet: 6-byte mailbox header + 16 bytes of data header before
 // the LLC/SNAP header. Rounded up to 0x80-byte blocks, like DSWiFi.
@@ -398,20 +409,33 @@ void TwlWifi_TxGiveUpCmd53(void) {
 	txMode = 52;
 }
 
-int TwlWifi_Shutdown(void) {
-	rxActive = 0; // a half-read packet is left in the chip
-
-	// WMI_DISCONNECT_CMD, as DSWiFi's wmi_disconnect_cmd(): the mailbox
-	// header (2 bytes long), then the command's id. Sent with CMD52, the
-	// slow but surest way, since it only happens once.
+// A WMI command with `argLen` bytes of parameters (at most 4, from `args`,
+// little endian), as DSWiFi's wmi_send_pkt(): the mailbox header (its length
+// counts the id and the parameters), then the command's id. Sent with CMD52,
+// the slow but surest way, since these only happen once.
+static int wmiCommand(u16 id, u32 args, u8 argLen) {
 	u8 *p = txBuf;
 	memset(p, 0, MBOX_BLOCK);
 	p[0] = MBOX_TYPE_WMI;
 	p[1] = MBOX_REQACK;
-	p[2] = 2;
-	p[6] = WMI_DISCONNECT_CMD & 0xFF;
-	p[7] = WMI_DISCONNECT_CMD >> 8;
-	int r = mboxWrite(p, MBOX_BLOCK, 0);
+	p[2] = 2 + argLen;
+	p[6] = id & 0xFF;
+	p[7] = id >> 8;
+	for (int i = 0; i < 4; i++) p[8 + i] = (u8)(args >> (8 * i));
+	return mboxWrite(p, MBOX_BLOCK, 0);
+}
+
+int TwlWifi_KeepThroughGaps(void) {
+	int r = wmiCommand(WMI_SET_BMISS_TIME_CMD, KEEP_BMISS_TUS | (KEEP_BMISS_BEACONS << 16), 4);
+	if (r >= 0) r = wmiCommand(WMI_SET_DISCONNECT_TIMEOUT_CMD, KEEP_DISCONNECT_S, 1);
+	return r;
+}
+
+int TwlWifi_Shutdown(void) {
+	rxActive = 0; // a half-read packet is left in the chip
+
+	// WMI_DISCONNECT_CMD, as DSWiFi's wmi_disconnect_cmd()
+	int r = wmiCommand(WMI_DISCONNECT_CMD, 0, 0);
 
 	// Then what DSWiFi's wifi_card_deinit() does: the controller's card
 	// interrupt off, then the chip's interrupts

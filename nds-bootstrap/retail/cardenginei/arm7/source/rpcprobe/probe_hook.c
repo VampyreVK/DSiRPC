@@ -198,6 +198,7 @@ static void handoffProbe(void) {
 	hoStage = (r == 0) ? HO_RUN : HO_FAILED;
 #if RPCPROBE_REQUESTS
 	if (hoStage == HO_RUN) {
+		TwlWifi_KeepThroughGaps(); // a flaky hotspot's dropouts (twl_wifi.h)
 		ProbeReq_Announce();
 		ProbeWatch_Init(); // the ARM9 half (found again: probe_watch.h)
 	}

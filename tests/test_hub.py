@@ -90,8 +90,12 @@ def test_tetris(hub):
     d = until(src, lambda d: d.get('tetris'))
     assert d['kind'] == 'other' and d['tetris']['board'][0][3] == 'J' and d['tetris']['score'] == 99
     assert src.next_delay() <= src.TETRIS_INTERVAL
+    fake.drop_next = 2                                            # a board read that gets no reply
+    assert src.read()['tetris']['score'] == 99                    # keeps the board (no flick to the game card)
     fake.poke(tr.IN_GAME, b"")                                 # back in the menus: the game card
+    t0 = time.time()
     until(src, lambda d: d.get('tetris') is None)
+    assert time.time() - t0 > 0.5                                 # (kept a moment first: TETRIS_HOLD_S from the last good read)
 
 
 # -- Pokemon Black and White --------------------------------------------------------

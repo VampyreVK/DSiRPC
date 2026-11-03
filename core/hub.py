@@ -111,6 +111,7 @@ class DsiSource:
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
     TETRIS_INTERVAL = 0.2  # Tetris DS: its board read this often (two requests)
+    TETRIS_HOLD_S = 2.0    # ... and the last one kept this long through reads that miss or say it's not in a game
     QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
@@ -125,6 +126,7 @@ class DsiSource:
         self.fast_battles = True
         self.parse_interval = 5.0
         self.last_parse = 0.0
+        self._tetris = (None, 0.0)   # Tetris DS's last board read (core/tetris_reader.py) and when
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
@@ -346,6 +348,7 @@ class DsiSource:
             if self.other:
                 self.other.close()
             self.last = None
+            self._tetris = (None, 0.0)
             self.other = OtherGame(game, self.ra_game, self.client)
             logging.info(f"The DSi is running {games.name(game)}")
         tetris = games.is_tetris(game)
@@ -360,11 +363,23 @@ class DsiSource:
 
     def _read_tetris(self):
         """Tetris DS's board and pieces (core/tetris_reader.py), or None
-        outside a Standard game or when the read gets no reply."""
+        outside a Standard game. A read that gets no reply, or catches the
+        game for a moment not looking like it's in one, keeps the last board
+        for TETRIS_HOLD_S, so the overlay doesn't flick to the game card."""
         try:
-            return tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT)
-        except (TimeoutError, RuntimeError):
-            return None
+            got = tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT)
+        except (TimeoutError, RuntimeError) as e:
+            got = None
+            logging.debug(f"Tetris DS: board read failed ({e})")
+        last, at = self._tetris
+        now = time.time()
+        if got:
+            self._tetris = (got, now)
+            return got
+        if last and now - at < self.TETRIS_HOLD_S:
+            return last
+        self._tetris = (None, 0.0)
+        return None
 
     def _read_bw(self, game):
         """Pokemon Black or White: like Platinum (battlers only during a

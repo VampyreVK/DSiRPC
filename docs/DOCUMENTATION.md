@@ -2090,7 +2090,9 @@ names).
 ### Tetris DS (USA)
 
 `core/tetris_reader.py` reads two requests every 0.2 s (`DsiSource.TETRIS_INTERVAL`)
-while Tetris DS (`ATRE`) runs, on top of the game card's state, from
+while Tetris DS (`ATRE`) runs (a read that gets no reply, or catches the game
+for a moment not looking like it's in a Standard game, keeps the last board
+for 2 s, `TETRIS_HOLD_S`, so the view doesn't flick to the game card), on top of the game card's state, from
 RetroAchievements' code notes for the game (by Brylefi; offsets into main
 RAM): `0x076A2C` in game (2), `0x07B3B0`-`0x07B3B2` the menu, single player
 mode and Standard mode (0, 0, then 0 Marathon, 1 Line Clear, 2 VS CPU), the

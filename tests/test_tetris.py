@@ -9,6 +9,8 @@ import time
 
 import pytest
 
+from conftest import need
+
 from core import hub, tetris_reader as tr
 
 
@@ -107,8 +109,10 @@ def test_the_pieces_turn_as_the_game_turns_them():
 
 
 def test_discord_shows_the_numbers():
-    # (rpc/ and pypresence aren't in the Tests workflow's checkout: skipped there)
-    generic_presence = pytest.importorskip("rpc.generic_presence", exc_type=ImportError)
+    try:
+        from rpc import generic_presence
+    except ImportError as e:                                      # (pypresence not installed: fails in CI)
+        need(False, f"Discord's text needs rpc/ and pypresence: {e}")
     t = tr.parse(memory(score=24680, lines=42, level=5, hold=tr.PIECES.index('Z')))
     p = generic_presence.from_state({'game': {'code': 'ATRE'}, 'title': "Tetris DS", 'tetris': t,
                                      'rich_presence': "Standard | Marathon"}, check_images=False)

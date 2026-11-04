@@ -34,7 +34,7 @@ BOARD_X, BOARD_Y = 64, HEADER_H + 3       # the board's top left (inside its fra
 LEFT = (3, HEADER_H + 2, 57, FOOTER_Y - HEADER_H - 4)      # the hold and stats column
 NEXT_X, NEXT_W = BOARD_X + COLS * CELL + 4, 22             # the next pieces' little boxes, beside the board
 NEXT_GAP = 2
-RIGHT_X = NEXT_X + NEXT_W + 3
+RIGHT_X = NEXT_X + NEXT_W + 2
 RIGHT = (RIGHT_X, HEADER_H + 2, W - 3 - RIGHT_X, FOOTER_Y - HEADER_H - 4)  # the achievements column
 HOLD_H = 42
 

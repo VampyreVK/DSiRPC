@@ -8,7 +8,7 @@
 #
 # When a release is published, the README's pictures, the demo and the music
 # go to the renders branch, which the README shows them from, so they're
-# always the latest release's, and the video goes on the release too. Run by
+# always the latest release's (the release itself gets nothing). Run by
 # hand (Actions > Renders > Run workflow, from any branch) to try changes: the
 # renders are only the run's artifact, unless "publish" is ticked to put them
 # on the renders branch too. A push of this file runs it as well (artifact
@@ -83,15 +83,6 @@ jobs:
           name: launcher-renders
           path: renders
           if-no-files-found: error
-
-      - name: Put the demo on the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          cp renders/demo.mp4 DSiRPC-launcher-demo.mp4
-          gh release upload "$TAG" DSiRPC-launcher-demo.mp4 --clobber --repo "$GITHUB_REPOSITORY"
 
       # One commit, replaced each time, so the branch doesn't grow
       - name: Update the renders branch

@@ -293,8 +293,8 @@ Publishing it also runs [`.github/workflows/renders.yml`](../.github/workflows/r
 it draws the launcher's screens from the release's code (`tools/render_launcher.py`),
 puts the README's pictures, the demo and the menu music as MP3s on the
 `renders` branch (one commit, replaced each time; the README shows the
-pictures from there, so they're always the latest release's), and attaches
-the demo video to the release (`DSiRPC-launcher-demo.mp4`). Run it by hand
+pictures from there, so they're always the latest release's, and links the
+video there); nothing is added to the release itself. Run it by hand
 (Actions tab > **Renders** > **Run workflow**, from any branch) to try
 changes: every screen as a PNG, the demo and the music are the run's
 artifact, and only go on the `renders` branch if you tick **publish**.

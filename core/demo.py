@@ -151,9 +151,9 @@ TETRIS_SET = ra_set.RaSet({"ID": 2, "Title": "Tetris DS", "Achievements": [
 # (a hole each, so they never clear), then four rows full but for the well in
 # the last column, and on top the first two pieces of a copy of those four.
 # The other seven pieces finish the copy, two more start the next one, then
-# an I down the well clears the four full rows (a Tetris: they go grey,
-# then one at a time) and everything above drops into their place: the stack as it
-# started. Each piece of the four rows as (kind, turns, its cells: column,
+# an I down the well fills the four rows (a Tetris: the board marks them
+# grey, and the overlay plays them going, overlay/tetris.py) and everything
+# above drops into their place: the stack as it started. Each piece of the four rows as (kind, turns, its cells: column,
 # row from the bottom of the four), in the order they come down; each lands
 # with nothing empty under it.
 TETRIS_LEFT = ["IIIIZZ.JLL", ".SSOOZTJJL", "SS.OOTTTJL"]      # the bottom rows, from the bottom
@@ -180,9 +180,6 @@ TETRIS_ROW_S = 0.055     # a piece falls a row in this long
 TETRIS_LOCK_S = 0.24     # and rests this long before the next one comes
 TETRIS_SWAP_S = 0.4      # one that goes into hold shows this long first
 TETRIS_REST_S = 1.0      # the stack waits this long after the Tetris
-TETRIS_FLASH_S = 0.3     # the four full rows are grey this long,
-TETRIS_VANISH_S = 0.1    # then go one at a time, from the top, this far apart,
-TETRIS_GAP_S = 0.12      # and the gap shows this long before the rest drops into it
 TETRIS_SPAWN = 21        # pieces come in with their lowest cell on this row,
 TETRIS_SPAWN_X = 4       # their centre in this column (the middle, as in the game),
 TETRIS_SHIFT_ROWS = 1    # and move a column over every this many rows on the way down
@@ -194,7 +191,7 @@ def tetris_loop():
     centre's row), 'turns', 'swap': the piece that went into hold first,
     'swap_at': when the held one came out}], when the flash starts and the
     loop's length in seconds."""
-    from .tetris_reader import cells
+    from .tetris_reader import CLEAR_GAP_S, CLEAR_GREY_S, CLEAR_ROW_S, cells
     left = len(TETRIS_LEFT)
     drops, t = [], TETRIS_REST_S
     for which, turns, swap in TETRIS_DROPS:
@@ -211,15 +208,16 @@ def tetris_loop():
             drop['swap_at'] = t = t + TETRIS_SWAP_S
         drops.append(drop)
         t += (drop['spawn'] - drop['land']) * TETRIS_ROW_S + TETRIS_LOCK_S
-    flash_at = t - TETRIS_LOCK_S
-    return drops, flash_at, flash_at + TETRIS_FLASH_S + 4 * TETRIS_VANISH_S + TETRIS_GAP_S
+    flash_at = t - TETRIS_LOCK_S     # (the overlay's clear of the four rows takes the rest)
+    return drops, flash_at, flash_at + CLEAR_GREY_S + 4 * CLEAR_ROW_S + CLEAR_GAP_S
 
 
 def tetris_board(into):
-    """The loop's board, falling piece, the Tetris's rows still there (or
-    []) and held piece, `into` seconds in (of one loop). The Tetris's rows
-    go grey, then one at a time (empty on the board), and the loop ends on
-    the gap."""
+    """The loop's board, falling piece, the Tetris's rows (or []) and held
+    piece, `into` seconds in (of one loop). From the Tetris to the end of
+    the loop the four rows are full and grey, as the game's board has them
+    while it clears them (tetris_reader's 'X'): the overlay plays them
+    going (overlay/tetris.py's TetrisMotion) in that time."""
     from .tetris_reader import cells
     drops, flash_at, _ = tetris_loop()
     left = len(TETRIS_LEFT)
@@ -257,13 +255,8 @@ def tetris_board(into):
     flashing = []
     if into >= flash_at:
         piece = None                                           # (the I's landed: it's in the grey rows)
-        tetris = list(range(left + 3, left - 1, -1))           # the four rows, from the top
-        gone = max(0, min(4, int((into - flash_at - TETRIS_FLASH_S) / TETRIS_VANISH_S) + 1)) \
-            if into >= flash_at + TETRIS_FLASH_S else 0
-        for r in tetris[:gone]:
-            board[r] = [0] * 10
-        flashing = sorted(tetris[gone:])
-        for r in flashing:          # grey until they go, as the game's board has them (tetris_reader's 'X')
+        flashing = list(range(left, left + 4))
+        for r in flashing:
             board[r] = ['X'] * 10
     return board, piece, flashing, hold
 

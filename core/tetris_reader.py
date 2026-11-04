@@ -51,6 +51,10 @@ PIECE_CELL = 9                 # a board cell: 9 + the piece's number
 MODES = {0: "Marathon", 1: "Line Clear", 2: "VS CPU"}
 LINE_CLEAR_GOAL = 25           # Line Clear: lines to clear (the set's rich presence)
 GAME_OVER = 7
+# How the overlay plays a line clear once it sees full rows (overlay/tetris.py's
+# TetrisMotion; the demo's loop leaves it this long): the rows grey, then gone
+# one at a time from the top, then the gap, before the board after it shows
+CLEAR_GREY_S, CLEAR_ROW_S, CLEAR_GAP_S = 0.3, 0.1, 0.12
 
 RANGES = [(IN_GAME, 1), (MENU, 3), (BOARD, COLS * ROWS), (PIECE, 0x24), (HIDDEN, 1)]
 

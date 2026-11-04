@@ -2089,7 +2089,7 @@ names).
 
 ### Tetris DS (USA)
 
-`core/tetris_reader.py` reads two requests every 0.2 s (`DsiSource.TETRIS_INTERVAL`)
+`core/tetris_reader.py` reads two requests every 0.1 s (`DsiSource.TETRIS_INTERVAL`)
 while Tetris DS (`ATRE`) runs (a read that gets no reply, or catches the game
 for a moment not looking like it's in a Standard game, keeps the last board
 for 2 s, `TETRIS_HOLD_S`, so the view doesn't flick to the game card), on top of the game card's state, from

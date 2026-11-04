@@ -110,7 +110,7 @@ class DsiSource:
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
-    TETRIS_INTERVAL = 0.2  # Tetris DS: its board read this often (two requests)
+    TETRIS_INTERVAL = 0.1  # Tetris DS: its board read this often (two requests; the overlay animates between)
     TETRIS_HOLD_S = 2.0    # ... and the last one kept this long through reads that miss or say it's not in a game
     QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 

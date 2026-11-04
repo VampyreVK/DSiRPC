@@ -95,25 +95,121 @@ def test_the_demo_loop_ends_where_it_starts():
             holds.append(hold)
         t += 0.02
     assert holds == ['T', 'I', 'T']                               # the I in and out of hold, for the Tetris
-    full, piece, flashing, _ = demo.tetris_board(flash_at + demo.TETRIS_FLASH_S / 2)
+    full, piece, flashing, _ = demo.tetris_board(flash_at + 0.15)
     assert piece is None and len(flashing) == 4 and all(all(full[r]) for r in flashing)   # a Tetris
     assert [r for r in range(tr.ROWS) if all(full[r])] == flashing  # (the rows below have holes)
-    gone = []                                                     # then the rows go, one at a time, from the top
-    t = flash_at
-    while t < length:
-        board, _, now, _ = demo.tetris_board(t)
-        empty = [r for r in flashing if not any(board[r])]
-        assert sorted(empty + now) == flashing
-        if empty != gone:
-            assert len(empty) == len(gone) + 1 and max(set(empty) - set(gone)) == max(flashing) - len(gone)
-            gone = empty
-        t += 0.01
-    end, _, _, hold = demo.tetris_board(length - 0.01)
-    assert gone == flashing                                       # all four gone at the end of the loop
+    end, _, _, hold = demo.tetris_board(length - 0.01)            # (grey to the end: the overlay plays them going)
     kept = [row for r, row in enumerate(end) if r not in flashing]
     assert kept + [[0] * tr.COLS] * 4 == start and hold == held   # and the rest dropped: the start again
     assert any(any(row) for row in start[flashing[-1] + 1:])      # with pieces above what clears
     assert sum(len(d['turns']) > 1 for d in drops) >= 3           # some turning as they fall
+
+
+def _motion():
+    pytest.importorskip("pygame")
+    from overlay.tetris import TetrisMotion
+    return TetrisMotion()
+
+
+def _state(tet_board, piece):
+    return {'board': tet_board, 'piece': piece}
+
+
+def test_a_clear_plays_out_whole():
+    from core import demo
+    motion = _motion()
+    drops, flash_at, length = demo.tetris_loop()
+    rows = demo.tetris_board(flash_at)[2]
+    after = demo.tetris_board(0)[0]                               # the board once the game's done
+    # One read catches the full rows, the next already has them gone
+    motion.take(_state(*demo.tetris_board(flash_at)[:2]), 0)
+    motion.take(_state(after, None), 100)
+    gone, t = [], 0
+    while t < 1000 * (length - flash_at) - 5:
+        board, piece = motion.frame(t)
+        assert piece is None
+        empty = [r for r in rows if not any(board[r])]
+        assert all(all(board[r]) for r in rows if r not in empty)   # the rest still there, grey
+        if empty != gone:                                         # one at a time, from the top
+            assert len(empty) == len(gone) + 1 and max(set(empty) - set(gone)) == max(rows) - len(gone)
+            gone = empty
+        t += 10
+    assert gone == rows
+    assert motion.frame(t + 50)[0] == after                       # then the board after it
+
+
+def test_reads_during_a_clear_are_caught_up_on():
+    from core import demo
+    motion = _motion()
+    _, flash_at, length = demo.tetris_loop()
+    clearing = demo.tetris_board(flash_at)[0]
+    after = [row for r, row in enumerate(clearing) if r not in range(3, 7)] + [[0] * tr.COLS] * 4
+    motion.take(_state(clearing, None), 0)
+    for k in range(1, 9):                                         # the game carries on: a piece falls a row a read
+        motion.take(_state(after, {'kind': 'T', 'turn': 0, 'x': 4, 'y': 19 - k}), 100 * k)
+        assert motion.frame(100 * k)[1] is None                   # (the clear still playing)
+    ended = 1000 * (length - flash_at)
+    seen = []
+    for t in range(int(ended) + 10, int(ended) + 600, 10):
+        board, piece = motion.frame(t)
+        assert board == after
+        if piece and (not seen or seen[-1] != piece['y']):
+            seen.append(piece['y'])
+    assert seen == list(range(18, 10, -1))                        # every read played, in order, none skipped
+    assert motion.latest['piece']['y'] == 11 and not motion.queue  # and caught up within 400 ms (twice as fast)
+
+
+def test_the_game_taking_the_rows_away_doesnt_start_another_clear():
+    from core import demo
+    motion = _motion()
+    _, flash_at, length = demo.tetris_loop()
+    clearing = demo.tetris_board(flash_at)[0]
+    after = [row for r, row in enumerate(clearing) if r not in range(3, 7)] + [[0] * tr.COLS] * 4
+    motion.take(_state(clearing, None), 0)
+    for k, left in enumerate((3, 2, 1, 1, 0), 1):                 # the game's own clear: a row fewer a read
+        board = [row for r, row in enumerate(clearing) if r not in range(3 + left, 7)]
+        board += [[0] * tr.COLS] * (tr.ROWS - len(board))
+        motion.take(_state(board, None), 300 * k)
+    motion.take(_state(after, None), 1800)
+    ended = 1000 * (length - flash_at)
+    for t in range(int(ended) + 10, 2500, 10):
+        board, _ = motion.frame(t)
+        assert not any(all(row) for row in board), t              # no grey row coming back
+    assert motion.frame(2500)[0] == after
+
+
+def test_the_piece_that_made_the_clear_doesnt_come_back():
+    from core import demo
+    motion = _motion()
+    _, flash_at, length = demo.tetris_loop()
+    well = demo.tetris_loop()[0][-1]
+    landed = {'kind': 'I', 'turn': 1, 'x': well['x'], 'y': well['land']}
+    before = demo.tetris_board(flash_at - 0.05)[0]
+    clearing = demo.tetris_board(flash_at)[0]
+    after = [row for r, row in enumerate(clearing) if r not in range(3, 7)] + [[0] * tr.COLS] * 4
+    motion.take(_state(before, dict(landed, y=landed['y'] + 1)), 0)
+    motion.take(_state(clearing, dict(landed)), 100)              # the I's still the game's falling piece,
+    motion.take(_state(after, dict(landed)), 400)                 # even once the rows are gone
+    motion.take(_state(after, dict(landed)), 500)
+    nxt = {'kind': 'T', 'turn': 0, 'x': 4, 'y': 18}
+    motion.take(_state(after, nxt), 1500)                         # then the next piece
+    drawn = [motion.frame(t)[1] for t in range(110, 2000, 10)]
+    assert not any(p and p['kind'] == 'I' for p in drawn)         # the I never drawn again
+    assert drawn[-1] == nxt                                       # (the T, caught up on)
+
+
+def test_the_piece_steps_between_reads():
+    motion = _motion()
+    empty = [[0] * tr.COLS for _ in range(tr.ROWS)]
+    motion.take(_state(empty, {'kind': 'T', 'turn': 0, 'x': 4, 'y': 18}), 0)
+    assert motion.frame(0)[1]['y'] == 18
+    motion.take(_state(empty, {'kind': 'T', 'turn': 0, 'x': 1, 'y': 10}), 200)   # reads 200 ms apart
+    ys = [motion.frame(t)[1]['y'] for t in range(200, 420, 20)]
+    xs = [motion.frame(t)[1]['x'] for t in range(200, 420, 20)]
+    assert ys[0] == 18 and ys[-1] == 10 and ys == sorted(ys, reverse=True) and len(set(ys)) > 4
+    assert xs[0] == 4 and xs[-1] == 1
+    motion.take(_state(empty, {'kind': 'T', 'turn': 0, 'x': 4, 'y': 18}), 400)   # the next one: straight there
+    assert motion.frame(400)[1]['y'] == 18
 
 
 def test_the_view_draws():

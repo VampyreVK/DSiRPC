@@ -9,6 +9,14 @@
 
 #include "ui_host.h"
 
+void host_unlocks(const char *path, bool online)
+{
+    char text[48];
+    int waiting = unlocks_prepare(path);
+    StepState state = unlocks_step(waiting, unlocks_used(), online, text, sizeof(text));
+    printf("unlocks %d %d %s|%s\n", waiting, unlocks_used(), state == STEP_FAILED ? "failed" : "done", text);
+}
+
 void host_connected(void)
 {
     draw_connecting();

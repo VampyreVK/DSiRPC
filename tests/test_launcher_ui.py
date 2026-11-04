@@ -7,6 +7,7 @@ games.idx; its orders and favorites; the achievement counts, with the unlocks
 waiting for DSiRPC; and its text."""
 
 import os
+import struct
 
 import pytest
 
@@ -187,6 +188,32 @@ def test_achievement_counts(host, sd):
     assert by_code["IRBO"] == "0/0"      # no set
     os.remove(os.path.join(sd, "RPCUNLK.BIN"))
     assert {r[0]: r[6] for r in games(host, sd)}["CPUE"] == "2/6"
+
+
+def test_the_starting_screens_unlock_row(host, tmp_path):
+    """How full RPCUNLK.BIN is, on the starting screen (main.c's unlocks_step):
+    the unlocks waiting, and a warning once the in-game side is nearly out
+    of slots, counting each start's playtime and any half-written slot too"""
+    def row(unlocks=(), playtimes=0, torn=0, online=False):
+        data = bytearray(lui.unlock_file(list(unlocks)))
+        i = 1 + len(unlocks)
+        for _ in range(playtimes):          # a start's playtime: taken, but not an unlock to sync
+            data[i * 16:i * 16 + 16] = struct.pack("<I4sII", 0xFFFFFFFF, b"CPUE", 60, i)
+            i += 1
+        for _ in range(torn):               # half-written: a bad check, so not taken by DSiRPC
+            data[i * 16:i * 16 + 16] = struct.pack("<I4sII", 77, b"CPUE", 1, 0xDEAD0000 | i)
+            i += 1
+        path = tmp_path / "RPCUNLK.BIN"
+        path.write_bytes(bytes(data))
+        out = lui.run(host, f"unlocks {path}|{int(online)}")[0].split(" ", 3)
+        return int(out[1]), int(out[2]), out[3]
+    some = [(100 + i, "CPUE", 0) for i in range(12)]
+    assert row() == (0, 0, "done|None")
+    assert row(online=True) == (0, 0, "done|All synced")
+    assert row(some) == (12, 12, "done|12 to sync")
+    assert row(some, playtimes=200, torn=18) == (12, 230, "done|12 to sync, nearly full")
+    assert row(playtimes=240) == (0, 240, "done|None, nearly full")
+    assert row(some, playtimes=243) == (12, 255, "failed|Full: sync to save more")
 
 
 # -- text --------------------------------------------------------------------------------

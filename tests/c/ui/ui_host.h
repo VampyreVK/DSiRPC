@@ -23,6 +23,9 @@ void host_shot(const char *name);
 // starting screen's game rom)
 void host_main_screens(const char *rom);
 void host_connected(void);      // the connecting screen, done
+// The starting screen's "Unlocks waiting" row for the RPCUNLK.BIN at path (ui_host.c: "unlocks path|online"),
+// printed: "unlocks <waiting> <used> <done|failed>|<text>"
+void host_unlocks(const char *path, bool online);
 void host_update_screens(void);
 void host_settings_screens(void);
 void host_picker_screens(const char *sd);

@@ -201,6 +201,24 @@ static int count_unlocks(const uint8_t *buf, size_t n)
     return count;
 }
 
+int unlocks_used(void)
+{
+    if (!unlock_header_ok(unlock_buf, sizeof(unlock_buf)))
+        return 0;
+    int last = 0;
+    for (int i = 1; i < UNLOCK_SLOTS; i++)
+    {
+        const uint8_t *s = unlock_buf + i * UNLOCK_SLOT;
+        for (int b = 0; b < UNLOCK_SLOT; b++)
+            if (s[b])
+            {
+                last = i;
+                break;
+            }
+    }
+    return last;
+}
+
 int unlocks_prepare(const char *path)
 {
     bool longer;

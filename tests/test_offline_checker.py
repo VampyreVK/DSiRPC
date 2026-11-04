@@ -193,6 +193,25 @@ def test_saved_unlocks_read_back_and_stay_unlocked(ach_host, rcheevos, tmp_path)
     assert not set(again) & set(console)
 
 
+def test_a_full_unlock_file_is_left_alone(ach_host, rcheevos, tmp_path):
+    """RPCUNLK.BIN with all 255 slots taken (DSiRPC hasn't had it for a
+    long while): new unlocks still unlock in the game, but aren't saved,
+    and are counted (the report's x=); nothing in the file is overwritten,
+    not even by the start's playtime"""
+    s, data, info, path = _set(tmp_path, 4, 150)
+    full = launcher_ui.unlock_file([(1000 + i, "XXXX", 0) for i in range(255)])
+    (tmp_path / "full.bin").write_bytes(full)
+    dump = tmp_path / "RPCUNLK.BIN"
+    lines, _, _ = _play(4, "idle", s, info, path, every_frame=["save"], first=[f"unlockfile {tmp_path / 'full.bin'}"])
+    out = _session(ach_host, lines + ["frame 0 0"] * 700 + ["save", f"dump {dump}"])   # (past a minute)
+    console = [int(line.split()[1]) for line in out if line.startswith("T ")]
+    assert len(console) > 5
+    saved, failed, lost = (int(x) for x in out[-1].split()[3::2])
+    assert saved == 0 and failed + lost == len(console), out[-1]
+    assert dump.read_bytes() == full
+    assert offline.count_unlocks(full) == 255
+
+
 def test_each_start_keeps_its_playtime(ach_host, tmp_path):
     """Every game the launcher starts, with a set or without, keeps how long
     it has played (the VBlanks': not while it sleeps or the menu is open) in

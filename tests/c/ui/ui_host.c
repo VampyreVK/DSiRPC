@@ -217,6 +217,10 @@ int main(void)
                 music_stop();
             printf("music %s\n", host_music_log);
         }
+        else if (strcmp(line, "unlocks") == 0 && nf == 2)
+        {
+            host_unlocks(f[0], atoi(f[1]) != 0);
+        }
         else if (strcmp(line, "text") == 0 && nf == 2)
         {
             printf("text %d|%d|%d\n", ui_text_width(f[0]), ui_text_width(f[1]),

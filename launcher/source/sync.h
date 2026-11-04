@@ -45,6 +45,15 @@ typedef struct
 // or -1 if it can't be made.
 int unlocks_prepare(const char *path);
 
+// The slots of that RPCUNLK.BIN that are taken: unlocks, each game start's
+// playtime, and any half-written one. The in-game side saves after the last
+// of them, so once UNLOCK_ROOM are taken new unlocks can't be saved until
+// DSiRPC has the file's (the starting screen says so, and warns from
+// UNLOCK_NEARLY_FULL).
+#define UNLOCK_ROOM         255
+#define UNLOCK_NEARLY_FULL  230
+int unlocks_used(void);
+
 // Looks for DSiRPC on the network (1.5 s) and, if it answers, hands over the
 // waiting unlocks and saves the sets it sends. Returns 1 if it synced (msg
 // may still hold a warning, or ""), 0 if DSiRPC didn't answer or the job was

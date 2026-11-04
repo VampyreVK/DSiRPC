@@ -216,6 +216,29 @@ static void show_step(int row, StepState state, const char *value)
     ui_present();
 }
 
+// The starting screen's "Unlocks waiting" row, from unlocks_prepare()'s
+// count (-1: the file couldn't be made) and unlocks_used(): how many wait
+// for DSiRPC, and whether there's room for more. online: DSiRPC was asked
+static StepState unlocks_step(int waiting, int used, bool online, char *text, size_t n)
+{
+    if (waiting < 0)
+    {
+        snprintf(text, n, "Can't write RPCUNLK.BIN");
+        return STEP_FAILED;
+    }
+    if (used >= UNLOCK_ROOM)
+    {
+        snprintf(text, n, "Full: sync to save more");
+        return STEP_FAILED;
+    }
+    const char *nearly = used >= UNLOCK_NEARLY_FULL ? ", nearly full" : "";
+    if (waiting > 0)
+        snprintf(text, n, "%d to sync%s", waiting, nearly);
+    else
+        snprintf(text, n, "%s%s", online ? "All synced" : "None", nearly);
+    return STEP_DONE;
+}
+
 static void draw_steps(const char *title, int rows, const UiKey *keys, int n)
 {
     ui_clear();
@@ -654,6 +677,8 @@ static void start_game(const char *dir, bool quick)
 
     // The files the in-game side uses for achievements in offline play
     int waiting = unlocks_prepare(unlocks_path);
+    char unlocks_text[48];
+    StepState unlocks_state = unlocks_step(waiting, unlocks_used(), online, unlocks_text, sizeof(unlocks_text));
     bool have_set = stage_set(sets_dir, code, staged_set_path);
     write_handoff();
     if (ui_on())
@@ -668,15 +693,7 @@ static void start_game(const char *dir, bool quick)
             snprintf(text, sizeof(text), "None for %s yet", code);
             show_step(1, STEP_SKIPPED, text);
         }
-        if (waiting < 0)
-            show_step(2, STEP_FAILED, "Can't write RPCUNLK.BIN");
-        else if (waiting > 0)
-        {
-            snprintf(text, sizeof(text), "%d for DSiRPC", waiting);
-            show_step(2, STEP_DONE, text);
-        }
-        else
-            show_step(2, STEP_DONE, "None");
+        show_step(2, unlocks_state, unlocks_text);
         ui_footer(NULL, 0);
         ui_present();
     }
@@ -690,10 +707,8 @@ static void start_game(const char *dir, bool quick)
         else
             printf("No achievement set for %s\n", code);
     }
-    if (waiting < 0)
-        printf("Can't write RPCUNLK.BIN\n");
-    else if (waiting > 0)
-        printf("%d unlock(s) wait for DSiRPC\n", waiting);
+    if (waiting != 0 || unlocks_state == STEP_FAILED || strstr(unlocks_text, "nearly") != NULL)
+        printf("Unlocks: %s\n", unlocks_text);
     wait_frames(pause ? 150 : 30);
 
     watchdog_pause(true);       // the ARM7 is handed over to nds-bootstrap

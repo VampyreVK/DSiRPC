@@ -288,9 +288,10 @@ games' pixel-art style:
 - **Black and White:** a view in those games' look (party, trainer, badges,
   the season, achievements), and battles in their style, with Gym Leaders,
   the Elite Four and the Champion making their entrances.
-- **Tetris DS:** in Marathon, Line Clear and VS CPU, the board as you play
-  it, the falling piece, your stored block, the score, lines and level, and
-  your achievements beside it, with a banner for every Tetris and new level.
+- **Tetris DS:** in Marathon, Line Clear, VS CPU and Mission, the board as you play
+  it, the falling piece and where it'll land, your stored block, the next
+  six pieces, the score, lines and level, and your achievements, with a
+  banner for every Tetris and new level.
 - **Any other game:** a card with its name, how long you've played, what
   you're doing (its rich presence) and your achievement progress.
 

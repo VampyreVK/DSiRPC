@@ -13,15 +13,23 @@ from core import hub, tetris_reader as tr
 
 
 def memory(mode=0, board=None, piece=4, turn=0, x=4, y=18, hold=0xFF, state=0, score=1234, lines=12, level=2,
-           hidden=0, in_game=2):
-    """The bytes RANGES reads, as the game would have them."""
+           hidden=0, in_game=2, options=0, queue=(1, 0, 6, 2, 3, 5), single=0, picked=0, extra=None):
+    """The bytes ranges() reads, as the game would have them (Mission's:
+    single=2 and `extra`, its score and mission number)."""
     cells = bytearray(tr.COLS * tr.ROWS)
     for (c, r), kind in (board or {}).items():
         cells[r * tr.COLS + c] = tr.PIECE_CELL + tr.PIECES.index(kind)
     block = bytearray(0x24)
     block[0], block[1], block[4], block[6], block[0x10], block[0x16] = piece, turn, x, y, hold, state
+    block[8] = queue[0]
     block[0x18:0x24] = struct.pack("<III", score, lines, level)
-    return [bytes([in_game]), bytes([0, 0, mode]), bytes(cells), bytes(block), bytes([hidden])]
+    out = [bytes([in_game]), bytes([0, single, mode, 0, picked]), bytes(cells), bytes(block), bytes([hidden]),
+           bytes([options])]
+    out.append(bytes(queue[1:]))
+    if extra:
+        over = extra[2] if len(extra) > 2 else 0
+        out.append(bytes([over]) + bytes(7) + struct.pack("<I", extra[0]) + bytes(4) + bytes([extra[1]]) + bytes(3))
+    return out
 
 
 def test_the_board_and_pieces_are_read():
@@ -42,11 +50,50 @@ def test_only_a_standard_game():
     assert tr.parse(chunks) is None
 
 
+def test_mission():
+    chunks = memory(single=2, mode=0, picked=7, extra=(4321, 12), board={(0, 0): 'T'}, lines=0xFFFFFFFF)
+    assert tr.parse(chunks) is None                               # not where Standard keeps things
+    t = tr.parse(chunks, 'mission')
+    assert (t['mode'], t['score'], t['mission'], t['level'], t['lines']) == ("Mission", 4321, 12, 7, None)
+    assert t['board'][0][0] == 'T' and t['piece']['kind'] == 'T' and t['next'] == ['S', 'Z', 'I', 'L', 'J', 'O']
+    assert tr.parse(memory(single=2, mode=1, extra=(0, 1)), 'mission')['mode'] == "Time Trial"
+    over = tr.parse(memory(single=2, extra=(0, 1, tr.GAME_OVER)), 'mission')
+    assert over['over'] and over['piece'] is None                 # its game over, from its own state byte
+    assert tr.layout_of(b"\x02", bytes([0, 2, 0, 0, 0])) == 'mission' and tr.layout_of(b"\x02", bytes(5)) == 'standard'
+    assert tr.layout_of(b"\x02", bytes([0, 5, 0, 0, 0])) is None          # Push: not read
+
+
+def test_garbage_rows_are_grey():
+    chunks = memory()
+    chunks[2] = bytes([0x10, 0] + [0x10] * 8) + chunks[2][10:]   # Mission's rising row, with its hole
+    assert tr.parse(chunks)['board'][0] == ['X', 0] + ['X'] * 8
+
+
 def test_states():
     t = tr.parse(memory(state=tr.GAME_OVER, hold=0xFF))
     assert t['over'] and t['piece'] is None and t['hold'] is None
     assert tr.parse(memory(hidden=1))['paused']
     assert tr.parse(memory(lines=0xFFFFFFFF))['lines'] == 0          # unset before the game starts
+
+
+def test_the_next_pieces_are_read():
+    assert tr.parse(memory())['next'] == ['S', 'Z', 'I', 'L', 'J', 'O']
+    assert tr.parse(memory(queue=(4, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF)))['next'] == ['T']   # (not set: left out)
+
+
+def test_the_ghost_piece_follows_the_games_option():
+    assert tr.parse(memory())['ghost']
+    assert not tr.parse(memory(options=tr.GHOST_OFF))['ghost']   # Options: Ghost Piece Off
+
+
+def test_the_ghost_piece_lands_where_the_piece_would():
+    pytest.importorskip("pygame")
+    from overlay.tetris import landing
+    board = [[0] * tr.COLS for _ in range(tr.ROWS)]
+    board[0] = ['X'] * 9 + [0]                                    # a stack with a well on the right
+    assert landing({'kind': 'T', 'turn': 0, 'x': 4, 'y': 18}, board) == 1
+    assert landing({'kind': 'I', 'turn': 1, 'x': 8, 'y': 15}, board) == 2   # upright, down the well
+    assert landing({'kind': 'O', 'turn': 0, 'x': 4, 'y': 1}, board) == 1    # already resting
 
 
 def test_the_pieces_turn_as_the_game_turns_them():
@@ -71,6 +118,8 @@ def test_discord_shows_the_numbers():
     p = generic_presence.from_state({'game': {'code': 'ATRE'}, 'title': "Tetris DS", 'tetris': None,
                                      'rich_presence': "Not In Any Gamemode"}, check_images=False)
     assert p['details'] == "Not In Any Gamemode"                     # anywhere else: its rich presence
+    t = tr.parse(memory(single=2, extra=(900, 3), hold=tr.PIECES.index('I')), 'mission')
+    assert generic_presence.tetris_text(t) == ("Mission · Level 0", "Score 900 · Mission 3 · Holding I")
 
 
 def test_a_tetris_and_a_new_level_are_events():
@@ -103,6 +152,15 @@ def test_the_demo_loop_ends_where_it_starts():
     assert kept + [[0] * tr.COLS] * 4 == start and hold == held   # and the rest dropped: the start again
     assert any(any(row) for row in start[flashing[-1] + 1:])      # with pieces above what clears
     assert sum(len(d['turns']) > 1 for d in drops) >= 3           # some turning as they fall
+
+
+def test_the_demo_queue_is_what_comes_in_next():
+    from core import demo
+    drops, _, length = demo.tetris_loop()
+    came = [d['swap'] or d['kind'] for d in drops]               # (one that goes into hold came in too)
+    for i, d in enumerate(drops):
+        assert demo.tetris_queue(d['start'] + 0.01) == [came[(i + 1 + k) % len(came)] for k in range(6)]
+    assert demo.tetris_queue(length - 0.01) == demo.tetris_queue(0)   # round the loop: the same at both ends
 
 
 def _motion():

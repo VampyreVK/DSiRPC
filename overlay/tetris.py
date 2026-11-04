@@ -10,7 +10,10 @@ game card's header and footer (overlay/gamecard.py), with in between:
     right     achievements: progress, the latest unlock, and one still to earn
 
 The blocks are drawn here in code, in the game's colours (RetroAchievements'
-code notes: Z red, S green, L orange, J purple, T pink, O yellow, I blue).
+code notes: Z red, S green, L orange, J purple, T pink, O yellow, I blue;
+here J a darker blue and T purple, closer to how they look on the DSi), with
+the ghost piece (where the falling one would land) as the game draws it,
+unless its options turn it off.
 Paused, the board is hidden, as the game hides it; after a game over it
 greys out. Anywhere else in the game (its menus, the other modes) the game
 card shows instead.
@@ -27,15 +30,17 @@ from .gamecard import FOOTER_Y, HEADER_H, NEW_FOR_S, NEXT_EVERY_MS, W, ago
 
 CELL = 7                      # a board cell, in canvas pixels
 COLS, ROWS = 10, 20
-BOARD_X, BOARD_Y = 87, HEADER_H + 3       # the board's top left (inside its frame)
-LEFT = (3, HEADER_H + 2, 81, FOOTER_Y - HEADER_H - 4)      # the hold and stats column
-RIGHT_X = BOARD_X + COLS * CELL + 4
+BOARD_X, BOARD_Y = 64, HEADER_H + 3       # the board's top left (inside its frame)
+LEFT = (3, HEADER_H + 2, 57, FOOTER_Y - HEADER_H - 4)      # the hold and stats column
+NEXT_X, NEXT_W = BOARD_X + COLS * CELL + 4, 22             # the next pieces' little boxes, beside the board
+NEXT_GAP = 2
+RIGHT_X = NEXT_X + NEXT_W + 3
 RIGHT = (RIGHT_X, HEADER_H + 2, W - 3 - RIGHT_X, FOOTER_Y - HEADER_H - 4)  # the achievements column
 HOLD_H = 42
 
 COLORS = {
-    'Z': (232, 56, 56), 'S': (72, 200, 72), 'L': (240, 144, 32), 'J': (148, 80, 224),
-    'T': (232, 96, 200), 'O': (240, 208, 40), 'I': (56, 136, 240), 'X': (140, 148, 156),
+    'Z': (232, 56, 56), 'S': (72, 200, 72), 'L': (240, 144, 32), 'J': (44, 72, 208),
+    'T': (148, 80, 224), 'O': (240, 208, 40), 'I': (88, 168, 248), 'X': (140, 148, 156),
 }
 BOARD_BG, BOARD_GRID, BOARD_FRAME = (18, 22, 28), (28, 34, 42), (61, 75, 95)
 
@@ -59,6 +64,34 @@ def block(color, size=CELL):
             surf.set_at((1, 1), (255, 255, 255))
         _blocks[key] = surf
     return surf
+
+
+def ghost_block(color, size=CELL):
+    """The ghost piece's block: a faint wash of the piece's colour over the
+    board with an edge a little stronger (cached)."""
+    key = ('ghost', color, size)
+    surf = _blocks.get(key)
+    if surf is None:
+        mix = lambda k: tuple(int(b + (c - b) * k) for b, c in zip(BOARD_BG, color))   # noqa: E731
+        surf = pygame.Surface((size, size))
+        surf.fill(mix(0.18))
+        pygame.draw.rect(surf, mix(0.36), (0, 0, size, size), 1)
+        _blocks[key] = surf
+    return surf
+
+
+def landing(p, board):
+    """The row the piece `p` would land on, dropped straight down `board`."""
+    def fits(y):
+        for dx, dy in cells(p['kind'], p['turn']):
+            c, r = p['x'] + dx, y + dy
+            if not 0 <= c < COLS or r < 0 or (r < ROWS and board[r][c]):
+                return False
+        return True
+    y = p['y']
+    while fits(y - 1):
+        y -= 1
+    return y
 
 
 def _grey(color):
@@ -214,7 +247,8 @@ class TetrisView:
         self._hold(canvas, tet)
         self._stats(canvas, tet)
         self._board(canvas, tet, board_piece)
-        self._achievements(canvas, d, achs, t_ms)
+        self._next(canvas, tet)
+        self._achievements(canvas, d, achs, t_ms, RIGHT)
         self.card._footer(canvas, d, ra, achs, t_ms)
 
     # -- left: the stored block and the numbers ---------------------------------
@@ -251,6 +285,8 @@ class TetrisView:
         if tet['mode'] == "Line Clear":
             from core.tetris_reader import LINE_CLEAR_GOAL
             rows[1] = ("LINES LEFT", str(max(0, LINE_CLEAR_GOAL - lines)))
+        elif lines is None:            # Mission: its mission instead
+            rows[1] = ("MISSION", str(tet.get('mission') or '-'))
         ly = y + 18
         for label, value in rows:
             self.mini.draw(canvas, label, (x + 6, ly), t['ach_lo'])
@@ -279,6 +315,13 @@ class TetrisView:
                 if kind:
                     self._cell(canvas, c, r, COLORS.get(kind, COLORS['X']), over)
         if p and p['kind'] in SHAPES and not over:
+            if tet.get('ghost', True):
+                ghost = landing(p, board)
+                mine = {(p['x'] + dx, p['y'] + dy) for dx, dy in cells(p['kind'], p['turn'])}
+                for dx, dy in cells(p['kind'], p['turn']):
+                    c, r = p['x'] + dx, ghost + dy
+                    if 0 <= c < COLS and 0 <= r < ROWS and (c, r) not in mine:
+                        canvas.blit(ghost_block(COLORS[p['kind']]), (BOARD_X + c * CELL, BOARD_Y + (ROWS - 1 - r) * CELL))
             for dx, dy in cells(p['kind'], p['turn']):
                 c, r = p['x'] + dx, p['y'] + dy
                 if 0 <= c < COLS and 0 <= r < ROWS:
@@ -300,10 +343,23 @@ class TetrisView:
 
     # -- right: achievements -----------------------------------------------------
 
-    def _achievements(self, canvas, d, achs, t_ms):
+    def _next(self, canvas, tet):
+        """The next six pieces, a little box each down the side of the
+        board: the soonest at the top, so they move up as they get closer."""
+        grey = tet.get('over')
+        nxt = tet.get('next') or []
+        h = (RIGHT[3] - 5 * NEXT_GAP) // 6
+        for i in range(6):
+            y = RIGHT[1] + i * (h + NEXT_GAP)
+            ui.panel(canvas, (NEXT_X, y, NEXT_W, h), fill=BOARD_BG, border=BOARD_FRAME, hi=BOARD_GRID,
+                     lo=ui.darken(BOARD_BG, 6))
+            if i < len(nxt):
+                self.piece(canvas, nxt[i], NEXT_X + NEXT_W // 2, y + h // 2, 4, grey=grey)
+
+    def _achievements(self, canvas, d, achs, t_ms, rect):
         t = ui.THEME
-        x, y, w, h = RIGHT
-        ui.panel(canvas, RIGHT)
+        x, y, w, h = rect
+        ui.panel(canvas, rect)
         p = d.get('progress')
         ui.trophy(canvas, x + 5, y + 5, earned=bool(p and p[0]))
         if p:
@@ -330,7 +386,8 @@ class TetrisView:
             for line in self.font.wrap(a['title'], w - 10, 2):
                 self.font.draw(canvas, line, (x + 5, ty), t['text'], t['text_shadow'])
                 ty += 12
-            for line in self.font.wrap(a.get('description') or '', w - 10, 3):
+            room = (y + h - 10 - ty) // 12                    # (what's left above the "when")
+            for line in self.font.wrap(a.get('description') or '', w - 10, max(1, min(3, room))) if room > 0 else ():
                 self.font.draw(canvas, line, (x + 5, ty), t['text_muted'], t['text_shadow'])
                 ty += 12
             if p and when:

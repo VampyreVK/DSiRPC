@@ -212,6 +212,16 @@ def tetris_loop():
     return drops, flash_at, flash_at + CLEAR_GREY_S + 4 * CLEAR_ROW_S + CLEAR_GAP_S
 
 
+def tetris_queue(into):
+    """The next six pieces `into` seconds in (of one loop): what comes in
+    after the one that came in last (a piece that goes into hold counts, the
+    held one that comes out doesn't), round the loop."""
+    drops = tetris_loop()[0]
+    came = [d['swap'] or d['kind'] for d in drops]
+    now = sum(1 for d in drops if d['start'] <= into)
+    return [came[(now + i) % len(came)] for i in range(6)]
+
+
 def tetris_board(into):
     """The loop's board, falling piece, the Tetris's rows (or []) and held
     piece, `into` seconds in (of one loop). From the Tetris to the end of
@@ -483,7 +493,7 @@ class DemoSource:
             'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
             'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': hold,
                        'score': score, 'lines': lines, 'level': 1 + lines // 10, 'state': 0, 'over': False,
-                       'paused': False},
+                       'paused': False, 'ghost': True, 'next': tetris_queue(at)},
         }
 
     def _other(self, into):

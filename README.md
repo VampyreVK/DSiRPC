@@ -165,10 +165,11 @@ and every other game still gets a card of its own.
 </p>
 <p align="center"><sub>The overlay window with Tetris DS (a Tetris, on a loop), and the card every other game gets.</sub></p>
 
-- **Tetris DS (USA):** in Marathon, Line Clear and VS CPU the overlay shows
-  the board as you play it, the falling piece, your stored block, and your
-  score, lines (lines left in Line Clear) and level, with the achievements
-  beside it and a banner for every Tetris and new level. Discord shows the
+- **Tetris DS (USA):** in Marathon, Line Clear, VS CPU and Mission the overlay shows
+  the board as you play it, the falling piece and where it'll land, your
+  stored block, the next six pieces, and your score, lines (lines left in
+  Line Clear) and level, with the achievements beside it and a banner for
+  every Tetris and new level. Discord shows the
   mode and level, then the score, lines and the block you're holding
   ("Marathon · Level 5", "Score 24,680 · 42 lines · Holding Z"). The menus
   and the other modes get the game card.
@@ -250,8 +251,7 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 
 - [ ] Full presence for more games and versions (Mario Kart DS is on my radar currently), and ordinary trainers'
       names in Black and White's battles.
-- [ ] Tetris DS's next pieces in the overlay, and its other modes (Push,
-      Touch, Puzzle, Mission, Catch).
+- [ ] Tetris DS's Push, Catch, Puzzle and Touch modes in the overlay.
 - [ ] Location artwork for the large Discord RPC image, and more overworld states (running,
       biking, surfing) in Platinum. Leads are in [docs/research.md](docs/research.md).
 - [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,

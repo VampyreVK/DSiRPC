@@ -579,13 +579,19 @@ table), so HP and moves show up quickly.
   `RaGame.latest_unlock()`), `ra_note` and `signed_in`. Pokémon Black and
   White have views of their own (below).
 - **Tetris view** (`overlay/tetris.py`): Tetris DS (`ATRE`) in a Standard
-  game (Marathon, Line Clear, VS CPU), between the game card's header and
+  game (Marathon, Line Clear, VS CPU) or a Mission game (Mission's number in
+  place of the lines), between the game card's header and
   footer: the stored block, then the mode, score, lines (lines left in Line
   Clear) and level on the left; the board in the middle, the landed blocks
   and the falling piece in the game's colours, drawn in code (the pieces
-  turn as in the Super Rotation System), hidden while the game's paused and
-  greyed after a game over; and the achievements on the right (progress,
-  the latest unlock, one to earn). A Tetris (four lines at once) and a new
+  turn as in the Super Rotation System), with the ghost piece where it would
+  land (unless the game's options turn it off), hidden while the game's
+  paused and greyed after a game over; and on the right the next six pieces
+  (the soonest big) and the achievements (progress, the latest unlock, one
+  to earn). Between reads it moves the way the game does (`TetrisMotion`:
+  the piece a row and a column at a time, a line clear played out whole,
+  grey and then a row at a time, with the reads that came in meanwhile
+  played back twice as fast afterwards). A Tetris (four lines at once) and a new
   level get a banner. In the game's menus and its other modes the game card
   shows instead. It reads the state's `tetris` (`core/tetris_reader.py`,
   section 9).
@@ -2100,11 +2106,25 @@ board at `0x17DB88` (10 x 20 bytes, the bottom row first; 0 empty, 9-15 the
 Z, S, L, J, T, O and I pieces' colours), the falling piece at `0x17DD1C`
 (Z S L J T O I = 0-6), its orientation `0x17DD1D`, column `0x17DD20` and
 row `0x17DD22` (from the bottom; the centre it turns about), the next piece
-`0x17DD24` (the five after it `0x17DDA9`-`0x17DDAD`; not shown yet), the
+`0x17DD24` (the five after it `0x17DDA9`-`0x17DDAD`), the options' `0x10A3D0`
+(bit 1: the ghost piece off), the
 stored piece `0x17DD2C` (0xFF none), the state `0x17DD32` (7 game over),
 score, lines and level `0x17DD34`/`0x17DD38`/`0x17DD3C` (32-bit), and
-`0x1C4214` (pieces hidden: paused). The other modes (Push, Touch, Puzzle,
-Mission, Catch) keep their pieces elsewhere and aren't read.
+`0x1C4214` (pieces hidden: paused). A board cell that isn't a piece's
+colour (Mission's rising garbage rows are `0x10`) shows grey. Mission
+(`0x07B3B1` = 2; Marathon or Time Trial) keeps the same things elsewhere:
+its board at `0x1B88F8` (found with `--watch`: the same 10 x 20 layout and
+colours, just before its piece), its piece's block at `0x1B8A88` (turn,
+column, row, next and stored at the same offsets as Marathon's), the five
+next pieces after the first at `0x1B8BA9` (found in a RAM dump, the six as
+the game showed them in order at `0x1B8BA8` and nowhere else),
+pieces hidden at `0x1B3314`, its state at `0x1B8B2C` (7 at the game over, as
+Marathon's), the score at `0x1B8B34` and the mission's number
+at `0x1B8B3C`, and the level picked at `0x07B3B4`; it has no lines.
+`DsiSource` reads where the last read said the game is
+(`tetris_reader.layout_of()`), so a switch between the two costs one read.
+The other modes (Push, Touch, Puzzle, Catch) keep their pieces elsewhere and
+aren't read.
 
 ---
 

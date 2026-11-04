@@ -96,6 +96,10 @@ def test_tetris(hub):
     t0 = time.time()
     until(src, lambda d: d.get('tetris') is None)
     assert time.time() - t0 > 0.5                                 # (kept a moment first: TETRIS_HOLD_S from the last good read)
+    for (addr, _), data in zip(tr.ranges('mission'), memory(single=2, extra=(555, 4), board={(0, 0): 'O'})):
+        fake.poke(addr, data)                                     # then a Mission game: read where it keeps things
+    d = until(src, lambda d: d.get('tetris') and d['tetris']['mode'] == "Mission")
+    assert d['tetris']['board'][0][0] == 'O' and d['tetris']['score'] == 555 and d['tetris']['mission'] == 4
 
 
 # -- Pokemon Black and White --------------------------------------------------------

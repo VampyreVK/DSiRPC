@@ -204,11 +204,14 @@ def shown(presence):
 
 
 def tetris_text(tet):
-    """Tetris DS in a Standard game (core/tetris_reader.py's state): what
-    Discord shows in place of the rich presence, as (details, state): the
-    mode and level, then the score, lines and stored block."""
+    """Tetris DS in a Standard or Mission game (core/tetris_reader.py's
+    state): what Discord shows in place of the rich presence, as (details,
+    state): the mode and level, then the score, lines (Mission: its mission)
+    and stored block."""
     lines = tet['lines']
-    if tet['mode'] == "Line Clear":
+    if lines is None:
+        cleared = f"Mission {tet.get('mission') or '-'}"
+    elif tet['mode'] == "Line Clear":
         from core.tetris_reader import LINE_CLEAR_GOAL
         cleared = f"{max(0, LINE_CLEAR_GOAL - lines)} lines to go"
     else:

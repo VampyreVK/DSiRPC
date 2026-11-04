@@ -127,6 +127,7 @@ class DsiSource:
         self.parse_interval = 5.0
         self.last_parse = 0.0
         self._tetris = (None, 0.0)   # Tetris DS's last board read (core/tetris_reader.py) and when
+        self._tetris_layout = 'standard'   # and where it reads it: Standard's or Mission's
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
@@ -363,11 +364,13 @@ class DsiSource:
 
     def _read_tetris(self):
         """Tetris DS's board and pieces (core/tetris_reader.py), or None
-        outside a Standard game. A read that gets no reply, or catches the
+        outside a Standard or Mission game. A read that gets no reply, or catches the
         game for a moment not looking like it's in one, keeps the last board
         for TETRIS_HOLD_S, so the overlay doesn't flick to the game card."""
         try:
-            got = tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT)
+            got, layout = tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT, layout=self._tetris_layout)
+            if layout and layout != self._tetris_layout:   # another kind of game: read its next time
+                self._tetris_layout = layout
         except (TimeoutError, RuntimeError) as e:
             got = None
             logging.debug(f"Tetris DS: board read failed ({e})")
@@ -587,8 +590,9 @@ def diff_events(old, new):
     if is_other(old) or is_other(new):
         if is_other(old) != is_other(new) or old.get('game') != new.get('game'):
             events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
-        elif old.get('tetris') and new.get('tetris'):
-            # Tetris DS: four lines at once, a new level
+        elif old.get('tetris') and new.get('tetris') and old['tetris']['lines'] is not None \
+                and new['tetris']['lines'] is not None:
+            # Tetris DS: four lines at once, a new level (Mission has no lines)
             ot, nt = old['tetris'], new['tetris']
             if nt['lines'] - ot['lines'] == 4:
                 events.append({'type': 'tetris'})

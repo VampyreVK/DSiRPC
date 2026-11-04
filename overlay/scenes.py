@@ -12,6 +12,8 @@ scenes.py - what the overlay draws on its 256x192 canvas:
     game card     any other game (overlay/gamecard.py): its name, its
                   RetroAchievements rich presence and achievement progress,
                   laid out like the party view
+    Tetris view   Tetris DS in a Standard game (overlay/tetris.py): the
+                  board, the stored block, the score and the achievements
     waiting view  shown while the DSi isn't sending data: what to do, and the
                   last game played
     toasts        short banners for events (shiny, level up, fainted, ...)
@@ -45,6 +47,7 @@ from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
+from .tetris import TetrisView
 from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
 from .unova_art import UnovaArt
 
@@ -57,6 +60,7 @@ SLOT_POS = [(3, 18), (129, 18), (3, 66), (129, 66), (3, 114), (129, 114)]
 WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x464, 0x470
 
 TOAST_MS = 3500
+RECONNECTING_S = 3.0  # the DSi quiet this long (a Wi-Fi dropout): the reconnecting sign shows
 WIPE_MS = 700
 
 # Move types, categories and PP: Black and White's table holds every Gen IV
@@ -123,6 +127,7 @@ class Overlay:
         self.font = PixelFont()
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
+        self.tetris = TetrisView(self.font, self.mini, self.card)
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
@@ -188,6 +193,10 @@ class Overlay:
                 self.toast(f"Got the {e['badges'][-1]} Badge!", sparkly=True)
             elif kind == 'dex_caught':
                 self.toast(f"Pokédex: {e['caught']} caught!")
+            elif kind == 'tetris':
+                self.toast("TETRIS!", sparkly=True)
+            elif kind == 'tetris_level':
+                self.toast(f"Level {e['level']}!")
             elif kind == 'game_changed':
                 self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
             elif kind == 'achievement':
@@ -259,6 +268,8 @@ class Overlay:
 
         if d is None:
             self.draw_waiting(canvas, snap, t_ms)
+        elif other and d.get('tetris'):
+            self.tetris.draw(canvas, d, t_ms)
         elif other:
             self.card.draw(canvas, d, t_ms)
         elif self.showing == 'party' and self.has_party:
@@ -272,6 +283,8 @@ class Overlay:
 
         top = self.layer or canvas
         self.draw_toasts(top, t_ms)
+        if d is not None and getattr(snap, 'quiet', 0.0) >= RECONNECTING_S:
+            self.draw_reconnecting(top, t_ms)
         if wipe is not None:
             ui.wipe(top, wipe)
 
@@ -323,27 +336,30 @@ class Overlay:
     def present(self, window, canvas):
         """Scales the frame up into `window`: the canvas, then the queued
         sprites at the window's own resolution, then the layer above them.
-        The canvas is scaled in its own format and then blitted, which
-        converts it to the window's (a Mac's window has an alpha byte, the
-        canvas doesn't: see app.py)."""
+        It's all put together in the canvas's own format (no alpha byte),
+        then copied to the window in one blit, which converts it to the
+        window's: a Mac's window has an alpha byte, and see-through things
+        blended straight onto it came out wrong there (see app.py; the
+        season's light on the layer, autumn's top and bottom fades, showed
+        as flat bands)."""
         size = window.get_size()
         if self._big is None or self._big.get_size() != size:
             self._big = pygame.Surface(size, 0, canvas)
-        pygame.transform.scale(canvas, size, self._big)
-        window.blit(self._big, (0, 0))
-        if not self.hires:
-            return
-        s = size[0] / canvas.get_width()
-        old = window.get_clip()
-        for surf, (x, y, w, h), clip, dim in self.hires:
-            window.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
-            window.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim), (round(x * s), round(y * s)))
-        window.set_clip(old)
-        if self.layer is not None:
-            if self._over_big is None or self._over_big.get_size() != size:
-                self._over_big = pygame.Surface(size, pygame.SRCALPHA)
-            pygame.transform.scale(self.layer, size, self._over_big)
-            window.blit(self._over_big, (0, 0))
+        frame = self._big
+        pygame.transform.scale(canvas, size, frame)
+        if self.hires:
+            s = size[0] / canvas.get_width()
+            for surf, (x, y, w, h), clip, dim in self.hires:
+                frame.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
+                frame.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim),
+                           (round(x * s), round(y * s)))
+            frame.set_clip(None)
+            if self.layer is not None:
+                if self._over_big is None or self._over_big.get_size() != size:
+                    self._over_big = pygame.Surface(size, pygame.SRCALPHA)
+                pygame.transform.scale(self.layer, size, self._over_big)
+                frame.blit(self._over_big, (0, 0))
+        window.blit(frame, (0, 0))
 
     def _sharp_scale(self, surf, size, dim=False):
         """`surf` at `size`: pixels multiplied up to the next whole multiple,
@@ -1200,6 +1216,15 @@ class Overlay:
             ui.dsi_wifi(canvas, ix, iy, on=ui.THEME['hp_green'])
         else:
             ui.dsi_wifi(canvas, ix, iy, lit=1 + (t_ms // 400) % 4, off=(46, 56, 70))
+
+    def draw_reconnecting(self, canvas, t_ms):
+        """A small Wi-Fi sign under the header's right end, its arcs lighting
+        up one by one as in the waiting view, while the DSi's gone quiet (a
+        Wi-Fi dropout) but isn't given up on yet."""
+        x, y = W - 18, HEADER_H + 2
+        # (the highlight a shade off the fill: brighter, it read as a border twice as thick)
+        ui.panel(canvas, (x, y, 15, 12), fill=(22, 27, 33), border=(61, 75, 95), hi=(30, 37, 46), lo=(17, 21, 27))
+        ui.dsi_wifi(canvas, x + 2 - 12, y + 2 - 6, lit=1 + (t_ms // 300) % 4, off=(46, 56, 70))
 
     # -- toasts ----------------------------------------------------------------
 

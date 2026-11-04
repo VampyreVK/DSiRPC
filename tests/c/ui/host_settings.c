@@ -18,6 +18,9 @@ void host_settings_screens(void)
     host_shot("settings_address");
     draw_modern(&s, ROW_MUSIC, false, octet, -1);
     host_shot("settings_music");
+    s.stay_connected = true;
+    draw_modern(&s, ROW_LID, false, octet, -1);
+    host_shot("settings_lid");
 }
 
 // The demo's (ui_host.c): the settings with a row picked

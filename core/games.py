@@ -11,6 +11,7 @@ Platinum.
 
 PLATINUM_US = "CPUE"
 BLACK_US, WHITE_US = "IRBO", "IRAO"   # core/bw_parser.py reads these two
+TETRIS_US = "ATRE"                   # core/tetris_reader.py: its board, on top of the game card
 
 # Names for status lines. Anything missing shows as its game code.
 NAMES = {
@@ -21,6 +22,7 @@ NAMES = {
     "IRDO": "Pokemon White 2",
     "IPKE": "Pokemon HeartGold",
     "IPGE": "Pokemon SoulSilver",
+    "ATRE": "Tetris DS",
 }
 
 
@@ -33,6 +35,11 @@ def is_platinum(game):
 def is_bw(game):
     """True for Pokemon Black or White (US)."""
     return bool(game) and game.get("code") in (BLACK_US, WHITE_US)
+
+
+def is_tetris(game):
+    """True for Tetris DS (US)."""
+    return bool(game) and game.get("code") == TETRIS_US
 
 
 def bw_version(game):

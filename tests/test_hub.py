@@ -61,6 +61,43 @@ def until(src, cond, secs=8.0):
     raise AssertionError(f"timed out; the last state's kind: {d and d.get('kind')}")
 
 
+# -- Wi-Fi dropouts -------------------------------------------------------------------
+
+def test_a_dropout_is_waited_out_and_picked_up_quickly(hub):
+    fake, src = hub(code="ATRE")
+    until(src, lambda d: d.get('kind') == 'other')
+    fake.silent = True                                            # the hotspot drops out
+    end = time.time() + 6
+    while time.time() < end and not src.quiet_for():
+        src.read()
+    assert src.quiet_for() >= 3 and src.next_delay() == 0.0
+    t0 = time.time()
+    assert src.read() is None and time.time() - t0 < 1.5        # listening, not timing requests out
+    fake.silent = False                                           # it's back
+    t0 = time.time()
+    until(src, lambda d: d.get('kind') == 'other', secs=5)
+    assert time.time() - t0 < 2.5 and not src.quiet_for()
+
+
+# -- Tetris DS ---------------------------------------------------------------------
+
+def test_tetris(hub):
+    from core import tetris_reader as tr
+    from test_tetris import memory
+    fake, src = hub(code="ATRE")
+    for (addr, _), data in zip(tr.RANGES, memory(board={(3, 0): 'J'}, score=99)):
+        fake.poke(addr, data)
+    d = until(src, lambda d: d.get('tetris'))
+    assert d['kind'] == 'other' and d['tetris']['board'][0][3] == 'J' and d['tetris']['score'] == 99
+    assert src.next_delay() <= src.TETRIS_INTERVAL
+    fake.drop_next = 2                                            # a board read that gets no reply
+    assert src.read()['tetris']['score'] == 99                    # keeps the board (no flick to the game card)
+    fake.poke(tr.IN_GAME, b"")                                 # back in the menus: the game card
+    t0 = time.time()
+    until(src, lambda d: d.get('tetris') is None)
+    assert time.time() - t0 > 0.5                                 # (kept a moment first: TETRIS_HOLD_S from the last good read)
+
+
 # -- Pokemon Black and White --------------------------------------------------------
 
 def test_black_white(hub):

@@ -20,8 +20,8 @@ means "nothing new, still there". A state is Platinum's parsed dict (see
 core/parser.py; it has no 'kind'), Black or White's (core/bw_parser.py,
 {'kind': 'bw', ...}, laid out like Platinum's plus the RetroAchievements
 keys of core/other_game.py), or, for any other game, the dict from
-core/other_game.py ({'kind': 'other', ...}); is_other() and is_bw() tell
-them apart.
+core/other_game.py ({'kind': 'other', ...}; Tetris DS's also has its board
+as 'tetris', core/tetris_reader.py); is_other() and is_bw() tell them apart.
 Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
@@ -39,7 +39,7 @@ import struct
 import threading
 import time
 
-from . import bw_data, games
+from . import bw_data, games, tetris_reader
 from .bw_parser import BWParser
 from .other_game import OtherGame, ra_summary
 from .parser import PlatinumParser, TrainerMemory
@@ -62,12 +62,13 @@ class Snapshot:
     whether the game answered recently, `launcher` that the DSi is in the
     DSiRPC launcher before a game says hello (DsiSource.launcher_state)."""
 
-    def __init__(self, state=None, online=False, updated=0.0, status="starting", launcher=None):
+    def __init__(self, state=None, online=False, updated=0.0, status="starting", launcher=None, quiet=0.0):
         self.state = state
         self.online = online
         self.updated = updated      # time.time() of the last good parse
         self.status = status        # short human-readable source status
         self.launcher = launcher    # {'ip', 'game', 'title', 'at'} or None
+        self.quiet = quiet          # seconds the DSi's been quiet while online (a Wi-Fi dropout), else 0
 
 
 class DsiSource:
@@ -109,6 +110,9 @@ class DsiSource:
     FAST_TIMEOUT = 0.6
     FAST_MISSES = 5
     BATTLE_FULL_EVERY = 60.0
+    TETRIS_INTERVAL = 0.2  # Tetris DS: its board read this often (two requests)
+    TETRIS_HOLD_S = 2.0    # ... and the last one kept this long through reads that miss or say it's not in a game
+    QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
                  ra_settings=None):
@@ -122,6 +126,7 @@ class DsiSource:
         self.fast_battles = True
         self.parse_interval = 5.0
         self.last_parse = 0.0
+        self._tetris = (None, 0.0)   # Tetris DS's last board read (core/tetris_reader.py) and when
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
@@ -212,6 +217,8 @@ class DsiSource:
     def next_delay(self):
         if self.client.dsi_ip is None:
             return None
+        if self.quiet_for():
+            return 0.0  # straight back to listening for its hellos
         now = time.time()
         delays = []
         if self.fast_battles and self._in_battle():
@@ -224,6 +231,8 @@ class DsiSource:
             delays.append(self.ra_game.capture_due - now)
         if games.is_platinum(self.client.game) or games.is_bw(self.client.game):
             delays.append(self.last_parse + self.parse_interval - now)
+        if games.is_tetris(self.client.game):
+            delays.append(self.TETRIS_INTERVAL)
         return max(0.05, min(delays)) if delays else None
 
     def take_events(self):
@@ -297,6 +306,13 @@ class DsiSource:
             # Short wait so the hub thread can still be stopped quickly.
             if not self.client.wait_for_dsi(max_wait=1.0):
                 return None
+        if self.quiet_for():
+            # A Wi-Fi dropout: no requests (they'd only time out), just its
+            # hellos, so reading starts again the moment it's back
+            if not self.client.wait_for_hello(self.QUIET_LISTEN_S):
+                return None
+            self.last_parse = 0.0  # everything read again straight away
+            self.fast_misses = 0
         game = self.client.game
         self._switch_ra(game)
         self._capture_tick()
@@ -332,14 +348,38 @@ class DsiSource:
             if self.other:
                 self.other.close()
             self.last = None
+            self._tetris = (None, 0.0)
             self.other = OtherGame(game, self.ra_game, self.client)
             logging.info(f"The DSi is running {games.name(game)}")
-        if not self.other.reading:
+        tetris = games.is_tetris(game)
+        if not self.other.reading and not tetris:  # (Tetris DS's board reads keep up with them)
             self.client.listen(1.0)  # keep up with the hellos, to notice a switch
         data = self.other.read()
+        if data is not None and tetris:
+            data['tetris'] = self._read_tetris()
         self.failed = data is None and self.ra_game is not None and bool(self.ra_game.runtime)
         self.last = data
         return data
+
+    def _read_tetris(self):
+        """Tetris DS's board and pieces (core/tetris_reader.py), or None
+        outside a Standard game. A read that gets no reply, or catches the
+        game for a moment not looking like it's in one, keeps the last board
+        for TETRIS_HOLD_S, so the overlay doesn't flick to the game card."""
+        try:
+            got = tetris_reader.read(self.client, timeout=self.FAST_TIMEOUT)
+        except (TimeoutError, RuntimeError) as e:
+            got = None
+            logging.debug(f"Tetris DS: board read failed ({e})")
+        last, at = self._tetris
+        now = time.time()
+        if got:
+            self._tetris = (got, now)
+            return got
+        if last and now - at < self.TETRIS_HOLD_S:
+            return last
+        self._tetris = (None, 0.0)
+        return None
 
     def _read_bw(self, game):
         """Pokemon Black or White: like Platinum (battlers only during a
@@ -479,6 +519,13 @@ class DsiSource:
         data['battle'] = dict(last['battle'], mons=mons)
         return data
 
+    def quiet_for(self):
+        """Seconds the DSi has been quiet for, past the hellos' second
+        (a Wi-Fi dropout), else 0."""
+        from .dsirpc_client import HELLO_GAP_S
+        q = self.client.quiet_for()
+        return q if q >= HELLO_GAP_S else 0.0
+
     def forget_dsi(self):
         """The DSi went quiet: learn its IP again from the next hello (its
         DHCP lease can change), unless it was given with --dsi-ip. The game
@@ -540,6 +587,13 @@ def diff_events(old, new):
     if is_other(old) or is_other(new):
         if is_other(old) != is_other(new) or old.get('game') != new.get('game'):
             events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
+        elif old.get('tetris') and new.get('tetris'):
+            # Tetris DS: four lines at once, a new level
+            ot, nt = old['tetris'], new['tetris']
+            if nt['lines'] - ot['lines'] == 4:
+                events.append({'type': 'tetris'})
+            if nt['level'] > ot['level'] and nt['lines'] > ot['lines']:
+                events.append({'type': 'tetris_level', 'level': nt['level']})
         return events
     if old.get('kind') != new.get('kind') or old.get('version') != new.get('version'):
         events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})
@@ -617,7 +671,7 @@ class StateHub:
     def snapshot(self):
         with self._lock:
             s = self._snap
-            return Snapshot(s.state, s.online, s.updated, s.status, s.launcher)
+            return Snapshot(s.state, s.online, s.updated, s.status, s.launcher, s.quiet)
 
     def start(self):
         self._thread.start()
@@ -644,12 +698,14 @@ class StateHub:
             take = getattr(self.source, 'take_events', None)
             if take:
                 events += take()
+            quiet_for = getattr(self.source, 'quiet_for', None)
+            quiet = quiet_for() if quiet_for else 0.0
             with self._lock:
                 snap = self._snap
                 if data is not None and data is prev and snap.online:
                     # Nothing new: the source was only checking achievements.
                     snap = Snapshot(snap.state, True, snap.updated, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet)
                 elif data:
                     if not snap.online:
                         events.append({'type': 'online', 'console': getattr(self.source, 'console', 'DSi')})
@@ -657,7 +713,7 @@ class StateHub:
                     prev = data
                     last_ok = time.time()
                     snap = Snapshot(data, True, last_ok, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet)
                 else:
                     online = snap.online and (time.time() - last_ok) < self.offline_after
                     if snap.online and not online:
@@ -667,7 +723,7 @@ class StateHub:
                         if forget:
                             forget()
                     snap = Snapshot(snap.state, online, snap.updated, getattr(self.source, 'status', ''),
-                                    getattr(self.source, 'launcher_state', None))
+                                    getattr(self.source, 'launcher_state', None), quiet if online else 0.0)
                 self._snap = snap
 
             for fn in list(self._listeners):

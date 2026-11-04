@@ -12,7 +12,9 @@ knows without a game-specific parser:
     menu's "Console icon"), shown as the small image
 
 The hub reads all that while the game runs (core/other_game.py); this file
-only turns it into what Discord shows. Pokemon Platinum keeps its own, much
+only turns it into what Discord shows. Tetris DS in a Standard game shows its
+board's numbers instead of its rich presence (tetris_text(); the mode and
+level, the score, lines and stored block), with the same pictures. Pokemon Platinum keeps its own, much
 richer presence (rpc/platinum_presence.py).
 """
 
@@ -201,9 +203,35 @@ def shown(presence):
     return {k: (v.name if isinstance(v, ActivityType) else v) for k, v in presence.items() if k != "start"}
 
 
+def tetris_text(tet):
+    """Tetris DS in a Standard game (core/tetris_reader.py's state): what
+    Discord shows in place of the rich presence, as (details, state): the
+    mode and level, then the score, lines and stored block."""
+    lines = tet['lines']
+    if tet['mode'] == "Line Clear":
+        from core.tetris_reader import LINE_CLEAR_GOAL
+        cleared = f"{max(0, LINE_CLEAR_GOAL - lines)} lines to go"
+    else:
+        cleared = f"{lines} line{'s' if lines != 1 else ''}"
+    first = f"{tet['mode']} · Level {tet['level']}"
+    if tet.get('over'):
+        first += " · Game over"
+    elif tet.get('paused'):
+        first += " · Paused"
+    second = f"Score {tet['score']:,} · {cleared}"
+    if tet.get('hold'):
+        second += f" · Holding {tet['hold']}"
+    return first, second
+
+
 def from_state(state, start=None, check_images=True, console=None):
     """The presence for the hub's state of a game without its own parser
-    (core/other_game.py)."""
-    return build_presence(state.get('game'), state.get('ra_set'), state.get('rich_presence'),
-                          start, check_images=check_images, name=state.get('title'),
-                          console=console, progress=state.get('progress'))
+    (core/other_game.py); Tetris DS's board's numbers in place of its rich
+    presence while a Standard game is played."""
+    tetris = state.get('tetris')
+    presence = build_presence(state.get('game'), state.get('ra_set'), None if tetris else state.get('rich_presence'),
+                              start, check_images=check_images, name=state.get('title'),
+                              console=console, progress=state.get('progress'))
+    if tetris:
+        presence["details"], presence["state"] = tetris_text(tetris)
+    return presence

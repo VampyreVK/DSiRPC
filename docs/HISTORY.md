@@ -29,6 +29,21 @@
 
 ## Progress log
 
+- 2026-11-03: **Tetris DS, flaky hotspots and the lid.** Tetris DS gets
+  its own overlay view (`overlay/tetris.py`): the board, the falling piece,
+  the stored block and the numbers, read every 0.2 s from RetroAchievements'
+  code notes (`core/tetris_reader.py`), and Discord shows the mode, level,
+  score, lines and stored block. In game the console now rides out a
+  hotspot's few-second dropouts: rpcprobe tells the Wi-Fi chip at the start
+  to wait about 5 s without beacons before counting the network as lost,
+  then 60 s trying to get it back (no rejoining in game, which would need
+  the WPA2 handshake), and DSiRPC stops sending requests while the console's
+  quiet, shows a small Wi-Fi sign, and reads again the moment a hello
+  arrives. On a DSi, **Lid closed: Stay connected** pauses any game while
+  the lid's shut (both CPUs held, the way nds-bootstrap's in-game menu does)
+  with the Wi-Fi still on. On a Mac, autumn's light fades were flat bands:
+  the overlay now puts the whole frame together before it reaches the
+  window, as summer's fix did for the canvas.
 - 2026-10-30 (late night): **Updates for the desktop, and playtime offline.**
   The README's banner has the new tagline and six feature chips beside the
   DSi (redrawn twice: the first was too small to read on GitHub, the second

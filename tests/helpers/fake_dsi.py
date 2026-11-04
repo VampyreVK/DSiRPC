@@ -73,6 +73,7 @@ class FakeDsi(threading.Thread):
         self.drop_next = 0                   # requests to ignore (the reply was lost)
         self.duplicate_replies = False       # send every reply twice
         self.ach_report = None               # a "DSiRPC ach ..." text sent after each hello
+        self.silent = False                  # a Wi-Fi dropout: no hellos, requests go unanswered
         self.stop_flag = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         socket.socket.bind(self.sock, (dsi_ip, port))
@@ -111,6 +112,8 @@ class FakeDsi(threading.Thread):
             self._serve()
 
     def _hello(self):
+        if self.silent:
+            return
         n = int(self.frame / 60) if self.game else int(time.time())
         self.sock.sendto(f"DSiRPC hello #{n} gc={self.code} v=01 hc=1234 a9=2 vb=12 rx=0 req=0".encode(),
                          (PC, self.port))
@@ -141,6 +144,8 @@ class FakeDsi(threading.Thread):
         kind, seq, count = data[0:1], struct.unpack(">H", data[1:3])[0], data[3]
         if kind in self.requests:
             self.requests[kind] += 1
+        if self.silent:
+            return
         if self.drop_next:
             self.drop_next -= 1
             return

@@ -24,6 +24,7 @@ typedef struct
     bool sounds;            // the modern look's menu sounds
     uint8_t music;          // the modern look's menu music (music.h's MUSIC_)
     uint8_t game_sort;      // the modern game picker's order (picker.h's SORT_)
+    bool stay_connected;    // DSi: with the lid closed the game doesn't sleep, so the Wi-Fi stays on
     char last_game[SETTINGS_PATH_LEN];  // the game last started from here, or ""
 } LauncherSettings;
 

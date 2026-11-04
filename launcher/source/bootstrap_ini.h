@@ -43,8 +43,11 @@ int console_model(void);
 // cheat files are removed (TWiLight writes new ones for each game it
 // launches); if the ini already names the game, those stay as they are. A
 // DSi-enhanced game is set to run in DS mode (DSI_MODE = 0) either way, since
-// DSiRPC's part of nds-bootstrap only runs in DS mode.
+// DSiRPC's part of nds-bootstrap only runs in DS mode. DSIRPC_STAY_CONNECTED
+// is written each time too (1: the settings' "Lid closed: Stay connected",
+// which only DSiRPC's nds-bootstrap reads: on a DSi the game then doesn't
+// sleep, so the Wi-Fi stays on).
 // Returns 0 on success, or -1 with a message for the screen in msg.
-int bootstrap_ini_prepare(const char *game, char *msg, size_t msgsz);
+int bootstrap_ini_prepare(const char *game, bool stay_connected, char *msg, size_t msgsz);
 
 #endif // BOOTSTRAP_INI_H__

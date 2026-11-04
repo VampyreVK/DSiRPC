@@ -77,8 +77,9 @@ Save backups: Y in the launcher backs up your games' saves to the PC and
 downloads newer ones from it (from your other console, say; the launcher
 says whose). The PC keeps the live save your consoles share and each
 console's last 10 backups in its saves folder (tray menu > Open save
-backups). L+R opens the launcher's settings: how it finds DSiRPC, and
-whether saves sync or only back up.
+backups). L+R opens the launcher's settings: how it finds DSiRPC,
+whether saves sync or only back up, and whether a DSi stays connected
+with the lid closed.
 
 No Wi-Fi? Press B while the launcher connects (or START when it says it
 couldn't) to play offline: games start the same way, without Discord,

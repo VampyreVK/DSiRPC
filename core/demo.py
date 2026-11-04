@@ -5,7 +5,8 @@ Pokemon Black (its own main view, with an achievement unlocking, a battle
 in the rain in Pinwheel Forest ending in a catch, Burgh at the Castelia
 Gym, and the Battle Subway, Battle Institute and an Elite Four room, each
 in another season), another game (the game card every game without its own
-parser gets, with an achievement unlocking), Pokemon Platinum (overworld, a
+parser gets, with an achievement unlocking), Tetris DS (its board: nine
+pieces and a Tetris, looping), Pokemon Platinum (overworld, a
 wild battle by day, a shiny in the evening rain, the rival at night (who
 switches Pokemon), a snowy route, a legendary in a cave, a level up), and
 the DSi going offline.
@@ -134,6 +135,116 @@ OTHER_SET = ra_set.RaSet({"ID": 1, "Title": "Demo Racer DS", "Achievements": [
     ], 1)]})
 OTHER_UNLOCK_AT = 6.0   # seconds into the scene that "Clean Lap" unlocks
 
+# Tetris DS (its board as core/tetris_reader.py reads it), with a set of its
+# own (made up as well; "Four at Once" unlocks with the Tetris).
+TETRIS_SET = ra_set.RaSet({"ID": 2, "Title": "Tetris DS", "Achievements": [
+    {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
+    for i, (title, desc, pts) in enumerate([
+        ("First Lines", "Clear a line in Marathon", 1),
+        ("Two by Two", "Clear two lines at once in Marathon", 2),
+        ("Four at Once", "Clear four lines at once in Marathon", 5),
+        ("Spin Doctor", "Clear a line with a T-Spin in Marathon", 10),
+        ("Level Ten", "Reach level 10 in Marathon", 10),
+        ("Marathon Runner", "Clear 200 lines in Marathon", 25),
+    ], 1)]})
+# A loop that ends where it starts. The stack: three rows left from before
+# (a hole each, so they never clear), then four rows full but for the well in
+# the last column, and on top the first two pieces of a copy of those four.
+# The other seven pieces finish the copy, two more start the next one, then
+# an I down the well clears the four full rows (a Tetris, flashing white
+# first) and everything above drops into their place: the stack as it
+# started. Each piece of the four rows as (kind, turns, its cells: column,
+# row from the bottom of the four), in the order they come down; each lands
+# with nothing empty under it.
+TETRIS_LEFT = ["IIIIZZ.JLL", ".SSOOZTJJL", "SS.OOTTTJL"]      # the bottom rows, from the bottom
+TETRIS_PIECES = [
+    ('L', 0, [(0, 0), (1, 0), (2, 0), (2, 1)]), ('T', 0, [(3, 0), (4, 0), (4, 1), (5, 0)]),
+    ('Z', 0, [(5, 1), (6, 0), (6, 1), (7, 0)]), ('S', 1, [(7, 1), (7, 2), (8, 0), (8, 1)]),
+    ('O', 0, [(0, 1), (0, 2), (1, 1), (1, 2)]), ('T', 2, [(2, 2), (3, 1), (3, 2), (4, 2)]),
+    ('Z', 0, [(4, 3), (5, 2), (5, 3), (6, 2)]), ('J', 2, [(6, 3), (7, 3), (8, 2), (8, 3)]),
+    ('I', 0, [(0, 3), (1, 3), (2, 3), (3, 3)]),
+]
+TETRIS_CARRIED = 2       # the copy's first two pieces are on top at the start
+TETRIS_WELL = ('I', 1, [(9, 0), (9, 1), (9, 2), (9, 3)])
+# What comes down, in order: a piece of the copy (its index; 9 + i for the
+# next copy's) or 'well', the turns it goes through on the way down (ending
+# as it lands), and the piece that came in and went into hold for it (the
+# held one coming out instead). The I held early is the one for the Tetris.
+TETRIS_DROPS = [
+    (2, [0], None), (3, [0, 1], None), (4, [0], None), (5, [0, 1, 2], 'I'), (6, [0], None),
+    (7, [0, 3, 2], None), (8, [1, 0], None), (9, [0, 1, 2, 3, 0], None), (10, [0], None),
+    ('well', [1], 'T'),
+]
+TETRIS_HOLD = 'T'        # held at the start (and the end)
+TETRIS_ROW_S = 0.055     # a piece falls a row in this long
+TETRIS_LOCK_S = 0.24     # and rests this long before the next one comes
+TETRIS_SWAP_S = 0.4      # one that goes into hold shows this long first
+TETRIS_REST_S = 1.0      # the stack waits this long after the Tetris
+TETRIS_FLASH_S = 0.5     # the four full rows flash this long, then they're gone
+TETRIS_SPAWN = 21        # pieces come in with their lowest cell on this row
+
+
+def tetris_loop():
+    """The loop's drops: [{'start', 'kind', 'x', 'spawn' and 'land' (its
+    centre's row), 'turns', 'swap': the piece that went into hold first,
+    'swap_at': when the held one came out}], when the flash starts and the
+    loop's length in seconds."""
+    from .tetris_reader import cells
+    left = len(TETRIS_LEFT)
+    drops, t = [], TETRIS_REST_S
+    for which, turns, swap in TETRIS_DROPS:
+        if which == 'well':
+            (kind, turn, where), lift = TETRIS_WELL, left
+        else:   # the copy, or the next one above it
+            (kind, turn, where), lift = TETRIS_PIECES[which % 9], left + 4 * (1 + which // 9)
+        offs, first = cells(kind, turn), cells(kind, turns[0])
+        ox, oy = min(offs, key=lambda c: (c[1], c[0]))
+        cx, cy = min(where, key=lambda c: (c[1], c[0]))
+        drop = {'kind': kind, 'x': cx - ox, 'land': cy - oy + lift, 'turns': turns, 'swap': swap,
+                'spawn': TETRIS_SPAWN - min(dy for _, dy in first), 'start': t, 'swap_at': t}
+        if swap:
+            drop['swap_at'] = t = t + TETRIS_SWAP_S
+        drops.append(drop)
+        t += (drop['spawn'] - drop['land']) * TETRIS_ROW_S + TETRIS_LOCK_S
+    return drops, t - TETRIS_LOCK_S, t - TETRIS_LOCK_S + TETRIS_FLASH_S
+
+
+def tetris_board(into):
+    """The loop's board, falling piece, rows flashing (or []) and held
+    piece, `into` seconds in (of one loop)."""
+    from .tetris_reader import cells
+    drops, flash_at, _ = tetris_loop()
+    left = len(TETRIS_LEFT)
+    board = [[c if c != '.' else 0 for c in row] for row in TETRIS_LEFT] + [[0] * 10 for _ in range(20 - left)]
+    for i, (kind, _, where) in enumerate(TETRIS_PIECES):
+        for c, r in where:
+            board[r + left][c] = kind
+            if i < TETRIS_CARRIED:
+                board[r + left + 4][c] = kind
+    piece, hold = None, TETRIS_HOLD
+    for d in drops:
+        if into < d['start']:
+            break
+        if d['swap']:
+            if into < d['swap_at']:                        # the one going into hold, coming in
+                k = d['swap']
+                piece = {'kind': k, 'turn': 0, 'x': 4,
+                         'y': TETRIS_SPAWN - min(dy for _, dy in cells(k, 0)) - int((into - d['start']) / TETRIS_ROW_S)}
+                break
+            hold = d['swap']
+        fell = int((into - d['swap_at']) / TETRIS_ROW_S)
+        rows = d['spawn'] - d['land']
+        # its turns, spread over the first two thirds of the way down
+        n = len(d['turns'])
+        turn = d['turns'][min(n - 1, fell * 3 * (n - 1) // max(1, 2 * rows))]
+        if into - d['swap_at'] < rows * TETRIS_ROW_S + TETRIS_LOCK_S / 2:
+            piece = {'kind': d['kind'], 'turn': turn, 'x': d['x'], 'y': max(d['land'], d['spawn'] - fell)}
+        else:                                                  # landed: part of the board now
+            for dx, dy in cells(d['kind'], d['turns'][-1]):
+                board[d['land'] + dy][d['x'] + dx] = d['kind']
+            piece = None
+    return board, piece, list(range(left, left + 4)) if into >= flash_at else [], hold
+
 # Pokemon Black, made up as well: a party, and a set (unlocked: the first
 # four; "Bug Out" unlocks during the scene).
 BW_PARTY = [
@@ -164,7 +275,7 @@ BW_UNLOCK_AT = 6.0
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
     ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
-    ('other', 16),
+    ('other', 16), ('tetris', 23),   # (two of the Tetris loop's 11.39 s)
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
     ('levelup', 8),
@@ -225,6 +336,8 @@ class DemoSource:
             return None
         if name == 'other':
             return self._other(into)
+        if name == 'tetris':
+            return self._tetris(into)
         if name == 'unova':
             return self._unova(into)
         if name == 'unova_places':
@@ -336,6 +449,27 @@ class DemoSource:
             d['league'] = {'beaten': ['Shauntal'], 'here': 'Grimsley'}
             d['misc']['clock'] = '2026-01-09 22:15'
         return d
+
+    def _tetris(self, into):
+        """The Tetris loop (tetris_board()), over and over: a Tetris at the
+        end of each, which counts in the lines and the score."""
+        achs = TETRIS_SET.playable_achievements
+        length = tetris_loop()[2]
+        done, at = int(into // length), into % length
+        board, piece, flashing, hold = tetris_board(at)
+        lines, score = 38 + 4 * done, 21480 + 3200 * done
+        earned = {1, 2, 3} if done else {1, 2}
+        recent = [(3, time.time() - at)] if done else []
+        latest = recent[-1] if done else (2, time.time() - 3 * 86400)
+        return {
+            'kind': 'other', 'game': {'code': 'ATRE'}, 'title': TETRIS_SET.title, 'header_title': None,
+            'ra_set': TETRIS_SET, 'rich_presence': "Standard | Marathon | Score: 21480 | Lines Cleared: 38",
+            'progress': (len(earned), len(achs)), 'started': time.time() - into - 900,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
+            'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': hold, 'clearing': flashing,
+                       'score': score, 'lines': lines, 'level': 1 + lines // 10, 'state': 0, 'over': False,
+                       'paused': False},
+        }
 
     def _other(self, into):
         achs = OTHER_SET.playable_achievements

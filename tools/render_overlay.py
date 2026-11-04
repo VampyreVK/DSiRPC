@@ -3,8 +3,9 @@ render_overlay.py - DSiRPC's overlay window (the desktop app's stream
 window), drawn by its own code (overlay/scenes.py) from the demo's made-up
 scenes (core/demo.py), without opening a window (SDL's dummy driver):
 
-    python tools/render_overlay.py            the README's pictures, as pixel-art SVGs
-    python tools/render_overlay.py --png      and as PNGs
+    python tools/render_overlay.py            the README's pictures, as pixel-art SVGs,
+                                              and overlay-tetris.gif
+    python tools/render_overlay.py --png      and the pictures as PNGs
 
 Everything goes to renders/ (--out DIR for another folder). It needs
 pygame-ce and Pillow, and the sprites in Assets/ (a checkout has them; any
@@ -54,6 +55,7 @@ PICTURES = [
     ("overlay-other.svg", "other", 8.0,
      "The overlay with any other game: what you're doing in it (its rich presence) and its achievements"),
 ]
+GIF_FPS = 25           # overlay-tetris.gif: a frame every 40 ms (GIF times are in hundredths)
 FPS = 30
 SCALE = 2           # the window's scale
 
@@ -113,6 +115,58 @@ def render(bank, clock, scene, into):
     return window
 
 
+def tetris_gif(bank, clock, path):
+    """overlay-tetris.gif: the demo's Tetris loop once (core/demo.py's
+    tetris_board(): nine pieces, a Tetris, and the board as it started), so
+    it plays on and on without a seam. It starts just after the Tetris, with
+    its banner coming in; the background's drift, the game card's bob and
+    the sparkles are timed to go round a whole number of times in the loop."""
+    from PIL import Image
+    from overlay import ui
+    length = demo.tetris_loop()[2]
+    frames = round(length * GIF_FPS)
+    loop_ms = frames * 1000 / GIF_FPS
+
+    def looped(period):
+        """t_ms -> a t_ms whose `period` goes round a whole number of times in the loop"""
+        k = max(1, round(loop_ms / period))
+        return lambda t: int(t * k * period // loop_ms)
+    background, bob, sparkle = ui.tiled_background, ui.bob, ui.sparkle
+    ui.tiled_background = lambda surf, t, rect=None: background(surf, looped(1920)(t), rect)
+    ui.bob = lambda t, period=1200, amp=1: bob(looped(period)(t), period, amp)
+    ui.sparkle = lambda surf, x, y, t, *a: sparkle(surf, x, y, looped(900)(t), *a)
+    try:
+        source = demo.DemoSource()
+        # its second time round (one Tetris done), each frame half a frame in
+        source.t0 = clock.now - scene_start("tetris") - length - 0.5 / GIF_FPS
+        overlay = Overlay(bank)
+        overlay.hires_ok = True
+        canvas = pygame.Surface((W, H), 0, 32)
+        window = pygame.Surface((W * SCALE, H * SCALE), 0, 32)
+        overlay.handle_events([{'type': 'tetris'}], 0)              # the Tetris that ends the loop
+        images = []
+        for i in range(frames):
+            data = source.read()
+            t_ms = i * 1000 // GIF_FPS
+            snap = Snapshot(data, True, clock.now, source.status)
+            if i == 0:
+                settle(overlay, bank, canvas, snap, t_ms)
+            overlay.draw(canvas, snap, t_ms, 1000 // GIF_FPS)
+            overlay.present(window, canvas)
+            images.append(Image.frombytes("RGB", window.get_size(), pygame.image.tobytes(window, "RGB")))
+            clock.now += 1 / GIF_FPS
+    finally:
+        ui.tiled_background, ui.bob, ui.sparkle = background, bob, sparkle
+    # One palette for every frame (the overlay has few colours), no dithering
+    sample = Image.new("RGB", (images[0].width, images[0].height * len(images[::8])))
+    for n, im in enumerate(images[::8]):
+        sample.paste(im, (0, n * im.height))
+    palette = sample.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    gif = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in images]
+    gif[0].save(path, save_all=True, append_images=gif[1:], duration=1000 // GIF_FPS, loop=0, optimize=True)
+    print(f"{path}: {frames / GIF_FPS:.2f} s, {os.path.getsize(path) // 1024} KB")
+
+
 def rows_of(surface):
     w, h = surface.get_size()
     data = pygame.image.tobytes(surface, "RGB")
@@ -139,7 +193,7 @@ def to_svg(window, title):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Draw the overlay window's README pictures from the demo's scenes")
+    ap = argparse.ArgumentParser(description="Draw the overlay window's README pictures and Tetris GIF from the demo's scenes")
     ap.add_argument("--out", default=os.path.join(REPO, "renders"), help="the folder to write them to")
     ap.add_argument("--png", action="store_true", help="PNGs too")
     args = ap.parse_args()
@@ -160,6 +214,7 @@ def main():
             png = os.path.join(args.out, name[:-4] + ".png")
             pygame.image.save(window, png)
             print(png)
+    tetris_gif(bank, clock, os.path.join(args.out, "overlay-tetris.gif"))
     pygame.quit()
     if bank._missing:
         sys.exit(f"Sprites that couldn't be loaded: {sorted(map(str, bank._missing))}")

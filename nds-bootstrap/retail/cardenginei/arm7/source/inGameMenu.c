@@ -106,6 +106,11 @@ void inGameMenu(void) {
 				// Restore power state.
 				writePowerManagement(PM_CONTROL_REG, power);
 			}
+			#if !defined(ALTERNATIVE) && !defined(TWLSDK)
+			if (!(valueBits & sleepMode) && (consoleModel < 2)) {
+				Probe_LidDark(REG_EXTKEYINPUT & BIT(7)); // DSiRPC: "Stay connected", the screens and the sound off
+			}
+			#endif
 			timeTillStatusRefresh++;
 			if (timeTillStatusRefresh >= 8) {
 				timeTillStatusRefresh = 0;

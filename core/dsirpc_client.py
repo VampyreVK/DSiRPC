@@ -36,7 +36,9 @@ compared with DSiRPC's own. push_unlocks() tells the console about
 achievements DSiRPC unlocked itself ('U'), so nds-bootstrap's in-game menu
 shows them and the console stops checking them. On a DSi, "DSiRPC lid ..."
 says the lid closed, so the console turned its Wi-Fi off for the rest of the
-game; that's logged too.
+game, or ("DSiRPC lid pause ...", the launcher's Lid closed: Stay connected)
+that the game paused with the Wi-Fi still on, until the lid opens; those are
+logged too.
 
 Usage, from the repo root:
   python core/dsirpc_client.py                             # smoke test (see --read)
@@ -60,6 +62,7 @@ import time
 MAX_RANGES = 16
 MAX_DATA = 192
 MAX_WATCHES = 8
+HELLO_GAP_S = 3.0         # hellos come once a second: this long without one is a dropout (_dropout_report)
 MAX_PUSH = 12             # unlocks in one 'U' (rpcprobe's receive buffer)
 WATCH_ARM7_ONLY = 0x80    # in the 'W' count: the ARM7 reads everything itself
 REC_ARM7 = 0x8000         # in a record's scanline field: no ARM9 write-back since the record before
@@ -195,6 +198,7 @@ class DSiClient:
         self.last_hello = None
         self.game = None  # from the latest hello; see game_from_hello()
         self.hellos = collections.deque(maxlen=600)  # (time received, text)
+        self.heard_at = None  # time.time() the DSi was last heard from (a hello or a reply)
         self._tick_report_due = 0.0  # when to log the console's VBlank tick next (_tick_report)
         self.ach = AchReport()
         self.idle_hook = None  # called between the requests of a long read (core/hub.py's capture)
@@ -204,23 +208,42 @@ class DSiClient:
 
     def _handle_other(self, data, addr):
         """Anything that isn't the reply we're waiting for (mostly hellos)."""
+        if data.startswith(b"DSiRPC") and addr[0] == self.dsi_ip:
+            self.heard_at = time.time()
         if data.startswith(b"DSiRPC hello"):
             self.last_hello = data.decode(errors="replace")
+            self._dropout_report(self.last_hello)
             self.hellos.append((time.time(), self.last_hello))
             self.game = game_from_hello(self.last_hello)
             self._tick_report()
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
+                self.heard_at = time.time()
                 print(f"DSi found at {self.dsi_ip} ({self.last_hello})")
             elif self.verbose:
                 print(f"  hello: {self.last_hello}")
         elif data.startswith(b"DSiRPC ach "):
             self.ach.take(data.decode(errors="replace"))
+        elif data.startswith(b"DSiRPC lid pause"):
+            logging.info("Console: its lid closed, so the game paused with the Wi-Fi still on; "
+                         "it picks up again when the lid opens")
         elif data.startswith(b"DSiRPC lid"):
             logging.info("Console: its lid closed, so it turned its Wi-Fi off until a game is started "
                          "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def _dropout_report(self, text):
+        """Logs the console's Wi-Fi riding out a dropout (a flaky hotspot,
+        rpcprobe's TwlWifi_KeepThroughGaps()): its hellos (once a second)
+        coming back after a gap, in the same game. One whose chip gave up
+        on the hotspot stays quiet until a game is started from the launcher
+        again."""
+        now = time.time()
+        last = self.hellos[-1] if self.hellos else None
+        # (a higher #N: the same game, not a new one)
+        if last and now - last[0] >= HELLO_GAP_S and _hello_number(text) > _hello_number(last[1]):
+            logging.info(f"Console: heard from it again after {now - last[0]:.0f} s without hellos")
 
     def _tick_report(self):
         """Once a minute, what rpcprobe cost the console's ARM7 (its hellos'
@@ -256,6 +279,23 @@ class DSiClient:
         current while no requests are being sent."""
         _listen_until(self, time.time() + seconds)
 
+    def quiet_for(self):
+        """Seconds since the DSi was last heard from (0 before it's found):
+        over HELLO_GAP_S, its Wi-Fi has dropped out (it says hello once a
+        second whatever else it's doing)."""
+        return time.time() - self.heard_at if self.heard_at else 0.0
+
+    def wait_for_hello(self, max_wait):
+        """Takes in what comes for up to `max_wait` seconds, back as soon as
+        the DSi says hello. True if it did."""
+        deadline = time.time() + max_wait
+        while time.time() < deadline:
+            before = self.heard_at
+            _listen_until(self, min(deadline, time.time() + 0.1))
+            if self.heard_at != before:
+                return True
+        return False
+
     def wait_for_dsi(self, max_wait=15.0):
         """Block until a hello tells us the DSi's IP (if not given)."""
         deadline = time.time() + max_wait
@@ -290,6 +330,7 @@ class DSiClient:
                     _, seq, count, status = struct.unpack(">cHBB", data[:5])
                     if seq != self.seq:
                         continue  # late reply to an older request
+                    self.heard_at = time.time()
                     if status != 0:
                         raise Refused(status, count)
                     return count, data[5:]
@@ -412,6 +453,12 @@ class DSiClient:
 
 def _hello_fields(text):
     return {k: v for k, v in re.findall(r"(\w+)=(\S+)", text)}
+
+
+def _hello_number(text):
+    """A hello's #N (counts up from 0 as a game runs), -1 if it has none."""
+    m = re.match(r"DSiRPC hello #(\d+)", text)
+    return int(m.group(1)) if m else -1
 
 
 def split_values(raw, sizes):

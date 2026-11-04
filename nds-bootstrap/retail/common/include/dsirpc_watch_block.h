@@ -59,12 +59,14 @@ typedef struct {
 	u16 version;                      // 0x08
 	u16 ask;                          // 0x0A  one more each time rpcprobe asks for the patch
 	u32 haltAt[DSIRPC_IDLE_SITES];    // 0x0C  OS_Halt's copies in the game, 0 = none
-	u32 pad1;                         // 0x1C
+	u32 hold;                         // 0x1C  DSIRPC_WATCH_HOLD: the ARM9 holds in its IPC interrupt (the lid closed, "Stay connected")
 	// Written by the ARM9 only.
 	u32 cleaned;                      // 0x20  write-backs done in the game's idle time (counts up)
 	u32 hooked;                       // 0x24  copies of OS_Halt patched (0 again after a reset)
 	u32 pad2[6];                      // 0x28
 } DsirpcWatchBlock;                   // 0x40
+
+#define DSIRPC_WATCH_HOLD 0x444C4F48u // "HOLD"
 
 // For dsirpc_watch.c's assembly
 #define DSIRPC_BLOCK_CLEANED 0x20

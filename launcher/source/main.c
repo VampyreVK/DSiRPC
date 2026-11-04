@@ -633,7 +633,7 @@ static void start_game(const char *dir, bool quick)
             return;
     }
 
-    if (bootstrap_ini_prepare(game, msg, sizeof(msg)) != 0)
+    if (bootstrap_ini_prepare(game, settings.stay_connected, msg, sizeof(msg)) != 0)
     {
         show_message("Can't start the game", msg);
         return;

@@ -7,6 +7,8 @@
 //   DSIRPC_IP = 192.168.1.20      (empty: look for DSiRPC with a broadcast)
 //   SAVE_MODE = sync              (or backup: never take a save from the PC)
 //   AUTO_UPDATE = on              (or off: never ask DSiRPC for updates)
+//   LID_CLOSED = sleep            (or connected: on a DSi the game doesn't sleep,
+//                                  so the Wi-Fi stays on; bootstrap_ini.c)
 //   LOOK = modern                 (or classic: the text screens)
 //   SOUNDS = on                   (or off: the modern look's menu sounds)
 //   MUSIC = bright                (or subtle, off: the modern look's menu music)
@@ -76,6 +78,8 @@ void settings_load(const char *path, LauncherSettings *s)
     if (ini_get(path, SECTION, "SAVE_MODE", value, sizeof(value)) == 1)
         s->backup_only = strcasecmp(value, "backup") == 0;
     s->auto_update = switched_on(path, "AUTO_UPDATE");
+    if (ini_get(path, SECTION, "LID_CLOSED", value, sizeof(value)) == 1)
+        s->stay_connected = strcasecmp(value, "connected") == 0;
     if (ini_get(path, SECTION, "LOOK", value, sizeof(value)) == 1)
         s->classic_look = strcasecmp(value, "classic") == 0;
     s->sounds = switched_on(path, "SOUNDS");
@@ -114,6 +118,9 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "; When DSiRPC on the PC has other versions of the launcher or\r\n"
                "; nds-bootstrap, offer them as the launcher starts: on or off\r\n"
                "AUTO_UPDATE = %s\r\n"
+               "; With the lid closed, on a DSi: sleep, or connected (the game keeps\r\n"
+               "; running with the screens off, so the Wi-Fi stays on; more battery)\r\n"
+               "LID_CLOSED = %s\r\n"
                "; How the launcher looks: modern, or classic (the text screens)\r\n"
                "LOOK = %s\r\n"
                "; The modern look's menu sounds: on or off\r\n"
@@ -125,6 +132,7 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "; The game last started from the launcher (START in the game picker)\r\n"
                "LAST_GAME = %s\r\n",
             s->dsirpc_ip, s->backup_only ? "backup" : "sync", s->auto_update ? "on" : "off",
+            s->stay_connected ? "connected" : "sleep",
             s->classic_look ? "classic" : "modern", s->sounds ? "on" : "off",
             MUSICS[s->music < MUSIC_CHOICES ? s->music : MUSIC_BRIGHT],
             SORTS[s->game_sort < N_SORTS ? s->game_sort : 0], s->last_game);
@@ -146,7 +154,7 @@ uint32_t settings_server_addr(const LauncherSettings *s)
 #include "topscreen.h"
 #include "ui.h"
 
-enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROW_UPDATES, ROW_LOOK, ROW_SOUNDS, ROW_MUSIC, ROWS };
+enum { ROW_FIND, ROW_ADDRESS, ROW_SAVES, ROW_UPDATES, ROW_LID, ROW_LOOK, ROW_SOUNDS, ROW_MUSIC, ROWS };
 
 // The classic look has no sounds or music, so no rows for them
 static int rows(void)
@@ -191,16 +199,25 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
     }
     printf("%c Saves:       %s\n", row == ROW_SAVES ? '>' : ' ', s->backup_only ? "back up only" : "back up and sync");
     printf("%c Auto-update: %s\n", row == ROW_UPDATES ? '>' : ' ', s->auto_update ? "on" : "off");
+    printf("%c Lid closed:  %s\n", row == ROW_LID ? '>' : ' ', s->stay_connected ? "stay connected" : "sleep");
     printf("%c Look:        classic\n", row == ROW_LOOK ? '>' : ' ');
     printf("-------------------------------\n");
-    if (row == ROW_FIND)
-        printf("How the launcher finds DSiRPC.\nAutomatically works on most\nnetworks; use an address if it\nisn't found.\n");
+    if (row == ROW_FIND && manual)
+        printf("At this address: the launcher\nonly asks the PC's address,\nfor networks that block the\nquestion.\n");
+    else if (row == ROW_FIND)
+        printf("Automatically: the launcher\nasks the whole network for\nDSiRPC. Works on most networks.\n");
     else if (row == ROW_ADDRESS)
         printf("The PC's IP address. The\nlauncher shows it when it\nfinds DSiRPC (DSiRPC: ...).\n");
     else if (row == ROW_SAVES)
         printf("Back up and sync: newer saves\nfrom the PC come here too.\nBack up only: saves only go to\nthe PC, so each console can\nkeep its own.\n");
-    else if (row == ROW_UPDATES)
+    else if (row == ROW_UPDATES && s->auto_update)
         printf("On: when DSiRPC on the PC has\nother versions of the launcher\nor nds-bootstrap, the launcher\noffers them as it starts\n(A: update, B: not now).\n");
+    else if (row == ROW_UPDATES)
+        printf("Off: the launcher never asks\nDSiRPC for updates. Copy new\nSD card files by hand.\n");
+    else if (row == ROW_LID && s->stay_connected)
+        printf("Stay connected: a DSi keeps\nits Wi-Fi on with the lid\nclosed, so DSiRPC picks up\nwhen it opens.\n");
+    else if (row == ROW_LID)
+        printf("Sleep: closing a DSi's lid\nturns its Wi-Fi off. Start the\ngame from the launcher again\nto reconnect.\n");
     else
         printf("Classic: these text screens.\nModern: the new screens, with\nthe games' icons, sounds, music\nand the battery.\n");
     printf("\x1b[21;0H-------------------------------\n");
@@ -213,22 +230,35 @@ static void draw(const LauncherSettings *s, int row, bool manual, const int octe
 
 // The modern look's settings screen
 
-static const char *const LABELS[ROWS] = { "Find DSiRPC", "Address", "Saves", "Auto-update", "Look", "Sounds",
-                                          "Music" };
-static const char *const HELP[ROWS] = {
-    "How the launcher finds DSiRPC. Automatically works on most networks; use an address if it isn't found.",
-    "The PC's IP address. The launcher shows it once it finds DSiRPC.",
-    "Back up and sync: newer saves from the PC come here too. Back up only: saves only go to the PC, so each "
-    "console can keep its own.",
-    "On: when DSiRPC on the PC has other versions of the launcher or nds-bootstrap, the launcher offers them as "
-    "it starts.",
-    "Modern: these screens, with the games' icons, sounds, music and the battery. Classic: the text screens.",
-    "Soft sounds as you move around and pick things.",
-    "Bright: an airy loop (default).\nSubtle: a quiet lounge tune.\nOff: no music.",
+static const char *const LABELS[ROWS] = { "Find DSiRPC", "Address", "Saves", "Auto-update", "Lid closed", "Look",
+                                          "Sounds", "Music" };
+// The help under the rows: the picked option's, for the rows whose options
+// don't each fit a line of their own ([row][0]: off or the first option,
+// [1]: on or the second; one text for the rest)
+static const char *const HELP[ROWS][2] = {
+    { "Automatically: the launcher asks the whole network for DSiRPC. Works on most networks.",
+      "At this address: the launcher only asks the PC's address, for networks that block the question." },
+    { "The PC's IP address. The launcher shows it once it finds DSiRPC." },
+    { "Back up and sync: saves go to the PC, and newer ones from your other console come here.",
+      "Back up only: saves only go to the PC, so each console keeps its own." },
+    { "Off: the launcher never asks DSiRPC for updates. Copy new SD card files by hand.",
+      "On: the launcher offers DSiRPC's versions of itself and nds-bootstrap when they differ." },
+    { "Sleep: closing a DSi's lid turns its Wi-Fi off. Start the game from the launcher again to reconnect.",
+      "Stay connected: a DSi keeps its Wi-Fi on with the lid closed, so DSiRPC picks up when it opens." },
+    { "Modern: these screens, with the games' icons, sounds, music and the battery." },
+    { "Soft sounds as you move around and pick things." },
+    { "Bright: an airy loop (default).\nSubtle: a quiet lounge tune.\nOff: no music." },
 };
+
+static const char *help(const LauncherSettings *s, int row, bool manual)
+{
+    bool second = row == ROW_FIND ? manual : row == ROW_SAVES ? s->backup_only
+                : row == ROW_UPDATES ? s->auto_update : row == ROW_LID ? s->stay_connected : false;
+    return HELP[row][second && HELP[row][1] != NULL ? 1 : 0];
+}
 static const char *const MUSIC_NAMES[MUSIC_CHOICES] = { "Off", "Bright", "Subtle" };
 
-#define ROW_H   15
+#define ROW_H   14      // 8 rows, and 3 lines of help under them
 #define TEXT_Y  3       // a row's text, from its top
 
 static void draw_switch(Canvas *c, int x, int y, bool yes)
@@ -290,6 +320,9 @@ static void draw_modern(const LauncherSettings *s, int row, bool manual, const i
         case ROW_UPDATES:
             draw_switch(c, right - 20, y + 2, s->auto_update);
             break;
+        case ROW_LID:
+            ui_text_right(c, right, y + TEXT_Y, s->stay_connected ? "Stay connected" : "Sleep", ink);
+            break;
         case ROW_LOOK:
             ui_text_right(c, right, y + TEXT_Y, s->classic_look ? "Classic" : "Modern", ink);
             break;
@@ -302,7 +335,7 @@ static void draw_modern(const LauncherSettings *s, int row, bool manual, const i
         }
         ui_touch_add(8, y, UI_W - 16, ROW_H - 1, i);
     }
-    ui_text_wrap(c, 12, UI_TOP + ROWS * ROW_H + 3, HELP[row], UI_W - 24, 4, UI_DIM);
+    ui_text_wrap(c, 12, UI_TOP + ROWS * ROW_H + 3, help(s, row, manual), UI_W - 24, 3, UI_DIM);
     if (editing >= 0)
     {
         static const UiKey keys[] = { { "<>", "Digit", 0 }, { "^v", "+/-", 0 }, { "A", "Done", KEY_A } };
@@ -400,6 +433,8 @@ void settings_screen(const char *path, LauncherSettings *s, const char *current_
                 s->backup_only = !s->backup_only;
             else if (row == ROW_UPDATES)
                 s->auto_update = !s->auto_update;
+            else if (row == ROW_LID)
+                s->stay_connected = !s->stay_connected;
             else if (row == ROW_LOOK)
             {
                 s->classic_look = !s->classic_look;

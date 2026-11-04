@@ -125,7 +125,7 @@ static void demo(const char *sd)
     hold("home", 1.0);
     host_demo_home(2, 0);
     hold("home", 0.8);
-    static const int ROW_SECONDS[][2] = { { 4, 8 }, { 5, 5 }, { 6, 18 } };   // Look, Sounds, Music (tenths)
+    static const int ROW_SECONDS[][2] = { { 5, 8 }, { 6, 5 }, { 7, 18 } };   // Look, Sounds, Music (tenths)
     for (int i = 0; i < 3; i++)
     {
         host_demo_settings(ROW_SECONDS[i][0]);

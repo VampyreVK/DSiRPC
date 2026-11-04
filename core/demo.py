@@ -151,8 +151,8 @@ TETRIS_SET = ra_set.RaSet({"ID": 2, "Title": "Tetris DS", "Achievements": [
 # (a hole each, so they never clear), then four rows full but for the well in
 # the last column, and on top the first two pieces of a copy of those four.
 # The other seven pieces finish the copy, two more start the next one, then
-# an I down the well clears the four full rows (a Tetris, flashing white
-# first) and everything above drops into their place: the stack as it
+# an I down the well clears the four full rows (a Tetris: they go grey,
+# then one at a time) and everything above drops into their place: the stack as it
 # started. Each piece of the four rows as (kind, turns, its cells: column,
 # row from the bottom of the four), in the order they come down; each lands
 # with nothing empty under it.
@@ -180,12 +180,17 @@ TETRIS_ROW_S = 0.055     # a piece falls a row in this long
 TETRIS_LOCK_S = 0.24     # and rests this long before the next one comes
 TETRIS_SWAP_S = 0.4      # one that goes into hold shows this long first
 TETRIS_REST_S = 1.0      # the stack waits this long after the Tetris
-TETRIS_FLASH_S = 0.5     # the four full rows flash this long, then they're gone
-TETRIS_SPAWN = 21        # pieces come in with their lowest cell on this row
+TETRIS_FLASH_S = 0.3     # the four full rows are grey this long,
+TETRIS_VANISH_S = 0.1    # then go one at a time, from the top, this far apart,
+TETRIS_GAP_S = 0.12      # and the gap shows this long before the rest drops into it
+TETRIS_SPAWN = 21        # pieces come in with their lowest cell on this row,
+TETRIS_SPAWN_X = 4       # their centre in this column (the middle, as in the game),
+TETRIS_SHIFT_ROWS = 1    # and move a column over every this many rows on the way down
 
 
 def tetris_loop():
-    """The loop's drops: [{'start', 'kind', 'x', 'spawn' and 'land' (its
+    """The loop's drops: [{'start', 'kind', 'x' (its centre's column where
+    it lands; it comes in at TETRIS_SPAWN_X), 'spawn' and 'land' (its
     centre's row), 'turns', 'swap': the piece that went into hold first,
     'swap_at': when the held one came out}], when the flash starts and the
     loop's length in seconds."""
@@ -206,12 +211,15 @@ def tetris_loop():
             drop['swap_at'] = t = t + TETRIS_SWAP_S
         drops.append(drop)
         t += (drop['spawn'] - drop['land']) * TETRIS_ROW_S + TETRIS_LOCK_S
-    return drops, t - TETRIS_LOCK_S, t - TETRIS_LOCK_S + TETRIS_FLASH_S
+    flash_at = t - TETRIS_LOCK_S
+    return drops, flash_at, flash_at + TETRIS_FLASH_S + 4 * TETRIS_VANISH_S + TETRIS_GAP_S
 
 
 def tetris_board(into):
-    """The loop's board, falling piece, rows flashing (or []) and held
-    piece, `into` seconds in (of one loop)."""
+    """The loop's board, falling piece, the Tetris's rows still there (or
+    []) and held piece, `into` seconds in (of one loop). The Tetris's rows
+    go grey, then one at a time (empty on the board), and the loop ends on
+    the gap."""
     from .tetris_reader import cells
     drops, flash_at, _ = tetris_loop()
     left = len(TETRIS_LEFT)
@@ -237,13 +245,27 @@ def tetris_board(into):
         # its turns, spread over the first two thirds of the way down
         n = len(d['turns'])
         turn = d['turns'][min(n - 1, fell * 3 * (n - 1) // max(1, 2 * rows))]
+        # and over from the middle to its column, a column a row
+        shift = d['x'] - TETRIS_SPAWN_X
+        x = TETRIS_SPAWN_X + (1 if shift > 0 else -1) * min(abs(shift), fell // TETRIS_SHIFT_ROWS)
         if into - d['swap_at'] < rows * TETRIS_ROW_S + TETRIS_LOCK_S / 2:
-            piece = {'kind': d['kind'], 'turn': turn, 'x': d['x'], 'y': max(d['land'], d['spawn'] - fell)}
+            piece = {'kind': d['kind'], 'turn': turn, 'x': x, 'y': max(d['land'], d['spawn'] - fell)}
         else:                                                  # landed: part of the board now
             for dx, dy in cells(d['kind'], d['turns'][-1]):
                 board[d['land'] + dy][d['x'] + dx] = d['kind']
             piece = None
-    return board, piece, list(range(left, left + 4)) if into >= flash_at else [], hold
+    flashing = []
+    if into >= flash_at:
+        piece = None                                           # (the I's landed: it's in the grey rows)
+        tetris = list(range(left + 3, left - 1, -1))           # the four rows, from the top
+        gone = max(0, min(4, int((into - flash_at - TETRIS_FLASH_S) / TETRIS_VANISH_S) + 1)) \
+            if into >= flash_at + TETRIS_FLASH_S else 0
+        for r in tetris[:gone]:
+            board[r] = [0] * 10
+        flashing = sorted(tetris[gone:])
+        for r in flashing:          # grey until they go, as the game's board has them (tetris_reader's 'X')
+            board[r] = ['X'] * 10
+    return board, piece, flashing, hold
 
 # Pokemon Black, made up as well: a party, and a set (unlocked: the first
 # four; "Bug Out" unlocks during the scene).
@@ -275,7 +297,7 @@ BW_UNLOCK_AT = 6.0
 # battles let each battle start fresh (transition, shiny banner).
 SCENES = [
     ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
-    ('other', 16), ('tetris', 23),   # (two of the Tetris loop's 11.39 s)
+    ('other', 16), ('tetris', 24),   # (two of the Tetris loop's 11.71 s)
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
     ('levelup', 8),
@@ -466,7 +488,7 @@ class DemoSource:
             'ra_set': TETRIS_SET, 'rich_presence': "Standard | Marathon | Score: 21480 | Lines Cleared: 38",
             'progress': (len(earned), len(achs)), 'started': time.time() - into - 900,
             'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
-            'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': hold, 'clearing': flashing,
+            'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': hold,
                        'score': score, 'lines': lines, 'level': 1 + lines // 10, 'state': 0, 'over': False,
                        'paused': False},
         }

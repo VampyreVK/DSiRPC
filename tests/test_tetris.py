@@ -95,11 +95,23 @@ def test_the_demo_loop_ends_where_it_starts():
             holds.append(hold)
         t += 0.02
     assert holds == ['T', 'I', 'T']                               # the I in and out of hold, for the Tetris
-    end, piece, flashing, hold = demo.tetris_board(length - 0.01)
-    assert piece is None and len(flashing) == 4 and all(all(end[r]) for r in flashing)   # a Tetris
-    assert [r for r in range(tr.ROWS) if all(end[r])] == flashing  # (the rows below have holes)
+    full, piece, flashing, _ = demo.tetris_board(flash_at + demo.TETRIS_FLASH_S / 2)
+    assert piece is None and len(flashing) == 4 and all(all(full[r]) for r in flashing)   # a Tetris
+    assert [r for r in range(tr.ROWS) if all(full[r])] == flashing  # (the rows below have holes)
+    gone = []                                                     # then the rows go, one at a time, from the top
+    t = flash_at
+    while t < length:
+        board, _, now, _ = demo.tetris_board(t)
+        empty = [r for r in flashing if not any(board[r])]
+        assert sorted(empty + now) == flashing
+        if empty != gone:
+            assert len(empty) == len(gone) + 1 and max(set(empty) - set(gone)) == max(flashing) - len(gone)
+            gone = empty
+        t += 0.01
+    end, _, _, hold = demo.tetris_board(length - 0.01)
+    assert gone == flashing                                       # all four gone at the end of the loop
     kept = [row for r, row in enumerate(end) if r not in flashing]
-    assert kept + [[0] * tr.COLS] * 4 == start and hold == held   # then the start again
+    assert kept + [[0] * tr.COLS] * 4 == start and hold == held   # and the rest dropped: the start again
     assert any(any(row) for row in start[flashing[-1] + 1:])      # with pieces above what clears
     assert sum(len(d['turns']) > 1 for d in drops) >= 3           # some turning as they fall
 
@@ -122,7 +134,7 @@ def test_the_view_draws():
         p = d['tetris']['piece']
         assert p['kind'] == 'I' and p['turn'] == 1                   # the I coming down the well
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 0, 16)
-        x, y = BOARD_X + 9 * CELL + 3, BOARD_Y + (19 - (p['y'] - 2)) * CELL + 3   # its lowest cell
+        x, y = BOARD_X + (p['x'] + 1) * CELL + 3, BOARD_Y + (19 - (p['y'] - 2)) * CELL + 3   # its lowest cell
         assert canvas.get_at((x, y))[:3] == COLORS['I']
         d['tetris'] = dict(d['tetris'], paused=True)
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 100, 16)

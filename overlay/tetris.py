@@ -11,8 +11,7 @@ game card's header and footer (overlay/gamecard.py), with in between:
 The blocks are drawn here in code, in the game's colours (RetroAchievements'
 code notes: Z red, S green, L orange, J purple, T pink, O yellow, I blue).
 Paused, the board is hidden, as the game hides it; after a game over it
-greys out. Rows in the state's 'clearing' (only the demo's, core/demo.py)
-flash white. Anywhere else in the game (its menus, the other modes) the game
+greys out. Anywhere else in the game (its menus, the other modes) the game
 card shows instead.
 """
 
@@ -151,10 +150,6 @@ class TetrisView:
                 c, r = p['x'] + dx, p['y'] + dy
                 if 0 <= c < COLS and 0 <= r < ROWS:
                     self._cell(canvas, c, r, COLORS[p['kind']], False)
-        for r in tet.get('clearing') or ():   # full rows on their way out (the demo's): flashing white
-            if (t_ms // 120) % 2 == 0:
-                for c in range(COLS):
-                    canvas.blit(block((236, 240, 248)), (BOARD_X + c * CELL, BOARD_Y + (ROWS - 1 - r) * CELL))
         if over:
             self._banner(canvas, "GAME OVER")
 

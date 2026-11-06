@@ -284,6 +284,7 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 - [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT) and
   RetroAchievements' set authors for other games' rich presence;
   [GameTDB](https://www.gametdb.com/) for box art and game titles.
+- [The Spriters Resource](https://www.spriters-resource.com/ds_dsi/mariokartds/) for Mario Kart DS Assets
 
 ## <img src="docs/images/icons/page.svg" width="26" height="26" alt="">&nbsp;License
 

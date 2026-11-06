@@ -100,6 +100,9 @@ class GameCard:
         text = d.get('rich_presence')
         if text:
             lines, col = self.font.wrap(text, w - 12, 3), t['text']
+        elif ra and d.get('ra_note'):  # the set loaded, but rcheevos couldn't (core/ra_game.py's load_set())
+            lines = self.font.wrap("No rich presence: DSiRPC's rcheevos library is missing (see the log).", w - 12, 3)
+            col = t['text_muted']
         elif ra:
             lines, col = ["No rich presence in this game's set."], t['text_muted']
         else:

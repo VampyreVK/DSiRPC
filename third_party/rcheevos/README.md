@@ -32,6 +32,8 @@ x86_64-w64-mingw32-strip rcheevos.dll
 ```
 
 On Linux the same sources with `gcc -O2 -shared -fPIC -DRC_SHARED ... -o librcheevos.so`
-work too (`*.so` files are gitignored, so build it there yourself). Without
+work too (`*.so` files are gitignored, so build it there yourself). On macOS,
+`cc -O2 -shared -fPIC -DRC_SHARED -arch arm64 -arch x86_64 ... -o librcheevos.dylib -install_name @rpath/librcheevos.dylib`
+(gitignored too; `packaging/macos/build_app.py` builds it as well). Without
 `dsirpc_offline.c` everything works except offline play's achievement
 sets: DSiRPC logs that it can't build them.

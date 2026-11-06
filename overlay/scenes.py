@@ -14,6 +14,8 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   laid out like the party view
     Tetris view   Tetris DS in a Standard game (overlay/tetris.py): the
                   board, the stored block, the score and the achievements
+    race view     Mario Kart DS in a race (overlay/mkds.py): the racers in
+                  order, where they are on the course, the lap and place
     waiting view  shown while the DSi isn't sending data: what to do, and the
                   last game played
     toasts        short banners for events (shiny, level up, fainted, ...)
@@ -46,6 +48,8 @@ from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
+from .mkds import MkdsView, ordinal
+from .mkds_art import MkdsArt
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
 from .tetris import TetrisView
 from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
@@ -128,6 +132,7 @@ class Overlay:
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
         self.tetris = TetrisView(self.font, self.mini, self.card)
+        self.mkds = MkdsView(self.font, self.mini, self.card, MkdsArt(sprites.assets))
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
@@ -197,6 +202,11 @@ class Overlay:
                 self.toast("TETRIS!", sparkly=True)
             elif kind == 'tetris_level':
                 self.toast(f"Level {e['level']}!")
+            elif kind == 'mkds_final_lap':
+                self.toast("FINAL LAP!")
+            elif kind == 'mkds_finish':
+                place = e.get('place')
+                self.toast(f"FINISH! {ordinal(place)} place" if place else "FINISH!", sparkly=place == 1)
             elif kind == 'game_changed':
                 self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
             elif kind == 'achievement':
@@ -270,6 +280,8 @@ class Overlay:
             self.draw_waiting(canvas, snap, t_ms)
         elif other and d.get('tetris'):
             self.tetris.draw(canvas, d, t_ms)
+        elif other and d.get('mkds'):
+            self.mkds.draw(canvas, d, t_ms)
         elif other:
             self.card.draw(canvas, d, t_ms)
         elif self.showing == 'party' and self.has_party:

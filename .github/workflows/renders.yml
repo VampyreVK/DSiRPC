@@ -2,8 +2,9 @@
 # the tests' host in tests/c/ui): the README's pictures (SVG), every screen as
 # a PNG, a demo of the modern look (demo.mp4 with the Bright song, and
 # demo.gif), and the menu music as MP3s (a loop of each song); and the
-# desktop app's overlay window in four of its demo's scenes and Tetris DS on a
-# loop (tools/render_overlay.py: SVG and PNG, and overlay-tetris.gif). They're
+# desktop app's overlay window in five of its demo's scenes, Tetris DS on a
+# loop and a Mario Kart DS race (tools/render_overlay.py: SVG and PNG, and
+# overlay-tetris.gif and overlay-mkds.gif). They're
 # kept as the run's artifact, to look over by hand.
 #
 # When a release is published, the README's pictures, the demo and the music
@@ -58,6 +59,7 @@ jobs:
             Assets/PokemonBlackUI
             Assets/Unova-Trainer-Overworld
             Assets/Sinnoh-Trainer-Overworld
+            Assets/MarioKartDS
             Assets/Consoles
           filter: blob:none
 
@@ -101,7 +103,7 @@ jobs:
           The launcher's screens, drawn by its own code (\`tools/render_launcher.py\`),
           its demo, its menu music as MP3s (\`bright.mp3\`, \`subtle.mp3\`: a loop
           of each song), and the desktop app's overlay window in its demo's scenes
-          (\`overlay-*.svg\` and \`overlay-tetris.gif\`, \`tools/render_overlay.py\`), for ${LABEL}. The README shows the pictures;
+          (\`overlay-*.svg\`, \`overlay-tetris.gif\` and \`overlay-mkds.gif\`, \`tools/render_overlay.py\`), for ${LABEL}. The README shows the pictures;
           \`.github/workflows/renders.yml\` replaces all of them when a release is
           published, so don't edit them here.
           EOF

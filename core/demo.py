@@ -6,12 +6,14 @@ in the rain in Pinwheel Forest ending in a catch, Burgh at the Castelia
 Gym, and the Battle Subway, Battle Institute and an Elite Four room, each
 in another season), another game (the game card every game without its own
 parser gets, with an achievement unlocking), Tetris DS (its board: nine
-pieces and a Tetris, looping), Pokemon Platinum (overworld, a
+pieces and a Tetris, looping), Mario Kart DS (eight racers lapping Figure-8
+Circuit, passing each other), Pokemon Platinum (overworld, a
 wild battle by day, a shiny in the evening rain, the rival at night (who
 switches Pokemon), a snowy route, a legendary in a cave, a level up), and
 the DSi going offline.
 
-All of the data here is invented. It follows the same dict layout as
+All of the data here is invented (but the shape of Figure-8 Circuit, from
+the course's own checkpoints). It follows the same dict layout as
 core/parser.py (and core/bw_parser.py for Black), so anything that works
 with the demo works with the real game.
 """
@@ -270,6 +272,96 @@ def tetris_board(into):
             board[r] = ['X'] * 10
     return board, piece, flashing, hold
 
+# Mario Kart DS (its race as core/mkds_reader.py reads it), with a set of
+# its own (made up as well; "Last Lap" unlocks as the last lap starts).
+MKDS_SET = ra_set.RaSet({"ID": 4, "Title": "Mario Kart DS", "Achievements": [
+    {"ID": i, "Title": title, "Description": desc, "Points": pts, "Flags": 3}
+    for i, (title, desc, pts) in enumerate([
+        ("First Cup", "Win any cup in 50cc", 5),
+        ("Mushroom Rush", "Use three mushrooms in one lap", 3),
+        ("Figure It Out", "Finish Figure-8 Circuit without hitting a wall", 5),
+        ("Last Lap", "Reach the last lap of a Grand Prix race", 2),
+        ("Photo Finish", "Win a race by less than a tenth of a second", 10),
+        ("Star Rank", "Get a star rank in any 150cc cup", 25),
+    ], 1)]})
+# The course: the middles of Figure-8 Circuit's checkpoints (x, z, rounded),
+# the finish line first, and how far each line reaches either side of them
+MKDS_COURSE = 0x14
+MKDS_MIDS = [(-80, 0), (720, 10), (1300, -40), (1860, -220), (2260, -650), (2390, -1160), (2270, -1660),
+             (1900, -2010), (1440, -2080), (970, -1970), (510, -1670), (30, -1140), (-520, -520), (-1030, 40),
+             (-1620, 640), (-2120, 1160), (-2550, 1460), (-3000, 1570), (-3500, 1420), (-3730, 950),
+             (-3600, 410), (-3220, 80), (-2750, -10), (-2250, 0), (-1550, 0), (-850, 0)]
+MKDS_HALF_WIDTH = 350
+# The racers in slot order (the player first): character, how far ahead
+# they start (world units), and how they speed up and drop back: by how much,
+# over how long (s), from where in that (radians), and how far off the
+# middle of the road they drive
+MKDS_RACERS = [
+    ("Mario", -1100, 1700, 40.0, -1.57, -90), ("Luigi", 1900, 450, 9.0, 1.3, 110),    # (Mario: up from last)
+    ("Peach", 1400, 420, 8.0, 4.4, -140), ("Yoshi", 700, 380, 11.0, 4.1, 60),
+    ("Bowser", -100, 450, 6.5, 0.7, 150), ("Toad", 2500, 300, 10.0, 3.6, -40),
+    ("Donkey Kong", -800, 400, 8.5, 5.2, 20), ("Wario", -1500, 350, 12.0, 2.2, -110),
+]
+MKDS_SPEED = 980          # world units a second (a lap in about 16 s)
+MKDS_START = 3000         # how far into lap 2 the scene starts
+
+
+def mkds_checkpoints():
+    """The demo course's checkpoints, as core/mkds_reader.py reads them: a
+    line across the road at each middle, square to the way it runs."""
+    out = []
+    n = len(MKDS_MIDS)
+    for i, (x, z) in enumerate(MKDS_MIDS):
+        (ax, az), (bx, bz) = MKDS_MIDS[i - 1], MKDS_MIDS[(i + 1) % n]
+        dx, dz = bx - ax, bz - az
+        length = (dx * dx + dz * dz) ** 0.5
+        nx, nz = -dz / length * MKDS_HALF_WIDTH, dx / length * MKDS_HALF_WIDTH
+        out.append((x - nx, z - nz, x + nx, z + nz, i if i % 6 == 0 else -1))
+    return tuple(out)
+
+
+def mkds_race(into):
+    """The race `into` seconds into the scene: each racer's lap, last
+    checkpoint and place worked out from how far round it is, as the reader
+    does from the console's."""
+    import math
+    from .mkds_reader import COURSES, progress, rank
+    cps = mkds_checkpoints()
+    n = len(MKDS_MIDS)
+    seg = [math.dist(MKDS_MIDS[i], MKDS_MIDS[(i + 1) % n]) for i in range(n)]
+    lap_len = sum(seg)
+    racers = []
+    for slot, (char, ahead, amp, period, phase, side) in enumerate(MKDS_RACERS):
+        s = lap_len + MKDS_START + ahead + MKDS_SPEED * into + amp * math.sin(2 * math.pi * into / period + phase)
+        lap, rest = int(s // lap_len) + 1, s % lap_len
+        cp = 0
+        while rest >= seg[cp]:
+            rest -= seg[cp]
+            cp += 1
+        (ax, az), (bx, bz) = MKDS_MIDS[cp], MKDS_MIDS[(cp + 1) % n]
+        f = rest / seg[cp]
+        nx, nz = -(bz - az) / seg[cp], (bx - ax) / seg[cp]
+        x, z = ax + (bx - ax) * f + nx * side, az + (bz - az) * f + nz * side
+        racers.append({'slot': slot, 'player': slot == 0, 'character': char, 'x': x, 'z': z, 'lap': lap,
+                       'checkpoint': cp, 'progress': progress(lap, cp, x, z, MKDS_MIDS), 'place': None})
+    order = rank(racers)
+    me = racers[0]
+    return {
+        'course': MKDS_COURSE, 'course_name': COURSES[MKDS_COURSE][0], 'mode': 'Grand Prix',
+        'cup': 'Mushroom', 'cc': '150cc', 'mirror': False, 'lap': me['lap'], 'laps': 3,
+        'place': me['place'], 'finished': False, 'time_ms': int((48.2 + into) * 1000),
+        'character': me['character'], 'kart': 0, 'racers': racers, 'order': order, 'checkpoints': cps,
+    }
+
+
+def mkds_last_lap_at():
+    """Seconds into the scene that the player starts the last lap."""
+    t = 0.0
+    while mkds_race(t)['lap'] < 3 and t < 60:
+        t += 0.05
+    return t
+
+
 # Pokemon Black, made up as well: a party, and a set (unlocked: the first
 # four; "Bug Out" unlocks during the scene).
 BW_PARTY = [
@@ -301,6 +393,7 @@ BW_UNLOCK_AT = 6.0
 SCENES = [
     ('unova', 16), ('unova_battle', 13), ('unova', 3), ('unova_gym', 11), ('unova_places', 15),
     ('other', 16), ('tetris', 24),   # (two of the Tetris loop's 11.71 s)
+    ('mkds', 20),
     ('overworld', 10), ('wild', 17), ('overworld', 3), ('shiny', 11), ('overworld', 3),
     ('rival', 23), ('overworld', 3), ('snow', 10), ('overworld', 3), ('legend', 11),
     ('levelup', 8),
@@ -363,6 +456,8 @@ class DemoSource:
             return self._other(into)
         if name == 'tetris':
             return self._tetris(into)
+        if name == 'mkds':
+            return self._mkds(into)
         if name == 'unova':
             return self._unova(into)
         if name == 'unova_places':
@@ -494,6 +589,25 @@ class DemoSource:
             'tetris': {'mode': 'Marathon', 'board': board, 'piece': piece, 'hold': hold,
                        'score': score, 'lines': lines, 'level': 1 + lines // 10, 'state': 0, 'over': False,
                        'paused': False, 'ghost': True, 'next': tetris_queue(at)},
+        }
+
+    def _mkds(self, into):
+        """Mario Kart DS: the race (mkds_race()), and "Last Lap" unlocking as
+        the player's last lap starts."""
+        achs = MKDS_SET.playable_achievements
+        race = mkds_race(into)
+        earned, recent, latest = {1, 2, 3}, [], (3, time.time() - 4 * 86400)
+        last_lap = mkds_last_lap_at()
+        if into >= last_lap:
+            earned.add(4)
+            recent = [(4, time.time() - (into - last_lap))]
+            latest = recent[-1]
+        return {
+            'kind': 'other', 'game': {'code': 'AMCE'}, 'title': MKDS_SET.title, 'header_title': None,
+            'ra_set': MKDS_SET, 'rich_presence': "Grand Prix: Mario drives 'Standard MR' on 'Figure 8 Circuit'",
+            'progress': (len(earned), len(achs)), 'started': time.time() - into - 1200,
+            'unlocked': frozenset(earned), 'recent': recent, 'latest': latest, 'ra_note': None, 'signed_in': True,
+            'mkds': race,
         }
 
     def _other(self, into):

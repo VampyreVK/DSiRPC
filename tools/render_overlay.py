@@ -4,7 +4,7 @@ window), drawn by its own code (overlay/scenes.py) from the demo's made-up
 scenes (core/demo.py), without opening a window (SDL's dummy driver):
 
     python tools/render_overlay.py            the README's pictures, as pixel-art SVGs,
-                                              and overlay-tetris.gif
+                                              overlay-tetris.gif and overlay-mkds.gif
     python tools/render_overlay.py --png      and the pictures as PNGs
 
 Everything goes to renders/ (--out DIR for another folder). It needs
@@ -54,8 +54,11 @@ PICTURES = [
      "A battle in Pokemon Platinum: the rival at night, with animated sprites on the right terrain"),
     ("overlay-other.svg", "other", 8.0,
      "The overlay with any other game: what you're doing in it (its rich presence) and its achievements"),
+    ("overlay-mkds.svg", "mkds", 9.5,
+     "A race in Mario Kart DS: the racers in order, where they are on Figure-8 Circuit, the lap and your place"),
 ]
 GIF_FPS = 25           # overlay-tetris.gif: a frame every 40 ms (GIF times are in hundredths)
+MKDS_GIF = (5.0, 10.0)  # overlay-mkds.gif: from this far into the race scene, this long (passes, the last lap)
 FPS = 30
 SCALE = 2           # the window's scale
 
@@ -157,14 +160,49 @@ def tetris_gif(bank, clock, path):
             clock.now += 1 / GIF_FPS
     finally:
         ui.tiled_background, ui.bob, ui.sparkle = background, bob, sparkle
-    # One palette for every frame (the overlay has few colours), no dithering
+    save_gif(images, path)
+
+
+def save_gif(images, path):
+    """PIL images -> a GIF at GIF_FPS: one palette for every frame (the
+    overlay has few colours), no dithering."""
+    from PIL import Image
     sample = Image.new("RGB", (images[0].width, images[0].height * len(images[::8])))
     for n, im in enumerate(images[::8]):
         sample.paste(im, (0, n * im.height))
     palette = sample.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     gif = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in images]
     gif[0].save(path, save_all=True, append_images=gif[1:], duration=1000 // GIF_FPS, loop=0, optimize=True)
-    print(f"{path}: {frames / GIF_FPS:.2f} s, {os.path.getsize(path) // 1024} KB")
+    print(f"{path}: {len(images) / GIF_FPS:.2f} s, {os.path.getsize(path) // 1024} KB")
+
+
+def mkds_gif(bank, clock, path):
+    """overlay-mkds.gif: MKDS_GIF of the demo's race (core/demo.py's
+    mkds_race()): the player passing racers, the rows sliding, the last lap
+    starting with its achievement. The race doesn't come back round to where
+    it started, so it jumps back as it loops."""
+    from PIL import Image
+    start, length = MKDS_GIF
+    source = demo.DemoSource()
+    source.t0 = clock.now - scene_start("mkds") - start
+    overlay = Overlay(bank)
+    overlay.hires_ok = True
+    canvas = pygame.Surface((W, H), 0, 32)
+    window = pygame.Surface((W * SCALE, H * SCALE), 0, 32)
+    images, prev = [], None
+    for i in range(round(length * GIF_FPS)):
+        data = source.read()
+        t_ms = i * 1000 // GIF_FPS
+        overlay.handle_events(diff_events(prev, data) if prev is not None else [], t_ms)
+        prev = data
+        snap = Snapshot(data, True, clock.now, source.status)
+        if i == 0:
+            settle(overlay, bank, canvas, snap, t_ms)
+        overlay.draw(canvas, snap, t_ms, 1000 // GIF_FPS)
+        overlay.present(window, canvas)
+        images.append(Image.frombytes("RGB", window.get_size(), pygame.image.tobytes(window, "RGB")))
+        clock.now += 1 / GIF_FPS
+    save_gif(images, path)
 
 
 def rows_of(surface):
@@ -193,7 +231,7 @@ def to_svg(window, title):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Draw the overlay window's README pictures and Tetris GIF from the demo's scenes")
+    ap = argparse.ArgumentParser(description="Draw the overlay window's README pictures and GIFs from the demo's scenes")
     ap.add_argument("--out", default=os.path.join(REPO, "renders"), help="the folder to write them to")
     ap.add_argument("--png", action="store_true", help="PNGs too")
     args = ap.parse_args()
@@ -215,6 +253,7 @@ def main():
             pygame.image.save(window, png)
             print(png)
     tetris_gif(bank, clock, os.path.join(args.out, "overlay-tetris.gif"))
+    mkds_gif(bank, clock, os.path.join(args.out, "overlay-mkds.gif"))
     pygame.quit()
     if bank._missing:
         sys.exit(f"Sprites that couldn't be loaded: {sorted(map(str, bank._missing))}")

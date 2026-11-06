@@ -102,6 +102,25 @@ def test_tetris(hub):
     assert d['tetris']['board'][0][0] == 'O' and d['tetris']['score'] == 555 and d['tetris']['mission'] == 4
 
 
+# -- Mario Kart DS ------------------------------------------------------------------
+
+def test_mkds(hub):
+    from core import mkds_reader as mk
+    from test_mkds import FIELD, race_memory
+    fake, src = hub(code="AMCE")
+    for addr, data in race_memory(FIELD, place=2):
+        fake.poke(addr, data)
+    d = until(src, lambda d: d.get('mkds'))
+    race = d['mkds']
+    assert d['kind'] == 'other' and race['course_name'] == "Figure-8 Circuit" and race['place'] == 2
+    assert len(race['checkpoints']) == 8 and len(race['order']) == 8
+    assert src.next_delay() <= src.MKDS_INTERVAL
+    fake.drop_next = 2                                            # a race read that gets no reply
+    assert src.read()['mkds']['place'] == 2                       # keeps the race (no flick to the game card)
+    fake.poke(mk.MAIN_US + mk.RACERS_AT, bytes(4))                # back in the menus: the game card
+    until(src, lambda d: d.get('mkds') is None)
+
+
 # -- Pokemon Black and White --------------------------------------------------------
 
 def test_black_white(hub):

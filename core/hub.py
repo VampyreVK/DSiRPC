@@ -21,7 +21,8 @@ core/parser.py; it has no 'kind'), Black or White's (core/bw_parser.py,
 {'kind': 'bw', ...}, laid out like Platinum's plus the RetroAchievements
 keys of core/other_game.py), or, for any other game, the dict from
 core/other_game.py ({'kind': 'other', ...}; Tetris DS's also has its board
-as 'tetris', core/tetris_reader.py); is_other() and is_bw() tell them apart.
+as 'tetris', core/tetris_reader.py, and Mario Kart DS its race as 'mkds',
+core/mkds_reader.py); is_other() and is_bw() tell them apart.
 Sources here:
 
     DsiSource    the real DSi (waits for hellos, re-learns the IP after it
@@ -39,7 +40,7 @@ import struct
 import threading
 import time
 
-from . import bw_data, games, tetris_reader
+from . import bw_data, games, mkds_reader, tetris_reader
 from .bw_parser import BWParser
 from .other_game import OtherGame, ra_summary
 from .parser import PlatinumParser, TrainerMemory
@@ -112,6 +113,8 @@ class DsiSource:
     BATTLE_FULL_EVERY = 60.0
     TETRIS_INTERVAL = 0.1  # Tetris DS: its board read this often (two requests; the overlay animates between)
     TETRIS_HOLD_S = 2.0    # ... and the last one kept this long through reads that miss or say it's not in a game
+    MKDS_INTERVAL = 0.2    # Mario Kart DS: the racers read this often in a race (two requests; the overlay glides between)
+    MKDS_HOLD_S = 2.0      # ... and the last read kept this long through ones that miss
     QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
@@ -128,6 +131,8 @@ class DsiSource:
         self.last_parse = 0.0
         self._tetris = (None, 0.0)   # Tetris DS's last board read (core/tetris_reader.py) and when
         self._tetris_layout = 'standard'   # and where it reads it: Standard's or Mission's
+        self._mkds = (None, 0.0)     # Mario Kart DS's last race read (core/mkds_reader.py) and when
+        self._mkds_reader = mkds_reader.MkdsReader()
         self.port = port
         self.pinned_ip = dsi_ip
         self.client = DSiClient(port=port, dsi_ip=dsi_ip, timeout=timeout)
@@ -234,6 +239,8 @@ class DsiSource:
             delays.append(self.last_parse + self.parse_interval - now)
         if games.is_tetris(self.client.game):
             delays.append(self.TETRIS_INTERVAL)
+        if games.is_mkds(self.client.game):
+            delays.append(self.MKDS_INTERVAL)
         return max(0.05, min(delays)) if delays else None
 
     def take_events(self):
@@ -350,14 +357,18 @@ class DsiSource:
                 self.other.close()
             self.last = None
             self._tetris = (None, 0.0)
+            self._mkds = (None, 0.0)
+            self._mkds_reader = mkds_reader.MkdsReader()
             self.other = OtherGame(game, self.ra_game, self.client)
             logging.info(f"The DSi is running {games.name(game)}")
-        tetris = games.is_tetris(game)
-        if not self.other.reading and not tetris:  # (Tetris DS's board reads keep up with them)
+        tetris, mkds = games.is_tetris(game), games.is_mkds(game)
+        if not self.other.reading and not tetris and not mkds:  # (their reads keep up with the hellos)
             self.client.listen(1.0)  # keep up with the hellos, to notice a switch
         data = self.other.read()
         if data is not None and tetris:
             data['tetris'] = self._read_tetris()
+        if data is not None and mkds:
+            data['mkds'] = self._read_mkds()
         self.failed = data is None and self.ra_game is not None and bool(self.ra_game.runtime)
         self.last = data
         return data
@@ -382,6 +393,27 @@ class DsiSource:
         if last and now - at < self.TETRIS_HOLD_S:
             return last
         self._tetris = (None, 0.0)
+        return None
+
+    def _read_mkds(self):
+        """Mario Kart DS's race (core/mkds_reader.py), or None outside one.
+        A read that gets no reply keeps the last one for MKDS_HOLD_S, as
+        Tetris DS's board does; one that says there's no race doesn't (the
+        game card shows as soon as the race is over)."""
+        try:
+            got = self._mkds_reader.read(self.client, timeout=self.FAST_TIMEOUT)
+            missed = False
+        except (TimeoutError, RuntimeError) as e:
+            got, missed = None, True
+            logging.debug(f"Mario Kart DS: race read failed ({e})")
+        last, at = self._mkds
+        now = time.time()
+        if got:
+            self._mkds = (got, now)
+            return got
+        if last and now - at < self.MKDS_HOLD_S and (missed or self._mkds_reader.racers_at):
+            return last          # (no reply, or a pointer that moved: the next read has it)
+        self._mkds = (None, 0.0)
         return None
 
     def _read_bw(self, game):
@@ -598,6 +630,13 @@ def diff_events(old, new):
                 events.append({'type': 'tetris'})
             if nt['level'] > ot['level'] and nt['lines'] > ot['lines']:
                 events.append({'type': 'tetris_level', 'level': nt['level']})
+        elif old.get('mkds') and new.get('mkds') and old['mkds']['course'] == new['mkds']['course']:
+            # Mario Kart DS: onto the last lap, over the finish line
+            om, nm = old['mkds'], new['mkds']
+            if nm['laps'] > 1 and om['lap'] < nm['laps'] == nm['lap'] and not nm['finished']:
+                events.append({'type': 'mkds_final_lap'})
+            if nm['finished'] and not om['finished']:
+                events.append({'type': 'mkds_finish', 'place': nm['place']})
         return events
     if old.get('kind') != new.get('kind') or old.get('version') != new.get('version'):
         events.append({'type': 'game_changed', 'title': new.get('title') or 'Pokemon Platinum'})

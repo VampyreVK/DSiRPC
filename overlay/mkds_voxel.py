@@ -25,7 +25,7 @@ course climbs, with every racer standing on it at their real height.
 The racers are drawn over a frame by overlay/mkds.py (place(), hidden(),
 deck_polygons()), each frame, in the view the frame was drawn in.
 
-It's drawn at twice the canvas's resolution (SCALE) and shown at the window's
+It's drawn at four times the canvas's resolution (SCALE) and shown at the window's
 (the overlay's blit_hires). Heights are raised (EXAGGERATE) so a course's
 hills show at this distance; loops (Rainbow Road) come out as hills.
 """
@@ -38,10 +38,10 @@ import pygame
 
 from core.mkds_reader import midpoints
 
-SCALE = 2                   # the frames' pixels to the canvas's
+SCALE = 4                   # the frames' pixels to the canvas's
 GRID = 200                  # the heightmap's cells along its longer side (the course and the fade round it)
 ORBIT_MS = 60000            # once round the course in this long
-ORBIT_STEP = 1              # degrees between frames of the orbit (a new one every ORBIT_MS / 360)
+ORBIT_STEP = 0.25           # degrees between frames of the orbit (a new one every ORBIT_MS / (360 / ORBIT_STEP))
 FOV = 48.0                  # the camera's field of view, across
 ELEVATION = 58.0            # how far the camera looks down (degrees, at the course's middle)
 EXAGGERATE = 0.16           # the course's hills, at most this much of its width high...
@@ -358,7 +358,7 @@ class VoxelCourse:
                 todo = None
                 with self._lock:
                     for k in range(AHEAD):
-                        i = (self._want + k) % (360 // ORBIT_STEP)
+                        i = (self._want + k) % round(360 / ORBIT_STEP)
                         if i not in self.frames:
                             todo = i
                             break
@@ -376,7 +376,7 @@ class VoxelCourse:
 
     def _prune(self):
         """Keeps only the frames about to show (AHEAD) and the two before."""
-        count = 360 // ORBIT_STEP
+        count = round(360 / ORBIT_STEP)
         keep = {(self._want + k) % count for k in range(-2, AHEAD)}
         for i in [i for i in self.frames if i not in keep]:
             del self.frames[i]
@@ -384,7 +384,7 @@ class VoxelCourse:
     def frame(self, t_ms):
         """(the orbit's frame for `t_ms`, its View), or None while it isn't
         drawn yet (or the nearest one drawn before it)."""
-        count = 360 // ORBIT_STEP
+        count = round(360 / ORBIT_STEP)
         i = int(t_ms / ORBIT_MS * count) % count
         if not self.threaded:
             if not self.ready:
@@ -425,7 +425,7 @@ class VoxelCourse:
         ybuf = [h] * w
         near, far = view.near, view.far
         d = near
-        step = cell * 0.7
+        step = cell * 0.7 / SCALE
         fill = surf.fill
         half = w / 2
         while d < far:

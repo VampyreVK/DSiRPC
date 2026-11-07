@@ -535,7 +535,7 @@ def test_the_race_view_draws_the_voxel_course_at_the_windows_resolution():
         race = demo.mkds_race(3.0)
         view.motion.take(race, 0)
         view._map(canvas, race, 0)
-        assert shown == [((200, 240), (74, 29, 100, 120), True)] and view._tilt is None
+        assert shown == [((400, 480), (74, 29, 100, 120), True)] and view._tilt is None
     finally:
         pygame.quit()
 
@@ -555,8 +555,6 @@ def test_a_live_hires_surface_is_scaled_afresh_each_frame():
         assert overlay._sharp_scale(surf, (8, 8), cache=False).get_at((3, 3))[:3] == (0, 0, 255)
     finally:
         pygame.quit()
-
-
 # -- the broadcast camera's cuts to a battle (overlay/mkds.py's CutDirector) ----------
 
 def _duel(gap, lap=2, laps=3, me_place=4):

@@ -598,7 +598,7 @@ class MkdsView:
         layer([p for p in placed if p[0]['slot'] in up])
 
     def _voxel_marker(self, surf, r, sx, sy, size, hidden):
-        """A racer on the voxel course, at twice the canvas's pixels: the
+        """A racer on the voxel course, at four times the canvas's pixels: the
         player's head, a dot with its place for the rest; just a ring where
         the ground's in front of it."""
         k = VOXEL_SCALE

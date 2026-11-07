@@ -613,7 +613,7 @@ class MkdsView:
                 key = (r.get('character'), k)           # (at the frame's own scale: 1:1 with the ranking's heads)
                 big = self._vox_sprites.get(key)
                 if big is None:
-                    big = self._vox_sprites[key] = pygame.transform.scale(head, (hw * k, hh * k))
+                    big = self._vox_sprites[key] = pygame.transform.scale(head, (hw * k // 2, hh * k // 2))
                 bw, bh = big.get_size()
                 pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - bh // 2), max(bw, bh) // 2 + 3)
                 pygame.draw.circle(surf, ring or ui.THEME['text_light'], (sx, sy - bh // 2), max(bw, bh) // 2 + 2, 2)

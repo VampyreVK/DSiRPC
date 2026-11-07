@@ -101,6 +101,7 @@ class VoxelCourse:
         self.exaggerate = min(MAX_EXAGGERATE, EXAGGERATE * span / rise) if rise > 1 else 1.0
         self.upper = [i for i in range(len(self.mids)) if self._segment_up(i)]
         self.frames = {}          # angle index -> (frame, horizon)
+        self._last_frame = None   # the most recent completed frame while the next one is drawn
         self.ready = False
         self.failed = False
         self._want = 0
@@ -368,6 +369,7 @@ class VoxelCourse:
                 frame = self._render(self.orbit_view(todo * ORBIT_STEP))
                 with self._lock:
                     self.frames[todo] = frame
+                    self._last_frame = frame
                     self._prune()
         except Exception:
             import logging
@@ -382,8 +384,8 @@ class VoxelCourse:
             del self.frames[i]
 
     def frame(self, t_ms):
-        """(the orbit's frame for `t_ms`, its View), or None while it isn't
-        drawn yet (or the nearest one drawn before it)."""
+        """(the orbit's frame for `t_ms`, its View), or the latest completed
+        frame while the requested one is being drawn."""
         count = round(360 / ORBIT_STEP)
         i = int(t_ms / ORBIT_MS * count) % count
         if not self.threaded:
@@ -391,6 +393,7 @@ class VoxelCourse:
                 self._build()
             if i not in self.frames:
                 self.frames[i] = self._render(self.orbit_view(i * ORBIT_STEP))
+                self._last_frame = self.frames[i]
         with self._lock:
             self._want = i
             if not self.threaded:
@@ -399,7 +402,7 @@ class VoxelCourse:
                 j = (i - back) % count
                 if j in self.frames:
                     return self.frames[j]
-        return None
+            return self._last_frame
 
     def chase_frame(self, view, t_ms):
         """A frame in the chase camera's `view` (live), or the last one when
@@ -435,15 +438,24 @@ class VoxelCourse:
             dgx, dgz = sx / cell, sz / cell
             scale = focal / d
             for i in range(w):
-                gx, gz = int(gxf + dgx * i), int(gzf + dgz * i)
-                if 0 <= gx < gw and 0 <= gz < gh:
-                    k = gz * gw + gx
-                    y = int(horizon + (cam_h - hm[k]) * scale)
+                sample_x, sample_z = gxf + dgx * i, gzf + dgz * i
+                if 0 <= sample_x < gw and 0 <= sample_z < gh:
+                    gx, gz = int(sample_x), int(sample_z)
+                    tx, tz = sample_x - gx, sample_z - gz
+                    if gx == gw - 1:
+                        tx = 0.0
+                    if gz == gh - 1:
+                        tz = 0.0
+                    right, down = min(gx + 1, gw - 1), min(gz + 1, gh - 1)
+                    top = hm[gz * gw + gx] * (1 - tx) + hm[gz * gw + right] * tx
+                    bottom = hm[down * gw + gx] * (1 - tx) + hm[down * gw + right] * tx
+                    height = top * (1 - tz) + bottom * tz
+                    y = int(horizon + (cam_h - height) * scale)
                     if y < ybuf[i]:
-                        fill(cols[k], (i, y, 1, ybuf[i] - y))
+                        fill(cols[gz * gw + gx], (i, y, 1, ybuf[i] - y))
                         ybuf[i] = y
             d += step
-            step *= 1.012
+            step = min(step * 1.012, cell)
         return surf, view
 
     # -- each frame ---------------------------------------------------------------------

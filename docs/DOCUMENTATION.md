@@ -599,16 +599,33 @@ table), so HP and moves show up quickly.
   Prix, VS or Time Trial), between the game card's header and footer: on the
   left the racers in order with their place, head and name (your row lit;
   rows slide to their new places when someone passes, `RankMotion`); in the
-  middle the whole course from above on a dark panel, a race overview as on
-  TV: the course's map (`Assets/MarioKartDS`, cut by `overlay/mkds_art.py`
-  and placed in the game's world by `core/mkds_maps.py`; a wide course is
-  turned a quarter turn to fill the panel) under the line through its
-  checkpoints, a dot with its place for each racer (the leader's ringed in
-  gold, yours your head, on top), gliding from read to read (`MapMotion`);
-  on the right your place, lap and the race's time, then the achievements as
-  in the Tetris view. With no map for the course, or a course the console has
-  otherwise than its file (mirrored, say), it's the line alone; a racer whose
-  character isn't known is a coloured dot with its number. The last lap and
+  middle the whole course on a dark panel, a race overview as on TV: voxel
+  terrain (`overlay/mkds_voxel.py`, drawn at twice the canvas's resolution
+  and shown at the window's): a heightmap made once a course on a thread of
+  its own, the road at its own height (`HEIGHTS`) and the ground falling
+  away between, coloured from the course's map (`Assets/MarioKartDS`, placed
+  in the game's world by `core/mkds_maps.py`), seen by a camera that circles
+  the whole course once a minute (a frame each degree, drawn near to far,
+  the few around the one showing kept). It cuts to a chase camera behind you
+  for 7 s when a racer a place either side has been within 0.6 checkpoints
+  of you for 0.8 s (a battle: the mode's strip under the map says "BATTLE
+  FOR 3RD"), and when the last lap starts, with the overlay's bars wiping in
+  and out (`CutDirector`: 18 s between battle cuts; the chase camera's
+  frames drawn live, 15 a second). Each racer is a dot with its place
+  at its live height over its shadow (the leader's ringed in gold, yours
+  your head, on top; a ring where a hill's in front), gliding from read to
+  read (`MapMotion`). Until the voxel course is ready it's tilted in 2.5D
+  (`overlay/mkds_tilt.py`: the map as the ground and the road a ribbon at
+  its own height, with shadows under raised stretches, and a strip of the
+  lap's heights under it). Where the course crosses over itself (`DECKS`: Figure-8's
+  bridge, loops, a cannon's arc) the upper road is drawn see-through over the
+  racers below it. Without heights for the course it's the course from above,
+  flat (a wide course turned a quarter turn), with the same decks; with no
+  map, or a course the console has otherwise than its file (mirrored, say),
+  the line through its checkpoints alone. On the right the item you hold (the
+  game's icon, with how many), the lap, your Grand Prix points and the race's
+  time, then the achievements as in the Tetris view. A racer whose character
+  isn't known is a coloured dot with its number. The last lap and
   the finish get a banner. Battle, Missions and the menus show the game card.
   It reads the state's `mkds` (`core/mkds_reader.py`; what's left to check on
   the console: [mkds-console-guide.md](mkds-console-guide.md)).
@@ -844,7 +861,7 @@ numbers mean.
 | `core/other_game.py` | `OtherGame`: a game without its own parser while it runs. Returns the hub's state for it (`{'kind': 'other', 'title', 'ra_set', 'rich_presence', 'progress', 'unlocked', 'recent', 'ra_note', 'signed_in', ...}`) from the game's `RaGame`, and tells whether the DSi is still there (the RA reads, or the hellos). `ra_summary()` builds those RetroAchievements keys; Black and White's states carry them too |
 | `core/tetris_reader.py` | Tetris DS's board, falling and stored piece, score, lines, level, mode, pause and game over, read in two requests while a Standard game is played (section 9); `DsiSource` adds it to the game card's state as `tetris` |
 | `core/mkds_reader.py` | `MkdsReader`: Mario Kart DS's race, read in two requests about every 0.2 s while one is on: every racer's position, lap and last checkpoint, their characters, the course, mode, class, your lap and place and the race's time, and the course's checkpoints once a course. Places come from how far round each racer is (`progress()`), with your own place from the game (`placings()`). The addresses and where each comes from are in its docstring; `DsiSource` adds it to the game card's state as `mkds` |
-| `core/mkds_maps.py` | Where each course's map in `Assets/MarioKartDS` has the game's world (scale and origin), written by `tools/mkds_maps.py` |
+| `core/mkds_maps.py` | Where each course's map in `Assets/MarioKartDS` has the game's world (scale and origin), where the course crosses over itself (`DECKS`) and its height at each checkpoint (`HEIGHTS`), written by `tools/mkds_maps.py` |
 | `core/ra_game.py` | `RaGame`: a game's RetroAchievements side while it runs (Platinum too). Reads the header title (`match_titles` holds the GameTDB titles `RALink` used when there's none), finds the set (`ra/`, then `RALink`, then the RA cache), runs rcheevos with the rich presence and the achievements, decides who checks which (`_cover()`: the console the ones in the set its checker runs, the PC every frame the ones that need it most of the rest, `capture`, and the PC about once a second the remaining ones, `in_runtime`), `tick()` once a second, `capture_tick()` often, turns triggered achievements into `achievement` events (and keeps this session's in `session_unlocks`), sends them through the link when allowed, and pings. Unlocks the console's checker reports (`inbox` `("console", ids)`) count right away, the same way; its reports (`("report", ...)`) say which set it runs. DSiRPC's own unlocks wait in `pending_pushes()` for the console. `RaSettings` holds the `[ra]` choices |
 | `core/frame_capture.py` | `FrameCapture`: achievements checked every frame on the PC, from the DSi's per-frame capture. `use()` picks the ones that fit in its 8 watched values (each time the one needing the fewest more, the most needed of those; none with AddAddress, whose addresses move), `service()` drains the DSi's ring and runs rcheevos on every recorded frame |
 | `core/ra_link.py` | `RALink`: the connection to RetroAchievements, on its own thread. `prepare()` (game ID by ROM hash, set file or title; download; session), `ping()`, `award()` (with the pending file and retries), `candidates()` and `download()` for setup. For offline play: `set_for_code()` (a game's set by code, downloaded if needed), `known_unlocks()` (from `startsession` and sent unlocks, kept in `ra/cache/unlocked.json`), `known_unlock_times()` (the same with when each was earned, for the in-game menu's list), `award_offline()`; `queue_offline()` keeps unlocks for when you're signed in. With `blank` (`--blank-ra`, `--dry-run`) it acts as if nothing were unlocked |
@@ -869,7 +886,7 @@ numbers mean.
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `tetris.py` (Tetris DS's board view), `mkds.py` (Mario Kart DS's race view), `mkds_art.py` (cuts its art from `Assets/MarioKartDS`), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `tetris.py` (Tetris DS's board view), `mkds.py` (Mario Kart DS's race view), `mkds_voxel.py` (its course as voxel terrain), `mkds_tilt.py` (its course in 2.5D and the height strip), `mkds_art.py` (cuts its art from `Assets/MarioKartDS`), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 

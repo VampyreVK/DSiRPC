@@ -303,6 +303,11 @@ MKDS_RACERS = [
     ("Donkey Kong", -800, 400, 8.5, 5.2, 20), ("Wario", -1500, 350, 12.0, 2.2, -110),
 ]
 MKDS_SPEED = 980          # world units a second (a lap in about 16 s)
+# Heights: the diagonal (checkpoints 9-15, from the far loop to the near one)
+# is the bridge, over the straight the race starts on (as the course file has
+# it), with ramps up and down either side
+MKDS_LOW, MKDS_HIGH = 772, 965
+MKDS_BRIDGE = (8.0, 9.0, 15.0, 16.0)      # (checkpoint + how far on) up from, up at, down from, down at
 MKDS_START = 3000         # how far into lap 2 the scene starts
 
 
@@ -342,16 +347,34 @@ def mkds_race(into):
         f = rest / seg[cp]
         nx, nz = -(bz - az) / seg[cp], (bx - ax) / seg[cp]
         x, z = ax + (bx - ax) * f + nx * side, az + (bz - az) * f + nz * side
-        racers.append({'slot': slot, 'player': slot == 0, 'character': char, 'x': x, 'z': z, 'lap': lap,
+        a, b, c, d = MKDS_BRIDGE
+        at = cp + f
+        up = min(1.0, max(0.0, (at - a) / (b - a))) * min(1.0, max(0.0, (d - at) / (d - c)))
+        racers.append({'slot': slot, 'player': slot == 0, 'character': char, 'x': x, 'z': z,
+                       'y': MKDS_LOW + (MKDS_HIGH - MKDS_LOW) * up, 'lap': lap,
                        'checkpoint': cp, 'progress': progress(lap, cp, x, z, MKDS_MIDS), 'place': None})
     order = rank(racers)
     me = racers[0]
     return {
         'course': MKDS_COURSE, 'course_name': COURSES[MKDS_COURSE][0], 'mode': 'Grand Prix',
         'cup': 'Mushroom', 'cc': '150cc', 'mirror': False, 'lap': me['lap'], 'laps': 3,
-        'place': me['place'], 'finished': False, 'time_ms': int((48.2 + into) * 1000),
+        'place': me['place'], 'place_from_game': False, 'finished': False, 'time_ms': int((48.2 + into) * 1000),
         'character': me['character'], 'kart': 0, 'racers': racers, 'order': order, 'checkpoints': cps,
+        'item': mkds_item(into), 'cup_points': 18,
     }
+
+
+# The player's items through the scene: (from second, item byte, how many),
+# using them up (a triple a shell at a time) with nothing held between
+MKDS_ITEMS = [(0.0, 0x0B, 3), (2.5, 0x0B, 2), (4.5, 0x0B, 1), (6.0, None, 0), (8.0, 0x05, 3), (10.5, 0x05, 2),
+              (12.0, 0x05, 1), (13.5, None, 0), (16.0, 0x0C, 1)]
+
+
+def mkds_item(into):
+    """The player's item `into` seconds into the scene, as the reader has it."""
+    from .mkds_reader import item_of
+    _, n, count = [i for i in MKDS_ITEMS if i[0] <= into][-1]
+    return item_of(bytes([n, 0, 0, 0, 0, 0, 0, 0, count])) if n is not None else None
 
 
 def mkds_last_lap_at():

@@ -5,9 +5,12 @@ rips), so the sheets stay the only image files:
 
     heads     the racers' heads from the bottom screen's map (HUD Elements,
               Character Map Markers: 16x14 each, a 4x5 grid)
+    items     the items as the bottom screen shows the one you hold (HUD
+              Elements, Items (Bottom Screen)), with its x2 and x3 versions
     maps      a course's map from above (Courses - <name> Map), the part of
               it the view shows, scaled to the view's size; where it sits in
-              the game's world comes from core/mkds_maps.py
+              the game's world comes from core/mkds_maps.py; past the map's
+              edge its edge colour carries on
 
 Sheets load the first time something's asked for (pygame needs its display
 first) and every piece is cached, scaled maps by the size they were scaled
@@ -36,6 +39,20 @@ HEAD_W, HEAD_H = 16, 14
 HEADS = ["Mario", "Luigi", "Peach", "Toad", "Yoshi", "Donkey Kong", "Wario", "Bowser",
          "Daisy", "Dry Bones", "Waluigi", "R.O.B.", "Shy Guy"]
 HEAD_COLUMNS = 4
+ITEM_SHEET = 'DS _ DSi - Mario Kart DS - HUD Elements (In-Game) - Items (Bottom Screen).png'
+ITEM_KEY = (8, 100, 105)          # the sheet's background
+# Each item's place on the sheet (x, y, w, h), and (name, how many) for the
+# ones it also has with a count on them; triples are their single item's
+ITEM_ICONS = {
+    "Banana": (16, 7, 14, 13), "Mushroom": (32, 8, 12, 12), ("Mushroom", 2): (45, 7, 15, 13),
+    ("Mushroom", 3): (61, 7, 15, 13), "Golden Mushroom": (77, 7, 12, 14), ("Banana", 3): (16, 21, 15, 14),
+    "Green Shell": (32, 23, 14, 12), ("Green Shell", 3): (47, 22, 15, 13), "Red Shell": (63, 23, 14, 12),
+    ("Red Shell", 3): (78, 22, 15, 13), "Spiny Shell": (94, 20, 16, 15), "Blooper": (17, 37, 13, 14),
+    "Bob-omb": (33, 36, 12, 15), "Star": (47, 39, 13, 12), "Boo": (63, 38, 15, 13), "Bullet Bill": (79, 39, 15, 11),
+    "Lightning": (96, 37, 13, 13),
+}
+TRIPLES = {"Triple Mushrooms": "Mushroom", "Triple Green Shells": "Green Shell", "Triple Bananas": "Banana",
+           "Triple Red Shells": "Red Shell"}
 
 
 class MkdsArt:
@@ -100,6 +117,29 @@ class MkdsArt:
             return piece
         return self._get(('head', character), make)
 
+    def item(self, name, count=1):
+        """(the item's icon, whether it shows the count already) for an
+        item as core/mkds_reader.py names it, or (None, False) for one the
+        sheet hasn't (the Fake Item Box) or before the sheet's loaded."""
+        base = TRIPLES.get(name, name)
+        key = (base, count) if (base, count) in ITEM_ICONS else base
+        if key not in ITEM_ICONS:
+            return None, False
+
+        def make():
+            sheet = self._sheet(ITEM_SHEET)
+            if sheet is None:
+                return None
+            rect = ITEM_ICONS[key]
+            piece = pygame.Surface(rect[2:], pygame.SRCALPHA)
+            piece.blit(sheet, (0, 0), rect)
+            for y in range(piece.get_height()):
+                for x in range(piece.get_width()):
+                    if piece.get_at((x, y))[:3] == ITEM_KEY:
+                        piece.set_at((x, y), (0, 0, 0, 0))
+            return piece
+        return self._get(('item', key), make), isinstance(key, tuple)
+
     @staticmethod
     def calibrated(course_file):
         return course_file in MAPS
@@ -116,7 +156,7 @@ class MkdsArt:
         key = ('map', course_file, tuple(round(v, 1) for v in window), tuple(size), mirror, dim, turn)
 
         def make():
-            art, crop, k, ox, oy = MAPS[course_file][:5]
+            art, k, ox, oy = MAPS[course_file][:4]
             sheet = self._sheet(MAP_ART.format(art))
             if sheet is None:
                 return None
@@ -127,11 +167,14 @@ class MkdsArt:
                 x0, z0, x1, z1 = v0, -u1, v1, -u0
             if mirror:                                    # (world x -> -x: the map read right to left)
                 x0, x1 = -x1, -x0
-            left, top = crop[0] + ox + x0 / k, crop[1] + oy + z0 / k
+            left, top = ox + x0 / k, oy + z0 / k
             w, h = (x1 - x0) / k, (z1 - z0) / k
             src = pygame.Surface((max(1, round(w)), max(1, round(h))))
-            src.fill(sheet.get_at((crop[0] + 2, crop[1] + 2))[:3])        # (outside the map: its edge's colour)
-            src.blit(sheet, (0, 0), (round(left), round(top), round(w), round(h)))
+            src.fill(sheet.get_at((2, 2))[:3])                              # (outside the map: its edge's colour)
+            want = pygame.Rect(round(left), round(top), round(w), round(h))
+            inside = want.clip(sheet.get_rect())
+            if inside.w and inside.h:
+                src.blit(sheet, (inside.x - want.x, inside.y - want.y), inside)
             if mirror:
                 src = pygame.transform.flip(src, True, False)
             out = pygame.transform.smoothscale(src, out_size)

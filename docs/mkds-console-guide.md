@@ -25,10 +25,25 @@ heads). If they're wrong, the overlay's ranking will show the wrong heads.
 
 ## 2. Places
 
-Your own place comes from the game (`0x02368754`). The CPUs' places come from
-how far round the course each one is: its lap, the last checkpoint it passed,
-and how far it is toward the next one. To check the lap and checkpoint
-counting, first get the race status pointer:
+The places come from how far round the course each racer is: its lap, the
+last checkpoint it passed, and how far it is toward the next one. The code
+notes' place byte (`0x02368754`) is used for you when it reads 1-8, but in the
+first console test it didn't.
+
+**Where the game keeps the places.** With DSiRPC running, race a Grand Prix
+race past the 1-minute mark. The log (`logs\dsirpc.log`) gets two lines like
+this, about 20 s and 60 s into the race:
+
+```
+Mario Kart DS: place probe at 20.4 s: the place byte 0x02368754 reads 00 (...); worked-out order [5, 1, ...]; race status bytes that rank the racers: +0x5C (1-based, 8 of 8 agree)
+```
+
+Note your place and the places on the bottom screen at that moment if you can,
+and send me both lines. An offset that ranks the racers in both lines is
+almost certainly where the game keeps everyone's place, and then the overlay
+can use the game's own order.
+
+**The lap and checkpoint counting.** First get the race status pointer:
 
 ```
 python core\dsirpc_client.py --read 0x021755FC:4
@@ -52,7 +67,57 @@ compare the overlay's ranking with the game's bottom screen. If CPUs swap
 places in the overlay well before or after they do in the game, tell me with
 the numbers from the watch above.
 
-## 3. Mirror mode
+## 3. Items
+
+The item box reads the item pointer at `0x0217BC2C` (four bytes, lowest
+first, like the status pointer above). Your item is at that pointer + 0x4C and
+how many at + 0x54. With the pointer `0x0218A000`, say:
+
+```
+python core\dsirpc_client.py --watch 0x0218A04C:1 0x0218A054:1
+```
+
+Note the first number for each item you get. The ones not checked yet are
+1 Red Shell, 3 Fake Item Box, 4 Mushroom, 5 Triple Mushrooms, 9 Triple Green
+Shells, 10 (0x0A) Triple Bananas and 13 (0x0D) Golden Mushroom. 0x13 means
+no item.
+
+**The roulette.** While the item roulette spins, the overlay shows whatever
+the item byte says (an empty box if it stays 0x13). To find a byte that says
+it's spinning, watch the whole start of your item's block through a few item
+boxes:
+
+```
+python core\dsirpc_client.py --watch 0x0218A040:32 --settle 3
+```
+
+Stay still for the 3 settle seconds, then drive through an item box. Send me
+which addresses change when the roulette starts and when it stops.
+
+## 4. Grand Prix standings
+
+In a Grand Prix the right column shows your points in the cup, from the
+standings pointer at `0x022AC39C`, + 0x30 (the RetroAchievements set's 3-star
+cup achievements read it). Nothing known gives the other racers' points, so
+the overlay can't show your place in the cup yet. To find them, get the
+pointer:
+
+```
+python core\dsirpc_client.py --read 0x022AC39C:4
+```
+
+and over the results screen after a race, watch around your points (with the
+pointer `0x0229F000`, say):
+
+```
+python core\dsirpc_client.py --watch 0x0229F000:256 --settle 3
+```
+
+Each race gives 10, 8, 6, 4, 3, 2, 1 and 0 points by place, so after the
+first race eight bytes should take those values. Send me which addresses
+change and to what.
+
+## 5. Mirror mode
 
 The course maps were lined up using the courses' checkpoints from the game's
 files. In a normal race, DSiRPC's log (`logs\dsirpc.log`) has a line like:
@@ -67,14 +132,17 @@ negated, the overlay shows the map flipped. If it's at the normal position,
 the map shows as it is. If it's anywhere else, the overlay draws just the
 line through the checkpoints, with no map: send me that log line.
 
-## 4. Time Trial
+## 6. Time Trial
 
 In Time Trial only you are shown. If a ghost is racing, check that the
 overlay doesn't put a second racer on the map.
 
-## 5. After a race
+## 7. Starting and ending a race
 
-The race view shows while the racers pointer (`0x0217ACF8`) isn't 0. After
-the results, back in the menus, the overlay should go back to the game card
-within a couple of seconds. If it stays on the race, tell me what screen
+The race view shows once a race has read steadily for 0.4 s, and stays until
+2 s after the last read with a race in it. At the countdown it shouldn't
+switch back to the game card any more. If it still does, the log has lines
+like `Mario Kart DS: no race in this read (no racers)` around that moment:
+send me them. After the results, back in the menus, the overlay should go back
+to the game card about 2 s later. If it stays on the race, tell me what screen
 you're on.

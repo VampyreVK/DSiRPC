@@ -14,6 +14,7 @@ from core import hub, mkds_reader as mk
 
 MAIN = mk.MAIN_US
 RACERS_AT, STATUS_AT, COURSE_AT, CP_AT = 0x0217D000, 0x02175700, 0x02180000, 0x02181000
+ITEMS_AT, STANDINGS_AT = 0x02182000, 0x02183000
 # A square course 2000 across, the finish line on the left side: its
 # checkpoints' middles go round it anticlockwise from there
 SQUARE = [(-1000, 0), (-1000, -1000), (0, -1000), (1000, -1000), (1000, 0), (1000, 1000), (0, 1000), (-1000, 1000)]
@@ -24,7 +25,7 @@ def checkpoints(mids=SQUARE, half=200):
 
 
 def race_memory(racers, course=0x14, mode=0, place=None, lap=2, laps=3, finished=0, cps=None, timer_ms=83456,
-                racers_at=RACERS_AT, mirror=0):
+                racers_at=RACERS_AT, mirror=0, item=(0x0B, 3), points=18):
     """[(address, bytes)] for a race as the game has it. racers: [(character
     number, x, z, lap, last checkpoint), ...] in slot order, the player first."""
     cps = checkpoints() if cps is None else cps
@@ -37,7 +38,12 @@ def race_memory(racers, course=0x14, mode=0, place=None, lap=2, laps=3, finished
            (mk.PLACE, bytes([place or 0])),
            (MAIN + mk.PLAYER_LAP_AT, bytes([lap, 0, 0, 0, 0, 0, 0, 0, laps])),
            (MAIN + mk.FINISHED_AT, bytes([finished])),
-           (COURSE_AT + mk.CP_POINTER, struct.pack("<IH", CP_AT, len(cps)))]
+           (COURSE_AT + mk.CP_POINTER, struct.pack("<IH", CP_AT, len(cps))),
+           (MAIN + mk.ITEMS_AT, struct.pack("<I", ITEMS_AT)),
+           (ITEMS_AT + 0x4C, bytes([item[0]]) + bytes(7) + bytes([item[1]])),
+           (ITEMS_AT + 0x210 + 0x4C, bytes([mk.NO_ITEM])),                     # (racer 1's: not read)
+           (mk.STANDINGS_PTR, struct.pack("<I", STANDINGS_AT)),
+           (STANDINGS_AT + mk.CUP_POINTS, bytes([points]))]
     ms, s = timer_ms % 1000, timer_ms // 1000
     out.append((STATUS_AT + mk.STATUS_TIMER, struct.pack("<HBB", ms, s // 60, s % 60)))
     for i, (char, x, z, rlap, cp) in enumerate(racers):
@@ -89,7 +95,30 @@ def test_a_race_is_read():
     names = [r['racers'][s]['character'] for s in r['order']]
     # by how far round: Bowser (cp 7) is last of those on lap 2, DK's still on lap 1
     assert names == ["Bowser", "Yoshi", "Wario", "Peach", "Luigi", "Mario", "Toad", "Donkey Kong"]
-    assert r['racers'][0]['player'] and r['racers'][0]['place'] == 6 and r['place'] is None
+    assert r['racers'][0]['player'] and r['racers'][0]['place'] == 6
+    assert r['place'] == 6 and not r['place_from_game']           # (the game's byte reads 0: worked out)
+
+
+def test_the_place_shown_is_the_players_place_in_the_ranking():
+    for byte in (0, 9, 0xFF):                                     # (nothing usable: worked out)
+        _, _, _, r = read_race(place=byte)
+        mine = r['racers'][0]['place']
+        assert r['place'] == mine == r['order'].index(0) + 1 and not r['place_from_game']
+    _, _, _, r = read_race(place=3)
+    assert r['place'] == 3 == r['racers'][0]['place'] and r['order'][2] == 0 and r['place_from_game']
+
+
+def test_the_item_held_and_the_cup_points():
+    reader, client, _, r = read_race()
+    assert r['item'] is None and r['cup_points'] is None          # (their pointers: from this read on)
+    r = reader.read(client)
+    assert r['item'] == {'id': 0x0B, 'name': "Triple Red Shells", 'count': 3} and r['cup_points'] == 18
+    client.poke_all(race_memory(FIELD, item=(mk.NO_ITEM, 0)))
+    assert reader.read(client)['item'] is None                    # nothing held
+    client.poke_all(race_memory(FIELD, item=(0x0C, 1), mode=3))
+    r = reader.read(client)
+    assert r['item']['name'] == "Star" and r['cup_points'] is None   # VS: no cup
+    assert mk.item_of(bytes([0x12, 0, 0, 0, 0, 0, 0, 0, 1])) is None  # (not an item we know: nothing shown)
 
 
 def test_the_players_own_place_wins():
@@ -98,6 +127,29 @@ def test_the_players_own_place_wins():
     names = [r['racers'][s]['character'] for s in r['order']]
     assert names == ["Bowser", "Mario", "Yoshi", "Wario", "Peach", "Luigi", "Toad", "Donkey Kong"]
     assert [r['racers'][s]['place'] for s in r['order']] == list(range(1, 9))
+
+
+def test_a_probe_looks_for_where_the_game_keeps_the_places(caplog):
+    import logging
+    reader, client, _, r = read_race(timer_ms=5000)
+    for slot in r['order']:                                       # a ranking at +0x5C, as the game might keep it
+        client.ram[STATUS_AT + slot * mk.STATUS_SIZE + 0x5C - mk.RAM] = r['racers'][slot]['place']
+    client.poke_all([(STATUS_AT + mk.STATUS_TIMER, struct.pack("<HBB", 0, 0, 25))])   # 25 s in
+    with caplog.at_level(logging.INFO):
+        reader.read(client)
+        reader.read(client)                                       # (once: not again until PROBE_AT_MS's next)
+    probes = [m for m in caplog.messages if "place probe" in m]
+    assert len(probes) == 1 and "+0x5C (1-based, 8 of 8 agree)" in probes[0]
+    assert "0x02368754 reads 00" in probes[0]
+
+
+def test_why_theres_no_race_is_logged_when_it_changes(caplog):
+    import logging
+    reader, client, _, _ = read_race()
+    client.poke_all([(MAIN + mk.RACERS_AT, bytes(4))])
+    with caplog.at_level(logging.INFO):
+        assert reader.read(client) is None and reader.read(client) is None
+    assert [m for m in caplog.messages if "no race" in m] == ["Mario Kart DS: no race in this read (no racers)"]
 
 
 def test_progress_goes_round_the_course():
@@ -177,9 +229,9 @@ def test_every_race_course_has_a_map():
     from core.mkds_maps import ART, MAPS
     for course, (name, course_file) in mk.COURSES.items():
         assert course_file in MAPS, name
-        art, crop, k, ox, oy, finish = MAPS[course_file]
+        art, k, ox, oy, finish = MAPS[course_file]
         assert os.path.exists(os.path.join("Assets", "MarioKartDS", ART.format(art))), art
-        assert 9 < k < 16 and crop[2] > crop[0] and crop[3] > crop[1]
+        assert 9 < k < 16
 
 
 def test_the_map_is_only_used_for_the_course_it_was_placed_by():
@@ -253,5 +305,335 @@ def test_the_view_draws():
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 50, 16)
         d['mkds'] = dict(race, checkpoints=())                     # before the checkpoints are read
         overlay.draw(canvas, hub.Snapshot(d, True, time.time()), 100, 16)
+    finally:
+        pygame.quit()
+
+
+# -- the map table's decks and heights (tools/mkds_maps.py) ------------------------
+
+def _tool():
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import mkds_maps
+    return mkds_maps
+
+
+def test_a_crossing_at_two_heights_is_a_deck(monkeypatch):
+    tool = _tool()
+    # A figure of eight: up one diagonal (900 where they cross), back along the other (750 there)
+    pts = [(-1000, 700, -1000), (1000, 1100, 1000), (1000, 800, -1000), (-1000, 700, 1000)]
+    links = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    monkeypatch.setattr(tool, "cpu_path", lambda nkm: (pts, links))
+    cps = [(x - 300, z, x + 300, z) for x, _, z in pts]
+    (x, z, reach, low, high, upper), = tool.decks(b"", cps)
+    assert (x, z) == (0, 0) and (low, high) == (750, 900) and reach == 360
+    assert all(abs(px - pz) <= 1 for px, pz in upper) and len(upper) > 2   # (along the upper diagonal)
+    assert tool.heights(b"", cps) == (700, 1100, 800, 700)
+    pts[1] = (1000, 800, 1000)                                       # level where they cross: no deck
+    assert tool.decks(b"", cps) == []
+
+
+def test_the_table_has_decks_and_heights_for_its_courses():
+    from core.mkds_maps import DECKS, HEIGHTS, MAPS
+    files = {f for _, f in mk.COURSES.values()}
+    assert set(DECKS) <= files and set(HEIGHTS) == files
+    assert 'cross_course' in DECKS and 'old_baby_gc' not in DECKS   # Figure-8's bridge; Baby Park's flat
+    for name, found in DECKS.items():
+        for x, z, reach, low, high, upper in found:
+            assert high - low >= 80 and reach > 0 and len(upper) >= 2
+    assert all(len(h) >= 8 for h in HEIGHTS.values())
+
+
+def test_past_a_maps_edge_its_edge_colour_carries_on():
+    pygame = pytest.importorskip("pygame")
+    from core.mkds_maps import MAPS
+    from overlay.mkds_art import MkdsArt
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        art = MkdsArt("Assets")
+        _, k, ox, oy, _ = MAPS['cross_course']
+        right = (1024 - ox) * k                                       # the world x at the map's right edge
+        piece = art.course_map('cross_course', (right - 500, -500, right + 500, 500), (100, 100))
+        edge = piece.get_at((99, 50))[:3]
+        assert all(piece.get_at((x, 50))[:3] == edge for x in range(55, 100))   # the map's edge colour carries on
+    finally:
+        pygame.quit()
+
+
+def test_racers_on_the_bridge_are_drawn_over_it_and_those_below_under_it(monkeypatch):
+    """The flat view (no heights for the course): the upper road, see-through,
+    over the racers below. (Tilted, the bridge is raised on the screen, so a
+    racer under it shows below it.)"""
+    pygame = pytest.importorskip("pygame")
+    monkeypatch.setattr("overlay.mkds.HEIGHTS", {})
+    from core import demo
+    from overlay.gamecard import GameCard
+    from overlay.font import PixelFont
+    from overlay.mkds import CHARACTER_COLORS, MkdsView
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        race = demo.mkds_race(0)
+        decks = MkdsView.decks(race, False)
+        (x, z, reach, low, high, _), = decks
+        me = dict(race['racers'][3], x=x, z=z)                        # Yoshi, at the crossing
+
+        assert MkdsView.upper(dict(me, y=high - 20), decks) and not MkdsView.upper(dict(me, y=low + 20), decks)
+        assert not MkdsView.upper(dict(me, x=x + 3 * reach, y=high), decks)   # (away from the crossing)
+        found = {}
+        for y in (low, high):
+            view = MkdsView(font, mini, GameCard(font, mini))
+            r = dict(race, racers=[dict(me, y=y)], order=[me['slot']])
+            view.motion.take(r, 0)
+            canvas.fill((0, 0, 0))
+            view._map(canvas, r, 0)
+            yoshi = CHARACTER_COLORS["Yoshi"]                   # (Yoshi's dot, in its own colour where nothing's over it)
+            found[y] = sum(1 for px in range(256) for py in range(192) if canvas.get_at((px, py))[:3] == yoshi)
+        assert found[high] > 0 and found[low] == 0                    # below: under the bridge's see-through road
+    finally:
+        pygame.quit()
+
+
+# -- the course in 2.5D (overlay/mkds_tilt.py) --------------------------------------
+
+def test_the_lap_goes_from_the_finish_line_round_by_distance():
+    from overlay.mkds_tilt import lap_fraction, lap_lengths
+    mids = [(0, 0), (100, 0), (100, 100), (0, 100)]               # a square, 400 round
+    at, total = lap_lengths(mids)
+    assert at == [0, 100, 200, 300] and total == 400
+    assert lap_fraction(50, 0, 0, mids, at, total) == 0.125
+    assert lap_fraction(100, 50, 1, mids, at, total) == 0.375
+    assert lap_fraction(0, 50, 3, mids, at, total) == 0.875
+    assert lap_fraction(0, 50, -1, mids, at, total) == 0.875     # (-1: the last checkpoint, before the line)
+
+
+def test_heights_raise_points_but_a_flat_course_stays_flat():
+    pytest.importorskip("pygame")
+    from overlay.mkds_tilt import RISE_PX, TiltedCourse, usable
+    cps = checkpoints()
+    hilly = TiltedCourse(cps, (0, 100, 200, 300, 400, 300, 200, 100), (100, 92))
+    (x, z) = SQUARE[4]
+    low, high = hilly.point(x, z, 0), hilly.point(x, z, 400)
+    assert low[0] == high[0] and 0 < low[1] - high[1] <= RISE_PX + 0.01    # (up, by at most RISE_PX)
+    flat = TiltedCourse(cps, (500, 501, 502, 500, 501, 502, 500, 501), (100, 92))
+    assert flat.point(x, z, 502)[1] - flat.point(x, z, 500)[1] > -1     # (2 units: next to nothing)
+    assert usable(cps, (0,) * 8) and not usable(cps, (0,) * 7) and not usable((), (0,) * 8)
+
+
+def test_the_demo_race_is_drawn_tilted_with_its_bridge():
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import MkdsView
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        view = MkdsView(font, mini, GameCard(font, mini))
+        view.voxel = False                                            # (the 2.5D view, not the voxel one)
+        race = demo.mkds_race(3.0)
+        view.motion.take(race, 0)
+        view._map(canvas, race, 0)
+        _, course, strip = view._tilt
+        assert course.upper_segments and strip is not None            # Figure-8's bridge; its heights get a strip
+        assert all(course._segment_up(i) for i in course.upper_segments)
+        flat = dict(race, course=0x09, checkpoints=race['checkpoints'])   # (Baby Park's file: not these checkpoints)
+        view._map(canvas, flat, 0)
+        assert view._tilt[0][0] == 0x14                               # (so the flat view: nothing tilted for it)
+    finally:
+        pygame.quit()
+
+
+# -- the course as voxel terrain (overlay/mkds_voxel.py) ------------------------------
+
+def _voxel(threaded=False):
+    from core import demo
+    from core.mkds_maps import DECKS, HEIGHTS
+    from overlay.mkds_voxel import VoxelCourse
+    race = demo.mkds_race(3.0)
+    return race, VoxelCourse(race['checkpoints'], HEIGHTS['cross_course'], (100, 120), DECKS['cross_course'],
+                             None, threaded=threaded)
+
+
+def test_the_voxel_course_keeps_the_whole_course_in_view_all_the_way_round():
+    pygame = pytest.importorskip("pygame")
+    from overlay.mkds_voxel import ORBIT_MS, SCALE
+    pygame.init()
+    try:
+        race, course = _voxel()
+        assert course.ready and course.upper                      # (Figure-8's bridge: an upper deck)
+        for t in range(0, ORBIT_MS, ORBIT_MS // 8):
+            frame, view = course.frame(t)
+            assert frame.get_size() == (100 * SCALE, 120 * SCALE)
+            for i, (x, z) in enumerate(course.mids):
+                sx, sy, _ = course.place(x, z, course.heights[i], view)
+                assert 0 <= sx < frame.get_width() and 0 <= sy < frame.get_height()
+        assert len(course.frames) <= 8                            # (only the frames around the one showing kept)
+        assert course.deck_polygons(view)
+    finally:
+        pygame.quit()
+
+
+def test_racers_stand_on_the_voxel_ground_and_hills_hide_them():
+    pygame = pytest.importorskip("pygame")
+    pygame.init()
+    try:
+        race, course = _voxel()
+        frame, view = course.frame(0)
+        me = race['racers'][0]
+        sx, sy, d = course.place(me['x'], me['z'], me['y'], view)
+        gx, gy, gd = course.place(me['x'], me['z'], None, view)
+        assert abs(sx - gx) < 1 and abs(sy - gy) < 12             # (on the road: about where its ground is)
+        assert not course.hidden(me['x'], me['z'], me['y'], view)
+        cx, cz = course.centre                                    # a racer in the middle of the course...
+        for i in range(len(course.hm)):                           # ... with hills all round it
+            if not course.near[i]:
+                course.hm[i] = 5000.0
+        k = int((cz - course.z0) / course.cell) * course.gw + int((cx - course.x0) / course.cell)
+        course.near[k] = True
+        assert 0 <= course.place(cx, cz, course.base, view)[0] < course.w
+        assert course.hidden(cx, cz, course.base, view)
+    finally:
+        pygame.quit()
+
+
+def test_the_voxel_course_is_made_on_a_thread():
+    pygame = pytest.importorskip("pygame")
+    pygame.init()
+    try:
+        race, course = _voxel(threaded=True)
+        end = time.time() + 10
+        while time.time() < end and course.frame(0) is None:
+            time.sleep(0.05)
+        assert course.frame(0) is not None and not course.failed
+        course.close()
+    finally:
+        pygame.quit()
+
+
+def test_the_race_view_draws_the_voxel_course_at_the_windows_resolution():
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import MkdsView
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        shown = []
+        view = MkdsView(font, mini, GameCard(font, mini), hires=lambda c, surf, rect, clip, live: shown.append(
+            (surf.get_size(), tuple(rect), live)))
+        view.voxel_sync = True
+        race = demo.mkds_race(3.0)
+        view.motion.take(race, 0)
+        view._map(canvas, race, 0)
+        assert shown == [((200, 240), (74, 29, 100, 120), True)] and view._tilt is None
+    finally:
+        pygame.quit()
+
+
+def test_a_live_hires_surface_is_scaled_afresh_each_frame():
+    pygame = pytest.importorskip("pygame")
+    from overlay.scenes import Overlay
+    from overlay.sprites import SpriteBank
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        overlay = Overlay(SpriteBank("Assets"))
+        surf = pygame.Surface((4, 4))
+        surf.fill((255, 0, 0))
+        assert overlay._sharp_scale(surf, (8, 8), cache=False).get_at((3, 3))[:3] == (255, 0, 0)
+        surf.fill((0, 0, 255))                                    # (drawn again: the new one, not the last)
+        assert overlay._sharp_scale(surf, (8, 8), cache=False).get_at((3, 3))[:3] == (0, 0, 255)
+    finally:
+        pygame.quit()
+
+
+# -- the broadcast camera's cuts to a battle (overlay/mkds.py's CutDirector) ----------
+
+def _duel(gap, lap=2, laps=3, me_place=4):
+    """A race with the player and a rival a place ahead, `gap` checkpoints apart."""
+    racers = [{'slot': 0, 'player': True, 'place': me_place, 'progress': 50.0},
+              {'slot': 1, 'player': False, 'place': me_place - 1, 'progress': 50.0 + gap},
+              {'slot': 2, 'player': False, 'place': me_place + 1, 'progress': 40.0}]
+    return {'racers': racers, 'lap': lap, 'laps': laps, 'finished': False}
+
+
+def test_a_battle_cuts_in_once_its_held_and_not_again_until_the_cooldown():
+    from overlay.mkds import CutDirector as C
+    d = C()
+    assert d.update(_duel(3.0), 0) is None
+    assert d.update(_duel(0.4), 1000) is None                     # close, but not for long enough yet
+    assert d.update(_duel(0.4), 1000 + C.BATTLE_HOLD_MS - 1) is None
+    cut = d.update(_duel(0.4), 1000 + C.BATTLE_HOLD_MS)
+    assert cut['kind'] == 'battle' and cut['rival'] == 1 and cut['for'] == 3
+    start = cut['start']
+    assert d.update(_duel(5.0), start + C.CUT_MS - 1) is cut      # (the rival gone: it runs its length)
+    assert d.update(_duel(0.4), start + C.CUT_MS) is None         # over, and the cooldown's started
+    assert d.update(_duel(0.4), start + C.CUT_MS + C.COOLDOWN_MS - 1) is None
+    again = d.update(_duel(0.4), start + C.CUT_MS + C.COOLDOWN_MS + C.BATTLE_HOLD_MS)
+    assert again and again['kind'] == 'battle'
+
+
+def test_a_pass_thats_over_at_once_doesnt_cut():
+    from overlay.mkds import CutDirector as C
+    d = C()
+    for t in range(0, 3000, 200):                                 # close only every other read
+        assert d.update(_duel(0.4 if t % 400 == 0 else 2.0), t) is None
+
+
+def test_the_last_lap_cuts_in_whatever_the_cooldown():
+    from overlay.mkds import CutDirector as C
+    d = C()
+    d.update(_duel(5.0, lap=2), 0)
+    d.ready_at = 10 ** 9                                          # (a battle cut's cooldown on)
+    cut = d.update(_duel(5.0, lap=3), 100)
+    assert cut['kind'] == 'last lap' and cut['rival'] is None     # (no one near)
+    d = C()
+    d.update(_duel(0.4), 0)
+    battle = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
+    t = battle['end'] - 500
+    d.update(_duel(0.4, lap=3), t)                                # the last lap during a battle cut
+    assert d.cut is battle and battle['end'] == t + C.LAST_LAP_MS   # (it runs on)
+    d = C()                                                       # just back from a cut: no flick
+    d.update(_duel(0.4), 0)
+    battle = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
+    d.update(_duel(5.0), battle['end'])
+    assert d.update(_duel(5.0, lap=3), battle['end'] + C.LAST_LAP_AFTER_MS - 1) is None
+
+
+def test_the_wipe_goes_in_and_back_out():
+    from overlay.mkds import CUT_FADE_MS, CutDirector as C
+    d = C()
+    d.update(_duel(0.4), 0)
+    cut = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
+    assert d.wipe(cut['start'] + CUT_FADE_MS // 2) == (0.5, True)
+    assert d.wipe(cut['start'] + CUT_FADE_MS) is None
+    d.update(_duel(5.0), cut['end'])
+    assert d.wipe(cut['end'] + CUT_FADE_MS // 2) == (0.5, False)
+
+
+def test_the_chase_camera_keeps_the_rival_in_frame():
+    pygame = pytest.importorskip("pygame")
+    import math
+    pygame.init()
+    try:
+        race, course = _voxel()
+        me, rival = race['racers'][0], race['racers'][5]          # (Toad: well ahead)
+        view = course.chase_view(me['x'], me['z'], me['y'], math.atan2(rival['z'] - me['z'], rival['x'] - me['x']),
+                                 (rival['x'], rival['z'], rival['y']))
+        for r in (me, rival):
+            sx, sy, d = course.place(r['x'], r['z'], r['y'], view)
+            assert d > 1 and 0 <= sx < course.w and 0 <= sy < course.h
+        frame, drawn_in = course.chase_frame(view, 0)
+        assert drawn_in == view and course.chase_frame(view, 10)[0] is frame   # (15 a second: the same one)
     finally:
         pygame.quit()

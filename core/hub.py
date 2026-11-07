@@ -114,7 +114,8 @@ class DsiSource:
     TETRIS_INTERVAL = 0.1  # Tetris DS: its board read this often (two requests; the overlay animates between)
     TETRIS_HOLD_S = 2.0    # ... and the last one kept this long through reads that miss or say it's not in a game
     MKDS_INTERVAL = 0.2    # Mario Kart DS: the racers read this often in a race (two requests; the overlay glides between)
-    MKDS_HOLD_S = 2.0      # ... and the last read kept this long through ones that miss
+    MKDS_ENTER_S = 0.4     # ... a race shows once reads have had it this long without a break
+    MKDS_HOLD_S = 2.0      # ... and keeps showing this long after the last read that had it, whatever comes between
     QUIET_LISTEN_S = 1.0   # a read while the DSi's quiet (a Wi-Fi dropout): this long listening for its hellos
 
     def __init__(self, charmap, port=4244, dsi_ip=None, timeout=1.0, racache=None, ra_link=None,
@@ -131,7 +132,8 @@ class DsiSource:
         self.last_parse = 0.0
         self._tetris = (None, 0.0)   # Tetris DS's last board read (core/tetris_reader.py) and when
         self._tetris_layout = 'standard'   # and where it reads it: Standard's or Mission's
-        self._mkds = (None, 0.0)     # Mario Kart DS's last race read (core/mkds_reader.py) and when
+        self._mkds = (None, 0.0)     # Mario Kart DS's race being shown (core/mkds_reader.py) and when it was read
+        self._mkds_since = None      # when reads started having a race, while one isn't shown yet
         self._mkds_reader = mkds_reader.MkdsReader()
         self.port = port
         self.pinned_ip = dsi_ip
@@ -357,7 +359,7 @@ class DsiSource:
                 self.other.close()
             self.last = None
             self._tetris = (None, 0.0)
-            self._mkds = (None, 0.0)
+            self._mkds, self._mkds_since = (None, 0.0), None
             self._mkds_reader = mkds_reader.MkdsReader()
             self.other = OtherGame(game, self.ra_game, self.client)
             logging.info(f"The DSi is running {games.name(game)}")
@@ -396,23 +398,31 @@ class DsiSource:
         return None
 
     def _read_mkds(self):
-        """Mario Kart DS's race (core/mkds_reader.py), or None outside one.
-        A read that gets no reply keeps the last one for MKDS_HOLD_S, as
-        Tetris DS's board does; one that says there's no race doesn't (the
-        game card shows as soon as the race is over)."""
+        """Mario Kart DS's race (core/mkds_reader.py), or None outside one,
+        steadied so the overlay doesn't flick between the race view and the
+        game card: the game moves its race blocks as a race starts (the
+        course's intro, the countdown), so reads there come and go. A race
+        shows once reads have had one for MKDS_ENTER_S without a break, and
+        once it shows, the last good read stays for MKDS_HOLD_S through any
+        reads without one (no reply, a pointer that moved, no race), so the
+        game card comes back MKDS_HOLD_S after the race is really over."""
         try:
             got = self._mkds_reader.read(self.client, timeout=self.FAST_TIMEOUT)
-            missed = False
         except (TimeoutError, RuntimeError) as e:
-            got, missed = None, True
+            got = None
             logging.debug(f"Mario Kart DS: race read failed ({e})")
         last, at = self._mkds
         now = time.time()
         if got:
-            self._mkds = (got, now)
-            return got
-        if last and now - at < self.MKDS_HOLD_S and (missed or self._mkds_reader.racers_at):
-            return last          # (no reply, or a pointer that moved: the next read has it)
+            if self._mkds_since is None:
+                self._mkds_since = now
+            if last or now - self._mkds_since >= self.MKDS_ENTER_S:
+                self._mkds = (got, now)
+                return got
+            return None          # (not steady long enough yet)
+        self._mkds_since = None
+        if last and now - at < self.MKDS_HOLD_S:
+            return last
         self._mkds = (None, 0.0)
         return None
 

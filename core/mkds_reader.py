@@ -40,6 +40,11 @@ Where things are, in the US version (offsets into main RAM, 0x02000000):
                 lines the course art up with them from the ROM.
     +0xC53C     the player's lap, +0xC544 the race's laps, +0xB96C set once
                 the player has finished (mkds-hud-lua's Memory.lua)
+    +0xC90C     pointer to the racers' items, 0x210 bytes a racer: the item
+                held (ITEMS) at +0x4C, how many at +0x54 (mkds-hud-lua's
+                Program.lua reads +0x54 there; the cheat "CPU's Can't Get
+                Items v2.0" writes 0x13, none, at +0x25C for racers 1-7, and
+                "Master Code - Offline v3.0" an item at +0x4C and 1 at +0x54)
 
 And at fixed addresses (RetroAchievements' code notes and rich presence for
 the game, RA game 12711):
@@ -51,7 +56,13 @@ the game, RA game 12711):
     0x3CDCDC    the cup, 0x3CDCE0 the mode (MODES), 0x3CDCE8 the class
                 (0 50cc, 1 100cc, 2 150cc), 0x3CDD2F 1 for mirror
     0x3CDD40    the player's character (CHARACTERS), 0x3CDD44 the kart
-    0x368754    the player's place, 1 to 8
+    0x368754    the player's place, 1 to 8 (the code notes; on a DSi under
+                nds-bootstrap it read nothing usable in the first console
+                test, so the place is worked out instead when it's not 1-8,
+                and probe() looks for where the game keeps it)
+    0x2AC39C    pointer to the Grand Prix standings: the player's points so
+                far in the cup at +0x30 (the code notes, and the set's
+                3-star cup achievements, which want 40 there: four wins)
 
 The other drivers' characters follow the player's, 0x30 bytes apart
 (DRIVERS): libretro-database's cheat "All Colored CPU Shy Guy's With
@@ -62,18 +73,24 @@ in the file) pairs each of those entries with racer n's block (+0x4C, then
 
 Nothing known gives the other racers' places, so they come from how far
 round each racer is: laps, the last checkpoint passed and how far it's got
-toward the next (progress()). The player's own place, which the game keeps,
-wins: the player goes in at that place and the others keep their order around
-them. (docs/mkds-console-guide.md checks both on the console.)
+toward the next (progress()). The player's own place, when the game's byte
+reads 1-8, wins: the player goes in at that place and the others keep their
+order around them. Either way 'place' is the player's place in 'order', so
+the ranking and the place shown never disagree. (docs/mkds-console-guide.md
+checks both on the console.)
 
 read() returns None outside a race, else:
 
     {'course': 0x14, 'course_name': 'Figure-8 Circuit', 'mode': 'Grand Prix',
      'cup': 'Mushroom', 'cc': '150cc', 'mirror': False,
-     'lap': 2, 'laps': 3, 'place': 3, 'finished': False, 'time_ms': 83456,
+     'lap': 2, 'laps': 3, 'place': 3, 'place_from_game': True (False: worked
+     out, the game's byte didn't read 1-8), 'finished': False, 'time_ms': 83456,
      'character': 'Mario' (the player's), 'kart': 0,
+     'item': {'id': 0x0B, 'name': 'Triple Red Shells', 'count': 3} or None
+     (nothing held, or not read yet), 'cup_points': 18 (Grand Prix only, else
+     None),
      'racers': [{'slot': 0, 'player': True, 'character': 'Mario' (None: not one we know),
-                 'x': 1234.5, 'z': -321.0, 'lap': 2, 'checkpoint': 7,
+                 'x': 1234.5, 'z': -321.0, 'y': 850.0 (height), 'lap': 2, 'checkpoint': 7,
                  'progress': 59.4, 'place': 3}, ...]  (slot order),
      'order': [slot, ...] first place first,
      'checkpoints': ((x1, z1, x2, z2, key), ...) the course's, or ()}
@@ -111,6 +128,11 @@ PLAYER_LEN = 0x19
 PLACE = 0x02368754
 DRIVERS = 0x023CDD40        # driver n's character: DRIVERS + n * DRIVER_SIZE (the player's is n = 0)
 DRIVER_SIZE = 0x30
+ITEMS_AT = 0xC90C           # MAIN + this: pointer to the racers' items
+ITEM_READ = (0x4C, 9)       # the player's: the item (+0x4C) to the count (+0x54)
+ITEM_COUNT = 0x54 - 0x4C
+STANDINGS_PTR = 0x022AC39C  # pointer to the Grand Prix standings
+CUP_POINTS = 0x30           # ... the player's points in the cup there
 
 MAX_RACERS = 8
 FIXED = 4096.0              # 20.12
@@ -123,6 +145,17 @@ CLASSES = ["50cc", "100cc", "150cc"]
 CHARACTERS = ["Mario", "Donkey Kong", "Toad", "Bowser", "Peach", "Wario", "Yoshi", "Luigi",
               "Dry Bones", "Daisy", "Waluigi", "R.O.B.", "Shy Guy"]
 SHORT_NAMES = {"Donkey Kong": "DK", "Dry Bones": "DRYBNS", "Waluigi": "WALUIGI", "Shy Guy": "SHYGUY"}
+# The item byte. From libretro-database's per-item cheats (the byte each has
+# the master code store): 0x00, 0x02, 0x06-0x08, 0x0B, 0x0C, 0x0E-0x10 and
+# 0x13 (none). The rest fill the gaps in the game's usual order and are
+# unverified (docs/mkds-console-guide.md): 0x01, 0x03-0x05, 0x09, 0x0A, 0x0D.
+ITEMS = {
+    0x00: "Green Shell", 0x01: "Red Shell", 0x02: "Banana", 0x03: "Fake Item Box", 0x04: "Mushroom",
+    0x05: "Triple Mushrooms", 0x06: "Bob-omb", 0x07: "Spiny Shell", 0x08: "Lightning",
+    0x09: "Triple Green Shells", 0x0A: "Triple Bananas", 0x0B: "Triple Red Shells", 0x0C: "Star",
+    0x0D: "Golden Mushroom", 0x0E: "Bullet Bill", 0x0F: "Blooper", 0x10: "Boo",
+}
+NO_ITEM = 0x13
 
 # The course byte -> (name, the course file in data/Course/). The race courses
 # are 0x01-0x28 (0x02-0x08 and 0x15 are unused or test courses), the battle
@@ -179,6 +212,16 @@ def _timer(raw):
     return (minutes * 60 + seconds) * 1000 + ms
 
 
+def item_of(raw):
+    """The item bytes (+0x4C to +0x54) -> {'id', 'name', 'count'}, or None
+    when nothing's held (0x13, or an item we don't know)."""
+    n = raw[0]
+    if n not in ITEMS:
+        return None
+    count = raw[ITEM_COUNT]
+    return {'id': n, 'name': ITEMS[n], 'count': count if 1 <= count <= 3 else 1}
+
+
 def character_name(n):
     return CHARACTERS[n] if 0 <= n < len(CHARACTERS) else None
 
@@ -221,6 +264,14 @@ def progress(lap, checkpoint, x, z, mids):
     return lap * n + checkpoint + max(-1.0, min(1.0, t))
 
 
+def rank_player(racers, game_place=None):
+    """(the order, the player's place in it): with the game's own place for
+    the player when it's given (placings()), else as worked out, so the
+    place shown is always the player's place in the ranking."""
+    order = rank(racers, game_place)
+    return order, next((r['place'] for r in racers if r['player']), None)
+
+
 def rank(racers, player_place=None):
     """Sets each racer's 'place' (placings()) and returns the order."""
     order = placings(racers, player_place)
@@ -241,12 +292,19 @@ def placings(racers, player_place=None):
     return order
 
 
+PROBE_AT_MS = (20000, 60000)   # probe() a race this far in (its timer), once each
+
+
 class MkdsReader:
     """Reads a race a few times a second in two requests: the pointers, the
     setup and every racer's position in one, their laps and checkpoints in
     the other. The pointers each read gets are the ones the read after uses
     (a race's stay put), and the checkpoints are read once a course, so a
-    pointer that's moved costs one read with nothing in it."""
+    pointer that's moved costs one read with nothing in it. The game does
+    move them as a race starts (the course's intro, then the countdown: the
+    first console test had the checkpoints read twice, 10 s apart), which the
+    hub rides out (core/hub.py's MKDS_HOLD_S). `why` says why the last read
+    had no race; a change of reason is logged."""
 
     def __init__(self):
         self.main = None
@@ -255,6 +313,11 @@ class MkdsReader:
         self.course_at = 0
         self.checkpoints = ()
         self.cp_key = None     # (course data pointer, course) the checkpoints are for
+        self.why = None        # why the last read had no race (None: it had one)
+        self.probed = set()    # PROBE_AT_MS done this race
+        self.items_at = 0      # the items' and standings' pointers, as the last read had them
+        self.standings_at = 0
+        self.characters = ()   # the other drivers' character numbers (1-7), read with the checkpoints
 
     def ranges(self, n=MAX_RACERS):
         """What a read reads, in parse()'s order."""
@@ -265,7 +328,9 @@ class MkdsReader:
             out += [(self.racers_at + i * RACER_SIZE + RACER_POS, 12) for i in range(n)]
             out += [(self.status_at + i * STATUS_SIZE + STATUS_LAP, STATUS_READ) for i in range(n)]
             out.append((self.status_at + STATUS_TIMER, 4))
-            out += [(DRIVERS + i * DRIVER_SIZE, 1) for i in range(1, n)]
+            # (a pointer read here is used by the next read; until then, a stand-in)
+            out += [(main + ITEMS_AT, 4), ((self.items_at or MAIN_PTR) + ITEM_READ[0], ITEM_READ[1]),
+                    (STANDINGS_PTR, 4), ((self.standings_at or MAIN_PTR) + CUP_POINTS, 1)]
         return out
 
     def read(self, client, timeout=None):
@@ -277,8 +342,17 @@ class MkdsReader:
                 return None
             self.main = main
         chunks = client.read_ranges(self.ranges(), timeout=timeout, retries=1)
+        was = self.why
         state = self.parse(chunks)
+        if self.why != was and self.why:
+            logging.info(f"Mario Kart DS: no race in this read ({self.why})")
         if state is not None and self.cp_key != (self.course_at, state['course']):
+            self.probed = set()
+            drivers = client.read_ranges([(DRIVERS + i * DRIVER_SIZE, 1) for i in range(1, MAX_RACERS)],
+                                         timeout=timeout, retries=1)
+            self.characters = tuple(d[0] for d in drivers)
+            for r in state['racers'][1:]:
+                r['character'] = character_name(self.characters[r['slot'] - 1])
             self.checkpoints = self._checkpoints(client, timeout)
             self.cp_key = (self.course_at, state['course'])
             state['checkpoints'] = self.checkpoints
@@ -288,8 +362,43 @@ class MkdsReader:
                              f"{len(mids)} checkpoints, the finish line's middle at ({mids[0][0]:.0f}, {mids[0][1]:.0f})")
             for r in state['racers']:
                 r['progress'] = progress(r['lap'], r['checkpoint'], r['x'], r['z'], mids)
-            state['order'] = rank(state['racers'], state['place'])
+            state['order'], state['place'] = rank_player(state['racers'], state['place'] if state['place_from_game']
+                                                         else None)
+        due = [ms for ms in PROBE_AT_MS if ms not in self.probed and state and state['time_ms'] >= ms]
+        if due:
+            self.probed.update(due)
+            try:
+                self.probe(client, state, timeout)
+            except (TimeoutError, RuntimeError) as e:
+                logging.debug(f"Mario Kart DS: place probe failed ({e})")
         return state
+
+    def probe(self, client, state, timeout=None):
+        """Logs where the game might keep the racers' places, to find one
+        that works on the console (docs/mkds-console-guide.md): the bytes
+        around the code notes' place address, and every offset in the race
+        status entries whose bytes across the racers are a ranking (1 to n
+        or 0 to n-1), with how many agree with the order worked out here.
+        Twice a race (PROBE_AT_MS), a few requests each."""
+        slots = [r['slot'] for r in state['racers']]
+        n = len(slots)
+        if n < 2 or not self.status_at:
+            return
+        ranges = [(PLACE - 4, 12)] + [(self.status_at + i * STATUS_SIZE, STATUS_SIZE) for i in slots]
+        got = client.read_ranges(ranges, timeout=timeout, retries=1)
+        around, entries = got[0], got[1:]
+        places = {r['slot']: r['place'] for r in state['racers']}
+        found = []
+        for off in range(STATUS_SIZE):
+            vals = [e[off] for e in entries]
+            for base in (1, 0):
+                if sorted(vals) == list(range(base, base + n)):
+                    agree = sum(1 for slot, v in zip(slots, vals) if v - base + 1 == places[slot])
+                    found.append(f"+0x{off:02X} ({'1' if base else '0'}-based, {agree} of {n} agree)")
+        logging.info(f"Mario Kart DS: place probe at {state['time_ms'] / 1000:.1f} s: the place byte "
+                     f"0x{PLACE:08X} reads {around[4]:02X} (0x{PLACE - 4:08X}: {around.hex(' ')}); "
+                     f"worked-out order {[s for s in state['order']]}; race status bytes that rank the "
+                     f"racers: {', '.join(found) or 'none'}")
 
     def _checkpoints(self, client, timeout):
         if not self.course_at:
@@ -311,17 +420,26 @@ class MkdsReader:
         if main != self.main:
             self.main = main or None
             self.racers_at = self.status_at = self.course_at = 0
+            self.why = "the main pointer changed"
             return None
         self.status_at, self.course_at = _ptr(status[:4]), _ptr(status[4:8])
         self.racers_at = _ptr(racers)
         mode = MODES.get(setup[8])
         course = setup[0]
-        if not (self.racers_at and self.status_at and mode and course in COURSES):
+        for bad, why in ((not self.racers_at, "no racers"), (not self.status_at, "no race status"),
+                         (not mode, f"mode {setup[8]}"), (course not in COURSES, f"course 0x{course:02X}")):
+            if bad:
+                self.why = why
+                return None
+        if had != (self.racers_at, self.status_at) or len(rest) < 2 * MAX_RACERS + 5:
+            self.why = "the racers moved"
             return None
-        if had != (self.racers_at, self.status_at) or len(rest) < 3 * MAX_RACERS:
-            return None
+        self.why = None
         positions, statuses = rest[:MAX_RACERS], rest[MAX_RACERS:2 * MAX_RACERS]
-        timer, drivers = rest[2 * MAX_RACERS], rest[2 * MAX_RACERS + 1:]
+        timer, items_ptr, item, standings_ptr, points = rest[2 * MAX_RACERS:2 * MAX_RACERS + 5]
+        item_ok = self.items_at and _ptr(items_ptr) == self.items_at
+        points_ok = self.standings_at and _ptr(standings_ptr) == self.standings_at
+        self.items_at, self.standings_at = _ptr(items_ptr), _ptr(standings_ptr)
         n = RACERS_IN[mode]
         me = character_name(player[0x11])
         mids = midpoints(self.checkpoints)
@@ -333,19 +451,22 @@ class MkdsReader:
                 continue                                    # (no one in that slot)
             lap = struct.unpack_from("<b", st, 0)[0]
             cp = struct.unpack_from("<b", st, STATUS_CHECKPOINT)[0]
-            char = me if i == 0 else character_name(drivers[i - 1][0])
-            racers.append({'slot': i, 'player': i == 0, 'character': char, 'x': x, 'z': z,
+            char = me if i == 0 else character_name(self.characters[i - 1]) if self.characters else None
+            racers.append({'slot': i, 'player': i == 0, 'character': char, 'x': x, 'z': z, 'y': _fixed(pos, 4),
                            'lap': lap, 'checkpoint': cp, 'progress': progress(lap, cp, x, z, mids),
                            'place': None})
-        player_place = place[0] if 1 <= place[0] <= len(racers) else None
-        order = rank(racers, player_place)
+        game_place = place[0] if 1 <= place[0] <= len(racers) else None
+        order, player_place = rank_player(racers, game_place)
         lap, total = struct.unpack_from("<b", laps, 0)[0], laps[8]
         return {
             'course': course, 'course_name': COURSES[course][0], 'mode': mode,
             'cup': CUPS[setup[4]] if setup[4] < len(CUPS) else None,
             'cc': CLASSES[setup[0x10]] if setup[0x10] < len(CLASSES) else None,
             'mirror': player[0] == 1, 'lap': lap, 'laps': total if 0 < total < 10 else 3,
-            'place': player_place, 'finished': finished[0] != 0, 'time_ms': _timer(timer),
+            'place': player_place, 'place_from_game': game_place is not None,
+            'finished': finished[0] != 0, 'time_ms': _timer(timer),
             'character': me, 'kart': player[0x15], 'racers': racers, 'order': order,
+            'item': item_of(item) if item_ok else None,
+            'cup_points': points[0] if points_ok and mode == "Grand Prix" and points[0] <= 40 else None,
             'checkpoints': self.checkpoints if self.cp_key and self.cp_key[1] == course else (),
         }

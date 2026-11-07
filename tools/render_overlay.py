@@ -58,7 +58,8 @@ PICTURES = [
      "A race in Mario Kart DS: the racers in order, where they are on Figure-8 Circuit, the lap and your place"),
 ]
 GIF_FPS = 25           # overlay-tetris.gif: a frame every 40 ms (GIF times are in hundredths)
-MKDS_GIF = (5.0, 10.0)  # overlay-mkds.gif: from this far into the race scene, this long (passes, the last lap)
+MKDS_GIF = (5.0, 10.0)  # overlay-mkds.gif: from this far into the race scene, this long (a battle, the last lap)
+MKDS_GIF_FPS = 15      # ... at this many frames a second (the chase camera's are all new: fewer keeps it small)
 FPS = 30
 SCALE = 2           # the window's scale
 
@@ -102,6 +103,7 @@ def render(bank, clock, scene, into):
     source.t0 = clock.now - scene_start(scene)
     overlay = Overlay(bank)
     overlay.hires_ok = True
+    overlay.mkds.voxel_sync = True     # (Mario Kart DS's voxel course made as it's asked for, not on a thread)
     canvas = pygame.Surface((W, H), 0, 32)
     prev, snap, t_ms = None, None, 0
     for i in range(int(into * FPS) + 1):
@@ -144,6 +146,7 @@ def tetris_gif(bank, clock, path):
         source.t0 = clock.now - scene_start("tetris") - length - 0.5 / GIF_FPS
         overlay = Overlay(bank)
         overlay.hires_ok = True
+        overlay.mkds.voxel_sync = True
         canvas = pygame.Surface((W, H), 0, 32)
         window = pygame.Surface((W * SCALE, H * SCALE), 0, 32)
         overlay.handle_events([{'type': 'tetris'}], 0)              # the Tetris that ends the loop
@@ -163,8 +166,8 @@ def tetris_gif(bank, clock, path):
     save_gif(images, path)
 
 
-def save_gif(images, path):
-    """PIL images -> a GIF at GIF_FPS: one palette for every frame (the
+def save_gif(images, path, fps=GIF_FPS):
+    """PIL images -> a GIF at `fps`: one palette for every frame (the
     overlay has few colours), no dithering."""
     from PIL import Image
     sample = Image.new("RGB", (images[0].width, images[0].height * len(images[::8])))
@@ -172,14 +175,14 @@ def save_gif(images, path):
         sample.paste(im, (0, n * im.height))
     palette = sample.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
     gif = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in images]
-    gif[0].save(path, save_all=True, append_images=gif[1:], duration=1000 // GIF_FPS, loop=0, optimize=True)
-    print(f"{path}: {len(images) / GIF_FPS:.2f} s, {os.path.getsize(path) // 1024} KB")
+    gif[0].save(path, save_all=True, append_images=gif[1:], duration=1000 // fps, loop=0, optimize=True)
+    print(f"{path}: {len(images) / fps:.2f} s, {os.path.getsize(path) // 1024} KB")
 
 
 def mkds_gif(bank, clock, path):
     """overlay-mkds.gif: MKDS_GIF of the demo's race (core/demo.py's
-    mkds_race()): the player passing racers, the rows sliding, the last lap
-    starting with its achievement. The race doesn't come back round to where
+    mkds_race()): a battle the broadcast camera cuts to, the player passing
+    racers, the rows sliding, the last lap starting with its achievement. The race doesn't come back round to where
     it started, so it jumps back as it loops."""
     from PIL import Image
     start, length = MKDS_GIF
@@ -187,22 +190,23 @@ def mkds_gif(bank, clock, path):
     source.t0 = clock.now - scene_start("mkds") - start
     overlay = Overlay(bank)
     overlay.hires_ok = True
+    overlay.mkds.voxel_sync = True     # (Mario Kart DS's voxel course made as it's asked for, not on a thread)
     canvas = pygame.Surface((W, H), 0, 32)
     window = pygame.Surface((W * SCALE, H * SCALE), 0, 32)
     images, prev = [], None
-    for i in range(round(length * GIF_FPS)):
+    for i in range(round(length * MKDS_GIF_FPS)):
         data = source.read()
-        t_ms = i * 1000 // GIF_FPS
+        t_ms = i * 1000 // MKDS_GIF_FPS
         overlay.handle_events(diff_events(prev, data) if prev is not None else [], t_ms)
         prev = data
         snap = Snapshot(data, True, clock.now, source.status)
         if i == 0:
             settle(overlay, bank, canvas, snap, t_ms)
-        overlay.draw(canvas, snap, t_ms, 1000 // GIF_FPS)
+        overlay.draw(canvas, snap, t_ms, 1000 // MKDS_GIF_FPS)
         overlay.present(window, canvas)
         images.append(Image.frombytes("RGB", window.get_size(), pygame.image.tobytes(window, "RGB")))
-        clock.now += 1 / GIF_FPS
-    save_gif(images, path)
+        clock.now += 1 / MKDS_GIF_FPS
+    save_gif(images, path, MKDS_GIF_FPS)
 
 
 def rows_of(surface):

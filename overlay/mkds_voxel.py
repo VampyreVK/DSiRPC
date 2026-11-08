@@ -66,6 +66,9 @@ RARE = 0.03                 # a map colour on less of the ground than this (a ke
 DECK_THICK = 8.0            # an overpass's road over its tunnel (world units, before raising)
 TUNNEL_MAX = 45.0           # a tunnel's mouth at most this high (world units): a mouth, not a canyon
 TUNNEL = (6, 8, 12)         # the inside of a tunnel
+ARCH = 6                    # a tunnel mouth's shape across the road: 2 round, more squarer
+JOIN = 2                    # an upper road over a lower one this many segments on or fewer: where it
+                            # comes down to meet it, not a tunnel
 FINISH = ((248, 248, 248), (24, 24, 24))   # the start/finish line's squares
 FINISH_SQUARE = 2           # ... in squares this many cells across (a pixel or so from the orbit, a few up close),
 FINISH_CELLS = 4            # ... this many cells deep along the road (two rows of them)
@@ -210,6 +213,7 @@ class VoxelCourse:
                 fade[gz * gw + gx] = max(0.0, min(1.0, 1 - (a * (1 - tz) + b * tz - fade_from) / fade_over))
         # the road at its own height, the lower one where it crosses itself, banks either side
         road = [None] * (gw * gh)
+        from_seg = [None] * (gw * gh)       # (the segment each road cell's height is from)
         near = [False] * (gw * gh)          # (the road and its banks: never what hides a racer)
         bank = self.half_road * 2.2
         for i in lower:
@@ -230,7 +234,8 @@ class VoxelCourse:
                     k = gz * gw + gx
                     near[k] = True
                     if d <= self.half_road:
-                        road[k] = y if road[k] is None else min(road[k], y)
+                        if road[k] is None or y < road[k]:
+                            road[k], from_seg[k] = y, i
                     else:                                       # (the bank: down to the ground)
                         f = (d - self.half_road) / (bank - self.half_road)
                         hm[k] = max(hm[k], y - sink * f - (y - hm[k]) * f * f)
@@ -246,6 +251,7 @@ class VoxelCourse:
                 if d <= self.half_road and (lateral[k] is None or d / self.half_road < lateral[k]):
                     lateral[k] = d / self.half_road
         over = [None] * (gw * gh)
+        over_seg = [None] * (gw * gh)
         for i in (self.upper if len(self.upper) < n else ()):
             (ax, az), (bx, bz) = self.mids[i], self.mids[(i + 1) % n]
             ya, yb = self.raised(self.heights[i]), self.raised(self.heights[(i + 1) % n])
@@ -256,16 +262,23 @@ class VoxelCourse:
                     continue
                 y = ya + (yb - ya) * t
                 if d <= self.half_road:
-                    over[k] = y if over[k] is None else max(over[k], y)
+                    if over[k] is None or y > over[k]:
+                        over[k], over_seg[k] = y, i
                 elif road[k] is None:
                     f = (d - self.half_road) / (bank - self.half_road)
                     hm[k] = max(hm[k], y - sink * f - (y - hm[k]) * f * f)
                     near[k] = False                      # (an embankment: it hides what's behind it)
+        # a tunnel where an upper road's over a lower one that isn't where it comes down to meet it
+        # (a ramp's end, where the two are the same road a segment or two apart, isn't one: no
+        # mouth or wall across the road there, just the road)
         tunnel = [None] * (gw * gh)
+        deck = DECK_THICK * self.exaggerate
         for k, y in enumerate(over):
             if y is None:
                 continue
-            if road[k] is not None and y > road[k]:
+            apart = (min((from_seg[k] - over_seg[k]) % n, (over_seg[k] - from_seg[k]) % n)
+                     if road[k] is not None else 0)
+            if road[k] is not None and y > road[k] + deck and apart > JOIN:
                 tunnel[k] = (road[k], lateral[k] if lateral[k] is not None else 0.0)
             road[k], near[k] = y, False
         for k, y in enumerate(road):
@@ -355,8 +368,23 @@ class VoxelCourse:
                     cols[k] = shade[clean[k]] if (self.hm[k] - left) + (self.hm[k] - up) < -2 else lit[clean[k]]
                 else:
                     cols[k] = SKY                                   # (faded right out)
+        # the faces under the road (an overpass's over a tunnel, a ramp's edge): wall, in the nearest
+        # ground's colour, not the road's, so no road's seen climbing a wall
+        faces = list(cols)
+        todo = [k for k in range(n) if self.road[k] is None]
+        done = [r is None for r in self.road]
+        while todo:                                    # (out from the ground across the road, a cell a step)
+            step = []
+            for k in todo:
+                gx, gz = k % gw, k // gw
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    if 0 <= gx + dx < gw and 0 <= gz + dz < gh and not done[k + dz * gw + dx]:
+                        done[k + dz * gw + dx] = True
+                        faces[k + dz * gw + dx] = faces[k]
+                        step.append(k + dz * gw + dx)
+            todo = step
         blend = lambda c, f: tuple(int(v * f + b * (1 - f)) for v, b in zip(c, SKY))   # noqa: E731
-        self.sides = [blend(tuple(int(v * SIDE) for v in c), f) for c, f in zip(cols, self.fade)]
+        self.sides = [blend(tuple(int(v * SIDE) for v in c), f) for c, f in zip(faces, self.fade)]
         self.cols = cols = [blend(c, f) for c, f in zip(cols, self.fade)]
         self._finish_line(cols)                             # (last: no fade, no colour rule on it)
         self.gain = gain
@@ -597,7 +625,9 @@ class VoxelCourse:
                             mouth = tunnel[k]
                             if mouth:                     # (a tunnel's mouth in the face: dark, under an arch)
                                 floor, off = mouth
-                                arch = min(hm[k] - deck - floor, mouth_cap) * math.sqrt(max(0.0, 1 - off * off))
+                                # (squared off: open across the road's whole width, its outline too, the
+                                # wall's face only either side of it, not coming down onto the road's edges)
+                                arch = min(hm[k] - deck - floor, mouth_cap) * max(0.0, 1 - min(1.0, off) ** ARCH) ** (1 / ARCH)
                                 a_top = max(top, int(horizon + (cam_h - floor - arch) * scale))
                                 a_bot = min(yb, int(horizon + (cam_h - floor) * scale))
                                 if a_bot > a_top:

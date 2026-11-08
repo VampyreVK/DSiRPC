@@ -56,10 +56,12 @@ the game, RA game 12711):
     0x3CDCDC    the cup, 0x3CDCE0 the mode (MODES), 0x3CDCE8 the class
                 (0 50cc, 1 100cc, 2 150cc), 0x3CDD2F 1 for mirror
     0x3CDD40    the player's character (CHARACTERS), 0x3CDD44 the kart
-    0x368754    the player's place, 1 to 8 (the code notes; on a DSi under
-                nds-bootstrap it read nothing usable in the first console
-                test, so the place is worked out instead when it's not 1-8,
-                and probe() looks for where the game keeps it)
+    0x368754    the player's place, 1 to 8 (the code notes). Not used: on a
+                DSi under nds-bootstrap it reads the same whatever the place
+                (08 all race at DK Pass in the log of 2026-11-08; 7C and FB
+                in others), and taken as the player's place it put them
+                last and everyone else a place up. probe() still logs it, and
+                looks for where the game keeps the places.
     0x2AC39C    pointer to the Grand Prix standings: the player's points so
                 far in the cup at +0x30 (the code notes, and the set's
                 3-star cup achievements, which want 40 there: four wins)
@@ -73,18 +75,15 @@ in the file) pairs each of those entries with racer n's block (+0x4C, then
 
 Nothing known gives the other racers' places, so they come from how far
 round each racer is: laps, the last checkpoint passed and how far it's got
-toward the next (progress()). The player's own place, when the game's byte
-reads 1-8, wins: the player goes in at that place and the others keep their
-order around them. Either way 'place' is the player's place in 'order', so
-the ranking and the place shown never disagree. (docs/mkds-console-guide.md
+toward the next (progress()), the player's too. 'place' is the player's
+place in 'order', so the ranking and the place shown never disagree. (docs/mkds-console-guide.md
 checks both on the console.)
 
 read() returns None outside a race, else:
 
     {'course': 0x14, 'course_name': 'Figure-8 Circuit', 'mode': 'Grand Prix',
      'cup': 'Mushroom', 'cc': '150cc', 'mirror': False,
-     'lap': 2, 'laps': 3, 'place': 3, 'place_from_game': True (False: worked
-     out, the game's byte didn't read 1-8), 'finished': False, 'time_ms': 83456,
+     'lap': 2, 'laps': 3, 'place': 3, 'finished': False, 'time_ms': 83456,
      'character': 'Mario' (the player's), 'kart': 0,
      'item': {'id': 0x0B, 'name': 'Triple Red Shells', 'count': 3} or None
      (nothing held, or not read yet), 'cup_points': 18 (Grand Prix only, else
@@ -362,8 +361,7 @@ class MkdsReader:
                              f"{len(mids)} checkpoints, the finish line's middle at ({mids[0][0]:.0f}, {mids[0][1]:.0f})")
             for r in state['racers']:
                 r['progress'] = progress(r['lap'], r['checkpoint'], r['x'], r['z'], mids)
-            state['order'], state['place'] = rank_player(state['racers'], state['place'] if state['place_from_game']
-                                                         else None)
+            state['order'], state['place'] = rank_player(state['racers'])
         due = [ms for ms in PROBE_AT_MS if ms not in self.probed and state and state['time_ms'] >= ms]
         if due:
             self.probed.update(due)
@@ -413,7 +411,7 @@ class MkdsReader:
         """ranges()' bytes -> the state above, or None outside a race (or
         when a pointer's moved since the ranges were made: the next read has
         it)."""
-        main_raw, status, racers, setup, player, place, laps, finished = chunks[:8]
+        main_raw, status, racers, setup, player, _place, laps, finished = chunks[:8]   # (_place: see PLACE)
         rest = list(chunks[8:])
         had = (self.racers_at, self.status_at)
         main = _ptr(main_raw)
@@ -455,15 +453,14 @@ class MkdsReader:
             racers.append({'slot': i, 'player': i == 0, 'character': char, 'x': x, 'z': z, 'y': _fixed(pos, 4),
                            'lap': lap, 'checkpoint': cp, 'progress': progress(lap, cp, x, z, mids),
                            'place': None})
-        game_place = place[0] if 1 <= place[0] <= len(racers) else None
-        order, player_place = rank_player(racers, game_place)
+        order, player_place = rank_player(racers)
         lap, total = struct.unpack_from("<b", laps, 0)[0], laps[8]
         return {
             'course': course, 'course_name': COURSES[course][0], 'mode': mode,
             'cup': CUPS[setup[4]] if setup[4] < len(CUPS) else None,
             'cc': CLASSES[setup[0x10]] if setup[0x10] < len(CLASSES) else None,
             'mirror': player[0] == 1, 'lap': lap, 'laps': total if 0 < total < 10 else 3,
-            'place': player_place, 'place_from_game': game_place is not None,
+            'place': player_place,
             'finished': finished[0] != 0, 'time_ms': _timer(timer),
             'character': me, 'kart': player[0x15], 'racers': racers, 'order': order,
             'item': item_of(item) if item_ok else None,

@@ -112,11 +112,11 @@ def test_mkds(hub):
         fake.poke(addr, data)
     d = until(src, lambda d: d.get('mkds'))
     race = d['mkds']
-    assert d['kind'] == 'other' and race['course_name'] == "Figure-8 Circuit" and race['place'] == 2
+    assert d['kind'] == 'other' and race['course_name'] == "Figure-8 Circuit" and race['place'] == 6
     assert len(race['checkpoints']) == 8 and len(race['order']) == 8
     assert src.next_delay() <= src.MKDS_INTERVAL
     fake.drop_next = 2                                            # a race read that gets no reply
-    assert src.read()['mkds']['place'] == 2                       # keeps the race (no flick to the game card)
+    assert src.read()['mkds']['place'] == 6                       # keeps the race (no flick to the game card)
     # The countdown: the game moves its race blocks, so reads come and go
     # (no racers, then them somewhere else): the race view stays up
     moved = 0x0217E000

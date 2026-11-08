@@ -358,7 +358,7 @@ def mkds_race(into):
     return {
         'course': MKDS_COURSE, 'course_name': COURSES[MKDS_COURSE][0], 'mode': 'Grand Prix',
         'cup': 'Mushroom', 'cc': '150cc', 'mirror': False, 'lap': me['lap'], 'laps': 3,
-        'place': me['place'], 'place_from_game': False, 'finished': False, 'time_ms': int((48.2 + into) * 1000),
+        'place': me['place'], 'finished': False, 'time_ms': int((48.2 + into) * 1000),
         'character': me['character'], 'kart': 0, 'racers': racers, 'order': order, 'checkpoints': cps,
         'item': mkds_item(into), 'cup_points': 18,
     }

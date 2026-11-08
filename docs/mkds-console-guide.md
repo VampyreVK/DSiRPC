@@ -27,8 +27,9 @@ heads). If they're wrong, the overlay's ranking will show the wrong heads.
 
 The places come from how far round the course each racer is: its lap, the
 last checkpoint it passed, and how far it is toward the next one. The code
-notes' place byte (`0x02368754`) is used for you when it reads 1-8, but in the
-first console test it didn't.
+notes' place byte (`0x02368754`) isn't used: on the console it reads the same
+whatever your place (08 all race, for one), which put you last and everyone
+else a place up.
 
 **Where the game keeps the places.** With DSiRPC running, race a Grand Prix
 race past the 1-minute mark. The log (`logs\dsirpc.log`) gets two lines like

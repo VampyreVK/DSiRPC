@@ -96,16 +96,15 @@ def test_a_race_is_read():
     # by how far round: Bowser (cp 7) is last of those on lap 2, DK's still on lap 1
     assert names == ["Bowser", "Yoshi", "Wario", "Peach", "Luigi", "Mario", "Toad", "Donkey Kong"]
     assert r['racers'][0]['player'] and r['racers'][0]['place'] == 6
-    assert r['place'] == 6 and not r['place_from_game']           # (the game's byte reads 0: worked out)
+    assert r['place'] == 6
 
 
-def test_the_place_shown_is_the_players_place_in_the_ranking():
-    for byte in (0, 9, 0xFF):                                     # (nothing usable: worked out)
+def test_the_place_shown_is_the_players_place_in_the_ranking_whatever_the_games_byte_reads():
+    for byte in (0, 1, 3, 8, 9, 0x7C, 0xFF):    # (the console's reads 08 or junk whatever the place)
         _, _, _, r = read_race(place=byte)
         mine = r['racers'][0]['place']
-        assert r['place'] == mine == r['order'].index(0) + 1 and not r['place_from_game']
-    _, _, _, r = read_race(place=3)
-    assert r['place'] == 3 == r['racers'][0]['place'] and r['order'][2] == 0 and r['place_from_game']
+        assert r['place'] == mine == r['order'].index(0) + 1 == 6
+        assert sorted(x['place'] for x in r['racers']) == list(range(1, len(r['racers']) + 1))
 
 
 def test_the_item_held_and_the_cup_points():
@@ -121,12 +120,48 @@ def test_the_item_held_and_the_cup_points():
     assert mk.item_of(bytes([0x12, 0, 0, 0, 0, 0, 0, 0, 1])) is None  # (not an item we know: nothing shown)
 
 
-def test_the_players_own_place_wins():
-    _, _, _, r = read_race(place=2)
-    assert r['place'] == 2 and r['order'][1] == 0
-    names = [r['racers'][s]['character'] for s in r['order']]
-    assert names == ["Bowser", "Mario", "Yoshi", "Wario", "Peach", "Luigi", "Toad", "Donkey Kong"]
-    assert [r['racers'][s]['place'] for s in r['order']] == list(range(1, 9))
+def test_the_player_in_first_has_the_others_from_2nd_on_whatever_the_games_byte_reads():
+    ahead = [(0, -1000, 0, 3, 1)] + FIELD[1:]                     # (the player a lap ahead of everyone)
+    for byte in (0, 1, 8):                                        # (08: what the console's read all race)
+        _, _, _, r = read_race(racers=ahead, place=byte)
+        assert r['place'] == 1 and r['order'][0] == 0
+        assert [r['racers'][s]['place'] for s in r['order']] == list(range(1, 9))
+
+
+def test_the_numbers_on_the_map_match_the_ranking_with_the_player_first():
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from core.mkds_reader import rank
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import MkdsView
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        race = demo.mkds_race(3.0)
+        race['racers'][0]['progress'] += 100                      # (the player well ahead)
+        race['order'] = rank(race['racers'])
+        assert race['racers'][0]['place'] == 1
+        places = {str(r['place']) for r in race['racers'] if not r['player']}
+        assert places == {str(n) for n in range(2, len(race['racers']) + 1)}
+        for flat, voxel in ((False, True), (False, False), (True, False)):   # voxel, tilted, flat
+            font, mini = PixelFont(), PixelFont(mini=True)
+            view = MkdsView(font, mini, GameCard(font, mini))
+            view.voxel_sync = True
+            if not voxel:
+                view._voxel_view = lambda *a: False
+            if flat:
+                view._tilted = lambda *a: False
+            drawn = []
+            draw = mini.draw
+            mini.draw = lambda surf, text, *a, **kw: (drawn.append(text), draw(surf, text, *a, **kw))[1]
+            view.motion.take(race, 0)
+            view._map(canvas, race, 0)
+            numbers = {t for t in drawn if t.isdigit()}
+            assert numbers and numbers <= places                  # (never a 1 by someone else's dot)
+    finally:
+        pygame.quit()
 
 
 def test_a_probe_looks_for_where_the_game_keeps_the_places(caplog):
@@ -638,6 +673,28 @@ def test_the_overpass_is_ground_at_the_upper_roads_height_with_a_tunnel_under_it
         frame, view = course.frame(0)
         assert course.hidden(x, z, low, view)                     # a racer in the tunnel: hidden
         assert not course.hidden(x, z, high, view)                # one on top: not
+    finally:
+        pygame.quit()
+
+
+def test_around_a_tunnel_mouth_the_road_stays_at_its_own_height_and_the_wall_is_wall():
+    pygame = pytest.importorskip("pygame")
+    from overlay.mkds_voxel import DECK_THICK, ROAD_EDGE, ROAD_FILL, SIDE
+    pygame.init()
+    try:
+        race, course = _voxel()
+        gw, gh = course.gw, course.gh
+        mouth = [k for k, t in enumerate(course.tunnel) if t]
+        assert mouth
+        for k in mouth:                                           # (a real tunnel, not where a ramp meets the road)
+            assert course.road[k] - course.tunnel[k][0] > DECK_THICK * course.exaggerate
+        road_sides = {tuple(int(v * SIDE) for v in c) for c in (ROAD_FILL, ROAD_EDGE)}
+        around = {(k // gw + dz) * gw + k % gw + dx for k in mouth for dx in range(-4, 5) for dz in range(-4, 5)
+                  if 0 <= k % gw + dx < gw and 0 <= k // gw + dz < gh}
+        for k in around:
+            if course.cols[k] in (ROAD_FILL, ROAD_EDGE):          # road's colours: only on the road, at its height
+                assert course.road[k] is not None and course.hm[k] == course.road[k]
+            assert course.sides[k] not in road_sides              # the faces: wall, never road up a wall
     finally:
         pygame.quit()
 

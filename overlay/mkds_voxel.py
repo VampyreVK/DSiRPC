@@ -353,13 +353,17 @@ class VoxelCourse:
         lit = [tuple(min(255, int(v * gain)) for v in c) for c in palette]
         shade = [tuple(int(v * SHADE) for v in c) for c in lit]
         cols = [None] * n
+        deck = DECK_THICK * self.exaggerate
         for gz in range(gh):
             for gx in range(gw):
                 k = gz * gw + gx
                 if self.road[k] is not None:
                     # (its edge: any of its eight neighbours off the road, so the outline's joined at the
                     # corners too and doesn't break into dashes on a diagonal)
-                    edge = any(0 <= gx + dx < gw and 0 <= gz + dz < gh and self.road[(gz + dz) * gw + gx + dx] is None
+                    # (a road under or over it counts as off it: an overpass keeps its outline over a tunnel)
+                    edge = any(0 <= gx + dx < gw and 0 <= gz + dz < gh
+                               and (self.road[(gz + dz) * gw + gx + dx] is None
+                                    or abs(self.road[(gz + dz) * gw + gx + dx] - self.road[k]) > deck)
                                for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz)
                     cols[k] = ROAD_EDGE if edge else ROAD_FILL
                 elif clean[k] is not None:
@@ -629,8 +633,9 @@ class VoxelCourse:
                                 # wall's face only either side of it, not coming down onto the road's edges)
                                 arch = min(hm[k] - deck - floor, mouth_cap) * max(0.0, 1 - min(1.0, off) ** ARCH) ** (1 / ARCH)
                                 a_top = max(top, int(horizon + (cam_h - floor - arch) * scale))
-                                a_bot = min(yb, int(horizon + (cam_h - floor) * scale))
-                                if a_bot > a_top:
+                                a_bot = min(yb, int(horizon + (cam_h - floor) * scale) + 1)   # (down onto the road: no gap)
+                                if a_bot > a_top:                 # (a pixel taller than the arch: it reads)
+                                    a_top = max(top, a_top - 1)
                                     fill(ROAD_EDGE, (i, a_top - 1, 1, 1))
                                     fill(TUNNEL, (i, a_top, 1, a_bot - a_top))
                         else:

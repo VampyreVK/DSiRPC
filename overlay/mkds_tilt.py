@@ -46,6 +46,31 @@ SHADOW = (0, 0, 0, 90)
 STRIP_BG, STRIP_FILL, STRIP_TOP, STRIP_GRID = (18, 22, 28), (52, 64, 80), (150, 166, 188), (30, 36, 46)
 
 
+FINISH = ((248, 248, 248), (24, 24, 24))   # the start/finish line's squares
+FINISH_PX = 2                               # ... this many screen pixels each, in two rows
+
+
+def checker_band(surf, a, b, square=FINISH_PX):
+    """The start/finish line across the road from `a` to `b` (screen
+    points): two rows of white and near-black squares, `square` pixels
+    each, one row either side of the line."""
+    (ax, ay), (bx, by) = a, b
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if length < 1:
+        return
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux
+    count = max(2, round(length / square))
+    step = length / count
+    for row in (-1, 0):
+        for c in range(count):
+            p0x, p0y = ax + ux * step * c + nx * square * row, ay + uy * step * c + ny * square * row
+            quad = [(p0x, p0y), (p0x + ux * step, p0y + uy * step),
+                    (p0x + ux * step + nx * square, p0y + uy * step + ny * square), (p0x + nx * square, p0y + ny * square)]
+            pygame.draw.polygon(surf, FINISH[(c + row) % 2], quad)
+
+
 def turned(x, z, turn):
     return (-z, x) if turn else (x, z)
 
@@ -223,11 +248,7 @@ class TiltedCourse:
 
     def _finish(self, surf):
         (l1, r1) = self.edges[0]
-        a, b = self.point(*l1, self.heights[0]), self.point(*r1, self.heights[0])
-        pygame.draw.line(surf, ROAD_EDGE, a, b, 3)
-        mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
-        pygame.draw.line(surf, (255, 255, 255), a, (mx, my), 1)
-        pygame.draw.line(surf, (24, 24, 24), (mx, my), b, 1)
+        checker_band(surf, self.point(*l1, self.heights[0]), self.point(*r1, self.heights[0]))
 
     # -- each frame ----------------------------------------------------------------------
 

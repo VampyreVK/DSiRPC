@@ -10,8 +10,10 @@ course climbs, with every racer standing on it at their real height.
                    HEIGHTS, one a checkpoint) along the road and a smooth
                    fall between them elsewhere, coloured from the map and
                    shaded by its slopes. Where the course crosses over itself
-                   (DECKS) the ground keeps the lower road, and the upper one
-                   is drawn over it each frame, so racers pass underneath.
+                   (DECKS) the upper road's the ground, raised on banks (the
+                   map shows it on top there), and the lower one runs under
+                   it through a tunnel, its mouth drawn as a dark arch in the
+                   ground's face; racers in it are hidden as behind a hill.
                    Frames of the orbit (one each ORBIT_STEP degrees) are drawn
                    column by column, near to far ("voxel space": a column's
                    ground only shows above what's nearer), as they're needed
@@ -22,12 +24,14 @@ course climbs, with every racer standing on it at their real height.
                    racer, pulled back to keep a rival in the frame too (drawn
                    live, chase_frame(), at most CHASE_FPS a second).
 
-The racers are drawn over a frame by overlay/mkds.py (place(), hidden(),
-deck_polygons()), each frame, in the view the frame was drawn in.
+The racers are drawn over a frame by overlay/mkds.py (place(), hidden()),
+each frame, in the view the frame was drawn in.
 
-It's drawn at four times the canvas's resolution (SCALE) and shown at the window's
-(the overlay's blit_hires). Heights are raised (EXAGGERATE) so a course's
-hills show at this distance; loops (Rainbow Road) come out as hills.
+It's drawn in the canvas's own pixels (SCALE 1), in the overlay's look: the
+ground in a few flat colours of the course's map (GROUND_COLOURS of them,
+lit or in shade by its slope), the road outlined, fading into the board's
+colour (as the Tetris view's board) away from the course. Heights are raised (EXAGGERATE) so a
+course's hills show at this distance; loops (Rainbow Road) come out as hills.
 """
 
 import math
@@ -40,16 +44,31 @@ from core.mkds_reader import midpoints
 
 SCALE = 1                   # the frames' pixels to the canvas's
 GRID = 200                  # the heightmap's cells along its longer side (the course and the fade round it)
-ORBIT_MS = 60000            # once round the course in this long
+ORBIT_MS = 150000           # once round the course in this long
 ORBIT_STEP = 0.25           # degrees between frames of the orbit (a new one every ORBIT_MS / (360 / ORBIT_STEP))
 FOV = 48.0                  # the camera's field of view, across
 ELEVATION = 58.0            # how far the camera looks down (degrees, at the course's middle)
 EXAGGERATE = 0.16           # the course's hills, at most this much of its width high...
-MAX_EXAGGERATE = 3.0        # ... and at most this many times as high as they are
+MAX_EXAGGERATE = 1.5        # ... and at most this many times as high as they are
 ROAD = 0.21                 # the road's half width, of a checkpoint line's length
 SINK = 0.08                 # the ground off the road sits this much of the course's (raised) climb below it, and 6 more
 AHEAD = 6                   # frames drawn ahead of the one showing (and only those, and two behind, kept)
-SKY = (24, 31, 42)          # behind the course, and what the ground fades into
+SKY = (18, 22, 28)          # behind the course: the Tetris board's BOARD_BG (overlay/tetris.py)
+GROUND_COLOURS = 4          # the ground's colours, from the course's map
+ROAD_FILL = (150, 158, 172)
+ROAD_EDGE = (40, 56, 66)    # the road's outline: the theme's panel_border (overlay/ui.py)
+SHADE = 0.78                # the ground in shade (facing away from the light), this much as bright
+SIDE = 0.55                 # a cliff's face (and the terrain's edge, and a bridge's side), this much as bright
+CLIFF_PX = 3                # a column that drops more than this below level ground shows a cliff face
+LOWER = 0.3                 # the ground between roads leans to the lower ones: a road this much of the course's
+                            # climb above the one below counts e^-1 as much
+RARE = 0.03                 # a map colour on less of the ground than this (a kerb's red) gives way to the others
+DECK_THICK = 8.0            # an overpass's road over its tunnel (world units, before raising)
+TUNNEL_MAX = 45.0           # a tunnel's mouth at most this high (world units): a mouth, not a canyon
+TUNNEL = (6, 8, 12)         # the inside of a tunnel
+FINISH = ((248, 248, 248), (24, 24, 24))   # the start/finish line's squares
+FINISH_SQUARE = 2           # ... in squares this many cells across (a pixel or so from the orbit, a few up close),
+FINISH_CELLS = 4            # ... this many cells deep along the road (two rows of them)
 BRIGHT = (64, 120)          # a course's ground near the road is brought into this band of brightness
                             # (0-255): a mostly black map (Waluigi Pinball) up, DK Pass's snow down
 LIFT_MAX = 2.6              # ... but a dark one at most this many times brighter
@@ -157,13 +176,17 @@ class VoxelCourse:
         samples = [((self.mids[i][0] + self.mids[(i + 1) % n][0]) / 2, (self.mids[i][1] + self.mids[(i + 1) % n][1]) / 2,
                     self.raised((self.heights[i] + self.heights[(i + 1) % n]) / 2)) for i in lower]
         coarse, away = [], []
+        low = min(sy for _, _, sy in samples)
+        soft = max(1.0, LOWER * (max(sy for _, _, sy in samples) - low))
         for cz in range(ch + 1):
             for cx in range(cw + 1):
                 wx, wz = self.x0 + cx * gw * cell / cw, self.z0 + cz * gh * cell / ch
                 away.append(min(math.hypot(wx - mx, wz - mz) for mx, mz in self.mids))
                 num = den = 0.0
                 for sx, sz, sy in samples:
-                    w = 1.0 / ((wx - sx) ** 2 + (wz - sz) ** 2 + (cell * 4) ** 2) ** 1.5      # (mostly the nearest road)
+                    # mostly the nearest road, and the lower roads most: the ground's at their level, so a
+                    # road raised above it (an overpass, a ramp up to it) stands on an embankment
+                    w = 1.0 / ((wx - sx) ** 2 + (wz - sz) ** 2 + (cell * 4) ** 2) ** 1.5 * math.exp(-(sy - low) / soft)
                     num += w * sy
                     den += w
                 coarse.append(num / den)
@@ -211,55 +234,170 @@ class VoxelCourse:
                     else:                                       # (the bank: down to the ground)
                         f = (d - self.half_road) / (bank - self.half_road)
                         hm[k] = max(hm[k], y - sink * f - (y - hm[k]) * f * f)
+        # the upper roads: raised, on banks down to the ground (but not over the lower road, which
+        # runs through them as a cutting), and over the lower road where they cross it, which
+        # carries on under them as a tunnel: (its floor, how far off its middle, 0-1)
+        lateral = [None] * (gw * gh)
+        for i in lower:
+            (ax, az), (bx, bz) = self.mids[i], self.mids[(i + 1) % n]
+            for k in self._cells_near(ax, az, bx, bz, self.half_road):
+                wx, wz = self.x0 + (k % gw + 0.5) * cell, self.z0 + (k // gw + 0.5) * cell
+                d = _segment_distance(wx, wz, ax, az, bx, bz)[0]
+                if d <= self.half_road and (lateral[k] is None or d / self.half_road < lateral[k]):
+                    lateral[k] = d / self.half_road
+        over = [None] * (gw * gh)
+        for i in (self.upper if len(self.upper) < n else ()):
+            (ax, az), (bx, bz) = self.mids[i], self.mids[(i + 1) % n]
+            ya, yb = self.raised(self.heights[i]), self.raised(self.heights[(i + 1) % n])
+            for k in self._cells_near(ax, az, bx, bz, bank):
+                wx, wz = self.x0 + (k % gw + 0.5) * cell, self.z0 + (k // gw + 0.5) * cell
+                d, t = _segment_distance(wx, wz, ax, az, bx, bz)
+                if d > bank:
+                    continue
+                y = ya + (yb - ya) * t
+                if d <= self.half_road:
+                    over[k] = y if over[k] is None else max(over[k], y)
+                elif road[k] is None:
+                    f = (d - self.half_road) / (bank - self.half_road)
+                    hm[k] = max(hm[k], y - sink * f - (y - hm[k]) * f * f)
+                    near[k] = False                      # (an embankment: it hides what's behind it)
+        tunnel = [None] * (gw * gh)
+        for k, y in enumerate(over):
+            if y is None:
+                continue
+            if road[k] is not None and y > road[k]:
+                tunnel[k] = (road[k], lateral[k] if lateral[k] is not None else 0.0)
+            road[k], near[k] = y, False
         for k, y in enumerate(road):
             if y is not None:
                 hm[k] = y
+        self.tunnel = tunnel
         flat = min(hm)
         for k, f in enumerate(fade):
             if f <= 0 and road[k] is None:
                 hm[k] = flat                     # (faded right out: flat, so nothing at the edge stands up)
         self.hm, self.road, self.near, self.fade = hm, road, near, fade
 
-    def _colour_map(self):
+    def _cells_near(self, ax, az, bx, bz, reach):
+        """The cells within `reach` of the segment's bounding box."""
         gw, gh, cell = self.gw, self.gh, self.cell
-        cols = [None] * (gw * gh)
+        gx0 = max(0, int((min(ax, bx) - reach - self.x0) / cell))
+        gx1 = min(gw - 1, int((max(ax, bx) + reach - self.x0) / cell) + 1)
+        gz0 = max(0, int((min(az, bz) - reach - self.z0) / cell))
+        gz1 = min(gh - 1, int((max(az, bz) + reach - self.z0) / cell) + 1)
+        return [gz * gw + gx for gz in range(gz0, gz1 + 1) for gx in range(gx0, gx1 + 1)]
+
+    def _colour_map(self):
+        """Each cell's colour, in the overlay's flat look: the road ROAD_FILL
+        with an outline (ROAD_EDGE) where it meets the ground; the ground the
+        nearest of GROUND_COLOURS colours picked from the course's map
+        (k-means), cleaned of specks (the colour most of its neighbours
+        have), lit or in shade by its slope; then everything blended into the
+        board's colour (SKY) by how far it's faded away from the course, the
+        faces under each cell (`sides`) too, so the edge melts into it."""
+        gw, gh, cell = self.gw, self.gh, self.cell
+        n = gw * gh
         src = self.colours
+        raw = [None] * n
         for gz in range(gh):
             wz = self.z0 + (gz + 0.5) * cell
             for gx in range(gw):
-                wx = self.x0 + (gx + 0.5) * cell
                 k = gz * gw + gx
-                rgb = None
+                if self.fade[k] <= 0 or self.road[k] is not None:
+                    continue
                 if src:
                     data, sw, sh, mk, mox, moy, mirror = src
+                    wx = self.x0 + (gx + 0.5) * cell
                     px, py = int(mox + (-wx if mirror else wx) / mk), int(moy + wz / mk)
                     px, py = min(sw - 1, max(0, px)), min(sh - 1, max(0, py))
                     o = (py * sw + px) * 3
-                    rgb = data[o], data[o + 1], data[o + 2]
-                elif self.road[k] is not None:
-                    rgb = (150, 158, 172)
+                    raw[k] = (data[o], data[o + 1], data[o + 2])
                 else:
-                    rgb = (58, 92, 64)
-                # shading: lit from the far left, darker down a slope
-                left = self.hm[k - 1] if gx else self.hm[k]
-                up = self.hm[k - gw] if gz else self.hm[k]
-                shade = max(0.55, min(1.35, 1.0 + (self.hm[k] - left) * 0.035 + (self.hm[k] - up) * 0.02))
-                cols[k] = tuple(c * shade * 0.9 for c in rgb)
-        # the course's brightness near the road into BRIGHT (a black map up, a white one down), the road
-        # at least ROAD_FLOOR; then the fade into the background
+                    raw[k] = (58, 92, 64)
+        palette = self._palette([c for c, f in zip(raw, self.fade) if c is not None and f >= 0.5])
+        nearest = lambda c: min(range(len(palette)), key=lambda i: sum((a - b) ** 2 for a, b in zip(c, palette[i])))  # noqa: E731
+        index = [nearest(c) if c is not None else None for c in raw]
+        counts = [index.count(i) for i in range(len(palette))]
+        common = [c for c, m in zip(palette, counts) if m >= RARE * sum(counts)] or palette
+        if len(common) < len(palette):                 # (rare ones, the kerbs' red, say: the nearest common one)
+            palette = common
+            index = [nearest(c) if c is not None else None for c in raw]
+        clean = list(index)
+        for gz in range(1, gh - 1):                     # (specks: the colour most of the neighbours have)
+            for gx in range(1, gw - 1):
+                k = gz * gw + gx
+                if index[k] is None:
+                    continue
+                around = [index[k + d] for d in (-gw - 1, -gw, -gw + 1, -1, 1, gw - 1, gw, gw + 1)]
+                best = max(set(around), key=around.count)
+                if best is not None and around.count(best) >= 5:
+                    clean[k] = best
+        # the course's ground into BRIGHT (a black map up, a white one down)
         lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]   # noqa: E731
-        near = [lum(cols[k]) for k in range(gw * gh) if self.fade[k] > 0.5]
-        mean = sum(near) / len(near) if near else BRIGHT[0]
+        used = [palette[i] for i in clean if i is not None]
+        mean = sum(lum(c) for c in used) / len(used) if used else BRIGHT[0]
         gain = min(LIFT_MAX, BRIGHT[0] / mean) if mean < BRIGHT[0] else BRIGHT[1] / mean if mean > BRIGHT[1] else 1.0
-        for k in range(gw * gh):
-            c = [v * gain for v in cols[k]]
-            if self.road[k] is not None and lum(c) < ROAD_FLOOR:
-                lift = (ROAD_FLOOR - lum(c)) / ROAD_FLOOR
-                c = [v + (r - v) * lift for v, r in zip(c, (150, 158, 172))]
-            f = self.fade[k]
-            cols[k] = tuple(max(0, min(255, int(v * f + sky * (1 - f)))) for v, sky in zip(c, SKY))
-        self.cols = cols
+        lit = [tuple(min(255, int(v * gain)) for v in c) for c in palette]
+        shade = [tuple(int(v * SHADE) for v in c) for c in lit]
+        cols = [None] * n
+        for gz in range(gh):
+            for gx in range(gw):
+                k = gz * gw + gx
+                if self.road[k] is not None:
+                    # (its edge: any of its eight neighbours off the road, so the outline's joined at the
+                    # corners too and doesn't break into dashes on a diagonal)
+                    edge = any(0 <= gx + dx < gw and 0 <= gz + dz < gh and self.road[(gz + dz) * gw + gx + dx] is None
+                               for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz)
+                    cols[k] = ROAD_EDGE if edge else ROAD_FILL
+                elif clean[k] is not None:
+                    left = self.hm[k - 1] if gx else self.hm[k]
+                    up = self.hm[k - gw] if gz else self.hm[k]
+                    cols[k] = shade[clean[k]] if (self.hm[k] - left) + (self.hm[k] - up) < -2 else lit[clean[k]]
+                else:
+                    cols[k] = SKY                                   # (faded right out)
+        blend = lambda c, f: tuple(int(v * f + b * (1 - f)) for v, b in zip(c, SKY))   # noqa: E731
+        self.sides = [blend(tuple(int(v * SIDE) for v in c), f) for c, f in zip(cols, self.fade)]
+        self.cols = cols = [blend(c, f) for c, f in zip(cols, self.fade)]
+        self._finish_line(cols)                             # (last: no fade, no colour rule on it)
         self.gain = gain
+
+    def _finish_line(self, cols):
+        """The start/finish line (checkpoint 0) painted on the road: two rows
+        of white and near-black squares (FINISH_SQUARE cells each) across the
+        road's fill, its outline carrying on either side, in the ground's
+        colours so it's drawn in perspective and hidden by what's in front."""
+        x1, z1, x2, z2 = self.lines[0]
+        mx, mz = self.mids[0]
+        ux, uz = x2 - x1, z2 - z1
+        length = math.hypot(ux, uz) or 1.0
+        ux, uz = ux / length, uz / length                   # (across the road)
+        gw, cell = self.gw, self.cell
+        reach = self.half_road
+        for k in self._cells_near(mx - ux * reach, mz - uz * reach, mx + ux * reach, mz + uz * reach,
+                                  cell * FINISH_CELLS):
+            if self.road[k] is None or cols[k] != ROAD_FILL:
+                continue                                        # (the road's fill only: its outline stays)
+            gx, gz = k % gw, k // gw
+            wx, wz = self.x0 + (gx + 0.5) * cell - mx, self.z0 + (gz + 0.5) * cell - mz
+            across, along = wx * ux + wz * uz, -wx * uz + wz * ux
+            if abs(across) <= reach and abs(along) <= cell * FINISH_CELLS / 2:
+                cols[k] = FINISH[(int((across + reach) / cell) // FINISH_SQUARE
+                                  + int((along + cell * FINISH_CELLS / 2) / cell) // FINISH_SQUARE) % 2]
+
+    @staticmethod
+    def _palette(colours):
+        """GROUND_COLOURS colours that stand for `colours` (k-means, from an even sample)."""
+        if not colours:
+            return [(58, 92, 64)]
+        sample = colours[::max(1, len(colours) // 1500)]
+        centres = [sample[i * len(sample) // GROUND_COLOURS] for i in range(GROUND_COLOURS)]
+        for _ in range(8):
+            groups = [[] for _ in centres]
+            for c in sample:
+                groups[min(range(len(centres)), key=lambda i: sum((a - b) ** 2 for a, b in zip(c, centres[i])))].append(c)
+            centres = [tuple(sum(v[j] for v in g) // len(g) for j in range(3)) if g else centres[i]
+                       for i, g in enumerate(groups)]
+        return list(dict.fromkeys(centres))
 
     # -- the camera -------------------------------------------------------------------
 
@@ -425,6 +563,8 @@ class VoxelCourse:
         px, pz, fx, fz, rx, rz = view.x, view.z, view.fx, view.fz, view.rx, view.rz
         hm, cols, gw, gh, cell, x0, z0 = self.hm, self.cols, self.gw, self.gh, self.cell, self.x0, self.z0
         cam_h, focal = view.h, self.fx
+        sides, tunnel = self.sides, self.tunnel
+        mouth_cap, deck = self.raised(self.base + TUNNEL_MAX) - self.raised(self.base), DECK_THICK * self.exaggerate
         ybuf = [h] * w
         near, far = view.near, view.far
         d = near
@@ -441,12 +581,30 @@ class VoxelCourse:
                 gx, gz = int(gxf), int(gzf)
                 gxf += dgx
                 gzf += dgz
-                if 0 <= gx < gw and 0 <= gz < gh:
+                if 0 <= gx < gw and 0 <= gz < gh and cols[gz * gw + gx] is not None:
                     k = gz * gw + gx
                     y = int(horizon + (cam_h - hm[k]) * scale)
                     yb = ybuf[i]
                     if y < yb:
-                        fill(cols[k], (i, y, 1, yb - y))
+                        # the cell's top (what level ground covers this deep on the screen), then, where it
+                        # drops more than CLIFF_PX below that (a cliff), its face in the side colour, faded as
+                        # its top is; a gentle slope's all top colour, so no stripes
+                        flat = (cam_h - hm[k]) * scale * step / d
+                        top = min(yb, y + max(1, int(flat) + 1))
+                        if yb - top > CLIFF_PX:
+                            fill(cols[k], (i, y, 1, max(1, top - y)))
+                            fill(sides[k], (i, top, 1, yb - top))
+                            mouth = tunnel[k]
+                            if mouth:                     # (a tunnel's mouth in the face: dark, under an arch)
+                                floor, off = mouth
+                                arch = min(hm[k] - deck - floor, mouth_cap) * math.sqrt(max(0.0, 1 - off * off))
+                                a_top = max(top, int(horizon + (cam_h - floor - arch) * scale))
+                                a_bot = min(yb, int(horizon + (cam_h - floor) * scale))
+                                if a_bot > a_top:
+                                    fill(ROAD_EDGE, (i, a_top - 1, 1, 1))
+                                    fill(TUNNEL, (i, a_top, 1, a_bot - a_top))
+                        else:
+                            fill(cols[k], (i, y, 1, yb - y))
                         ybuf[i] = y
             d += step
             step = min(step * 1.015, cell)
@@ -474,6 +632,11 @@ class VoxelCourse:
         i = int(sx)
         if not 0 <= i < self.w:
             return False
+        gx, gz = int((x - self.x0) / self.cell), int((z - self.z0) / self.cell)
+        if 0 <= gx < self.gw and 0 <= gz < self.gh and y is not None:
+            k = gz * self.gw + gx                    # (in a tunnel: under the overpass, whichever way it's seen)
+            if self.tunnel[k] and self.raised(y) < self.hm[k] - DECK_THICK * self.exaggerate:
+                return True
         px, pz, fx, fz, rx, rz = view.x, view.z, view.fx, view.fz, view.rx, view.rz
         half = self.w / 2
         dd = view.near
@@ -482,36 +645,12 @@ class VoxelCourse:
             lx = px + fx * dd - rx * dd * half / self.fx + rx * dd / self.fx * i
             lz = pz + fz * dd - rz * dd * half / self.fx + rz * dd / self.fx * i
             gx, gz = int((lx - self.x0) / self.cell), int((lz - self.z0) / self.cell)
-            if 0 <= gx < self.gw and 0 <= gz < self.gh and not self.near[gz * self.gw + gx]:
-                if horizon + (cam_h - self.hm[gz * self.gw + gx]) * self.fx / dd < sy - 6:
+            k = gz * self.gw + gx
+            if 0 <= gx < self.gw and 0 <= gz < self.gh and not self.near[k] and self.fade[k] >= 0.5:
+                if horizon + (cam_h - self.hm[gz * self.gw + gx]) * self.fx / dd < sy - 3:
                     return True                                  # (ground, not road or its banks: a road in front is a deck)
             dd += self.cell * 2
         return False
-
-    def deck_polygons(self, view):
-        """The upper decks' road, as screen polygons (far first) with a colour each."""
-        n = len(self.mids)
-        out = []
-        for i in self.upper:
-            j = (i + 1) % n
-            quad = []
-            for k, side in ((i, 0), (i, 1), (j, 1), (j, 0)):
-                x1, z1, x2, z2 = self.lines[k]
-                mx, mz = self.mids[k]
-                ex, ez = ((x1, z1) if side == 0 else (x2, z2))
-                f = ROAD * 2
-                quad.append(self.project((mx + (ex - mx) * f, mz + (ez - mz) * f, self.raised(self.heights[k])),
-                                         view))
-            if min(q[2] for q in quad) <= 1:
-                continue                                         # (behind the camera)
-            depth = sum(q[2] for q in quad) / 4
-            gx = int(((self.mids[i][0] + self.mids[j][0]) / 2 - self.x0) / self.cell)
-            gz = int(((self.mids[i][1] + self.mids[j][1]) / 2 - self.z0) / self.cell)
-            colour = self.cols[gz * self.gw + gx] if 0 <= gx < self.gw and 0 <= gz < self.gh else (150, 158, 172)
-            out.append((depth, [(q[0], q[1]) for q in quad], colour))
-        out.sort(key=lambda o: -o[0])
-        return out
-
 
 def map_colours(art, course_file, mirror):
     """The course's map as core/mkds_maps.py places it, for VoxelCourse's

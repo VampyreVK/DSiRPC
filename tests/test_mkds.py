@@ -475,7 +475,7 @@ def test_the_voxel_course_keeps_the_whole_course_in_view_all_the_way_round():
                 sx, sy, _ = course.place(x, z, course.heights[i], view)
                 assert 0 <= sx < frame.get_width() and 0 <= sy < frame.get_height()
         assert len(course.frames) <= 8                            # (only the frames around the one showing kept)
-        assert course.deck_polygons(view)
+        assert any(course.tunnel)                                 # (Figure-8's overpass: a tunnel under it)
     finally:
         pygame.quit()
 
@@ -517,7 +517,7 @@ def test_the_voxel_course_is_made_on_a_thread():
         pygame.quit()
 
 
-def test_the_race_view_draws_the_voxel_course_at_the_windows_resolution():
+def test_the_race_view_draws_the_voxel_course_in_the_canvass_own_pixels():
     pygame = pytest.importorskip("pygame")
     from core import demo
     from overlay.font import PixelFont
@@ -528,14 +528,13 @@ def test_the_race_view_draws_the_voxel_course_at_the_windows_resolution():
         pygame.display.set_mode((1, 1))
         canvas = pygame.Surface((256, 192), 0, 32)
         font, mini = PixelFont(), PixelFont(mini=True)
-        shown = []
-        view = MkdsView(font, mini, GameCard(font, mini), hires=lambda c, surf, rect, clip, live: shown.append(
-            (surf.get_size(), tuple(rect), live)))
+        view = MkdsView(font, mini, GameCard(font, mini))
         view.voxel_sync = True
         race = demo.mkds_race(3.0)
         view.motion.take(race, 0)
         view._map(canvas, race, 0)
-        assert shown == [((400, 480), (74, 29, 100, 120), True)] and view._tilt is None
+        assert view._vox_frame.get_size() == (100, 120) and view._tilt is None
+        assert canvas.get_at((124, 89)) == view._vox_frame.get_at((50, 60))     # (on the canvas, 1:1)
     finally:
         pygame.quit()
 
@@ -555,68 +554,57 @@ def test_a_live_hires_surface_is_scaled_afresh_each_frame():
         assert overlay._sharp_scale(surf, (8, 8), cache=False).get_at((3, 3))[:3] == (0, 0, 255)
     finally:
         pygame.quit()
-# -- the broadcast camera's cuts to a battle (overlay/mkds.py's CutDirector) ----------
+# -- which camera: the orbit, or following the player (overlay/mkds.py's CameraDirector) --
 
-def _duel(gap, lap=2, laps=3, me_place=4):
+def _duel(gap, time_ms=60000, finished=False, me_place=4):
     """A race with the player and a rival a place ahead, `gap` checkpoints apart."""
     racers = [{'slot': 0, 'player': True, 'place': me_place, 'progress': 50.0},
               {'slot': 1, 'player': False, 'place': me_place - 1, 'progress': 50.0 + gap},
               {'slot': 2, 'player': False, 'place': me_place + 1, 'progress': 40.0}]
-    return {'racers': racers, 'lap': lap, 'laps': laps, 'finished': False}
+    return {'racers': racers, 'lap': 2, 'laps': 3, 'time_ms': time_ms, 'finished': finished}
 
 
-def test_a_battle_cuts_in_once_its_held_and_not_again_until_the_cooldown():
-    from overlay.mkds import CutDirector as C
+def test_the_orbit_before_the_start_and_after_the_finish_following_between():
+    from overlay.mkds import CUT_FADE_MS, CameraDirector
+    d = CameraDirector()
+    assert d.update(_duel(5.0, time_ms=0), 0) == 'orbit' and d.wipe(0) is None   # the countdown: timer at 0
+    assert d.update(_duel(5.0, time_ms=16), 100) == 'follow'                      # GO
+    assert d.wipe(100 + CUT_FADE_MS // 2) == (0.5, 'orbit')                       # (wiping from the orbit)
+    assert d.wipe(100 + CUT_FADE_MS) is None
+    assert d.update(_duel(5.0, finished=True), 5000) == 'orbit'                   # over the line
+    assert d.wipe(5000) == (0.0, 'follow')
+
+
+def test_a_battle_is_held_before_it_starts_and_before_it_ends():
+    from overlay.mkds import CameraDirector as C
     d = C()
-    assert d.update(_duel(3.0), 0) is None
-    assert d.update(_duel(0.4), 1000) is None                     # close, but not for long enough yet
-    assert d.update(_duel(0.4), 1000 + C.BATTLE_HOLD_MS - 1) is None
-    cut = d.update(_duel(0.4), 1000 + C.BATTLE_HOLD_MS)
-    assert cut['kind'] == 'battle' and cut['rival'] == 1 and cut['for'] == 3
-    start = cut['start']
-    assert d.update(_duel(5.0), start + C.CUT_MS - 1) is cut      # (the rival gone: it runs its length)
-    assert d.update(_duel(0.4), start + C.CUT_MS) is None         # over, and the cooldown's started
-    assert d.update(_duel(0.4), start + C.CUT_MS + C.COOLDOWN_MS - 1) is None
-    again = d.update(_duel(0.4), start + C.CUT_MS + C.COOLDOWN_MS + C.BATTLE_HOLD_MS)
-    assert again and again['kind'] == 'battle'
+    d.update(_duel(0.4), 0)
+    assert d.battle is None                                       # close, but not for long enough yet
+    d.update(_duel(0.4), C.BATTLE_HOLD_MS - 1)
+    assert d.battle is None
+    d.update(_duel(0.4), C.BATTLE_HOLD_MS)
+    assert d.battle == {'rival': 1, 'for': 3}
+    d.update(_duel(1.0), 2000)                                    # (between GAP and END: still on)
+    d.update(_duel(3.0), 3000)
+    assert d.battle                                               # apart, but not for long enough yet
+    d.update(_duel(3.0), 3000 + C.BATTLE_HOLD_MS)
+    assert d.battle is None
 
 
-def test_a_pass_thats_over_at_once_doesnt_cut():
-    from overlay.mkds import CutDirector as C
-    d = C()
+def test_a_pass_thats_over_at_once_isnt_a_battle():
+    from overlay.mkds import CameraDirector
+    d = CameraDirector()
     for t in range(0, 3000, 200):                                 # close only every other read
-        assert d.update(_duel(0.4 if t % 400 == 0 else 2.0), t) is None
+        d.update(_duel(0.4 if t % 400 == 0 else 2.0), t)
+        assert d.battle is None
 
 
-def test_the_last_lap_cuts_in_whatever_the_cooldown():
-    from overlay.mkds import CutDirector as C
+def test_no_battle_in_the_orbit():
+    from overlay.mkds import CameraDirector as C
     d = C()
-    d.update(_duel(5.0, lap=2), 0)
-    d.ready_at = 10 ** 9                                          # (a battle cut's cooldown on)
-    cut = d.update(_duel(5.0, lap=3), 100)
-    assert cut['kind'] == 'last lap' and cut['rival'] is None     # (no one near)
-    d = C()
-    d.update(_duel(0.4), 0)
-    battle = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
-    t = battle['end'] - 500
-    d.update(_duel(0.4, lap=3), t)                                # the last lap during a battle cut
-    assert d.cut is battle and battle['end'] == t + C.LAST_LAP_MS   # (it runs on)
-    d = C()                                                       # just back from a cut: no flick
-    d.update(_duel(0.4), 0)
-    battle = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
-    d.update(_duel(5.0), battle['end'])
-    assert d.update(_duel(5.0, lap=3), battle['end'] + C.LAST_LAP_AFTER_MS - 1) is None
-
-
-def test_the_wipe_goes_in_and_back_out():
-    from overlay.mkds import CUT_FADE_MS, CutDirector as C
-    d = C()
-    d.update(_duel(0.4), 0)
-    cut = d.update(_duel(0.4), C.BATTLE_HOLD_MS)
-    assert d.wipe(cut['start'] + CUT_FADE_MS // 2) == (0.5, True)
-    assert d.wipe(cut['start'] + CUT_FADE_MS) is None
-    d.update(_duel(5.0), cut['end'])
-    assert d.wipe(cut['end'] + CUT_FADE_MS // 2) == (0.5, False)
+    for t in (0, C.BATTLE_HOLD_MS, 2 * C.BATTLE_HOLD_MS):
+        d.update(_duel(0.2, time_ms=0), t)
+    assert d.battle is None
 
 
 def test_the_chase_camera_keeps_the_rival_in_frame():
@@ -633,5 +621,156 @@ def test_the_chase_camera_keeps_the_rival_in_frame():
             assert d > 1 and 0 <= sx < course.w and 0 <= sy < course.h
         frame, drawn_in = course.chase_frame(view, 0)
         assert drawn_in == view and course.chase_frame(view, 10)[0] is frame   # (15 a second: the same one)
+    finally:
+        pygame.quit()
+
+
+def test_the_overpass_is_ground_at_the_upper_roads_height_with_a_tunnel_under_it():
+    pygame = pytest.importorskip("pygame")
+    pygame.init()
+    try:
+        race, course = _voxel()
+        (x, z, reach, low, high, _), = course.decks
+        k = int((z - course.z0) / course.cell) * course.gw + int((x - course.x0) / course.cell)
+        assert abs(course.hm[k] - course.raised(high)) < course.raised(high) - course.raised(low) / 4
+        floor, off = course.tunnel[k]                             # the lower road carries on under it
+        assert abs(floor - course.raised(low)) < 20 and 0 <= off <= 1
+        frame, view = course.frame(0)
+        assert course.hidden(x, z, low, view)                     # a racer in the tunnel: hidden
+        assert not course.hidden(x, z, high, view)                # one on top: not
+    finally:
+        pygame.quit()
+
+
+def test_the_players_head_is_half_size_at_the_windows_resolution():
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import HEAD_SMALL, MkdsView
+    from overlay.mkds_art import MkdsArt
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        queued, lifted = [], []
+        view = MkdsView(font, mini, GameCard(font, mini), MkdsArt("Assets"),
+                        hires=lambda c, surf, rect, clip=None, **kw: queued.append((surf.get_size(), tuple(rect)[2:])),
+                        lift=lifted.append, hires_ok=lambda: True)
+        view.voxel_sync = True
+        race = demo.mkds_race(3.0)
+        view.motion.take(race, 0)
+        for _ in range(100):                                      # (the head's sheet loads on its own thread)
+            queued.clear()
+            view._map(canvas, race, 0)
+            if queued:
+                break
+            time.sleep(0.02)
+        assert queued == [((16, 14), HEAD_SMALL)] and lifted == [canvas]   # the 16x14 sprite, into 8x7
+    finally:
+        pygame.quit()
+
+
+def test_the_players_head_still_draws_without_the_hires_path():
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import MkdsView
+    from overlay.mkds_art import MkdsArt
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        art = MkdsArt("Assets")
+        view = MkdsView(font, mini, GameCard(font, mini), art)
+        view.voxel_sync = True
+        race = demo.mkds_race(3.0)
+        view.motion.take(race, 0)
+        for _ in range(100):
+            view._map(canvas, race, 0)
+            if not art.pending() and art.head("Mario"):
+                break
+            time.sleep(0.02)
+        view._map(canvas, race, 0)
+        assert ('small', 'Mario') in view._vox_sprites and view._head_at is None   # (drawn on the frame itself)
+        assert view._vox_sprites[('small', 'Mario')].get_size() == (8, 7)
+    finally:
+        pygame.quit()
+
+
+def test_items_come_from_the_games_textures_where_it_has_them():
+    pygame = pytest.importorskip("pygame")
+    from overlay.mkds_art import MkdsArt
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        art = MkdsArt("Assets")
+        for _ in range(100):                                      # (the sheets load on their own thread)
+            art.item("Banana"), art.item("Mushroom")
+            if not art.pending():
+                break
+            time.sleep(0.02)
+        icon, counted, half = art.item("Banana")
+        assert half and not counted and max(icon.get_size()) <= 32       # Items.gif's, at twice the canvas's pixels
+        assert icon.get_at((0, 0)).a == 0                                # (its background see-through)
+        fake, _, half = art.item("Fake Item Box")
+        assert half and fake.get_size()[0] > 20                          # the game's own, not a drawn one
+        icon, counted, half = art.item("Triple Red Shells", 2)
+        assert half and counted                                          # with the bottom screen's x2 badge on it
+        icon, counted, half = art.item("Mushroom")
+        assert not half and icon.get_size() == (12, 12)                  # (only half of one in Items.gif)
+        icon, counted, half = art.item("Triple Mushrooms", 3)
+        assert counted and not half                                      # the bottom screen's own x3
+    finally:
+        pygame.quit()
+
+
+def test_the_start_line_is_a_checker_on_the_road_at_checkpoint_0():
+    pygame = pytest.importorskip("pygame")
+    import math
+    from overlay.mkds_voxel import FINISH, ROAD_FILL
+    pygame.init()
+    try:
+        race, course = _voxel()
+        mx, mz = course.mids[0]
+        cells = [k for k, c in enumerate(course.cols) if c in FINISH]
+        assert {course.cols[k] for k in cells} == set(FINISH)         # both colours...
+        for k in cells:                                               # ... only on the road, at checkpoint 0
+            x, z = course.x0 + (k % course.gw + 0.5) * course.cell, course.z0 + (k // course.gw + 0.5) * course.cell
+            assert course.road[k] is not None and math.hypot(x - mx, z - mz) < 2 * course.half_road
+        assert ROAD_FILL in course.cols                               # (the rest of the road as it was)
+    finally:
+        pygame.quit()
+
+
+def test_the_flat_map_draws_the_start_line(monkeypatch):
+    pygame = pytest.importorskip("pygame")
+    from core import demo
+    from overlay.font import PixelFont
+    from overlay.gamecard import GameCard
+    from overlay.mkds import MkdsView
+    from overlay.mkds_art import MkdsArt
+    from overlay.mkds_tilt import FINISH
+    monkeypatch.setattr("overlay.mkds.HEIGHTS", {})                   # (no heights: the flat map)
+    pygame.init()
+    try:
+        pygame.display.set_mode((1, 1))
+        canvas = pygame.Surface((256, 192), 0, 32)
+        font, mini = PixelFont(), PixelFont(mini=True)
+        art = MkdsArt("Assets")
+        view = MkdsView(font, mini, GameCard(font, mini), art)
+        race = demo.mkds_race(3.0)
+        view.motion.take(race, 0)
+        for _ in range(100):
+            view._map(canvas, race, 0)
+            if not art.pending():
+                break
+            time.sleep(0.02)
+        view._map(canvas, race, 0)
+        seen = {tuple(canvas.get_at((x, y)))[:3] for x in range(74, 174) for y in range(29, 149)}
+        assert set(FINISH) <= seen
     finally:
         pygame.quit()

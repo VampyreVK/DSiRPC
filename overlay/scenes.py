@@ -132,7 +132,8 @@ class Overlay:
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
         self.tetris = TetrisView(self.font, self.mini, self.card)
-        self.mkds = MkdsView(self.font, self.mini, self.card, MkdsArt(sprites.assets), hires=self.blit_hires)
+        self.mkds = MkdsView(self.font, self.mini, self.card, MkdsArt(sprites.assets), hires=self.blit_hires,
+                             lift=self.lift, hires_ok=lambda: self.hires_ok)
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]

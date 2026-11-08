@@ -360,10 +360,11 @@ class VoxelCourse:
                 if self.road[k] is not None:
                     # (its edge: any of its eight neighbours off the road, so the outline's joined at the
                     # corners too and doesn't break into dashes on a diagonal)
-                    # (a road under or over it counts as off it: an overpass keeps its outline over a tunnel)
+                    # (a road well under it counts as off it: an overpass keeps its outline over a tunnel, the
+                    # road going into one doesn't get one across it at the mouth)
                     edge = any(0 <= gx + dx < gw and 0 <= gz + dz < gh
                                and (self.road[(gz + dz) * gw + gx + dx] is None
-                                    or abs(self.road[(gz + dz) * gw + gx + dx] - self.road[k]) > deck)
+                                    or self.road[k] - self.road[(gz + dz) * gw + gx + dx] > deck)
                                for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz)
                     cols[k] = ROAD_EDGE if edge else ROAD_FILL
                 elif clean[k] is not None:
@@ -598,6 +599,7 @@ class VoxelCourse:
         sides, tunnel = self.sides, self.tunnel
         mouth_cap, deck = self.raised(self.base + TUNNEL_MAX) - self.raised(self.base), DECK_THICK * self.exaggerate
         ybuf = [h] * w
+        mouths = [None] * w                 # (each column's nearest tunnel mouth: its top and bottom on screen)
         near, far = view.near, view.far
         d = near
         step = cell * 0.7
@@ -636,14 +638,44 @@ class VoxelCourse:
                                 a_bot = min(yb, int(horizon + (cam_h - floor) * scale) + 1)   # (down onto the road: no gap)
                                 if a_bot > a_top:                 # (a pixel taller than the arch: it reads)
                                     a_top = max(top, a_top - 1)
-                                    fill(ROAD_EDGE, (i, a_top - 1, 1, 1))
                                     fill(TUNNEL, (i, a_top, 1, a_bot - a_top))
+                                    if mouths[i] is None:
+                                        mouths[i] = (a_top, a_bot)
                         else:
                             fill(cols[k], (i, y, 1, yb - y))
                         ybuf[i] = y
             d += step
             step = min(step * 1.015, cell)
+        self._frame_mouths(surf, mouths)
         return surf, view
+
+    @staticmethod
+    def _frame_mouths(surf, mouths):
+        """The tunnel mouths finished: the dark down onto the road (over
+        the row or two of a nearer face that can be left under it), then
+        framed in the road's outline colour, a pixel wide, along the top
+        (stepping with it, never broken) and down either side, not along
+        the bottom where it meets the road."""
+        w, h = surf.get_size()
+        road = (ROAD_FILL, ROAD_EDGE)
+        for i, m in enumerate(mouths):
+            if m:
+                top, bot = m
+                while bot < h and bot - m[1] < 2 and tuple(surf.get_at((i, bot)))[:3] not in road:
+                    surf.fill(TUNNEL, (i, bot, 1, 1))
+                    bot += 1
+                mouths[i] = (top, bot)
+        for i, m in enumerate(mouths):
+            if not m:
+                continue
+            top, bot = m
+            left = mouths[i - 1] if i else None
+            right = mouths[i + 1] if i + 1 < w else None
+            rise = min([top] + [n[0] for n in (left, right) if n])   # (up to a neighbour's top: one line)
+            surf.fill(ROAD_EDGE, (i, rise - 1, 1, top - rise + 1))
+            for side, n in ((i - 1, left), (i + 1, right)):
+                if n is None and 0 <= side < w:
+                    surf.fill(ROAD_EDGE, (side, top - 1, 1, bot - top + 1))
 
     # -- each frame ---------------------------------------------------------------------
 

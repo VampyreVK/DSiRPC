@@ -38,7 +38,7 @@ import pygame
 
 from core.mkds_reader import midpoints
 
-SCALE = 4                   # the frames' pixels to the canvas's
+SCALE = 1                   # the frames' pixels to the canvas's
 GRID = 200                  # the heightmap's cells along its longer side (the course and the fade round it)
 ORBIT_MS = 60000            # once round the course in this long
 ORBIT_STEP = 0.25           # degrees between frames of the orbit (a new one every ORBIT_MS / (360 / ORBIT_STEP))
@@ -428,7 +428,7 @@ class VoxelCourse:
         ybuf = [h] * w
         near, far = view.near, view.far
         d = near
-        step = cell * 0.7 / SCALE
+        step = cell * 0.7
         fill = surf.fill
         half = w / 2
         while d < far:
@@ -438,24 +438,18 @@ class VoxelCourse:
             dgx, dgz = sx / cell, sz / cell
             scale = focal / d
             for i in range(w):
-                sample_x, sample_z = gxf + dgx * i, gzf + dgz * i
-                if 0 <= sample_x < gw and 0 <= sample_z < gh:
-                    gx, gz = int(sample_x), int(sample_z)
-                    tx, tz = sample_x - gx, sample_z - gz
-                    if gx == gw - 1:
-                        tx = 0.0
-                    if gz == gh - 1:
-                        tz = 0.0
-                    right, down = min(gx + 1, gw - 1), min(gz + 1, gh - 1)
-                    top = hm[gz * gw + gx] * (1 - tx) + hm[gz * gw + right] * tx
-                    bottom = hm[down * gw + gx] * (1 - tx) + hm[down * gw + right] * tx
-                    height = top * (1 - tz) + bottom * tz
-                    y = int(horizon + (cam_h - height) * scale)
-                    if y < ybuf[i]:
-                        fill(cols[gz * gw + gx], (i, y, 1, ybuf[i] - y))
+                gx, gz = int(gxf), int(gzf)
+                gxf += dgx
+                gzf += dgz
+                if 0 <= gx < gw and 0 <= gz < gh:
+                    k = gz * gw + gx
+                    y = int(horizon + (cam_h - hm[k]) * scale)
+                    yb = ybuf[i]
+                    if y < yb:
+                        fill(cols[k], (i, y, 1, yb - y))
                         ybuf[i] = y
             d += step
-            step = min(step * 1.012, cell)
+            step = min(step * 1.015, cell)
         return surf, view
 
     # -- each frame ---------------------------------------------------------------------

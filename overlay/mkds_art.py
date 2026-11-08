@@ -177,7 +177,7 @@ class MkdsArt:
                 src.blit(sheet, (inside.x - want.x, inside.y - want.y), inside)
             if mirror:
                 src = pygame.transform.flip(src, True, False)
-            out = pygame.transform.smoothscale(src, out_size)
+            out = pygame.transform.scale(src, out_size)
             if turn:
                 out = pygame.transform.rotate(out, -90)
             if dim:

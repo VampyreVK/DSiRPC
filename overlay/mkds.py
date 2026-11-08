@@ -493,28 +493,26 @@ class MkdsView:
         work = self._vox_frame
         chase = cut or (wipe and not wipe[1])          # (the chase camera: in a cut, and wiping out of one)
         if chase:
-            self._compose(work, race, course, self._chase(race, course, cut or self.cuts.last[0], t_ms), t_ms)
+            self._compose(work, race, course, self._chase(race, course, cut or self.cuts.last[0], t_ms), t_ms, inner)
         else:
             self._heading = None
-            self._compose(work, race, course, got, t_ms)
+            self._compose(work, race, course, got, t_ms, inner)
         if wipe:                                       # (the other camera, bars of it giving way)
             other = self._vox_other
             self._compose(other, race, course, got if chase else
                           self._chase(race, course, cut, t_ms), t_ms)
             progress, going_in = wipe
             self._bars(work, other, progress)
-        if self.hires:
-            self.hires(canvas, work, inner, inner, live=True)
-        else:
-            canvas.blit(pygame.transform.smoothscale(work, inner.size), inner.topleft)
+        
+        canvas.blit(work, inner.topleft)
         if cut and cut['kind'] == 'battle' and cut['for']:
             self._chip(canvas, f"BATTLE FOR {ordinal(cut['for']).upper()}")
         return True
 
-    def _compose(self, surf, race, course, got, t_ms):
+    def _compose(self, surf, race, course, got, t_ms, inner=None):
         frame, view = got
         surf.blit(frame, (0, 0))
-        self._voxel_racers(surf, race, course, view, t_ms)
+        self._voxel_racers(surf, race, course, view, t_ms, inner)
 
     def _chase(self, race, course, cut, t_ms):
         """The chase camera's frame: behind the player, looking along the
@@ -561,7 +559,7 @@ class MkdsView:
         self.mini.draw(canvas, self.mini.fit(text, w - 8), (x + w // 2, y + h - 2 - STRIP_H + 2), CHIP,
                        align='center')
 
-    def _voxel_racers(self, surf, race, course, view, t_ms):
+    def _voxel_racers(self, surf, race, course, view, t_ms, inner=None):
         """The racers on the voxel course: the ones below the upper decks,
         the decks over them (see-through), the ones on top; far first in
         each, the player last."""
@@ -575,7 +573,6 @@ class MkdsView:
                 continue                                   # (behind the camera)
             gx, gy, _ = course.place(x, z, None, view)
             placed.append((r, sx, sy, d, gx, gy, course.hidden(x, z, y, view)))
-
         me = next((p for p in placed if p[0]['player']), None)
         view_distance = me[3] if me else math.hypot(course.centre[0] - view.x, course.centre[1] - view.z)
 
@@ -583,10 +580,11 @@ class MkdsView:
             for r, sx, sy, d, gx, gy, hidden in sorted(rows, key=lambda p: (p[0]['player'], -p[3])):
                 size = max(0.75, min(1.6, view_distance / d))
                 if not hidden:
-                    pygame.draw.ellipse(surf, EDGE_SHADOW, (gx - 5 * size, gy - 2 * size, 10 * size, 4 * size))
+                    pygame.draw.ellipse(surf, EDGE_SHADOW, (gx - 3 * size, gy - 1 * size, 6 * size, 2 * size))
                     if sy < gy - 4:
                         pygame.draw.line(surf, EDGE_SHADOW, (gx, gy), (sx, sy + 4))
-                self._voxel_marker(surf, r, round(sx), round(sy), size, hidden)
+                self._voxel_marker(surf, r, round(sx), round(sy), size, hidden, inner)
+
         layer([p for p in placed if p[0]['slot'] not in up])
         decks = course.deck_polygons(view)
         if decks:
@@ -597,40 +595,42 @@ class MkdsView:
             surf.blit(over, (0, 0))
         layer([p for p in placed if p[0]['slot'] in up])
 
-    def _voxel_marker(self, surf, r, sx, sy, size, hidden):
-        """A racer on the voxel course, at four times the canvas's pixels: the
-        player's head, a dot with its place for the rest; just a ring where
-        the ground's in front of it."""
-        k = VOXEL_SCALE
+    def _voxel_marker(self, surf, r, sx, sy, size, hidden, inner=None):
+        """A racer on the voxel course, at 1:1 canvas pixels: the player's
+        head at 1/4 canvas size (drawn at window resolution so all its pixels
+        show), a dot with its place for the rest; just a ring where the
+        ground's in front of it."""
         ring = PLACE_COLORS[1] if r['place'] == 1 else None
         if hidden:
-            pygame.draw.circle(surf, color_of(r), (sx, sy), round(3 * k * size), 1)
+            pygame.draw.circle(surf, color_of(r), (sx, sy), max(2, round(3 * size)), 1)
             return
         if r['player']:
             head = self.art.head(r.get('character')) if self.art else None
             if head:
                 hw, hh = head.get_size()
-                key = (r.get('character'), k)           # (at the frame's own scale: 1:1 with the ranking's heads)
-                big = self._vox_sprites.get(key)
-                if big is None:
-                    big = self._vox_sprites[key] = pygame.transform.scale(head, (hw * k // 2, hh * k // 2))
-                bw, bh = big.get_size()
-                pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - bh // 2), max(bw, bh) // 2 + 3)
-                pygame.draw.circle(surf, ring or ui.THEME['text_light'], (sx, sy - bh // 2), max(bw, bh) // 2 + 2, 2)
-                surf.blit(big, (sx - bw // 2, sy - bh))
+                # Change the division from 4 to 2 here:
+                bw = max(2, round(hw * size / 2))
+                bh = max(2, round(hh * size / 2))
+                rad = max(bw, bh) // 2
+                pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - bh // 2), rad + 2)
+                pygame.draw.circle(surf, ring or ui.THEME['text_light'], (sx, sy - bh // 2), rad + 1, 1)
+                if self.hires and inner is not None:
+                    self.hires(
+                        surf, head,
+                        (inner.x + sx - bw // 2, inner.y + sy - bh, bw, bh),
+                        clip=inner
+                    )
+                else:
+                    surf.blit(pygame.transform.scale(head, (bw, bh)), (sx - bw // 2, sy - bh))
                 return
-        radius = round(3 * k * size * (1.3 if r['player'] else 1))
-        pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - radius), radius + 2)
+        radius = max(2, round(3 * size * (1.3 if r['player'] else 1)))
+        pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - radius), radius + 1)
         if ring:
             pygame.draw.circle(surf, ring, (sx, sy - radius), radius + 1)
+            pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - radius), radius)
         pygame.draw.circle(surf, color_of(r), (sx, sy - radius), radius - (1 if ring else 0))
         if r['place'] and not r['player']:
-            label = self._vox_sprites.get(('label', r['place']))
-            if label is None:
-                small = self.mini.render(str(r['place']), (255, 255, 255), TRACK_EDGE)
-                label = self._vox_sprites[('label', r['place'])] = pygame.transform.scale(
-                    small, (small.get_width() * k, small.get_height() * k))
-            surf.blit(label, (sx + radius + 2, sy - radius * 2 - 4))
+            self.mini.draw(surf, str(r['place']), (sx + radius + 2, sy - radius * 2 - 2), (255, 255, 255), TRACK_EDGE)
 
     # -- the course in 2.5D (overlay/mkds_tilt.py) --------------------------------------
 

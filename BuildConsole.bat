@@ -14,7 +14,15 @@ docker run --rm -v "%CD%\launcher:/work" -w /work --entrypoint make skylyrac/blo
 
 echo.
 echo Building nds-bootstrap (a few minutes)...
-docker run --rm -v "%CD%\nds-bootstrap:/build" -w /build devkitpro/devkitarm:20241104 bash -c "sed -i '/security/d' /etc/apt/sources.list && apt-get update && apt-get install -y gcc && gcc lzss.c -o /usr/local/bin/lzss && make nightly" || goto :failed
+rem The version its in-game menu shows. nds-bootstrap's arm9/Makefile asks git,
+rem but git can't see this repo from inside Docker (only nds-bootstrap\ is
+rem mounted), so it's worked out here the same way: the tag if this commit has
+rem one, else the last tag and the commit (at most 19 characters).
+set "GIT_VER=dev"
+for /f "delims=" %%v in ('git describe --tags --abbrev^=0 2^>nul') do set "GIT_VER=%%v"
+git describe --tags --exact-match >nul 2>&1 || for /f "delims=" %%v in ('git rev-parse --short^=7 HEAD 2^>nul') do set "GIT_VER=%GIT_VER%-%%v"
+echo Version: %GIT_VER%
+docker run --rm -v "%CD%\nds-bootstrap:/build" -w /build devkitpro/devkitarm:20241104 bash -c "sed -i '/security/d' /etc/apt/sources.list && apt-get update && apt-get install -y gcc && gcc lzss.c -o /usr/local/bin/lzss && make nightly GIT_VER=%GIT_VER%" || goto :failed
 
 call :copy_to "%CD%" || goto :failed
 if not "%~1"=="" (

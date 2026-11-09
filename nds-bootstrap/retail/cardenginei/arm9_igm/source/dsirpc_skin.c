@@ -154,7 +154,7 @@ static const u32 artIcons[SKIN_ICON_COUNT][8] = {
 		P(0x00999900), P(0x00099000), P(0x00099000), P(0x00999900) },
 	{ // reset (a row shorter than the rest, clear of the trophy above it)
 		P(0x00000000), P(0x00BBB0B0), P(0x0B000BB0), P(0xB000BBB0),
-		P(0xB00000B0), P(0x0B000B00), P(0x00BBB000), P(0x00000000) },
+		P(0xB0000000), P(0x0B000B00), P(0x00BBB000), P(0x00000000) }, // (open under the arrowhead)
 	{ // screenshot
 		P(0x00000000), P(0x0DD00000), P(0xDDDDDDD0), P(0xDDBBBDD0),
 		P(0xDDB1BDD0), P(0xDDBBBDD0), P(0xDDDDDDD0), P(0x00000000) },

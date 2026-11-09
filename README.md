@@ -116,6 +116,20 @@ shortcuts worth knowing:
 In the classic look, **START** opens a file browser instead, where
 **START** starts the last game.
 
+### In a game
+
+Press **L + Down + B** in a game for the in-game menu, in the launcher's
+look. Besides going back to the game, resetting it and the rest of
+nds-bootstrap's menu, it lists the game's achievements, with any new
+unlocks up top. The Wi-Fi sign at its top left is green while DSiRPC is
+talking to the console, yellow while it isn't (or the console is still
+connecting), red if the Wi-Fi failed, and gray if DSiRPC isn't running.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/igm-menu.svg" width="272" alt="The in-game menu on the console, moving: the main menu, the game's achievements, then the options">
+</p>
+<p align="center"><sub>The in-game menu, drawn by its own code: the main menu, a game's achievements and the options.</sub></p>
+
 ## <img src="docs/images/icons/ball.svg" width="26" height="26" alt="">&nbsp;Pokémon, in full
 
 Pokémon Platinum (USA, Rev 1) and Black and White (USA) get much more than a

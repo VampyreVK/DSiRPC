@@ -14,6 +14,8 @@ scenes.py - what the overlay draws on its 256x192 canvas:
                   laid out like the party view
     Tetris view   Tetris DS in a Standard game (overlay/tetris.py): the
                   board, the stored block, the score and the achievements
+    race view     Mario Kart DS in a race (overlay/mkds.py): the racers in
+                  order, where they are on the course, the lap and place
     waiting view  shown while the DSi isn't sending data: what to do, and the
                   last game played
     toasts        short banners for events (shiny, level up, fainted, ...)
@@ -46,6 +48,8 @@ from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
 from .font import PixelFont
 from .gamecard import GameCard
+from .mkds import MkdsView, ordinal
+from .mkds_art import MkdsArt
 from .sprites import DIORAMA_BOTTOM, DIORAMA_CENTER_X
 from .tetris import TetrisView
 from .unova import DOUBLES_DROP, TITLES, TRAINER_MS, UnovaScreen
@@ -128,6 +132,8 @@ class Overlay:
         self.mini = PixelFont(mini=True)
         self.card = GameCard(self.font, self.mini)
         self.tetris = TetrisView(self.font, self.mini, self.card)
+        self.mkds = MkdsView(self.font, self.mini, self.card, MkdsArt(sprites.assets), hires=self.blit_hires,
+                             lift=self.lift, hires_ok=lambda: self.hires_ok)
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
@@ -197,6 +203,11 @@ class Overlay:
                 self.toast("TETRIS!", sparkly=True)
             elif kind == 'tetris_level':
                 self.toast(f"Level {e['level']}!")
+            elif kind == 'mkds_final_lap':
+                self.toast("FINAL LAP!")
+            elif kind == 'mkds_finish':
+                place = e.get('place')
+                self.toast(f"FINISH! {ordinal(place)} place" if place else "FINISH!", sparkly=place == 1)
             elif kind == 'game_changed':
                 self.toast(self._fit_line(f"Now playing {e['title']}", W - 24))
             elif kind == 'achievement':
@@ -270,6 +281,8 @@ class Overlay:
             self.draw_waiting(canvas, snap, t_ms)
         elif other and d.get('tetris'):
             self.tetris.draw(canvas, d, t_ms)
+        elif other and d.get('mkds'):
+            self.mkds.draw(canvas, d, t_ms)
         elif other:
             self.card.draw(canvas, d, t_ms)
         elif self.showing == 'party' and self.has_party:
@@ -305,20 +318,22 @@ class Overlay:
 
     # -- window-resolution sprites ----------------------------------------------
 
-    def blit_hires(self, canvas, surf, rect, clip=None, dim=False):
+    def blit_hires(self, canvas, surf, rect, clip=None, dim=False, live=False):
         """Draws `surf` shrunk into `rect` (x, y, w, h in canvas pixels),
         clipped to `clip`, greyed if `dim`. When app.py composites the
         window itself (hires_ok) the sprite is queued and drawn at the
         window's resolution instead (see present), so one shown smaller than
         its own pixels keeps its detail; call lift() before drawing anything
-        that goes on top of it."""
+        that goes on top of it. `live`: a surface drawn again every frame
+        (Mario Kart DS's voxel course), scaled afresh rather than from the
+        cache."""
         clip = pygame.Rect(clip) if clip else canvas.get_clip()
         if self.hires_ok and self.layer is None:
-            self.hires.append((surf, rect, clip, dim))
+            self.hires.append((surf, rect, clip, dim, live))
             return
         old = canvas.get_clip()
         canvas.set_clip(clip.clip(old))
-        canvas.blit(self._sharp_scale(surf, rect[2:], dim), rect[:2])
+        canvas.blit(self._sharp_scale(surf, rect[2:], dim, cache=not live), rect[:2])
         canvas.set_clip(old)
 
     def lift(self, canvas):
@@ -349,9 +364,9 @@ class Overlay:
         pygame.transform.scale(canvas, size, frame)
         if self.hires:
             s = size[0] / canvas.get_width()
-            for surf, (x, y, w, h), clip, dim in self.hires:
+            for surf, (x, y, w, h), clip, dim, live in self.hires:
                 frame.set_clip(pygame.Rect(round(clip.x * s), round(clip.y * s), round(clip.w * s), round(clip.h * s)))
-                frame.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim),
+                frame.blit(self._sharp_scale(surf, (max(1, round(w * s)), max(1, round(h * s))), dim, cache=not live),
                            (round(x * s), round(y * s)))
             frame.set_clip(None)
             if self.layer is not None:
@@ -361,12 +376,13 @@ class Overlay:
                 frame.blit(self._over_big, (0, 0))
         window.blit(frame, (0, 0))
 
-    def _sharp_scale(self, surf, size, dim=False):
+    def _sharp_scale(self, surf, size, dim=False, cache=True):
         """`surf` at `size`: pixels multiplied up to the next whole multiple,
         then smoothed down, so they stay crisp with only their edges blended
-        ("sharp bilinear")."""
+        ("sharp bilinear"). Kept by the surface (cache), unless it's one
+        drawn again every frame."""
         key = (id(surf), size, dim)
-        out = self._sharp.get(key)
+        out = self._sharp.get(key) if cache else None
         if out is not None:
             return out
         w, h = surf.get_size()
@@ -381,6 +397,8 @@ class Overlay:
         if dim:
             out = out.copy()
             out.fill((130, 130, 130, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        if not cache:
+            return out
         if len(self._sharp) > 900:
             self._sharp.clear()
         self._sharp[key] = out

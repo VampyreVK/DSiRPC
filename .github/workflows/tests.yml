@@ -93,6 +93,7 @@ jobs:
             Assets/PokemonBlackUI
             Assets/Unova-Trainer-Overworld
             Assets/Sinnoh-Trainer-Overworld
+            Assets/MarioKartDS
             third_party/rcheevos
             nds-bootstrap/retail/common/include
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe

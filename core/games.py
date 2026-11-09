@@ -12,6 +12,7 @@ Platinum.
 PLATINUM_US = "CPUE"
 BLACK_US, WHITE_US = "IRBO", "IRAO"   # core/bw_parser.py reads these two
 TETRIS_US = "ATRE"                   # core/tetris_reader.py: its board, on top of the game card
+MKDS_US = "AMCE"                     # core/mkds_reader.py: the race, on top of the game card
 
 # Names for status lines. Anything missing shows as its game code.
 NAMES = {
@@ -23,6 +24,7 @@ NAMES = {
     "IPKE": "Pokemon HeartGold",
     "IPGE": "Pokemon SoulSilver",
     "ATRE": "Tetris DS",
+    "AMCE": "Mario Kart DS",
 }
 
 
@@ -40,6 +42,11 @@ def is_bw(game):
 def is_tetris(game):
     """True for Tetris DS (US)."""
     return bool(game) and game.get("code") == TETRIS_US
+
+
+def is_mkds(game):
+    """True for Mario Kart DS (US)."""
+    return bool(game) and game.get("code") == MKDS_US
 
 
 def bw_version(game):

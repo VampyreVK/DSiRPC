@@ -102,6 +102,52 @@ def test_tetris(hub):
     assert d['tetris']['board'][0][0] == 'O' and d['tetris']['score'] == 555 and d['tetris']['mission'] == 4
 
 
+# -- Mario Kart DS ------------------------------------------------------------------
+
+def test_mkds(hub):
+    from core import mkds_reader as mk
+    from test_mkds import FIELD, race_memory
+    fake, src = hub(code="AMCE")
+    for addr, data in race_memory(FIELD, place=2):
+        fake.poke(addr, data)
+    d = until(src, lambda d: d.get('mkds'))
+    race = d['mkds']
+    assert d['kind'] == 'other' and race['course_name'] == "Figure-8 Circuit" and race['place'] == 6
+    assert len(race['checkpoints']) == 8 and len(race['order']) == 8
+    assert src.next_delay() <= src.MKDS_INTERVAL
+    fake.drop_next = 2                                            # a race read that gets no reply
+    assert src.read()['mkds']['place'] == 6                       # keeps the race (no flick to the game card)
+    # The countdown: the game moves its race blocks, so reads come and go
+    # (no racers, then them somewhere else): the race view stays up
+    moved = 0x0217E000
+    for racers_at in (0, moved, 0, mk.RACERS_AT):
+        fake.poke(mk.MAIN_US + mk.RACERS_AT, struct.pack("<I", racers_at))
+        if racers_at == moved:
+            for addr, data in race_memory(FIELD, place=2, racers_at=moved):
+                fake.poke(addr, data)
+        for _ in range(2):
+            d = src.read()
+            assert d and d.get('mkds')                            # never the game card
+            time.sleep(0.15)
+    fake.poke(mk.MAIN_US + mk.RACERS_AT, bytes(4))                # back in the menus: the game card,
+    last_good = src._mkds[1]                                      # (when the last read with a race came in)
+    until(src, lambda d: d.get('mkds') is None)
+    assert time.time() - last_good >= src.MKDS_HOLD_S             # MKDS_HOLD_S after it
+
+
+def test_mkds_shows_a_race_only_once_its_steady(hub):
+    from core import mkds_reader as mk
+    from test_mkds import FIELD, race_memory
+    fake, src = hub(code="AMCE")
+    until(src, lambda d: d.get('kind') == 'other')
+    for addr, data in race_memory(FIELD):
+        fake.poke(addr, data)
+    t0 = time.time()
+    until(src, lambda d: d.get('mkds'))
+    assert time.time() - t0 >= src.MKDS_ENTER_S                   # (not on its first read)
+    assert src._mkds_reader.why is None and mk.MkdsReader().why is None
+
+
 # -- Pokemon Black and White --------------------------------------------------------
 
 def test_black_white(hub):

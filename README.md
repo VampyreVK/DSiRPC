@@ -161,9 +161,10 @@ and every other game still gets a card of its own.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-tetris.gif" width="400" alt="The overlay with Tetris DS, moving: nine pieces build up the stack, an I comes down the well for a Tetris, and the board is back where it started; beside it the stored T block, the score, lines and level, and the latest achievement">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-mkds.gif" width="400" alt="The overlay with Mario Kart DS, moving: the racers in order on the left, reshuffling as Mario passes them; the whole of Figure-8 Circuit in the middle as voxel terrain, the camera circling it, with everyone on it and the bridge over the start; the item held, the lap, the cup points and the time on the right, and the FINAL LAP banner">
   <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/overlay-other.svg" width="400" alt="The overlay with any other game: what you're doing in it, its achievements with the latest unlock, and your playtime">
 </p>
-<p align="center"><sub>The overlay window with Tetris DS (a Tetris, on a loop), and the card every other game gets.</sub></p>
+<p align="center"><sub>The overlay window with Tetris DS (a Tetris, on a loop), a Mario Kart DS race, and the card every other game gets.</sub></p>
 
 - **Tetris DS (USA):** in Marathon, Line Clear, VS CPU and Mission the overlay shows
   the board as you play it, the falling piece and where it'll land, your
@@ -173,6 +174,14 @@ and every other game still gets a card of its own.
   mode and level, then the score, lines and the block you're holding
   ("Marathon · Level 5", "Score 24,680 · 42 lines · Holding Z"). The menus
   and the other modes get the game card.
+- **Mario Kart DS (USA):** in Grand Prix, VS and Time Trial races the overlay
+  shows the racers in order, reshuffling as they pass each other, and the
+  whole course as voxel terrain, circled by a broadcast camera, with
+  everyone on it at their real height (under the bridges and all). Beside them
+  are the item you're holding, your lap and the race's time (your points in
+  the cup in a Grand Prix), with the achievements below and a banner for the
+  final lap and the finish. Battle, Missions and the menus get the game card,
+  and Discord keeps the game's rich presence.
 - **Any other game:** its name, box art and your console on Discord, plus
   what you're doing in it when RetroAchievements has a rich presence for it.
   The overlay's card shows the same, with your achievements: progress, the
@@ -284,6 +293,7 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 - [rcheevos](https://github.com/RetroAchievements/rcheevos) (MIT) and
   RetroAchievements' set authors for other games' rich presence;
   [GameTDB](https://www.gametdb.com/) for box art and game titles.
+- [The Spriters Resource](https://www.spriters-resource.com/ds_dsi/mariokartds/) for Mario Kart DS Assets
 
 ## <img src="docs/images/icons/page.svg" width="26" height="26" alt="">&nbsp;License
 

@@ -152,8 +152,8 @@ static const u32 artIcons[SKIN_ICON_COUNT][8] = {
 	{ // achievements
 		P(0x09999990), P(0x99D99999), P(0x90999909), P(0x09999990),
 		P(0x00999900), P(0x00099000), P(0x00099000), P(0x00999900) },
-	{ // reset
-		P(0x00BBB0B0), P(0x0B000BB0), P(0xB000BBB0), P(0xB0000000),
+	{ // reset (a row shorter than the rest, clear of the trophy above it)
+		P(0x00000000), P(0x00BBB0B0), P(0x0B000BB0), P(0xB000BBB0),
 		P(0xB00000B0), P(0x0B000B00), P(0x00BBB000), P(0x00000000) },
 	{ // screenshot
 		P(0x00000000), P(0x0DD00000), P(0xDDDDDDD0), P(0xDDBBBDD0),
@@ -161,9 +161,9 @@ static const u32 artIcons[SKIN_ICON_COUNT][8] = {
 	{ // manual
 		P(0x0DDDD000), P(0x0DEEDD00), P(0x0DDDDDD0), P(0x0DEEEED0),
 		P(0x0DDDDDD0), P(0x0DEEEED0), P(0x0DDDDDD0), P(0x00000000) },
-	{ // RAM dump
-		P(0x000BB000), P(0x000BB000), P(0x000BB000), P(0x0BBBBBB0),
-		P(0x00BBBB00), P(0x000BB000), P(0xE000000E), P(0xEEEEEEEE) },
+	{ // RAM dump: an arrow down
+		P(0x000BB000), P(0x000BB000), P(0x000BB000), P(0x000BB000),
+		P(0x0BBBBBB0), P(0x00BBBB00), P(0x000BB000), P(0x00000000) },
 	{ // options
 		P(0x0E0E0E00), P(0xEEEEEEE0), P(0x0EE0EE00), P(0xEE000EE0),
 		P(0x0EE0EE00), P(0xEEEEEEE0), P(0x0E0E0E00), P(0x00000000) },

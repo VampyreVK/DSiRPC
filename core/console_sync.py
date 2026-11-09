@@ -42,6 +42,14 @@ ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
 
 
+def _set_name(code, data):
+    """A set for the log: its code and its frame lane's ring of samples."""
+    try:
+        return f"{code}: {offline.read_set(data)['ring']}-sample ring"
+    except offline.FormatError:
+        return code
+
+
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="", on_notes=None,
                  saves=None, on_saves=None, on_here=None, updates=None, stats=None):
@@ -200,7 +208,7 @@ class ConsoleSync:
                      'sets': [code for code, _ in sets]}
         logging.info(f"Offline sync with the console at {addr[0]}"
                      + (f" (starting {game})" if game else "") + f": {taken} unlock(s) taken, "
-                     f"{len(sets)} set(s) sent" + (f" ({', '.join(c for c, _ in sets)})" if sets else ""))
+                     f"{len(sets)} set(s) sent" + (f" ({', '.join(_set_name(c, d) for c, d in sets)})" if sets else ""))
 
     @staticmethod
     def _await_hangup(conn):

@@ -59,6 +59,12 @@ class PortInUse(Exception):
     """UDP port 4244 is taken: DSiRPC (or one of its tools) is already running."""
 
 
+def _relearning(engine, code=None):
+    """--clear-learning's first sync, for this game (code) or any."""
+    cl = getattr(engine, "clear_learning", None)
+    return bool(cl) and not getattr(engine, "_relearned", True) and (code is None or cl in ("all", code))
+
+
 class Engine:
     DISCORD_INTERVAL = 5.0
     OVERLAY_INTERVAL = 2.0
@@ -66,7 +72,7 @@ class Engine:
 
     def __init__(self, cfg, file=None, game=None, demo=False, demo_name=None, dsi_ip=None, port=4244,
                  interval=None, client_id=None, dry_run=False, discord=True, check_images=True, ra=True,
-                 blank_ra=False, clear_ra=False):
+                 blank_ra=False, clear_ra=False, clear_learning=None):
         from core.charmap import parse_charmap_txt
         from core.hub import DsiSource, FileSource, StateHub
         from core.ra_game import RaSettings
@@ -84,6 +90,14 @@ class Engine:
         self.clear_ra = clear_ra
         self._cleared = False      # --clear-ra's sync has happened
         self._clearing = False     # this sync is it
+        # --clear-learning ("all" or a game code): what the shadow check learned
+        # is wiped here, and at the console's first sync its notes are thrown
+        # away and those sets sent again
+        self.clear_learning = clear_learning
+        self._relearned = False    # that sync has happened
+        self._ignored_notes = 0
+        if clear_learning:
+            self._wipe_learning()
         # Every unlock DSiRPC has seen, on the console or here, sent to
         # RetroAchievements or not (core/unlocks.py)
         from core.unlocks import UnlockLedger
@@ -361,10 +375,15 @@ class Engine:
                 logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
                 continue
             offline.remember_set(data)  # which achievements the console checks every frame
-            if self._clearing or stamps.get(code) != offline.set_stamp(data):
+            if self._clearing or _relearning(self, code) or stamps.get(code) != offline.set_stamp(data):
                 out.append((code, data))
         if self._clearing:
             logging.info(f"Offline sync: --clear-ra: sending all {len(out)} set(s) again")
+        if _relearning(self):
+            resent = [c for c, _ in out if _relearning(self, c)]
+            logging.info(f"Offline sync: --clear-learning: ignored {self._ignored_notes} shadow note(s) from the "
+                         f"console, re-sent {len(resent)} set(s)" + (f" ({', '.join(resent)})" if resent else ""))
+            self._relearned = True
         return out
 
     def _reconcile(self, link, s):
@@ -390,6 +409,26 @@ class Engine:
         if missing:
             logging.info(f"RetroAchievements: sending {len(missing)} unlock(s) of {s.title} it didn't have yet")
 
+    def _wipe_learning(self):
+        """--clear-learning: ra/cache/frame_needs.json forgets the game's (or
+        every game's) proofs and clean counts, after a backup."""
+        import shutil
+        from core import frame_needs
+        which = "every game's" if self.clear_learning == "all" else f"{self.clear_learning}'s"
+        path = frame_needs.path()
+        if not os.path.exists(path):
+            logging.info(f"--clear-learning: no learned frame needs to wipe ({path} isn't there)")
+            return
+        try:
+            shutil.copyfile(path, path + ".bak")
+            needs = frame_needs.load()
+            gone = frame_needs.wipe(needs, None if self.clear_learning == "all" else self.clear_learning)
+            frame_needs.save(needs)
+            logging.info(f"--clear-learning: wiped {which} learned frame needs ({gone} entr{'y' if gone == 1 else 'ies'}; "
+                         f"backup {path}.bak)")
+        except OSError as e:
+            logging.warning(f"--clear-learning: couldn't wipe {path}: {e}")
+
     def _shadow_notes(self, notes):
         """The console's shadow check's notes ([{'code', 'id', 'proven'}],
         core/offline.py's read_shadow_notes()): which frame lane achievements
@@ -397,6 +436,10 @@ class Engine:
         need the frame lane), and which didn't in a while of their memory
         changing. Kept in ra/cache/frame_needs.json for the next sets."""
         from core import frame_needs, ra_set
+        if _relearning(self):  # --clear-learning: not these
+            drop = [n for n in notes if _relearning(self, n['code'])]
+            self._ignored_notes += len(drop)
+            notes = [n for n in notes if n not in drop]
         needs = frame_needs.load()
         changed = False
         for code in sorted({n['code'] for n in notes}):

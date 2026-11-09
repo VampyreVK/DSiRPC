@@ -198,6 +198,7 @@ With `.venv\Scripts\python.exe` (from the source code) or `python\python.exe`
 | `--dry-run` | Prints the presence instead of sending it to Discord, and sends nothing to RetroAchievements; acts as if nothing were unlocked and leaves the console's waiting unlocks on it |
 | `--blank-ra` | Acts as if your RetroAchievements account had nothing unlocked (every achievement checked, whole sets for the console), still sending unlocks |
 | `--clear-ra` | At the console's first sync, throws its waiting unlocks away (unsent) and sends it every set again |
+| `--clear-learning [CODE]` | Forgets which achievements were found to need checking every frame (every game, or just `CODE`): wipes `ra/cache/frame_needs.json` (backed up as `frame_needs.json.bak`) as DSiRPC starts, and at the console's first sync throws away its shadow check's notes (its unlocks are kept) and sends those sets again |
 | `--no-discord` | Nothing on Discord (for the overlay alone) |
 | `--no-ra` | No RetroAchievements: no achievements, no downloads, nothing sent |
 | `--file ram_dump.bin` | A RAM dump instead of the DSi; add `--game AMCE` for a dump of another game |
@@ -211,7 +212,9 @@ To test achievements without your real progress getting in the way, quit
 DSiRPC in the tray, then run it with `--blank-ra` while you collect test
 unlocks (add `tray` to run it in the tray), and with `--clear-ra` once
 afterwards to put the console back to your real state (add `--blank-ra` to
-give it whole sets instead). The flags combine.
+give it whole sets instead). To test the shadow check's learning from
+scratch, run once with `--clear-learning` (or `--clear-learning ATRE` for one
+game). The flags combine.
 
 The log is `logs\dsirpc.log`. Only one DSiRPC can run at a time, and the
 tools below can't run next to it: they all need UDP port 4244. The overlay's

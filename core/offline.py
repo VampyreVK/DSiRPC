@@ -61,7 +61,9 @@ CODE.DRS (an offline set, version 5), little-endian:
         the header), u16 achievement count (in both programs), u16 flags
         (0), u32 pass lane program size, u32 its state size (the RAM the
         console needs to run it), u32 list size, u32 frame lane program
-        size, u32 shadow pool block size (0: none), 20 bytes 0 (the
+        size, u32 shadow pool block size (0: none), u8 the frame lane's
+        ring: 2 to the power of this many samples, 3 to 8 (8 to 256
+        samples; 0: 16), 19 bytes 0 (the
         console reads the header first, then keeps its notes for
         nds-bootstrap's in-game menu in its RAM copy of bytes 40-63)
     the pass lane's program, then the frame lane's: the achievements,
@@ -132,6 +134,7 @@ the launcher and when it's gone.
 
 import datetime
 import json
+import logging
 import os
 import re
 import struct
@@ -153,7 +156,7 @@ UNLOCK_FILE_SIZE = UNLOCK_SLOT * UNLOCK_SLOTS
 
 SET_MAGIC = b"DRSE"
 SET_VERSION = 5
-SET_HEADER = struct.Struct("<4sHH4sIIHHIIIII20s")
+SET_HEADER = struct.Struct("<4sHH4sIIHHIIIIIB19s")
 POOL_HEADER = struct.Struct("<IIHH")      # (in the pool block, after its program) VBlank budget, busy budget, count, 0
 POOL_ENTRY = struct.Struct("<HHHHHH")     # pass lane index, VBlank weight, busy weight / 16, memory values, first, 0
 SHADOW_RESERVE = 0                        # of FRAME_SAMPLE_CYCLES, kept from the frame lane for a shadow pool
@@ -172,7 +175,9 @@ WATCH_RING_SIZE = 0x800                   # nds-bootstrap's DSIRPC_WATCH_RING_SI
 ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE - WATCH_RING_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE less
                                           # RPCUNLK.BIN's space and the capture's ring (probe_ach.c's
                                           # ACH_SET_SPACE)
-FRAME_SLOTS = 8                           # probe_ach.c's ACH_FRAME_SLOTS
+FRAME_SLOTS = 16                          # probe_ach.c's ACH_FRAME_SLOTS: a set's ring when its header doesn't say
+RING_MIN, RING_MAX = 8, 256               # the frame lane's ring: as many samples (a power of 2) as the memory
+                                          # left over holds, 4 seconds and a bit at most
 PROGRAM_VERSION = 3                       # probe_ach_vm.c's program format
 PROGRAM_HEADER = struct.Struct("<IHHHHI")
 LIST_MAGIC = b"DRMN"
@@ -464,14 +469,17 @@ def read_list(data):
 # where most achievements' values didn't change: those are skipped). A frame
 # where every value changes has to be checked whole; the console checks a
 # sample a part at a time in its idle turns, so that only has to fit
-# FRAME_BUSY_CYCLES, what the ring of FRAME_SLOTS samples can catch up on
-# without dropping one. The costs are fitted to nds-bootstrap's checker on
+# FRAME_BUSY_CYCLES, what the ring of samples can catch up on without
+# dropping one (7 frames' checking; the ring's FRAME_SLOTS are more than
+# that, for the longer busy stretches of a game whose values change on most
+# frames, as Tetris DS's higher levels do). The costs are fitted to nds-bootstrap's checker on
 # tools/arm7_model's ARM7 model (the busy one so it never comes out under
 # what the model measured).
 
 FRAME_SAMPLE_CYCLES = 42000               # about 20 scanlines (a frame has 263, 2,130 cycles each), SHADOW_RESERVE of it the shadow check's
 FRAME_CHECK_CYCLES = 110000               # about 52 scanlines
-FRAME_BUSY_CYCLES = (FRAME_SLOTS - 1) * FRAME_CHECK_CYCLES
+FRAME_BUSY_CYCLES = 7 * FRAME_CHECK_CYCLES   # (fixed, though the ring has FRAME_SLOTS: the rest of it
+                                             # is for longer busy stretches, as Tetris's higher levels have)
 _FLAG = re.compile(r"(?:^|[_S])([RPZCD]):")
 _HITS = re.compile(r"\.\d+\.")
 _DELTA = re.compile(r"(?<![0-9A-Za-z])[dp](?:0x|f[A-Za-z])")
@@ -543,16 +551,19 @@ def split_lanes(todo, proven=(), clean=None):
     return frame, [t for t in todo if t[0] not in chosen]
 
 
-def set_memory(pass_program, frame_program, list_size, pool=b"", pool_program=b""):
+def set_memory(pass_program, frame_program, list_size, pool=b"", pool_program=b"", shadow=True, slots=FRAME_SLOTS):
     """The console RAM a set needs: the file (header, programs, list, the
     shadow pool's block), the pass lane's state, the frame lane's twice and
-    its ring of samples, and the pool program's twice (the shadow check's
-    every-frame copy and its every-few-frames one)."""
+    its ring of slots samples, the frame lane's shadow copy (shadow: the console
+    leaves it out when there's no room for it), and the pool program's
+    twice (the shadow check's every-frame copy and its every-few-frames one)."""
     need = (_align4(SET_HEADER.size + len(pass_program) + len(frame_program) + _align4(list_size) + len(pool)) +
             state_size(pass_program))
     if frame_program:
         n_plain, n_mod, n_ach, _ = program_counts(frame_program)
-        need += 2 * state_size(frame_program) + FRAME_SLOTS * 4 * (n_plain + n_mod)
+        need += 2 * state_size(frame_program) + slots * 4 * (n_plain + n_mod)
+    if frame_program and shadow:
+        n_plain, n_mod, n_ach, _ = program_counts(frame_program)
         # its shadow copy (probe_ach.c: checked from every 8th sample; its VM, state, notes, and its
         # own copy of the sample, so the frame lane never waits for it)
         need += ACHVM_STRUCT + state_size(frame_program) + SHADOW_NOTE_BYTES * n_ach + 4 * (n_plain + n_mod)
@@ -688,14 +699,38 @@ def build_set(raset, code, skip_ids=(), earned=None, proven=(), clean=None):
         frame_program, _ = compile_offline(frame)
     # The list's size doesn't depend on which achievements are checked
     list_size = len(build_list(raset, earned))
+    shadow, slots, moved = True, RING_MIN, 0
     while True:
         program, _ = compile_offline(rest)
         _, _, _, achievements = program_info(program)
-        if not achievements or set_memory(program, frame_program, _align4(list_size)) <= ACH_MEMORY:
+        if not achievements or set_memory(program, frame_program, _align4(list_size), shadow=shadow,
+                                          slots=slots) <= ACH_MEMORY:
             break
-        # too big for the console: leave out the biggest achievement
+        if shadow:
+            # too big for the console: the shadow check's copy goes first (the
+            # console leaves it out when there's no room), never an achievement
+            shadow = False
+            logging.info(f"Offline sets: {code}: no room for the shadow check's copy of the frame lane; "
+                         "the console won't shadow this game")
+            continue
+        if frame:
+            # then frame lane achievements move to the pass lane, the least needed
+            # first (still checked; there they take one state, not two and the ring)
+            rest.append(frame.pop())
+            moved += 1
+            frame_program = compile_offline(frame)[0] if frame else b""
+            continue
+        # still too big: leave out the biggest achievement
         biggest = max(achievements, key=lambda a: a[1] + a[2] * 4)[0]
         rest = [t for t in rest if t[0] != biggest]
+    if moved:
+        logging.info(f"Offline sets: {code}: {moved} frame lane achievement(s) moved to the pass lane to fit the console")
+    # The ring of the frame lane's samples (fitted at RING_MIN): as big as what's
+    # left holds, so the checking can fall that far behind in a busy stretch and
+    # catch up without losing a sample
+    while slots < RING_MAX and frame_program and set_memory(program, frame_program, _align4(list_size), shadow=shadow,
+                                                          slots=slots * 2) <= ACH_MEMORY:
+        slots *= 2
     if len(program) % 4 or len(frame_program) % 4:
         raise FormatError("program size isn't a multiple of 4")
     n_ach = program_info(program)[1] + (program_info(frame_program)[1] if frame_program else 0)
@@ -707,7 +742,7 @@ def build_set(raset, code, skip_ids=(), earned=None, proven=(), clean=None):
     body = program + frame_program + the_list + pool
     header = SET_HEADER.pack(SET_MAGIC, SET_VERSION, SET_HEADER.size, code.encode(), raset.id,
                              zlib.crc32(body) & 0xFFFFFFFF, n_ach, 0, len(program), state_size(program),
-                             len(the_list), len(frame_program), len(pool), b"")
+                             len(the_list), len(frame_program), len(pool), slots.bit_length() - 1, b"")
     return header + body
 
 
@@ -718,13 +753,14 @@ def read_set(data):
     if len(data) < SET_HEADER.size or data[:4] != SET_MAGIC:
         raise FormatError("not an offline set")
     (_, version, hsize, code, game_id, stamp, count, _flags,
-     program_size, state, list_size, frame_size, pool_size, _) = SET_HEADER.unpack_from(data)
+     program_size, state, list_size, frame_size, pool_size, ring, _) = SET_HEADER.unpack_from(data)
     if version not in (3, 4, 5):
         raise FormatError(f"offline set version {version}")
     if version == 3:
         frame_size = 0
     if version < 5:
-        pool_size = 0
+        pool_size, ring = 0, 3
+    ring = (1 << ring) if 3 <= ring <= 8 else FRAME_SLOTS
     total = program_size + frame_size + list_size + pool_size
     body = data[hsize:hsize + total]
     if len(body) != total or zlib.crc32(body) & 0xFFFFFFFF != stamp:
@@ -752,7 +788,7 @@ def read_set(data):
             'achievements': [{'id': aid} for aid in passes + frame],
             'program': program, 'state_size': state, 'frame_program': frame_program,
             'frame': frame, 'pass': passes, 'list': read_list(body[program_size + frame_size:program_size + frame_size + list_size]),
-            'pool': pool, 'pool_program': pool_program, 'pool_info': pool_info}
+            'pool': pool, 'pool_program': pool_program, 'pool_info': pool_info, 'ring': ring}
 
 
 # -- which set the console runs ------------------------------------------------------

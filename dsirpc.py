@@ -78,6 +78,11 @@ def parse_args(argv=None):
     ap.add_argument("--clear-ra", action="store_true",
                     help="at the console's first sync, throw away the unlocks waiting on it (nothing sent) "
                          "and send it every set again")
+    ap.add_argument("--clear-learning", nargs="?", const="all", metavar="CODE",
+                    help="forget which achievements were found to need checking every frame (all games, or "
+                         "just CODE): wipes ra/cache/frame_needs.json (backed up as frame_needs.json.bak), and at "
+                         "the console's first sync throws its shadow check's notes away and sends those sets "
+                         "again, so the console goes back to guessing; its unlocks are kept")
     ap.add_argument("--client-id", help="Discord application ID for every game (instead of dsirpc.cfg's)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
     ap.add_argument("--game", metavar="CODE", help="with --file: the dump's game code, if it isn't Platinum (e.g. AMCE)")
@@ -97,7 +102,8 @@ def _engine_args(args):
     return dict(file=args.file, game=args.game, demo=args.demo, demo_name=args.name,
                 dsi_ip=args.dsi_ip, port=args.port, interval=args.interval,
                 client_id=args.client_id, dry_run=args.dry_run, ra=not args.no_ra,
-                blank_ra=args.blank_ra, clear_ra=args.clear_ra)
+                blank_ra=args.blank_ra, clear_ra=args.clear_ra,
+                clear_learning=args.clear_learning.upper() if args.clear_learning not in (None, "all") else args.clear_learning)
 
 
 def _missing_packages(e):

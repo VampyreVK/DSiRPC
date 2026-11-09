@@ -89,8 +89,11 @@ extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_
 #define ACH_SET_SPACE       (DSIRPC_ACH_SIZE - ACH_UNLOCK_FILE - DSIRPC_WATCH_RING_SIZE) // DSiRPC's offline.ACH_MEMORY
 #define ACH_PENDING         8          // unlocks waiting to be saved (a power of 2)
 #define ACH_VBLANKS_X1000   59826      // VBlanks in 1000 s (59.8261 Hz)
-#define ACH_FRAME_SLOTS     8          // the frame lane's ring of samples (a power of 2;
-                                       // DSiRPC's offline.FRAME_SLOTS)
+#ifndef ACH_FRAME_SLOTS
+#define ACH_FRAME_SLOTS     16         // the frame lane's ring of samples when the set doesn't say (a
+                                       // power of 2, at most 256: ringHead/ringTail are u8; DSiRPC's
+                                       // offline.FRAME_SLOTS)
+#endif
 #define ACH_PUSHED          8          // DSiRPC's unlocks waiting to be marked (a power of 2)
 
 enum { STAGE_OFF, STAGE_CHECKING, STAGE_RUNNING };
@@ -107,7 +110,8 @@ u16 probeAchWaiting = 0;
 static u8 stage = STAGE_OFF;
 static AchVm vm;                       // the pass lane
 static AchVm frameVm, sampleVm;        // the frame lane: checking, sampling
-static u32 *ring;                      // its samples: ACH_FRAME_SLOTS x frameMem values
+static u32 *ring;                      // its samples: frameSlots x frameMem values
+static u16 frameSlots = ACH_FRAME_SLOTS; // (what the set says: 8 to 256, as many as its memory holds)
 static u16 frameMem;                   // memory values in a sample (0: no frame lane)
 static volatile u8 ringHead, ringTail; // the VBlank adds at ringHead, the checking takes from ringTail
 static volatile u8 busy;               // the idle side is part way through a turn of checking
@@ -348,6 +352,7 @@ void ProbeAch_Load(const void *ndsHeader) {
 	u8 *base = (u8 *)DSIRPC_ACH_LOCATION;
 	fileRead((char *)base, &file, 0, ACH_HEADER_SIZE);
 	u32 poolSize = rd32(base + 40); // (version 5: before the menu's anchor goes over bytes 40-63)
+	u8 slots = base[44];            // version 5: the frame lane's ring, 2^3 to 2^8 samples (0: 16)
 	anchorStart(ndsHeader, DSIRPC_MENU_CHECKING);
 
 	// "DRSE", version 2-5, header size 64, game code, RA game id, stamp,
@@ -372,7 +377,8 @@ void ProbeAch_Load(const void *ndsHeader) {
 	u32 frameSize = (version >= 4) ? rd32(base + 36) : 0;
 	const u8 *frameProgram = base + ACH_HEADER_SIZE + programSize;
 	listOffset = ACH_HEADER_SIZE + programSize + frameSize;
-	if (version < 5) poolSize = 0; // (the shadow pool: not used yet)
+	if (version < 5) poolSize = slots = 0; // (the shadow pool: not used yet)
+	frameSlots = (slots >= 3 && slots <= 8) ? 1 << slots : ACH_FRAME_SLOTS;
 	bodySize = programSize + frameSize + listSize + poolSize;
 	u32 stateOffset = (ACH_HEADER_SIZE + bodySize + 3) & ~3u;
 	if (programSize > ACH_SET_SPACE || frameSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE || poolSize > ACH_SET_SPACE ||
@@ -406,14 +412,14 @@ void ProbeAch_Load(const void *ndsHeader) {
 		}
 		AchVm_Load(&sampleVm, frameProgram, frameSize, base + at + need, need, ACH_RAM, ACH_RAM_SIZE);
 		u32 mem = frameVm.nPlain + frameVm.nMod;
-		if (ringAt + ACH_FRAME_SLOTS * 4 * mem > ACH_SET_SPACE) {
+		if (ringAt + frameSlots * 4 * mem > ACH_SET_SPACE) {
 			loadFailed(PROBE_ACH_E_SIZE);
 			return;
 		}
 		ring = (u32 *)(base + ringAt);
 		frameMem = (u16)mem;
 		// the shadow check's copy, when the set left room for it (DSiRPC's set_memory() does)
-		u32 vmSize = (sizeof(AchVm) + 7) & ~7u, shAt = (ringAt + ACH_FRAME_SLOTS * 4 * mem + 7) & ~7u;
+		u32 vmSize = (sizeof(AchVm) + 7) & ~7u, shAt = (ringAt + frameSlots * 4 * mem + 7) & ~7u;
 		if (ACH_SHADOW && shAt + vmSize + need + sizeof(ShAch) * frameVm.nAch + 4 * mem <= ACH_SET_SPACE) {
 			shadowVm = (AchVm *)(base + shAt);
 			AchVm_Load(shadowVm, frameProgram, frameSize, base + shAt + vmSize, need, ACH_RAM, ACH_RAM_SIZE);
@@ -516,7 +522,7 @@ void ProbeAch_MenuClosed(void) {
 void ProbeAch_Sample(void) {
 	if (stage != STAGE_RUNNING || !frameMem) return;
 	u16 start = ACH_REG_VCOUNT & 0x1FF;
-	u8 head = ringHead, next = (head + 1) & (ACH_FRAME_SLOTS - 1);
+	u8 head = ringHead, next = (head + 1) & (frameSlots - 1);
 	if (next == ringTail) { // the checking is that far behind: a gap
 		stats.dropped++;
 		return;
@@ -624,7 +630,7 @@ static void checkTurn(int (*more)(void *ud), void *ud) {
 				shPending = 1;
 			}
 			shSeq++;
-			ringTail = (tail + 1) & (ACH_FRAME_SLOTS - 1);
+			ringTail = (tail + 1) & (frameSlots - 1);
 			stats.frames++;
 		} else if (shPending) { // (no sample waiting: passMore stops it for one)
 			if (AchVm_RunFed(shadowVm, shSample, passMore, shadowTriggered, ud)) {

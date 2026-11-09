@@ -163,6 +163,17 @@ def merge(data, other):
     return new
 
 
+def wipe(data, code=None):
+    """Forgets what was learned: for one game (code), or every game (None).
+    Returns how many entries went (proofs and clean counts)."""
+    gone = 0
+    for part in ("games", "clean"):
+        entries = data.setdefault(part, {})
+        for c in ([code] if code else list(entries)):
+            gone += len(entries.pop(c, {}) or {})
+    return gone
+
+
 def proven(data, code, achievements):
     """The ids, of achievements [{'id', 'memaddr'}] (a set's), with a proof
     made on their MemAddr as it is now."""

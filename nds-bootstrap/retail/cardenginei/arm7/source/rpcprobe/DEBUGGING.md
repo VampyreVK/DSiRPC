@@ -92,6 +92,15 @@ or `RPCPROBE_ACH_IDLE_LINES_PER_FRAME`; with `h=0`, lower
 `RPCPROBE_ACH_LINES_PER_VBLANK`. `RPCPROBE_ACH 0` builds without the
 checker.
 
+The shadow check (`probe_ach.c`) has no report fields of its own: what it
+finds goes to `RPCUNLK.BIN` as notes (slot IDs 0xFFFFFFFE proven,
+0xFFFFFFFD clean), which DSiRPC logs at the next sync ("needs checking
+every frame (the console found)") and keeps in `ra/cache/frame_needs.json`.
+To start its learning over, run DSiRPC once with `--clear-learning` (or
+`--clear-learning CODE`). If `fd` (frames not sampled) goes up with it, the
+frame lane is too big for the game's idle time; building with
+`-DACH_SHADOW=0` turns the shadow check off, to compare.
+
 ## 2. RAM viewer status byte
 
 `probe_hook.c` keeps a one-byte status, `probeStatusByte`, that you can

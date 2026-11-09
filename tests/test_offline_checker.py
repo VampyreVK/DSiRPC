@@ -64,8 +64,8 @@ def _frame_line(mode, f, rng):
     going on around them."""
     if mode == "vblank":            # the swiHalt hook never runs: the VBlank checks
         return "frame 0 0"
-    if mode == "starve":            # the hook alive, but no visits for 100 frames
-        return "frame 1 0" if 1000 <= f < 1100 else f"frame 1 {rng.choice([1, 2])}"
+    if mode == "starve":            # the hook alive, but no visits for 400 frames (longer than the biggest ring)
+        return "frame 1 0" if 1000 <= f < 1400 else f"frame 1 {rng.choice([1, 2])}"
     if mode == "nullwait":          # altReadMethod: no ROM-read callback
         return f"frame 1 {rng.choice([1, 1, 2, 3, 4])} 0 1 1"
     if mode == "unclean":           # every third frame without a write-back
@@ -146,7 +146,7 @@ def test_checker_matches_rcheevos(ach_host, rcheevos, tmp_path, seed, n_ach, mod
     frame_console = [aid for aid in console if aid in frame_ids]
     dropped = sum(int(r["dropped"]) for r in stats)
     if mode == "starve":
-        assert dropped > 0, "100 frames without the idle side must leave gaps"
+        assert dropped > 0, "400 frames without the idle side must leave gaps"
         return
     assert dropped == 0, stats
     # The frame lane unlocks exactly what rcheevos does, in order
@@ -250,6 +250,40 @@ def test_the_frame_lane_never_waits_for_the_shadow(ach_host, ach_host_no_shadow,
     assert frames_on == frames_off and dropped_on == dropped_off and unlocks_on == unlocks_off, runs
     if mode != "starve":
         assert dropped_on == 0
+
+
+def test_a_long_busy_stretch_fits_the_ring(ach_host, rcheevos, tmp_path):
+    """12 frames with no idle time to check in (the console busy, as Tetris
+    DS's higher levels make it), around a T-spin: the ring (as big as the
+    set's memory left over, 16 samples or more) holds them all, so nothing's dropped and the one-frame flag is still
+    caught, in order; a ring of 8 (the set's header asks for it, as DSiRPC
+    does for a set with little room) drops some."""
+    s, data, info, path = _set(tmp_path, 1, 60)
+    assert gen_set.T_SPIN_SINGLE in info["frame"]
+    lines, expected, _ = _play(1, "idle", s, info, path)
+    at = next((f for f, ids in expected if gen_set.T_SPIN_SINGLE in ids), None)
+    assert at is not None, "the game should do a T-spin in this many frames"
+    frame_lines = [i for i, line in enumerate(lines) if line.startswith("frame ")]
+    for f in range(at - 6, at + 6):
+        lines[frame_lines[f]] = "frame 1 0"   # (the hook alive, but no visits)
+    assert offline.read_set(data)["ring"] >= 16
+    small = bytearray(path.read_bytes())
+    small[44] = 3                                # 2^3 samples (the header isn't in the stamp)
+    path8 = tmp_path / "RPCSET_8.BIN"
+    path8.write_bytes(bytes(small))
+    assert offline.read_set(bytes(small))["ring"] == 8
+    runs = {}
+    for name, ls in (("16", lines), ("8", [f"set {path8}" if line == f"set {path}" else line for line in lines])):
+        out = _session(ach_host, ls)
+        console = [int(line.split()[1]) for line in out if line.startswith("T ")]
+        runs[name] = (sum(int(r["dropped"]) for r in _stats(out)), [aid for aid in console if aid in set(info["frame"])])
+    dropped, frame_console = runs["16"]
+    assert dropped == 0 and gen_set.T_SPIN_SINGLE in frame_console
+    k = 0
+    for f, ids in expected:
+        assert set(frame_console[k:k + len(ids)]) == ids, (f, frame_console[k:k + 6], ids)
+        k += len(ids)
+    assert runs["8"][0] > 0, "the ring of 8 should have overflowed"
 
 
 def test_a_full_unlock_file_is_left_alone(ach_host, rcheevos, tmp_path):

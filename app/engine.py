@@ -314,7 +314,7 @@ class Engine:
         started is checked with RetroAchievements first (_reconcile()).
         --clear-ra's sync sends every set. rcheevos builds them
         (core/offline.py's build_set())."""
-        from core import offline, ra_set
+        from core import frame_needs, offline, ra_set
         from core.rcheevos import RcheevosError, RcheevosMissing
         # Each exchange calls this first, then _offline_unlocks()
         self._clearing = self.clear_ra and not self._cleared
@@ -343,8 +343,16 @@ class Engine:
                     for u in unlocks:
                         if u['code'] == code and not earned.get(u['id']):
                             earned[u['id']] = u['when']
+            # the achievements found to need checking every frame go in the frame lane first
+            needs = frame_needs.load()
+            if frame_needs.prune(needs, code, s.achievements):  # (RetroAchievements changed some since)
+                try:
+                    frame_needs.save(needs)
+                except OSError:
+                    pass
+            proven = frame_needs.proven(needs, code, s.playable_achievements)
             try:
-                data = offline.build_set(s, code, set(earned), earned)
+                data = offline.build_set(s, code, set(earned), earned, proven)
             except RcheevosMissing as e:
                 logging.warning(f"Offline sync: no achievement sets for the console: {e}")
                 return out

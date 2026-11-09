@@ -428,7 +428,7 @@ def timing(memaddr):
 
 def frame_costs(n_plain, n_mod, n_ach, n_conds):
     """(sampling, checking) ARM7 cycles a frame for a frame lane this big."""
-    return (246 * n_plain + 545 * n_mod + 150,
+    return (192 * n_plain + 500 * n_mod + 150,
             119 * (n_plain + n_mod) + 350 * n_ach + 1 * n_conds)
 
 
@@ -444,13 +444,16 @@ def _fits_frame(n_plain, n_mod, n_ach, n_conds):
             frame_busy_cost(n_plain, n_mod, n_ach, n_conds) <= FRAME_BUSY_CYCLES)
 
 
-def split_lanes(todo):
+def split_lanes(todo, proven=()):
     """[(id, memaddr)] (all parsing and supported) -> (frame lane, pass
-    lane), the same shape. The frame lane takes the ones that need it
-    (timing() 2 or 3) first, the cheapest first so as many as possible fit,
-    then the rest the same way, while it fits; each one is costed on its own
-    (memory values it shares with ones already in count once if they're
-    plain), then the lane as a whole is checked."""
+    lane), the same shape. The frame lane takes the ones proven to need it
+    first (proven: ids, from core/frame_needs.py), then the ones timing()
+    guesses need it (2 or 3), the cheapest first each time so as many as
+    possible fit, then the rest the same way, while it fits. Each one is tried by
+    compiling the lane with it: the memory values achievements share
+    (rcheevos shares them, AddAddress chains included, and a chain's root
+    often feeds hundreds) count once, as they do on the console. That's a
+    compile per achievement, a tenth of a second for a big set."""
     from .rcheevos import compile_offline
     alone = {}
     for aid, memaddr in todo:
@@ -458,22 +461,15 @@ def split_lanes(todo):
         if left:
             continue
         n_plain, n_mod, n_ach, n_conds = program_counts(program)
-        alone[aid] = (plain_memrefs(program), n_mod, n_conds)
+        alone[aid] = n_conds + 2 * n_mod
+    proven = set(proven)
     order = sorted((t for t in todo if t[0] in alone),
-                   key=lambda t: (timing(t[1]) < 2, alone[t[0]][2] + 2 * alone[t[0]][1], t[0]))
-    frame, plain, n_mod, n_conds = [], set(), 0, 0
+                   key=lambda t: (t[0] not in proven, timing(t[1]) < 2, alone[t[0]], t[0]))
+    frame = []
     for t in order:
-        p, m, c = alone[t[0]]
-        if _fits_frame(len(plain | p), n_mod + m, len(frame) + 1, n_conds + c):
-            frame.append(t)
-            plain |= p
-            n_mod += m
-            n_conds += c
-    while frame:  # (the estimate counts shared modified values more than once, so this is a check)
-        program, _ = compile_offline(frame)
+        program, _ = compile_offline(frame + [t])
         if _fits_frame(*program_counts(program)):
-            break
-        frame.pop()
+            frame.append(t)
     chosen = {t[0] for t in frame}
     return frame, [t for t in todo if t[0] not in chosen]
 
@@ -488,10 +484,11 @@ def set_memory(pass_program, frame_program, list_size):
     return need
 
 
-def build_set(raset, code, skip_ids=(), earned=None):
+def build_set(raset, code, skip_ids=(), earned=None, proven=()):
     """The offline set for a game (bytes), from its RaSet. skip_ids: the
     achievements already unlocked (left out of the programs); earned: {id:
-    Unix time it was earned, or 0} for the in-game menu's list. Needs
+    Unix time it was earned, or 0} for the in-game menu's list; proven: the
+    ids known to need the frame lane (core/frame_needs.py's proven()). Needs
     rcheevos with DSiRPC's compiler (rcheevos.RcheevosMissing otherwise)."""
     from .ra_game import _unreachable
     from .rcheevos import compile_offline
@@ -499,7 +496,7 @@ def build_set(raset, code, skip_ids=(), earned=None):
             if a["id"] not in skip_ids and a["memaddr"] and not _unreachable(a["memaddr"])]
     _, left_out = compile_offline(todo)
     todo = [t for t in todo if t[0] not in left_out]
-    frame, rest = split_lanes(todo)
+    frame, rest = split_lanes(todo, proven)
     frame_program = b""
     if frame:
         frame_program, _ = compile_offline(frame)

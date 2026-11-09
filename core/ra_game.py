@@ -459,6 +459,25 @@ class RaGame:
             a = self.active.pop(aid, None)
             if a is not None:
                 self._unlocked(a, every_frame=True)
+        self._note_frame_needs(self.capture.take_proofs())
+
+    def _note_frame_needs(self, proofs):
+        """{id: (memaddr, why)} from the shadow check: kept in
+        ra/cache/frame_needs.json, so the next set built for the console
+        checks them every frame."""
+        if not proofs or not self.code:
+            return
+        from . import frame_needs
+        try:
+            needs = frame_needs.load(self.ra_dir)
+            new = [aid for aid, (memaddr, _) in proofs.items() if frame_needs.add(needs, self.code, aid, memaddr, "pc")]
+            if new:
+                frame_needs.save(needs, self.ra_dir)
+        except OSError as e:
+            logging.debug(f"frame_needs.json: {e}")
+            return
+        for aid, (_, why) in proofs.items():
+            logging.info(f"RetroAchievements: achievement {aid} needs checking every frame ({why})")
 
     @property
     def capture_due(self):

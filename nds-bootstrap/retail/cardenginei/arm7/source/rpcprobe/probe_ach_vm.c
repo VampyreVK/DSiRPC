@@ -150,6 +150,13 @@ static uint8_t programType(const AchVm *vm, uint32_t i) {
 	return vm->mod[(i - vm->nPlain) * MOD_SIZE + 1];
 }
 
+// memChanged: bit 0 changed in the last update; bits 4-5 the value type.
+// For AchVm_Sample() (set at load): bit 2 a modified memref reads this
+// one's value, bit 1 its delta or prior value too.
+#define MC_HISTORY 2
+#define MC_FEEDS   4
+#define MC_FAST    8   // a modified memref modifiedValue() can work out directly (set at load)
+
 static uint32_t memrefType(const AchVm *vm, uint32_t i) {
 	return vm->memChanged[i] >> 4;
 }
@@ -270,34 +277,36 @@ static uint64_t packedOperand(const AchVm *vm, const uint8_t *op) {
 	return operand(vm, ksr & 0xff, (ksr >> 8) & 0xff, (ksr >> 16) & 0xff, rd32(op + 4));
 }
 
-// rc_get_modified_memref_value
-static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
+// Whether modifiedValue() can work out modified memref i directly (MC_FAST):
+// an accumulation or an indirect read (AddSource, SubSource, AddAddress) of
+// two operands that are each a constant or a memref's value read with a
+// mask (transformSize()'s first case), both numbers. All of that is in the
+// program, so it's worked out once, at load.
+static int fastModified(const AchVm *vm, const uint8_t *m) {
+	uint32_t oper = m[2], ka = rd32(m + 4), kb = rd32(m + 12); // (kind, size, read, 0)
+	if (oper < O_ADD_ACCUMULATOR || ((ka | kb) & 0xfd) || // K_ADDRESS or K_CONST
+	    ((ka >> 8) & 0xff) >= S_BITCOUNT || ((kb >> 8) & 0xff) >= S_BITCOUNT) return 0;
+	return ((ka & 2) || isInt(memrefType(vm, rd32(m + 8)))) && ((kb & 2) || isInt(memrefType(vm, rd32(m + 12 + 4))));
+}
+
+// rc_get_modified_memref_value. fast: fastModified() said so (at load).
+static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m, uint32_t fast) {
 	uint32_t head = rd32(m); // size, type, modifier type, 0
 	uint32_t oper = (head >> 16) & 0xff;
-	// The commonest ones (AddSource, SubSource, AddAddress), directly: an
-	// accumulation or an indirect read of two operands that are each a
-	// constant or a memref's value read with a mask (transformSize()'s
-	// first case), both numbers. What operand() and the two-number case
-	// below work out, without the general code.
-	uint32_t ka = rd32(m + 4), kb = rd32(m + 12); // kind, size, read, 0
-	if (oper >= O_ADD_ACCUMULATOR && !((ka | kb) & 0xfd) && // K_ADDRESS or K_CONST
-	    ((ka >> 8) & 0xff) < S_BITCOUNT && ((kb >> 8) & 0xff) < S_BITCOUNT) {
-		uint32_t a = rd32(m + 8), b = rd32(m + 16), ta = T_UNSIGNED, tb = T_UNSIGNED, z;
+	if (fast) {
+		// what operand() and the two-number case below work out, directly
+		uint32_t ka = rd32(m + 4), kb = rd32(m + 12), a = rd32(m + 8), b = rd32(m + 16), z;
 		if (!(ka & 2)) {
-			ta = memrefType(vm, a);
 			z = (ka >> 8) & 0xff;
 			a = (vm->memValue[a] & masks[z]) >> maskShifts[z];
 		}
 		if (!(kb & 2)) {
-			tb = memrefType(vm, b);
 			z = (kb >> 8) & 0xff;
 			b = (vm->memValue[b] & masks[z]) >> maskShifts[z];
 		}
-		if (isInt(ta) && isInt(tb)) {
-			if (oper == O_ADD_ACCUMULATOR) return a + b;
-			if (oper == O_SUB_ACCUMULATOR) return a - b;
-			return peekSized(vm, a + b, head & 0xff); // O_INDIRECT_READ
-		}
+		if (oper == O_ADD_ACCUMULATOR) return a + b;
+		if (oper == O_SUB_ACCUMULATOR) return a - b;
+		return peekSized(vm, a + b, head & 0xff); // O_INDIRECT_READ
 	}
 	uint64_t pv = packedOperand(vm, m + 4), pm = packedOperand(vm, m + 12);
 	if (isInt(TV_T(pv)) && isInt(TV_T(pm))) {
@@ -364,7 +373,7 @@ static int updateMemrefs(AchVm *vm, int (*keepGoing)(void *ud), void *ud) {
 			uint32_t head = rd32(p + 4); // size, type
 			if (((head >> 8) & 0xff) != T_NONE && setMemref(vm, i, peekSized(vm, rd32(p), head & 0xff)))
 				stamp(vm, i);
-		} else if (setMemref(vm, i, modifiedValue(vm, vm->mod + (i - nPlain) * MOD_SIZE))) {
+		} else if (setMemref(vm, i, modifiedValue(vm, vm->mod + (i - nPlain) * MOD_SIZE, vm->memChanged[i] & MC_FAST))) {
 			stamp(vm, i);
 		}
 		i++;
@@ -811,6 +820,15 @@ int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint3
 	vm->memChanged = (uint8_t *)(vm->achSig + vm->nAch);
 	vm->achState = vm->memChanged + align4(nMem);
 	for (uint32_t i = 0; i < nMem; i++) vm->memChanged[i] = (uint8_t)(programType(vm, i) << 4);
+	for (uint32_t i = 0; i < vm->nMod; i++) {
+		const uint8_t *op = vm->mod + i * MOD_SIZE + 4;
+		if (fastModified(vm, op - 4)) vm->memChanged[vm->nPlain + i] |= MC_FAST;
+		for (int j = 0; j < 2; j++, op += 8) {
+			if (op[0] == K_CONST) continue;
+			int history = op[0] == K_DELTA || op[0] == K_PRIOR || (op[0] == K_RECALL && op[2] != READ_VALUE);
+			vm->memChanged[rd32(op + 4)] |= MC_FEEDS | (history ? MC_HISTORY : 0);
+		}
+	}
 	vm->mapStart = 0;
 	if (mapBytes) {
 		vm->achChange = (uint32_t *)(vm->achState + align4(vm->nAch));
@@ -877,22 +895,29 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 
 // updateMemrefs() all at once, without the time checks or unchanged()'s
 // stamps (nothing is checked on the sampling VM), the values going
-// straight to out
+// straight to out. The sampling VM's own memory values only matter to its
+// modified memrefs, so a value none of them reads just goes to out, and one
+// they only read as it is now is kept without its prior value.
+static inline __attribute__((always_inline)) void sampleOne(AchVm *vm, uint32_t i, uint32_t v, uint32_t *out) {
+	uint32_t c = vm->memChanged[i];
+	if (c & MC_HISTORY) setMemref(vm, i, v);
+	else if (c & MC_FEEDS) vm->memValue[i] = v;
+	out[i] = v;
+}
+
 void AchVm_Sample(AchVm *vm, uint32_t *out) {
 	uint32_t nPlain = vm->nPlain, nMem = nPlain + vm->nMod, i = 0;
 	const uint8_t *p = vm->plain;
 	for (; i < nPlain; i++, p += PLAIN_SIZE) {
 		uint32_t a = rd32(p), size = p[4];
-		if (p[5] != T_NONE) {
-			// (a byte, the commonest size, without peekSized())
-			setMemref(vm, i, (size == S_8 && a < vm->ramSize) ? vm->ram[a] : peekSized(vm, a, size));
+		if (p[5] == T_NONE) {
+			out[i] = 0; // (never read: memValue stays 0)
+			continue;
 		}
-		out[i] = vm->memValue[i];
+		// (a byte, the commonest size, without peekSized())
+		sampleOne(vm, i, (size == S_8 && a < vm->ramSize) ? vm->ram[a] : peekSized(vm, a, size), out);
 	}
-	for (p = vm->mod; i < nMem; i++, p += MOD_SIZE) {
-		setMemref(vm, i, modifiedValue(vm, p));
-		out[i] = vm->memValue[i];
-	}
+	for (p = vm->mod; i < nMem; i++, p += MOD_SIZE) sampleOne(vm, i, modifiedValue(vm, p, vm->memChanged[i] & MC_FAST), out);
 }
 
 int AchVm_RunFed(AchVm *vm, const uint32_t *in, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered,

@@ -10,7 +10,7 @@
  * AddAddress / Remember chains (rcheevos 12 turns them into "modified
  * memrefs"), and the conditions in the order rcheevos evaluates them. Left
  * out: achievements that need floating point (the console's ARM7 has no
- * FPU) and the very rare ones with more than 255 groups or 65535 conditions;
+ * FPU) and the very rare ones with more than 32767 groups or 65535 conditions;
  * dsirpc_offline_supported() says which.
  *
  * Built into the rcheevos library DSiRPC ships, with rcheevos' internal
@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DO_VERSION 2
+#define DO_VERSION 3
 
 typedef struct {
   const void** ptrs;          /* memref pointers, in the order they get indexes */
@@ -290,7 +290,7 @@ static uint32_t count_condsets(rc_trigger_t* t) {
 static int achievement_fits(rc_trigger_t* t) {
   rc_condset_t* cs;
   uint32_t conds = 0;
-  if (count_condsets(t) > 255)
+  if (count_condsets(t) > 0x7FFF)
     return 0;
   for (cs = t->requirement; cs; cs = NULL)
     conds += cs->num_pause_conditions + cs->num_reset_conditions + cs->num_hittarget_conditions +
@@ -404,8 +404,8 @@ RC_EXPORT int RC_CCONV dsirpc_offline_compile(rc_runtime_t* runtime, uint8_t* ou
     if (!usable(t))
       continue;
     put32(&w, runtime->triggers[i].id);
-    put8(&w, (uint8_t)count_condsets(t));
-    put8(&w, t->requirement ? 1 : 0);
+    /* its condsets (bits 0-14) and whether it has a core (bit 15) */
+    put16(&w, (uint16_t)(count_condsets(t) | (t->requirement ? 0x8000 : 0)));
     put16(&w, 0); /* its conditions, filled in below */
     before = n_conds;
     if (t->requirement && !put_condset(&w, &index, t->requirement, &n_conds))

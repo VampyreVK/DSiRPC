@@ -208,7 +208,7 @@ def compile_offline(achievements):
     library (third_party/rcheevos/dsirpc_offline.c) writes out what it
     parsed. Returns (program bytes, [ids left out]): the ones rcheevos can't
     parse, and the ones the console can't run (floating point, or more than
-    255 groups). Raises RcheevosMissing if the library doesn't have the
+    32767 groups). Raises RcheevosMissing if the library doesn't have the
     compiler."""
     lib = library()
     if not hasattr(lib, "dsirpc_offline_compile"):

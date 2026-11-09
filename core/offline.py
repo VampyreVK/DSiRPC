@@ -143,7 +143,7 @@ ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE - WATCH_RING_SIZE   # nds-bootstrap's DS
                                           # RPCUNLK.BIN's space and the capture's ring (probe_ach.c's
                                           # ACH_SET_SPACE)
 FRAME_SLOTS = 8                           # probe_ach.c's ACH_FRAME_SLOTS
-PROGRAM_VERSION = 2                       # probe_ach_vm.c's program format
+PROGRAM_VERSION = 3                       # probe_ach_vm.c's program format
 PROGRAM_HEADER = struct.Struct("<IHHHHI")
 LIST_MAGIC = b"DRMN"
 LIST_VERSION = 1
@@ -264,8 +264,8 @@ def program_info(program):
     pos = PROGRAM_HEADER.size + n_plain * 8 + n_mod * 20
     achievements = []
     for _ in range(n_ach):
-        aid, n_sets, _, conds = struct.unpack_from("<IBBH", program, pos)
-        size = 8 + n_sets * 12 + conds * 16
+        aid, sets, conds = struct.unpack_from("<IHH", program, pos)
+        size = 8 + (sets & 0x7FFF) * 12 + conds * 16   # (bit 15 of sets: "has core")
         achievements.append((aid, size, conds))
         pos += size
     if pos != len(program):
@@ -290,9 +290,28 @@ def plain_memrefs(program):
 
 
 def state_size(program):
-    """The RAM the console needs to run a program (probe_ach_vm.c's checkProgram())."""
-    n_mem, n_ach, n_conds, _ = program_info(program)
-    return n_mem * 8 + n_conds * 4 + n_ach * 4 + _align4(n_mem) + _align4(n_ach)
+    """The RAM the console needs to run a program (probe_ach_vm.c's checkProgram()),
+    the map of which achievements each memory value matters to included."""
+    n_mem, n_ach, n_conds, achievements = program_info(program)
+    size = n_mem * 8 + n_conds * 4 + n_ach * 4 + _align4(n_mem) + _align4(n_ach)
+    if not n_ach:
+        return size
+    # the map: a u32 per achievement, n_mem + 1 u16 and, at most, a u16 for
+    # each memory value a condition names (each operand that isn't a constant)
+    refs = 0
+    _, n_plain, n_mod, _, _, _ = PROGRAM_HEADER.unpack_from(program)
+    pos = PROGRAM_HEADER.size + n_plain * 8 + n_mod * 20
+    for _, ach_size, _ in achievements:
+        p, end = pos + 8, pos + ach_size
+        while p < end:
+            n = sum(struct.unpack_from("<5H", program, p))
+            p += 12
+            for _ in range(n):
+                w = struct.unpack_from("<I", program, p)[0]
+                refs += (((w >> 8) & 0x0F) != 2) + (((w >> 12) & 0x0F) != 2)
+                p += 16
+        pos = end
+    return size + n_ach * 4 + _align4(2 * (n_mem + 1)) + _align4(2 * refs)
 
 
 _PUNCTUATION = str.maketrans({
@@ -380,13 +399,18 @@ def read_list(data):
 # pass lane, checked in passes that each read the memory once. The frame
 # lane costs ARM7 time every frame, so it's picked by need first and then by
 # cost, within FRAME_SAMPLE_CYCLES (the sampling, in the VBlank interrupt)
-# and FRAME_CHECK_CYCLES (the checking, in the game's idle time). The costs
-# are fitted to nds-bootstrap's checker on tools/arm7_model's ARM7 model
-# (an achievement whose values didn't change is skipped, which the check
-# cost assumes for most of them on most frames).
+# and FRAME_CHECK_CYCLES (the checking, in the game's idle time, on a frame
+# where most achievements' values didn't change: those are skipped). A frame
+# where every value changes has to be checked whole; the console checks a
+# sample a part at a time in its idle turns, so that only has to fit
+# FRAME_BUSY_CYCLES, what the ring of FRAME_SLOTS samples can catch up on
+# without dropping one. The costs are fitted to nds-bootstrap's checker on
+# tools/arm7_model's ARM7 model (the busy one so it never comes out under
+# what the model measured).
 
 FRAME_SAMPLE_CYCLES = 40000               # about 19 scanlines (a frame has 263, 2,130 cycles each)
 FRAME_CHECK_CYCLES = 110000               # about 52 scanlines
+FRAME_BUSY_CYCLES = (FRAME_SLOTS - 1) * FRAME_CHECK_CYCLES
 _FLAG = re.compile(r"(?:^|[_S])([RPZCD]):")
 _HITS = re.compile(r"\.\d+\.")
 _DELTA = re.compile(r"(?<![0-9A-Za-z])[dp](?:0x|f[A-Za-z])")
@@ -404,13 +428,20 @@ def timing(memaddr):
 
 def frame_costs(n_plain, n_mod, n_ach, n_conds):
     """(sampling, checking) ARM7 cycles a frame for a frame lane this big."""
-    return (221 * n_plain + 566 * n_mod + 150,
-            112 * (n_plain + n_mod) + 500 * n_ach + 90 * n_conds)
+    return (246 * n_plain + 545 * n_mod + 150,
+            119 * (n_plain + n_mod) + 350 * n_ach + 1 * n_conds)
+
+
+def frame_busy_cost(n_plain, n_mod, n_ach, n_conds):
+    """ARM7 cycles to check a frame lane this big on a frame where every
+    value changed (none skipped)."""
+    return 545 * (n_plain + n_mod) + 2659 * n_ach + 436 * n_conds
 
 
 def _fits_frame(n_plain, n_mod, n_ach, n_conds):
     sample, check = frame_costs(n_plain, n_mod, n_ach, n_conds)
-    return sample <= FRAME_SAMPLE_CYCLES and check <= FRAME_CHECK_CYCLES
+    return (sample <= FRAME_SAMPLE_CYCLES and check <= FRAME_CHECK_CYCLES and
+            frame_busy_cost(n_plain, n_mod, n_ach, n_conds) <= FRAME_BUSY_CYCLES)
 
 
 def split_lanes(todo):

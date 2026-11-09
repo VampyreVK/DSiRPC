@@ -74,7 +74,9 @@ extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_
 #define ACH_LINES_PER_FRAME 263
 #define ACH_HEADER_SIZE     64
 #define ACH_RAM_SIZE        0x400000
-#define ACH_RECENT          8
+#ifndef ACH_RECENT
+#define ACH_RECENT          8   // the latest unlocks kept for the reports (ProbeAch_RecentIds())
+#endif
 
 // RPCUNLK.BIN (DSiRPC's core/offline.py): 256 slots of 16 bytes, slot 0 the
 // header ("DRUL", u16 version 1, u16 slot size, u16 slot count)
@@ -527,7 +529,9 @@ static void checkTurn(int (*more)(void *ud), void *ud) {
 	do {
 		u8 tail = ringTail;
 		if (tail != ringHead) {
-			AchVm_RunSampled(&frameVm, ring + tail * frameMem, onTriggered, 0);
+			// A sample a part at a time, in the turn's budget: its slot stays
+			// taken (ProbeAch_Sample() won't write it) until it's done
+			if (!AchVm_RunFed(&frameVm, ring + tail * frameMem, more, onTriggered, ud)) return;
 			ringTail = (tail + 1) & (ACH_FRAME_SLOTS - 1);
 			stats.frames++;
 		} else if (!vm.nAch) {

@@ -121,7 +121,8 @@ def test_list_round_trip():
 
 @pytest.fixture(scope="module")
 def puzzle_set(rcheevos):
-    s = ra_set.RaSet(gen_set.make_set(150, seed=2))
+    # (big enough that it doesn't all fit in the frame lane)
+    s = ra_set.RaSet(gen_set.make_set(250, seed=2))
     return s, offline.build_set(s, "TEST")
 
 

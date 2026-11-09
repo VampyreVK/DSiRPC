@@ -14,7 +14,8 @@
 #define SKIN_BG_MAP      13
 #define SKIN_UI_MAP      14
 #define SKIN_TILE0       256 // the skin's first tile, after the font's
-#define SKIN_TILE_COUNT  40
+#define SKIN_TILE_COUNT  55
+#define SKIN_SPLIT_SLOTS 6  // Skin_SplitRow()'s rows a screen
 // What the menu backs up of VRAM H when it opens, and puts back when it
 // closes: the tiles it overwrites, and maps 13 to 15 (the rows it uses)
 #define SKIN_VRAM_TILE_BYTES ((SKIN_TILE0 + SKIN_TILE_COUNT) * 32)
@@ -39,7 +40,10 @@ enum {
 	SKIN_ICON_STAR,
 	SKIN_ICON_COUNT
 };
-#define SKIN_ICON_GREEN 0x100 // or'd into an icon: amber drawn in green
+// Or'd into an icon: its amber drawn in another color
+#define SKIN_ICON_GREEN 0x100
+#define SKIN_ICON_RED   0x400
+#define SKIN_ICON_GRAY  0x500
 
 // When the menu opens, after it has backed up VRAM H and the palette and set
 // up BG3: the skin's tiles, palettes and the font (with a shadow), BG1 and
@@ -73,10 +77,18 @@ void Skin_Fill(int y, int h, int tone);
 void Skin_Rule(int y);
 // BG2: a highlighted entry in a list, rows y to y + h - 1
 void Skin_SelectRows(int y, int h);
+// BG2: row y in two halves, the top one in tone up and the bottom one in tone
+// down (Skin_Fill's tones); pip 1 or 2: the top or bottom half is a
+// highlight's (its first two pixels glow). slot: 0 to SKIN_SPLIT_SLOTS - 1,
+// one for each row so drawn on a screen.
+void Skin_SplitRow(int y, int slot, int up, int down, int pip);
 
 // BG3: an icon at column x, row y
 void Skin_Icon(int x, int y, int icon);
 // BG3: a progress bar over columns x to x + w - 1 of row y, num / den full
 void Skin_Progress(int x, int y, int w, u32 num, u32 den);
+// BG3: the launcher's battery over columns x + 1 and x + 2 of row y, level
+// 0-100 full; column x: its bolt while charging (or nothing)
+void Skin_Battery(int x, int y, int level, int charging);
 
 #endif // DSIRPC_SKIN_H

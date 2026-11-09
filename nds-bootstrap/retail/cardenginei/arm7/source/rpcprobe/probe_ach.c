@@ -223,7 +223,7 @@ static void anchorStart(const void *ndsHeader, s16 status) {
 	a->newFrom = 0;
 	a->open = 0;
 	a->list = 0;
-	a->reserved = 0;
+	a->link = 0;
 	a->magic = DSIRPC_MENU_ANCHOR_MAGIC;
 }
 
@@ -454,8 +454,9 @@ void ProbeAch_SetTime(u32 secondsSince2000) {
 	clockKnown = secondsSince2000 != 0;
 }
 
-void ProbeAch_MenuOpened(void) {
+void ProbeAch_MenuOpened(u32 link) {
 	volatile DsirpcMenuAnchor *a = ACH_ANCHOR;
+	a->link = link; // for the menu's Wi-Fi sign
 	a->newFrom = menuSeen; // new to the menu: the unlocks since it last opened
 	menuSeen = unlockSeq;
 	a->open = 1;

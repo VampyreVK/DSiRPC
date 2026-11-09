@@ -85,7 +85,8 @@ int ProbeAch_RecentIds(u32 *ids, int max);
 // Probe_MenuOpened()): the anchor says it's open and which unlocks are new
 // to it (dsirpc_ach_menu.h). ProbeAch_MenuClosed() says it's closed again;
 // ProbeAch_Tick() does that too, since the ticks stop while it's open.
-void ProbeAch_MenuOpened(void);
+// link: what the anchor's `link` says (Wi-Fi status, for the menu's sign).
+void ProbeAch_MenuOpened(u32 link);
 void ProbeAch_MenuClosed(void);
 
 #endif // PROBE_ACH_H

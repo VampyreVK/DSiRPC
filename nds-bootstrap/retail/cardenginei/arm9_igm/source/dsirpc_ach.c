@@ -37,8 +37,9 @@ static void waitFrame(void) {
 #endif
 
 #define ACH_MAX          512    // entries listed (a longer list is cut short)
-#define ACH_ROWS         8      // entries a page, two lines each
-#define ACH_TOP          1      // the first entry's line
+#define ACH_ROWS         5      // entries a page, two lines each, with half a line
+                                // above and below (Skin_SplitRow()): lines 1-16
+#define ACH_TOP          1      // the line over the first entry (its top half the list's)
 #define ACH_RULE         17     // the line between the list and the details
 #define ACH_DETAIL       18     // the highlighted one's text ...
 #define ACH_DETAIL_LINES 5      // ... on lines 18-22
@@ -46,6 +47,7 @@ static void waitFrame(void) {
 #define ACH_COLS         32
 
 static s16 achStatus = ACH_ABSENT;
+static u32 achLink; // the anchor's `link`: 0 if there's none
 static const DsirpcListEntry *achEntries;
 static const char *achText;
 static u16 achCount, achEarned, achNew, achNewFrom;
@@ -214,6 +216,7 @@ static void achLoadList(u32 offset) {
 
 void Ach_Open(int show) {
 	achStatus = ACH_ABSENT;
+	achLink = 0;
 	achEntries = 0;
 	achCount = achEarned = achNew = 0;
 	achPoints = achPointsEarned = 0;
@@ -226,10 +229,25 @@ void Ach_Open(int show) {
 	// over from an earlier game
 	if (a->magic == DSIRPC_MENU_ANCHOR_MAGIC && a->open == 1) {
 		achStatus = a->status;
+		achLink = a->link;
 		achNewFrom = a->newFrom;
 		if (achStatus == DSIRPC_MENU_READY && a->list) achLoadList(a->list);
 	}
 	(*revertMpu)();
+}
+
+// Fewer hellos (~1 a second) than this since DSiRPC last asked for
+// anything: it's still asking
+#define ACH_LINK_HEARD 3
+
+int Ach_LinkIcon(void) {
+	if (!(achLink & 0x80)) return SKIN_ICON_GRAY; // no anchor, or rpcprobe isn't running
+	switch ((achLink >> 4) & 7) { // probe_hook.c's stages
+		case 2:  return ((achLink >> 16) < ACH_LINK_HEARD) ? SKIN_ICON_GREEN : 0; // sending
+		case 3:  return SKIN_ICON_RED;  // the Wi-Fi failed
+		case 5:  return SKIN_ICON_GRAY; // off (the lid closed)
+		default: return 0;              // still connecting
+	}
 }
 
 int Ach_HasScreen(void) {
@@ -325,9 +343,24 @@ static void achDraw(int top, int sel) {
 	int n;
 	clearScreen(false);
 	// A title bar, the entries in stripes (the highlighted one glowing), a
-	// rule, then the highlighted one's text and the keys on the bars' color
+	// rule, then the highlighted one's text and the keys on the bars' color.
+	// Each stripe is half a line taller than its two lines at the top and
+	// at the bottom: the lines between entries are split (Skin_SplitRow()).
 	Skin_Header(0);
-	Skin_Fill(ACH_TOP, ACH_ROWS * 2, 3);
+	Skin_Fill(ACH_TOP, ACH_ROWS * 3 + 1, 3);
+	for (int r = 0; r <= ACH_ROWS; r++) {
+		// the tones of the entries above and below line ACH_TOP + r * 3
+		int up = 3, down = 3, pip = 0;
+		if (r > 0 && top + r - 1 < achCount) {
+			up = (top + r - 1 == sel) ? 2 : ((r - 1) & 1) ? 1 : 3;
+			if (top + r - 1 == sel) pip = 1;
+		}
+		if (r < ACH_ROWS && top + r < achCount) {
+			down = (top + r == sel) ? 2 : (r & 1) ? 1 : 3;
+			if (top + r == sel) pip = 2;
+		}
+		Skin_SplitRow(ACH_TOP + r * 3, r, up, down, pip);
+	}
 	Skin_Rule(ACH_RULE);
 	Skin_Fill(ACH_DETAIL, 24 - ACH_DETAIL, 0);
 
@@ -345,7 +378,7 @@ static void achDraw(int top, int sel) {
 
 	for (int r = 0; r < ACH_ROWS && top + r < achCount; r++) {
 		const DsirpcListEntry *e = &achEntries[achOrder[top + r]];
-		int y = ACH_TOP + r * 2;
+		int y = ACH_TOP + 1 + r * 3;
 		FontPalette pal = !achIsEarned(e) ? FONT_DARKER_GRAY
 		                : (e->flags & DSIRPC_LIST_ON_CONSOLE) ? FONT_LIME : FONT_WHITE;
 		if (top + r == sel) Skin_SelectRows(y, 2);

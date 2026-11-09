@@ -100,6 +100,7 @@ static u16 hoGpio = 0;
 static TwlWifiProbeResult hoProbe = { 0, 0 };
 static int hoLastSend = 0;
 static u16 hoSent = 0;
+static u16 hoHeardAt = 0xF000; // hoSent when DSiRPC last sent us anything (never: far back)
 static const u8 hoBroadcastMac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static u8 hoFrame[224];        // 36 bytes of headers + the hello text (at most 176)
 static u16 hoTickMaxLines = 0; // longest Probe_VBlankTick() since the last hello, in scanlines
@@ -417,7 +418,8 @@ void Probe_MenuOpened(void) {
 #if RPCPROBE_ACH
 	hoAchSeen = probeAchTriggered;
 	ProbeLed_Tick(0, 0); // now, since the VBlank ticks stop while the menu is open
-	ProbeAch_MenuOpened(); // what the menu shows of them (dsirpc_ach_menu.h)
+	// what the menu shows of them (dsirpc_ach_menu.h), and of the Wi-Fi
+	ProbeAch_MenuOpened(probeStatusByte | ((u32)(u16)(hoSent - hoHeardAt) << 16));
 #endif
 }
 
@@ -471,6 +473,7 @@ void Probe_VBlankTick(const void *ndsHeader, int *sdMutex) {
 	// in the frame (and before anything else this tick costs time).
 	if (hoStage == HO_RUN) ProbeWatch_Sample(lineStart);
 	if (hoStage == HO_RUN) sentThisTick = ProbeReq_Service(RPCPROBE_RX53_FRAMES_PER_VBLANK);
+	if (sentThisTick) hoHeardAt = hoSent; // DSiRPC asked for something (or our MAC)
 #endif
 	if (hoStage == HO_LOAD && hoTimer == 0) {
 		gameLoad((const u8 *)ndsHeader);

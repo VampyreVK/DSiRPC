@@ -2,7 +2,8 @@
 // diamonds of DSiRPC's banner drifting behind slate panels with rounded
 // corners, a title bar and a footer, an amber highlight that glows, icons,
 // a progress bar, and text with a drop shadow. The colors are the launcher's
-// (launcher/source/ui.c), with its cyan for the title bar's and footer's edges.
+// (launcher/source/ui.c), and the title bar's and footer's edges and the
+// battery are its top screen's (launcher/source/topscreen.c).
 //
 // It's all tiles in VRAM H, which the menu already maps to the sub screen's
 // backgrounds and backs up (with the maps and the palette) while it's open:
@@ -41,12 +42,22 @@ void mySwiDelay(int delay);
 #define SKIN_PAL      8
 #define SKIN_PAL_ALT  9
 #define SKIN_PAL_GLOW 10
+// Row 11: the bars' edges and the battery, with 1 the launcher's dark edge
+// (ui.c's UI_EDGE: the bars' own dark is the same as 1 on the DS) and E and
+// F its top screen's (its battery's outline, its bar's light edge). Rows 12 and 13:
+// 9 red and 9 gray, for the Wi-Fi sign (SKIN_ICON_RED, SKIN_ICON_GRAY).
+#define SKIN_PAL_BAR  11
+#define SKIN_PAL_LAST 13
 static const u16 skinPal[16] = {
 	RGB(0, 0, 0),       RGB(16, 24, 32),    RGB(20, 28, 38),    RGB(38, 54, 74),
 	RGB(60, 96, 132),   RGB(28, 40, 56),    RGB(40, 104, 112),  RGB(52, 122, 130),
 	RGB(70, 142, 148),  RGB(240, 192, 48),  RGB(88, 208, 128),  RGB(72, 200, 232),
 	RGB(232, 72, 56),   RGB(232, 238, 247), RGB(129, 148, 174), RGB(74, 106, 142),
 };
+#define BAR_EDGE  RGB(14, 20, 27)
+#define BAR_LINES RGB(201, 208, 220)
+#define BAR_HI    RGB(66, 90, 102)
+#define WIFI_GRAY RGB(94, 107, 132)
 // The diamonds when the menu shows an exception
 static const u16 skinPalRed[3] = { RGB(90, 28, 28), RGB(112, 40, 40), RGB(138, 58, 58) };
 // The text's colors (FontPalette, then FONT_AMBER), each with a dark shadow
@@ -72,7 +83,9 @@ enum {
 	T_SOLID,                    // 4: tones 0-3 (Skin_Fill)
 	T_ICON = T_SOLID + 4,       // the icons
 	T_BAR = T_ICON + SKIN_ICON_COUNT, // 5: the progress bar's, drawn by Skin_Progress()
-	T_COUNT = T_BAR + 5
+	T_BATTERY = T_BAR + 5,      // 3: the battery's two and the bolt, drawn by Skin_Battery()
+	T_SPLIT = T_BATTERY + 3,    // 2 a slot: Skin_SplitRow()'s first column and the rest
+	T_COUNT = T_SPLIT + SKIN_SPLIT_SLOTS * 2
 };
 _Static_assert(T_COUNT <= SKIN_TILE_COUNT, "dsirpc_skin.h: SKIN_TILE_COUNT is too small");
 
@@ -105,20 +118,22 @@ static const u32 artChrome[ART_TILES][8] = {
 		P(0x33333510), P(0x55555100), P(0x11111000), P(0x00000000),
 		P(0x00000000), P(0x00000000), P(0x00000000), P(0x00000000) },
 	{ // highlight, left (its 9s glow)
-		P(0x01F44444), P(0x01994444), P(0x01999444), P(0x01999944),
-		P(0x01999944), P(0x01999444), P(0x01994444), P(0x01F44444) },
+		P(0x01F44444), P(0x01F49944), P(0x01F49994), P(0x01F49999),
+		P(0x01F49999), P(0x01F49994), P(0x01F49944), P(0x01F44444) },
 	{ // highlight, right
 		P(0x44444510), P(0x44444510), P(0x44444510), P(0x44444510),
 		P(0x44444510), P(0x44444510), P(0x44444510), P(0x44444510) },
 	{ // highlight in a list, first column (its 9s glow)
 		P(0x99444444), P(0x99444444), P(0x99444444), P(0x99444444),
 		P(0x99444444), P(0x99444444), P(0x99444444), P(0x99444444) },
-	{ // the title bar's last row: 2 more pixels of it, then its edge
-		P(0x22222222), P(0x22222222), P(0xBBBBBBBB), P(0x11111111),
+	{ // the title bar's last row (SKIN_PAL_BAR): 2 more pixels of it, then its
+	  // edge, dark, then light against the diamonds
+		P(0x22222222), P(0x22222222), P(0x11111111), P(0xFFFFFFFF),
 		P(0x00000000), P(0x00000000), P(0x00000000), P(0x00000000) },
-	{ // over the footer: its edge, then 2 pixels of it
+	{ // over the footer (SKIN_PAL_BAR): its edge, light against the diamonds,
+	  // then dark, then 2 pixels of it
 		P(0x00000000), P(0x00000000), P(0x00000000), P(0x00000000),
-		P(0x11111111), P(0xBBBBBBBB), P(0x22222222), P(0x22222222) },
+		P(0xFFFFFFFF), P(0x11111111), P(0x22222222), P(0x22222222) },
 	{ // a rule
 		P(0x22222222), P(0x22222222), P(0x22222222), P(0xFFFFFFFF),
 		P(0x11111111), P(0x22222222), P(0x22222222), P(0x22222222) },
@@ -128,9 +143,9 @@ static const u32 artChrome[ART_TILES][8] = {
 };
 
 static const u32 artIcons[SKIN_ICON_COUNT][8] = {
-	{ // logo: DSiRPC's Wi-Fi arcs
+	{ // logo: DSiRPC's Wi-Fi sign, all in 9 so the link's color (SKIN_ICON_*) is all of it
 		P(0x00999900), P(0x09000090), P(0x90099009), P(0x00900900),
-		P(0x00000000), P(0x000AA000), P(0x000AA000), P(0x00000000) },
+		P(0x00000000), P(0x00099000), P(0x00099000), P(0x00000000) },
 	{ // back to the game
 		P(0x00A00000), P(0x00AA0000), P(0x00AAA000), P(0x00AAAA00),
 		P(0x00AAA000), P(0x00AA0000), P(0x00A00000), P(0x00000000) },
@@ -253,13 +268,18 @@ void Skin_Open(int exception) {
 		BG_PALETTE_SUB[i * 16 + 1] = skinText[i];
 		BG_PALETTE_SUB[i * 16 + 2] = SHADOW;
 	}
-	for (int r = SKIN_PAL; r <= SKIN_PAL_GLOW; r++) {
+	for (int r = SKIN_PAL; r <= SKIN_PAL_LAST; r++) {
 		for (int i = 0; i < 16; i++) BG_PALETTE_SUB[r * 16 + i] = skinPal[i];
 		if (exception) {
 			for (int i = 0; i < 3; i++) BG_PALETTE_SUB[r * 16 + 6 + i] = skinPalRed[i];
 		}
 	}
 	BG_PALETTE_SUB[SKIN_PAL_ALT * 16 + 9] = skinPal[0xA];
+	BG_PALETTE_SUB[SKIN_PAL_BAR * 16 + 1] = BAR_EDGE;
+	BG_PALETTE_SUB[SKIN_PAL_BAR * 16 + 0xE] = BAR_LINES;
+	BG_PALETTE_SUB[SKIN_PAL_BAR * 16 + 0xF] = BAR_HI;
+	BG_PALETTE_SUB[(SKIN_PAL_BAR + 1) * 16 + 9] = skinPal[0xC];
+	BG_PALETTE_SUB[(SKIN_PAL_BAR + 2) * 16 + 9] = WIFI_GRAY;
 	BG_PALETTE_SUB[0] = BG_PALETTE_SUB[SKIN_PAL * 16 + 6];
 
 	// The tiles
@@ -333,6 +353,12 @@ static void skinLine(int y, int t) {
 	skinRow(y, 0, 32, t, t, t, SKIN_PAL);
 }
 
+// A bar's edge: in SKIN_PAL_BAR, for its light line
+static void skinEdge(int y, int t) {
+	u16 *row = UI_MAP + y * 32;
+	for (int i = 0; i < 32; i++) row[i] = ENTRY(t, SKIN_PAL_BAR);
+}
+
 void Skin_Panel(int x, int y, int w, int h) {
 	skinRow(y, x, w, T_PANEL_TL, T_PANEL_T, T_PANEL_TR, SKIN_PAL);
 	for (int r = y + 1; r < y + h - 1; r++) skinRow(r, x, w, T_PANEL_L, T_SOLID + 1, T_PANEL_R, SKIN_PAL);
@@ -362,12 +388,12 @@ void Skin_Header(int edge) {
 	skinLine(0, T_SOLID);
 	if (edge) {
 		skinLine(1, T_SOLID);
-		skinLine(2, T_HEADER_EDGE);
+		skinEdge(2, T_HEADER_EDGE);
 	}
 }
 
 void Skin_Footer(int y) {
-	skinLine(y, T_FOOTER_EDGE);
+	skinEdge(y, T_FOOTER_EDGE);
 	for (int r = y + 1; r < 24; r++) skinLine(r, T_SOLID);
 }
 
@@ -380,7 +406,55 @@ void Skin_Rule(int y) {
 }
 
 void Skin_Icon(int x, int y, int icon) {
-	TEXT_MAP[y * 32 + x] = ENTRY(T_ICON + (icon & 0xFF), (icon & SKIN_ICON_GREEN) ? SKIN_PAL_ALT : SKIN_PAL);
+	TEXT_MAP[y * 32 + x] = ENTRY(T_ICON + (icon & 0xFF), SKIN_PAL + (icon >> 8));
+}
+
+// Pixel x of row y of a tile, palette index c
+static void skinPixel(int t, int x, int y, u32 c) {
+	vu32 *dst = tileAt(t) + y;
+	*dst = (*dst & ~(0xFu << (x * 4))) | (c << (x * 4));
+}
+
+void Skin_SplitRow(int y, int slot, int up, int down, int pip) {
+	int t = T_SPLIT + slot * 2;
+	for (int r = 0; r < 8; r++) {
+		u32 c = solidTone[(r < 4) ? up : down];
+		u32 row = c * 0x11111111u;
+		tileAt(t + 1)[r] = row;
+		if (pip == ((r < 4) ? 1 : 2)) row = (row & ~0xFFu) | 0x99u; // its first 2 pixels glow
+		tileAt(t)[r] = row;
+	}
+	u16 *map = UI_MAP + y * 32;
+	map[0] = ENTRY(t, SKIN_PAL_GLOW);
+	for (int i = 1; i < 32; i++) map[i] = ENTRY(t + 1, SKIN_PAL);
+}
+
+void Skin_Battery(int x, int y, int level, int charging) {
+	// The launcher's: 14x8 with its tip on the right, outlined in E, its
+	// level (8 pixels at most) in A, 9 at 25% or less, C at 10% or less, or
+	// B while charging, and a bolt (9) left of it while charging
+	static const u8 bolt[8] = { 0x1, 0x3, 0x6, 0xF, 0xF, 0x6, 0xC, 0x8 }; // bit 3 the left pixel
+	u32 fill = charging ? 0xB : (level <= 10) ? 0xC : (level <= 25) ? 9 : 0xA;
+	int w = (level * 8 + 99) / 100;
+	for (int r = 0; r < 8; r++) {
+		tileAt(T_BATTERY)[r] = tileAt(T_BATTERY + 1)[r] = tileAt(T_BATTERY + 2)[r] = 0;
+		for (int px = 0; px < 14; px++) {
+			u32 c = 0;
+			if (px < 12 && (r == 0 || r == 7 || px == 0 || px == 11)) c = 0xE;
+			else if (px >= 12 && r >= 2 && r <= 5) c = 0xE;
+			else if (px >= 2 && px < 2 + w && r >= 2 && r <= 5) c = fill;
+			skinPixel(T_BATTERY + (px + 1) / 8, (px + 1) & 7, r, c);
+		}
+		if (charging) {
+			for (int px = 0; px < 4; px++) {
+				if ((bolt[r] >> (3 - px)) & 1) skinPixel(T_BATTERY + 2, 3 + px, r, 9);
+			}
+		}
+	}
+	u16 *row = TEXT_MAP + y * 32 + x;
+	row[0] = charging ? ENTRY(T_BATTERY + 2, SKIN_PAL_BAR) : 0;
+	row[1] = ENTRY(T_BATTERY, SKIN_PAL_BAR);
+	row[2] = ENTRY(T_BATTERY + 1, SKIN_PAL_BAR);
 }
 
 // A tile of the progress bar, `fill` pixels of it green; its first column

@@ -212,30 +212,19 @@ static void printBattery(void) {
 		while (REG_VCOUNT != 191) mySwiDelay(100);
 		while (REG_VCOUNT == 191) mySwiDelay(100);
 	}
+	// DSiRPC: the launcher's battery, in the title bar. Its level in the
+	// launcher's steps (launcher/source/ui.c's ui_battery()).
 	u8 batteryLevel = (u8)sharedAddr[6];
-	const char *bars = "\3\3";
-	if (batteryLevel & BIT(7)) {
-		bars = "\6\6";	// Charging
-	} else {
-		switch (batteryLevel) {
-			default:
-				break;
-			case 0x1:
-			case 0x3:
-				bars = "\3\4";
-				break;
-			case 0x7:
-				bars = "\3\5";
-				break;
-			case 0xB:
-				bars = "\4\5";
-				break;
-			case 0xF:
-				bars = "\5\5";
-				break;
-		}
+	int level;
+	switch (batteryLevel & 0xF) {
+		case 0xF: level = 100; break;
+		case 0xB: level = 75; break;
+		case 0x7: level = 50; break;
+		case 0x3: level = 25; break;
+		case 0x1: level = 10; break;
+		default:  level = (batteryLevel & 0xF) * 100 / 15; break;
 	}
-	print(27, 1, (const unsigned char *)bars, FONT_LIGHT_BLUE, false); // DSiRPC: in the title bar
+	Skin_Battery(27, 1, level, batteryLevel & BIT(7));
 }
 #endif
 
@@ -268,12 +257,12 @@ void clearScreen(bool main) {
 // end) on row 1, or DSiRPC's name
 static void drawTitleBar(int icon, const unsigned char *title) {
 	Skin_Header(1);
-	Skin_Icon(1, 1, icon);
-	if (!title) {
-		print(3, 1, (const unsigned char *)"DSi", FONT_WHITE, false);
-		print(6, 1, (const unsigned char *)"RPC", FONT_LIGHT_BLUE, false);
+	if (!title) { // the Wi-Fi sign in the link's color (Ach_LinkIcon())
+		Skin_Icon(1, 1, icon | Ach_LinkIcon());
+		print(3, 1, (const unsigned char *)"DSiRPC", FONT_WHITE, false);
 		return;
 	}
+	Skin_Icon(1, 1, icon);
 	unsigned char text[20];
 	int n = 0;
 	while (n < 19 && title[n]) { text[n] = title[n]; n++; }
@@ -550,9 +539,7 @@ static const u8 menuIcons[9] = {
 static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 	clearScreen(false);
 
-	drawTitleBar(SKIN_ICON_LOGO, NULL);
-	printChar(26, 1, '\2', FONT_LIGHT_BLUE, false); // the battery's ends (printBattery() fills it)
-	printChar(29, 1, '\7', FONT_LIGHT_BLUE, false);
+	drawTitleBar(SKIN_ICON_LOGO, NULL); // (printTime() and printBattery() add theirs)
 
 	Skin_Panel(1, MENU_TOP - 1, 30, menuItemCount + 2);
 	for(int i = 0; i < menuItemCount; i++) {
@@ -570,7 +557,7 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 	print(1, 22, igmText.ndsBootstrap, FONT_LIGHT_GRAY, false);
 	int titleLen = 0;
 	while (titleLen < (int)sizeof(igmText.ndsBootstrap) && igmText.ndsBootstrap[titleLen]) titleLen++;
-	print(1 + titleLen, 22, (const unsigned char *)"-DSiRPC", FONT_LIGHT_BLUE, false);
+	print(1 + titleLen, 22, (const unsigned char *)"-DSiRPC", FONT_WHITE, false);
 	print(1, 23, igmText.version, FONT_DARKER_GRAY, false);
 }
 #else

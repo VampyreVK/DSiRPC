@@ -15,6 +15,7 @@
 #include "tonccpy.h"
 #ifndef B4DS
 #include "dsirpc_ach.h" // DSiRPC: the game's achievements
+#include "dsirpc_skin.h" // DSiRPC: the menu's look
 #endif
 
 void DC_InvalidateRange(const void *base, u32 size);
@@ -26,8 +27,16 @@ void DC_FlushRange(const void *base, u32 size);
 	#define MAX_BRIGHTNESS 4
 #endif
 
+#ifndef B4DS
+// DSiRPC: the skin's tiles after the font's, and its two maps before the text's
+static u8 bgBak[SKIN_VRAM_TILE_BYTES];
+static u16 bgMapBak[SKIN_VRAM_MAP_BYTES / sizeof(u16)];
+#define BG_MAP_BAK_FROM BG_MAP_RAM_SUB(SKIN_BG_MAP)
+#else
 static u8 bgBak[sizeof(igmText.font) * 4];
 static u16 bgMapBak[0x300];
+#define BG_MAP_BAK_FROM BG_MAP_RAM_SUB(15)
+#endif
 static u16 palBak[256];
 
 // For RAM viewer, global so it's persistant
@@ -64,6 +73,9 @@ const static u8 bmpHeader[] = {
 
 bool swiDelayEnabled = true;
 void mySwiDelay(int delay) {
+	#ifndef B4DS
+	Skin_Poll(); // DSiRPC: the skin's animation, from every wait
+	#endif
 	if (!swiDelayEnabled) {
 		return;
 	}
@@ -182,9 +194,16 @@ static void printTime(void) {
 
 	u8 hours = (u8)sharedAddr[7];
 	u8 minutes = (u8)sharedAddr[8];
+	#ifndef B4DS
+	// DSiRPC: in the title bar
+	printDec(20, 1, hours, 2, FONT_LIGHT_BLUE, false);
+	printChar(22, 1, ':', FONT_LIGHT_BLUE, false);
+	printDec(23, 1, minutes, 2, FONT_LIGHT_BLUE, false);
+	#else
 	printDec(0x20 - 6, 0x18 - timeYpos, hours, 2, FONT_LIGHT_BLUE, false);
 	printChar(0x20 - 4, 0x18 - timeYpos, ':', FONT_LIGHT_BLUE, false);
 	printDec(0x20 - 3, 0x18 - timeYpos, minutes, 2, FONT_LIGHT_BLUE, false);
+	#endif
 }
 
 #ifndef B4DS
@@ -216,7 +235,7 @@ static void printBattery(void) {
 				break;
 		}
 	}
-	print(0x20 - 4, 0x18 - 2, (const unsigned char *)bars, FONT_LIGHT_BLUE, false);
+	print(27, 1, (const unsigned char *)bars, FONT_LIGHT_BLUE, false); // DSiRPC: in the title bar
 }
 #endif
 
@@ -239,12 +258,43 @@ static void waitKeys(u16 keys) {
 
 void clearScreen(bool main) {
 	toncset16(main ? BG_MAP_RAM(15) : BG_MAP_RAM_SUB(15), 0, 0x300);
+	#ifndef B4DS
+	if (!main) Skin_Clear(); // DSiRPC: the panels go too
+	#endif
 }
+
+#ifndef B4DS
+// DSiRPC: the title bar (rows 0-2): an icon and a title (no "..." at its
+// end) on row 1, or DSiRPC's name
+static void drawTitleBar(int icon, const unsigned char *title) {
+	Skin_Header(1);
+	Skin_Icon(1, 1, icon);
+	if (!title) {
+		print(3, 1, (const unsigned char *)"DSi", FONT_WHITE, false);
+		print(6, 1, (const unsigned char *)"RPC", FONT_LIGHT_BLUE, false);
+		return;
+	}
+	unsigned char text[20];
+	int n = 0;
+	while (n < 19 && title[n]) { text[n] = title[n]; n++; }
+	while (n && text[n - 1] == '.') n--;
+	text[n] = 0;
+	print(3, 1, text, FONT_WHITE, false);
+}
+#endif
 
 bool boolQuestion(const unsigned char *str) {
 	clearScreen(false);
 
+	#ifndef B4DS
+	// DSiRPC: on a sheet across the middle
+	drawTitleBar(SKIN_ICON_LOGO, NULL);
+	const int top = 7;
+	const int y = printMsg(top + 1, str, FONT_WHITE, false) + 1;
+	Skin_Sheet(top, y + 3 - top);
+	#else
 	const int y = printMsg(0, str, FONT_WHITE, false) + 1;
+	#endif
 	if (igmText.rtl) {
 		printRight(0x20 - 1, y, igmText.aYes, FONT_WHITE, false);
 		printRight(0x20 - 1, y + 1, igmText.bNo, FONT_WHITE, false);
@@ -311,10 +361,18 @@ static void screenshot(void) {
 
 		clearScreen(false);
 
+		#ifndef B4DS
+		// DSiRPC: in a panel
+		drawTitleBar(SKIN_ICON_CAMERA, igmText.menu[MENU_SCREENSHOT]);
+		Skin_Panel(3, 8, 26, 8);
+		#else
 		toncset16(BG_MAP_RAM_SUB(15) + 0x20 * 9 + 5, '-', 20);
+		#endif
 		printCenter(15, 10, igmText.selectBank, FONT_WHITE, false);
 		printChar(15, 12, 'A' + vramBank, FONT_LIGHT_BLUE, false);
+		#ifdef B4DS
 		toncset16(BG_MAP_RAM_SUB(15) + 0x20 * 13 + 5, '-', 20);
+		#endif
 
 		FontPalette color = igmText.currentScreenshot == 50 ? FONT_RED : FONT_LIME;
 		if(igmText.rtl) {
@@ -408,6 +466,9 @@ static void manual(void) {
 	} while (sharedAddr[4] == 0x4E414D50);
 	#endif
 
+	#ifndef B4DS
+	Skin_Fill(0, 24, 3); // DSiRPC: the pages on a dark panel
+	#endif
 	while (1) {
 		#ifdef B4DS
 		codeJumpWord = ce9->readManual;
@@ -459,6 +520,15 @@ static void manual(void) {
 }
 
 static void drawCursor(u8 line) {
+	#ifndef B4DS
+	// DSiRPC: the panel's highlight on that line, and its gray text white
+	Skin_Select(1, line, 30);
+	u16 *row = BG_MAP_RAM_SUB(15) + line * 0x20;
+	for (int i = 0; i < 0x20; i++) {
+		if ((row[i] >> 12) == FONT_LIGHT_GRAY) row[i] = (row[i] & 0x0FFF) | (FONT_WHITE << 12);
+	}
+	return;
+	#endif
 	u8 pos = igmText.rtl ? 0x1F : 0;
 	// Clear other cursors
 	for(int i = 0; i < 0x18; i++)
@@ -467,6 +537,44 @@ static void drawCursor(u8 line) {
 	// Set cursor on the selected line
 	BG_MAP_RAM_SUB(15)[line * 0x20 + pos] = igmText.rtl ? '<' : '>';
 }
+
+#ifndef B4DS
+// DSiRPC: the main screen's look: its items in a panel from line MENU_TOP,
+// each with an icon (by MenuItem)
+#define MENU_TOP 4
+static const u8 menuIcons[9] = {
+	SKIN_ICON_PLAY, SKIN_ICON_RESET, SKIN_ICON_CAMERA, SKIN_ICON_PAGE, SKIN_ICON_DUMP,
+	SKIN_ICON_GEAR, SKIN_ICON_LENS, SKIN_ICON_POWER, SKIN_ICON_TROPHY
+};
+
+static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
+	clearScreen(false);
+
+	drawTitleBar(SKIN_ICON_LOGO, NULL);
+	printChar(26, 1, '\2', FONT_LIGHT_BLUE, false); // the battery's ends (printBattery() fills it)
+	printChar(29, 1, '\7', FONT_LIGHT_BLUE, false);
+
+	Skin_Panel(1, MENU_TOP - 1, 30, menuItemCount + 2);
+	for(int i = 0; i < menuItemCount; i++) {
+		const unsigned char *label = (menuItems[i] == MENU_ACHIEVEMENTS) ? Ach_Label() : igmText.menu[menuItems[i]];
+		Skin_Icon(igmText.rtl ? 28 : 3, MENU_TOP + i, menuIcons[menuItems[i]]);
+		if(igmText.rtl)
+			printRight(26, MENU_TOP + i, label, FONT_LIGHT_GRAY, false);
+		else
+			print(5, MENU_TOP + i, label, FONT_LIGHT_GRAY, false);
+	}
+
+	Ach_DrawMain(); // new unlocks, and how many are earned
+
+	Skin_Footer(21);
+	print(1, 22, igmText.ndsBootstrap, FONT_LIGHT_GRAY, false);
+	int titleLen = 0;
+	while (titleLen < (int)sizeof(igmText.ndsBootstrap) && igmText.ndsBootstrap[titleLen]) titleLen++;
+	print(1 + titleLen, 22, (const unsigned char *)"-DSiRPC", FONT_LIGHT_BLUE, false);
+	print(1, 23, igmText.version, FONT_DARKER_GRAY, false);
+}
+#else
+#define MENU_TOP 0
 
 static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 	clearScreen(false);
@@ -504,6 +612,7 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 	printChar(0x20 - 2, 0x18 - 2, '\7', FONT_LIGHT_BLUE, false);
 	#endif
 }
+#endif // B4DS
 
 static void optionsMenu(s32 *mainScreen, u32 consoleModel) {
 	OptionsItem optionsItems[8];
@@ -522,9 +631,24 @@ static void optionsMenu(s32 *mainScreen, u32 consoleModel) {
 
 	bool mainScreenChanged = false;
 
+	#ifndef B4DS
+	// DSiRPC: in a panel from line OPT_TOP, the description on a sheet below
+	#define OPT_TOP 4
+	#define OPT_LABEL FONT_LIGHT_GRAY
+	#define OPT_VALUE FONT_LIGHT_BLUE
+	#define OPT_START 3 // a label's first column (right to left: a value's)
+	#define OPT_END 28  // a value's last column (right to left: a label's)
+	#else
+	#define OPT_TOP 0
+	#endif
 	u8 cursorPosition = 0;
 	while(1) {
 		clearScreen(false);
+		#ifndef B4DS
+		drawTitleBar(SKIN_ICON_GEAR, igmText.menu[MENU_OPTIONS]);
+		Skin_Panel(1, OPT_TOP - 1, 30, optionsItemCount + 2);
+		Skin_Sheet(16, 8);
+		#endif
 
 		// Print options
 		for(int i = 0; i < optionsItemCount; i++) {
@@ -557,25 +681,46 @@ static void optionsMenu(s32 *mainScreen, u32 consoleModel) {
 			}
 
 			int digits = optionPercent == 100 ? 3 : (optionPercent >= 10 ? 2 : 1);
+			const int y = OPT_TOP + i;
+			#ifndef B4DS
 			if(igmText.rtl) {
-				printRight(0x1D, i, igmText.optionsLabels[optionsItems[i]], FONT_WHITE, false);
+				printRight(OPT_END, y, igmText.optionsLabels[optionsItems[i]], OPT_LABEL, false);
 				if(isString) {
-					print(0, i, optionValue, FONT_WHITE, false);
+					print(OPT_START, y, optionValue, OPT_VALUE, false);
 				} else {
-					printDec(0, i, optionPercent, digits, FONT_WHITE, false);
-					printChar(0 + digits, i, '%', FONT_WHITE, false);
+					printDec(OPT_START, y, optionPercent, digits, OPT_VALUE, false);
+					printChar(OPT_START + digits, y, '%', OPT_VALUE, false);
 				}
 			} else {
-				print(2, i, igmText.optionsLabels[optionsItems[i]], FONT_WHITE, false);
+				print(OPT_START, y, igmText.optionsLabels[optionsItems[i]], OPT_LABEL, false);
 				if(isString) {
-					printRight(0x1E, i, optionValue, FONT_WHITE, false);
+					printRight(OPT_END, y, optionValue, OPT_VALUE, false);
 				} else {
-					printDec(0x1E - digits, i, optionPercent, digits, FONT_WHITE, false);
-					printChar(0x1E, i, '%', FONT_WHITE, false);
+					printDec(OPT_END - digits, y, optionPercent, digits, OPT_VALUE, false);
+					printChar(OPT_END, y, '%', OPT_VALUE, false);
 				}
 			}
+			#else
+			if(igmText.rtl) {
+				printRight(0x1D, y, igmText.optionsLabels[optionsItems[i]], FONT_WHITE, false);
+				if(isString) {
+					print(0, y, optionValue, FONT_WHITE, false);
+				} else {
+					printDec(0, y, optionPercent, digits, FONT_WHITE, false);
+					printChar(0 + digits, y, '%', FONT_WHITE, false);
+				}
+			} else {
+				print(2, y, igmText.optionsLabels[optionsItems[i]], FONT_WHITE, false);
+				if(isString) {
+					printRight(0x1E, y, optionValue, FONT_WHITE, false);
+				} else {
+					printDec(0x1E - digits, y, optionPercent, digits, FONT_WHITE, false);
+					printChar(0x1E, y, '%', FONT_WHITE, false);
+				}
+			}
+			#endif
 		}
-		drawCursor(cursorPosition);
+		drawCursor(OPT_TOP + cursorPosition);
 		printMsg(17, igmText.optionsDescriptions[cursorPosition], FONT_WHITE, false);
 
 		waitKeys(KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT | KEY_B | KEY_SELECT);
@@ -695,13 +840,20 @@ static void optionsMenu(s32 *mainScreen, u32 consoleModel) {
 static void jumpToAddress(void) {
 	clearScreen(false);
 
+	#ifndef B4DS
+	Skin_Panel(3, 8, 26, 7); // DSiRPC: in a panel, over the RAM viewer
+	#endif
 	u8 cursorPosition = 0;
 	while(1) {
+		#ifdef B4DS
 		toncset16(BG_MAP_RAM_SUB(15) + 0x20 * 9 + 5, '-', 20);
+		#endif
 		printCenter(15, 10, igmText.jumpAddress, FONT_WHITE, false);
 		printHex(11, 12, (u32)address, 4, FONT_LIGHT_BLUE, false);
 		BG_MAP_RAM_SUB(15)[0x20 * 12 + 11 + 6 - cursorPosition] = (BG_MAP_RAM_SUB(15)[0x20 * 12 + 11 + 6 - cursorPosition] & ~(0xF << 12)) | 4 << 12;
+		#ifdef B4DS
 		toncset16(BG_MAP_RAM_SUB(15) + 0x20 * 13 + 5, '-', 20);
+		#endif
 
 		waitKeys(KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT | KEY_A | KEY_B);
 
@@ -721,8 +873,14 @@ static void jumpToAddress(void) {
 	}
 }
 
+#ifndef B4DS
+#define ramViewerClear() do { clearScreen(false); Skin_Header(0); Skin_Fill(1, 23, 3); } while (0) // DSiRPC: on a dark panel
+#else
+#define ramViewerClear() clearScreen(false)
+#endif
+
 static void ramViewer(void) {
-	clearScreen(false);
+	ramViewerClear();
 	(*changeMpu)();
 
 	u8 *arm7RamBuffer = ((u8*)sharedAddr) - 0x74C;
@@ -806,7 +964,7 @@ static void ramViewer(void) {
 					return;
 				} else if(KEYS & KEY_Y) {
 					jumpToAddress();
-					clearScreen(false);
+					ramViewerClear();
 					ramLoaded = false;
 				}else if (KEYS & KEY_SELECT) {
 					arm7Ram = !arm7Ram;
@@ -836,7 +994,7 @@ static void ramViewer(void) {
 				mode = 0;
 			} else if(KEYS & KEY_Y) {
 				jumpToAddress();
-				clearScreen(false);
+				ramViewerClear();
 			}
 		} else if(mode == 2) {
 			if (KEYS & KEY_UP) {
@@ -916,7 +1074,7 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	REG_BLDALPHA_SUB = 0; // Register is write only, can't back up
 	REG_BLDY_SUB = 0; // Register is write only, can't back up
 
-	tonccpy(bgMapBak, BG_MAP_RAM_SUB(15), sizeof(bgMapBak));	// Backup BG_MAP_RAM
+	tonccpy(bgMapBak, BG_MAP_BAK_FROM, sizeof(bgMapBak));	// Backup BG_MAP_RAM
 	clearScreen(false);
 
 	tonccpy(palBak, BG_PALETTE_SUB, sizeof(palBak));	// Backup the palette
@@ -925,13 +1083,17 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		BG_PALETTE_SUB[i * 0x10 + 1] = igmPal[i];
 	}
 
-	tonccpy(bgBak, BG_GFX_SUB, sizeof(igmText.font) * 4);	// Backup the original graphics
+	tonccpy(bgBak, BG_GFX_SUB, sizeof(bgBak));	// Backup the original graphics
+	#ifndef B4DS
+	Skin_Open(exception); // DSiRPC: the font (with a shadow), the skin's tiles, colors and backgrounds
+	#else
 	for(int i = 0; i < sizeof(igmText.font); i++) {	// Load font from 1bpp to 4bpp
 		u8 val = igmText.font[i];
 		BG_GFX_SUB[i * 2]     = (val & 1) | ((val & 2) << 3) | ((val & 4) << 6) | ((val & 8) << 9);
 		val >>= 4;
 		BG_GFX_SUB[i * 2 + 1] = (val & 1) | ((val & 2) << 3) | ((val & 4) << 6) | ((val & 8) << 9);
 	}
+	#endif
 
 	// Let ARM7 know the menu loaded
 	sharedAddr[5] = 0x59444552; // 'REDY'
@@ -961,7 +1123,12 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 
 	// Wait for keys to be released
 	drawMainMenu(menuItems, menuItemCount);
-	drawCursor(0);
+	drawCursor(MENU_TOP);
+	#ifndef B4DS
+	printTime();
+	printBattery();
+	Skin_FadeIn(); // DSiRPC: the menu fades in
+	#endif
 	do {
 		printTime();
 		#ifndef B4DS
@@ -974,7 +1141,7 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	u8 cursorPosition = 0;
 	while (sharedAddr[4] == 0x554E454D) {
 		drawMainMenu(menuItems, menuItemCount);
-		drawCursor(cursorPosition);
+		drawCursor(MENU_TOP + cursorPosition);
 		printTime();
 #ifndef B4DS
 		printBattery();
@@ -1076,9 +1243,12 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		} */
 	}
 
-	tonccpy(BG_MAP_RAM_SUB(15), bgMapBak, sizeof(bgMapBak));	// Restore BG_MAP_RAM
+	#ifndef B4DS
+	Skin_Close();
+	#endif
+	tonccpy(BG_MAP_BAK_FROM, bgMapBak, sizeof(bgMapBak));	// Restore BG_MAP_RAM
 	tonccpy(BG_PALETTE_SUB, palBak, sizeof(palBak));	// Restore the palette
-	tonccpy(BG_GFX_SUB, bgBak, sizeof(igmText.font) * 4);	// Restore the original graphics
+	tonccpy(BG_GFX_SUB, bgBak, sizeof(bgBak));	// Restore the original graphics
 
 	*(vu16*)0x0400106C = masterBright;
 

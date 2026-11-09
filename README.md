@@ -258,15 +258,11 @@ is a modified nds-bootstrap (GPLv3) and the launcher, built with BlocksDS.
 
 ## <img src="docs/images/icons/flag.svg" width="26" height="26" alt="">&nbsp;Roadmap
 
-- [ ] Full presence for more games and versions (Mario Kart DS is on my radar currently), and ordinary trainers'
-      names in Black and White's battles.
+- [ ] Full presence for more games and versions, and ordinary trainers' names in Black and White's battles.
 - [ ] Tetris DS's Push, Catch, Puzzle and Touch modes in the overlay.
-- [ ] Location artwork for the large Discord RPC image, and more overworld states (running,
-      biking, surfing) in Platinum. Leads are in [docs/research.md](docs/research.md).
-- [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode,
-      browser-source panels for OBS.
-- [ ] Handle WPA2 group-key renewal in game, if a router ever disconnects
-      the console on a schedule.
+- [ ] Location artwork for the large Discord RPC image in Pokemon games, and more overworld states (running, biking, surfing) in Platinum. Leads are in [docs/research.md](docs/research.md).
+- [ ] More for the overlay: encounter and shiny counters, a Nuzlocke mode, browser-source panels for OBS.
+- [ ] Handle WPA2 group-key renewal in game, if a router ever disconnects the console on a schedule. (Likely too large a change)
 
 ## <img src="docs/images/icons/heart.svg" width="26" height="26" alt="">&nbsp;Credits
 

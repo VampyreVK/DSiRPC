@@ -37,6 +37,8 @@ typedef struct {
 
 // Where AchVm_Run() is inside an achievement, so it can stop after any
 // condition and carry on next time
+typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
+
 typedef struct {
 	AchVm_Eval ev;
 	const uint8_t *cs;          // the condset being checked
@@ -75,6 +77,8 @@ typedef struct {
 	uint16_t *mapList;
 	uint32_t *achChange;
 	uint32_t updates;           // memref updates so far, plus 2
+	AchVm_Triggered onReset;    // called when a ResetIf resets an achievement that had hits
+	                            // (rcheevos' RESET event), or 0; set after AchVm_Load()
 
 	// Main RAM as RetroAchievements addresses it (0 = 0x02000000 on the DS);
 	// reads at ramSize or past it are 0, like DSiRPC's own reads.
@@ -105,8 +109,7 @@ int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint3
 // no achievements).
 uint32_t AchVm_StateSize(const void *program, uint32_t size);
 
-// Called for each achievement that triggers.
-typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
+// AchVm_Triggered: called for each achievement that triggers (above).
 
 // Runs a pass: reads every memory value (rcheevos' memref update), then
 // checks achievements in order. Asks keepGoing(ud) every 8 values or

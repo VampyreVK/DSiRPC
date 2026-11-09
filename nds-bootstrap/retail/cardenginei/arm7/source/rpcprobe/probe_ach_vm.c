@@ -710,6 +710,7 @@ static int runAchievement(AchVm *vm, AchVm_Triggered onTriggered, int (*keepGoin
 	if (ev->wasReset) {
 		for (i = 0; i < nConds; i++) hits[i] = 0;
 		if (st & HAD_HITS) { // rcheevos reports RESET, the state doesn't change
+			if (vm->onReset) vm->onReset(rd32(a), ud);
 			now = st & 3;
 			goto done;
 		}
@@ -928,9 +929,11 @@ int AchVm_RunFed(AchVm *vm, const uint32_t *in, int (*keepGoing)(void *ud), AchV
 	return done || !vm->nAch;
 }
 
+#ifndef ARM7 // (the console uses AchVm_RunFed())
 void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud) {
 	AchVm_RunFed(vm, in, 0, onTriggered, ud);
 }
+#endif
 
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i) {
 	const uint8_t *a = vm->achStart;

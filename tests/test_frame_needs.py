@@ -132,3 +132,60 @@ def test_proven_ones_go_in_the_frame_lane_first(big_set):
     info = offline.read_set(offline.build_set(s, "TEST", proven=picked))
     assert set(picked) <= set(info["frame"])
     assert set(info["frame"]) | set(info["pass"]) == {a["id"] for a in s.playable_achievements}
+
+
+def test_shadow_notes_ride_in_the_unlock_file():
+    data = bytearray(offline.empty_unlock_file())
+    slots = [offline.unlock_slot(11, "TEST", 5000, 1),
+             offline.shadow_slot(offline.PROVEN_ID, 21, "TEST"),
+             offline.unlock_slot(12, "TEST", 5001, 2),
+             offline.shadow_slot(offline.CLEAN_ID, 22, "TEST"),
+             offline.shadow_slot(offline.CLEAN_ID, 21, "TEST"),     # (proven wins)
+             offline.unlock_slot(offline.PLAYTIME_ID, "TEST", 60, 6)]
+    for i, slot in enumerate(slots, 1):
+        data[i * offline.UNLOCK_SLOT:(i + 1) * offline.UNLOCK_SLOT] = slot
+    bad = bytearray(offline.shadow_slot(offline.PROVEN_ID, 23, "TEST"))
+    bad[9] ^= 1                                                    # a half-written note: left out
+    data[7 * offline.UNLOCK_SLOT:8 * offline.UNLOCK_SLOT] = bad
+    data = bytes(data)
+    assert [u["id"] for u in offline.read_unlocks(data, now=10 ** 9)] == [11, 12]
+    assert offline.count_unlocks(data) == 2
+    assert offline.count_slots(data) == 5          # what the launcher counts: unlocks and notes, not the playtime
+    assert offline.read_shadow_notes(data) == [{"code": "TEST", "id": 21, "proven": True},
+                                               {"code": "TEST", "id": 22, "proven": False}]
+
+
+def test_clean_sessions_count_and_merge():
+    a = frame_needs.empty()
+    assert frame_needs.add_clean(a, "TEST", 5, "m5") == 1
+    assert frame_needs.add_clean(a, "TEST", 5, "m5") == 2
+    frame_needs.add_clean(a, "TEST", 6, "m6")
+    assert frame_needs.clean_counts(a, "TEST", [{"id": 5, "memaddr": "m5"}, {"id": 6, "memaddr": "m6x"}]) == {5: 2}
+    b = frame_needs.empty()
+    for _ in range(3):
+        frame_needs.add_clean(b, "TEST", 6, "m6")
+    frame_needs.add_clean(b, "TEST", 5, "m5")
+    frame_needs.merge(a, b)
+    assert frame_needs.clean_counts(a, "TEST", [{"id": 5, "memaddr": "m5"}, {"id": 6, "memaddr": "m6"}]) == {5: 2, 6: 3}
+    assert frame_needs.prune(a, "TEST", [{"id": 6, "memaddr": "changed"}]) == 1
+    assert frame_needs.clean_counts(a, "TEST", [{"id": 6, "memaddr": "m6"}]) == {}
+
+
+def test_clean_frame_lane_ones_give_their_place_after_enough_sessions(big_set, monkeypatch):
+    s, todo = big_set
+    monkeypatch.setattr(offline, "FRAME_SAMPLE_CYCLES", 15000)   # (a frame lane too small for all the risky ones)
+    frame, rest = offline.split_lanes(todo)
+    risky = [t[0] for t in frame if offline.timing(t[1]) >= 2]
+    waiting = [t[0] for t in rest if offline.timing(t[1]) >= 2]
+    assert risky and waiting, "the set should have risky ones in both lanes"
+    # once clean isn't enough: nothing changes
+    once = {aid: offline.CLEAN_SESSIONS - 1 for aid in risky}
+    assert offline.split_lanes(todo, clean=once)[0] == frame
+    # clean in enough sessions: untested risky ones go first
+    enough = {aid: offline.CLEAN_SESSIONS for aid in risky}
+    frame2, _ = offline.split_lanes(todo, clean=enough)
+    assert set(waiting) & {t[0] for t in frame2}
+    # but a proven one never gives its place
+    keep = risky[0]
+    frame3, _ = offline.split_lanes(todo, proven=[keep], clean=enough)
+    assert keep in {t[0] for t in frame3}

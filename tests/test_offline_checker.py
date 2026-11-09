@@ -193,6 +193,65 @@ def test_saved_unlocks_read_back_and_stay_unlocked(ach_host, rcheevos, tmp_path)
     assert not set(again) & set(console)
 
 
+def test_the_shadow_check_notes_what_it_finds(ach_host, rcheevos, tmp_path):
+    """The frame lane checked again from every 8th sample: the ones that come
+    out differently (the T-spin's one-frame flag) are noted proven, ones
+    whose memory changed a while with no difference clean, each once, in
+    RPCUNLK.BIN beside the unlocks, which read back as before."""
+    s, data, info, path = _set(tmp_path, 1, 60)
+    dump = tmp_path / "RPCUNLK.BIN"
+    lines, expected, _ = _play(1, "idle", s, info, path, every_frame=["save"])
+    out = _session(ach_host, lines + ["save", f"dump {dump}"])
+    console = [int(line.split()[1]) for line in out if line.startswith("T ")]
+    raw = dump.read_bytes()
+    notes = offline.read_shadow_notes(raw)
+    frame_ids = set(info["frame"])
+    assert notes and {n["id"] for n in notes} <= frame_ids
+    proven = {n["id"] for n in notes if n["proven"]}
+    if gen_set.T_SPIN_SINGLE in console:
+        assert gen_set.T_SPIN_SINGLE in proven
+    assert any(not n["proven"] for n in notes), "some should come out clean"
+    unlocks = offline.read_unlocks(raw, now=CLOCK.timestamp() + 86400)
+    assert sorted(u["id"] for u in unlocks) == sorted(console)
+    assert [u["seq"] for u in sorted(unlocks, key=lambda u: u["seq"])] == list(range(1, len(console) + 1))
+    assert offline.count_slots(raw) == len(console) + len(notes)
+
+
+@pytest.fixture(scope="module")
+def ach_host_no_shadow(cc, tmp_path_factory):
+    """ach_host without the shadow check (ACH_SHADOW 0), to compare."""
+    out = tmp_path_factory.mktemp("ach_ns")
+    exe = str(out / "ach_host")
+    here = os.path.join(C_DIR, "ach")
+    cbuild.build(exe, [os.path.join(here, "ach_host.c"), os.path.join(RPCPROBE, "probe_ach.c"),
+                       os.path.join(RPCPROBE, "probe_ach_vm.c")],
+                 flags=["-I", here, "-I", os.path.join(C_DIR, "stubs"), "-I", RPCPROBE, "-I", COMMON_INCLUDE,
+                        "-include", os.path.join(here, "prelude.h"), "-DACH_SHADOW=0",
+                        "-DACH_REG_VCOUNT=hostVcount()", "-DACH_RAM=hostRam", "-DACH_RTC_READ(t)=hostRtc(t)"])
+    return exe
+
+
+@pytest.mark.parametrize("mode", ["idle", "vblank", "starve", "nullwait", "unclean"])
+def test_the_frame_lane_never_waits_for_the_shadow(ach_host, ach_host_no_shadow, rcheevos, tmp_path, mode):
+    """The shadow check only runs while no sample waits (on its own copy of
+    one), so with it or without it the frame lane checks the same samples,
+    drops the same ones (none but in the starved case) and unlocks the same,
+    in the same order, on the biggest puzzle set."""
+    s, data, info, path = _set(tmp_path, 2, 300)
+    lines, expected, _ = _play(2, mode, s, info, path)
+    runs = []
+    for exe in (ach_host, ach_host_no_shadow):
+        out = _session(exe, lines)
+        stats = _stats(out)
+        frame_unlocks = [int(line.split()[1]) for line in out if line.startswith("T ") and
+                         int(line.split()[1]) in set(info["frame"])]
+        runs.append((sum(int(r["frames"]) for r in stats), sum(int(r["dropped"]) for r in stats), frame_unlocks))
+    (frames_on, dropped_on, unlocks_on), (frames_off, dropped_off, unlocks_off) = runs
+    assert frames_on == frames_off and dropped_on == dropped_off and unlocks_on == unlocks_off, runs
+    if mode != "starve":
+        assert dropped_on == 0
+
+
 def test_a_full_unlock_file_is_left_alone(ach_host, rcheevos, tmp_path):
     """RPCUNLK.BIN with all 255 slots taken (DSiRPC hasn't had it for a
     long while): new unlocks still unlock in the game, but aren't saved,

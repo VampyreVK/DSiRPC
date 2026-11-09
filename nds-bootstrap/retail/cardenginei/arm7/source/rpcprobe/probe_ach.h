@@ -17,7 +17,7 @@
 
 // What probeAchLoaded says when it isn't the number of achievements
 #define PROBE_ACH_NONE       0   // no RPCSET.BIN (no set, or not started from the launcher)
-#define PROBE_ACH_E_HEADER  -1   // RPCSET.BIN isn't a version 2, 3 or 4 set
+#define PROBE_ACH_E_HEADER  -1   // RPCSET.BIN isn't a version 2, 3, 4 or 5 set
 #define PROBE_ACH_E_GAME    -2   // it's another game's set
 #define PROBE_ACH_E_SIZE    -3   // too big for the memory set aside for it
 #define PROBE_ACH_E_PROGRAM -4   // a program doesn't add up

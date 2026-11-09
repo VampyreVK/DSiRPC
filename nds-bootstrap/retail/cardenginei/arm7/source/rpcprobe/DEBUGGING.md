@@ -64,7 +64,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 
 | Field | Meaning |
 |---|---|
-| `n` | Achievements the checker runs (both lanes). Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2, 3 or 4 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 250 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into and the capture's 2 KB ring), `-4` a program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `n` | Achievements the checker runs (both lanes). Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2, 3, 4 or 5 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 250 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into and the capture's 2 KB ring), `-4` a program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
 | `p` | Passes over the pass lane since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
 | `l` | The most scanlines it used in one VBlank since the last report. With `h=1`, that's the frame lane's sampling (DSiRPC sizes it to about 19 at most); with `h=0`, the sampling plus its checking (`RPCPROBE_ACH_LINES_PER_VBLANK` is that budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |

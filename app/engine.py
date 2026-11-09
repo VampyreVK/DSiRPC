@@ -145,7 +145,7 @@ class Engine:
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
                                             saves=self._save_store, on_saves=self._on_saves,
                                             on_here=self._launcher_here, updates=self._console_files,
-                                            stats=self._console_stats)
+                                            stats=self._console_stats, on_notes=self._shadow_notes)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
         self._console_update = None    # the console's files for its updates (core/console_update.py)
 
@@ -351,8 +351,9 @@ class Engine:
                 except OSError:
                     pass
             proven = frame_needs.proven(needs, code, s.playable_achievements)
+            clean = frame_needs.clean_counts(needs, code, s.playable_achievements)
             try:
-                data = offline.build_set(s, code, set(earned), earned, proven)
+                data = offline.build_set(s, code, set(earned), earned, proven, clean)
             except RcheevosMissing as e:
                 logging.warning(f"Offline sync: no achievement sets for the console: {e}")
                 return out
@@ -388,6 +389,33 @@ class Engine:
             link.award_offline(aid, when or int(time.time()), s.title, s.id)
         if missing:
             logging.info(f"RetroAchievements: sending {len(missing)} unlock(s) of {s.title} it didn't have yet")
+
+    def _shadow_notes(self, notes):
+        """The console's shadow check's notes ([{'code', 'id', 'proven'}],
+        core/offline.py's read_shadow_notes()): which frame lane achievements
+        came out differently checked every frame and every few frames (they
+        need the frame lane), and which didn't in a while of their memory
+        changing. Kept in ra/cache/frame_needs.json for the next sets."""
+        from core import frame_needs, ra_set
+        needs = frame_needs.load()
+        changed = False
+        for code in sorted({n['code'] for n in notes}):
+            s = ra_set.for_game(code)
+            memaddr = {a['id']: a['memaddr'] for a in s.achievements} if s else {}
+            for n in notes:
+                if n['code'] != code or n['id'] not in memaddr:
+                    continue
+                if n['proven']:
+                    if frame_needs.add(needs, code, n['id'], memaddr[n['id']], "console"):
+                        logging.info(f"Offline sync: {code}: achievement {n['id']} needs checking every frame (the console found)")
+                else:
+                    frame_needs.add_clean(needs, code, n['id'], memaddr[n['id']])
+                changed = True
+        if changed:
+            try:
+                frame_needs.save(needs)
+            except OSError as e:
+                logging.warning(f"Offline sync: couldn't save frame_needs.json: {e}")
 
     def _offline_unlocks(self, unlocks):
         """Unlocks from offline play: sent to RetroAchievements like any
@@ -562,7 +590,7 @@ class Engine:
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
                           saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates,
-                          stats=old.stats)
+                          stats=old.stats, on_notes=old.on_notes)
         try:
             new.start()
         except OSError as e:

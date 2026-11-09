@@ -16,7 +16,13 @@ The file (JSON, version 1):
 
     {"version": 1,
      "games": {"CPUE": {"<achievement id>:<MemAddr hash>": {"when": <Unix time>,
-                                                          "by": ["pc", "console"]}}}}
+                                                          "by": ["pc", "console"]}}},
+     "clean": {"CPUE": {"<achievement id>:<MemAddr hash>": <sessions>}}}
+
+"clean" counts the sessions the console's shadow check watched an
+achievement a while (its memory changing) and saw no difference. That's
+never final: it only lowers the achievement's place in the frame lane's
+order (core/offline.py's CLEAN_SESSIONS), and a proof always wins.
 
 The hash is the CRC-32 of the achievement's MemAddr (8 hex digits), so a
 proof only counts for the logic it was made on: when RetroAchievements
@@ -52,7 +58,7 @@ def path(ra_dir=None):
 
 
 def empty():
-    return {"version": VERSION, "games": {}}
+    return {"version": VERSION, "games": {}, "clean": {}}
 
 
 def _clean(data):
@@ -71,6 +77,14 @@ def _clean(data):
             by = [s for s in v.get("by", []) if s in SOURCES] or ["pc"]
             when = v.get("when") if isinstance(v.get("when"), (int, float)) else 0
             out["games"].setdefault(code, {})[f"{int(aid)}:{h.upper()}"] = {"when": int(when), "by": sorted(set(by))}
+    clean = data.get("clean")
+    for code, entries in (clean.items() if isinstance(clean, dict) else ()):
+        if not isinstance(code, str) or not isinstance(entries, dict):
+            continue
+        for k, v in entries.items():
+            aid, _, h = str(k).partition(":")
+            if aid.isdigit() and len(h) == 8 and isinstance(v, int) and v > 0:
+                out["clean"].setdefault(code, {})[f"{int(aid)}:{h.upper()}"] = v
     return out
 
 
@@ -106,11 +120,38 @@ def add(data, code, aid, memaddr, source="pc", when=None):
     return False
 
 
+def add_clean(data, code, aid, memaddr):
+    """Notes a session the console's shadow check found no difference for
+    an achievement. Returns its count now."""
+    entries = data.setdefault("clean", {}).setdefault(code, {})
+    k = key(aid, memaddr)
+    entries[k] = entries.get(k, 0) + 1
+    return entries[k]
+
+
+def clean_counts(data, code, achievements):
+    """{id: sessions} of achievements [{'id', 'memaddr'}] found clean (on
+    their MemAddr as it is now)."""
+    entries = data.get("clean", {}).get(code, {})
+    out = {}
+    for a in achievements:
+        n = entries.get(key(a["id"], a.get("memaddr")))
+        if n:
+            out[a["id"]] = n
+    return out
+
+
 def merge(data, other):
     """Adds every proof in other to data (a union: the earliest time, every
-    source). Returns how many were new."""
+    source), and its clean counts (the larger of the two: the same sessions
+    may have reached both). Returns how many proofs were new."""
     new = 0
-    for code, entries in _clean(other)["games"].items():
+    other = _clean(other)
+    for code, entries in other["clean"].items():
+        mine = data.setdefault("clean", {}).setdefault(code, {})
+        for k, v in entries.items():
+            mine[k] = max(mine.get(k, 0), v)
+    for code, entries in other["games"].items():
         mine = data["games"].setdefault(code, {})
         for k, v in entries.items():
             if k not in mine:
@@ -134,14 +175,16 @@ def prune(data, code, achievements):
     since (the set has the achievement, with another hash). Proofs for
     achievements the set doesn't have are kept: another version of the
     game's set may. Returns how many went."""
-    entries = data["games"].get(code)
-    if not entries:
-        return 0
     now = {str(a["id"]): memaddr_hash(a.get("memaddr")) for a in achievements}
-    gone = [k for k in entries if k.split(":")[0] in now and k.split(":")[1] != now[k.split(":")[0]]]
-    for k in gone:
-        del entries[k]
-    return len(gone)
+    gone = 0
+    for entries in (data["games"].get(code), data.get("clean", {}).get(code)):
+        if not entries:
+            continue
+        old = [k for k in entries if k.split(":")[0] in now and k.split(":")[1] != now[k.split(":")[0]]]
+        for k in old:
+            del entries[k]
+        gone += len(old)
+    return gone
 
 
 class Shadow:

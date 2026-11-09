@@ -20,10 +20,9 @@ state, as the game card's 'mkds'). It keeps the game card's header and footer
               circled by a broadcast camera, the racers standing on it at
               their real height (overlay/mkds_voxel.py, at the window's
               resolution) before the start and after the finish, and through
-              the race a camera following the player, pulled back to keep a
-              rival in the frame in a battle (CameraDirector); until that's
-              ready, tilted in 2.5D with a strip
-              of the lap's heights under it (overlay/mkds_tilt.py). Where the
+              the race a camera following the player (CameraDirector); until
+              that's
+              ready (it's made on a thread) the panel waits, empty. Where the
               course crosses over itself
               (a bridge, a loop: core/mkds_maps.py's DECKS), the racers on
               the upper deck are drawn over a see-through copy of the upper
@@ -47,7 +46,6 @@ from core.mkds_reader import COURSES, midpoints, short_name
 
 from . import ui
 from .gamecard import FOOTER_Y, HEADER_H, W
-from .mkds_tilt import FLAT_BELOW, ROAD, HeightStrip, TiltedCourse, checker_band, usable
 from .mkds_voxel import VoxelCourse, map_colours
 from .tetris import BOARD_BG, BOARD_FRAME, BOARD_GRID, TetrisView
 
@@ -63,12 +61,12 @@ STRIP_H = 9                                  # the map panel's course name and m
 
 SLIDE_MS = 300                               # a row's slide to its new place
 MAP_DIM = 0.45                               # the map under the line, this much darker
-TILT_DIM = 0.6                               # ... and as the tilted view's ground (the road's raised off it)
 MATCH_WITHIN = 60.0                          # world units: the console's finish line this near the map's
 DECK_ALPHA = 170                             # the upper deck's road over the racers below it (of 255)
 DECK_WIDTH = 1.2                             # ... that many times a deck's reach wide
-STRIP_GAP = 2                                # between the tilted map and the height strip under it
-STRIP_H_PX = 26                              # the height strip's height
+ROAD = 0.42                                  # the flat map's road, this much of each checkpoint line's length
+FINISH = ((248, 248, 248), (24, 24, 24))     # the start/finish line's squares
+FINISH_PX = 2                                # ... this many screen pixels each, in two rows
 TURN_GAIN = 1.15                             # a wide course is turned when that makes it this much bigger
 
 PLACE_COLORS = {1: (240, 196, 48), 2: (196, 204, 216), 3: (212, 136, 72)}
@@ -84,10 +82,38 @@ SLOT_COLORS = [(224, 48, 40), (60, 112, 232), (88, 200, 72), (244, 212, 40), (24
 TRACK, TRACK_EDGE = (168, 176, 188), (8, 10, 14)
 EDGE_SHADOW = (8, 10, 14)
 CUT_FADE_MS = 350                            # the wipe from one camera to the other
-HEAD_SMALL = (8, 7)                          # the player's head on the voxel course: half its 16x14 (canvas
-                                             # pixels), its own pixels at the window's resolution
-CHIP = (240, 196, 48)                        # "BATTLE FOR 3RD", in the mode's strip during a battle
+HEAD_SMALL = (7, 6.125)                      # the player's head on the voxel course (canvas pixels, its 16x14
+                                             # sprite at the window's resolution): inside its ring
+HEAD_RING = (3, 5)                           # ... the ring's middle above the racer's point, and its radius
+HEAD_FLAT = (14, 12.25)                      # the head on the flat map, inside its ring of radius 8
 STRIP_TEXT = (128, 140, 156)
+
+
+def usable(checkpoints, heights):
+    """Whether the course can be voxel terrain: its heights, one for each of
+    the console's checkpoints."""
+    return bool(checkpoints) and bool(heights) and len(heights) == len(checkpoints)
+
+
+def checker_band(surf, a, b, square=FINISH_PX):
+    """The start/finish line across the road from `a` to `b` (screen
+    points): two rows of white and near-black squares, `square` pixels
+    each, one row either side of the line."""
+    (ax, ay), (bx, by) = a, b
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if length < 1:
+        return
+    ux, uy = dx / length, dy / length
+    nx, ny = -uy, ux
+    count = max(2, round(length / square))
+    step = length / count
+    for row in (-1, 0):
+        for c in range(count):
+            p0x, p0y = ax + ux * step * c + nx * square * row, ay + uy * step * c + ny * square * row
+            quad = [(p0x, p0y), (p0x + ux * step, p0y + uy * step),
+                    (p0x + ux * step + nx * square, p0y + uy * step + ny * square), (p0x + nx * square, p0y + ny * square)]
+            pygame.draw.polygon(surf, FINISH[(c + row) % 2], quad)
 
 
 def ordinal(n):
@@ -184,65 +210,24 @@ class CameraDirector:
 
       - before the race starts (its timer still at 0: the countdown) and once
         the player has finished, the broadcast camera circling the course;
-      - the rest of the race, the camera following the player, which pulls
-        back to keep a rival in the frame in a battle: a racer a place either
-        side within BATTLE_GAP checkpoints for BATTLE_HOLD_MS, over once
-        they've been more than BATTLE_END apart (or not a place either side)
-        for BATTLE_HOLD_MS, so it doesn't flick in and out.
+      - the rest of the race, the camera following the player.
 
     A change of camera wipes (the overlay's bars) over CUT_FADE_MS. update()
-    each frame with the race and the time: 'orbit' or 'follow'; then
-    `battle` is None or {'rival': slot, 'for': the place it's for}."""
-
-    BATTLE_GAP = 0.6
-    BATTLE_END = 1.5
-    BATTLE_HOLD_MS = 800
+    each frame with the race and the time: 'orbit' or 'follow'."""
 
     def __init__(self):
         self.mode = None
         self.changed = None          # (when the camera last changed, the one before)
-        self.battle = None
-        self._close = None           # (rival, since) while a battle's building
-        self._apart = None           # since when the battle's rival has been away
 
     @staticmethod
     def wanted(race):
         return 'orbit' if not race.get('time_ms') or race.get('finished') else 'follow'
-
-    @staticmethod
-    def neighbours(race):
-        """{slot: checkpoints from the player} of the racers a place either side."""
-        me = next((r for r in race['racers'] if r['player']), None)
-        if not me or me['place'] is None:
-            return {}
-        return {r['slot']: abs(r['progress'] - me['progress']) for r in race['racers']
-                if not r['player'] and r['place'] is not None and abs(r['place'] - me['place']) == 1}
 
     def update(self, race, t_ms):
         want = self.wanted(race)
         if self.mode is not None and want != self.mode:
             self.changed = (t_ms, self.mode)
         self.mode = want
-        near = self.neighbours(race) if want == 'follow' else {}
-        if self.battle:
-            gap = near.get(self.battle['rival'])
-            if gap is None or gap > self.BATTLE_END:
-                self._apart = self._apart if self._apart is not None else t_ms
-                if t_ms - self._apart >= self.BATTLE_HOLD_MS or want != 'follow':
-                    self.battle, self._apart = None, None
-            else:
-                self._apart = None
-        if not self.battle:
-            rival = min(near, key=near.get) if near else None
-            if rival is None or near[rival] > self.BATTLE_GAP:
-                self._close = None
-            elif not self._close or self._close[0] != rival:
-                self._close = (rival, t_ms)
-            elif t_ms - self._close[1] >= self.BATTLE_HOLD_MS:
-                self.battle, self._close = {'rival': rival}, None
-        if self.battle:
-            places = [r['place'] for r in race['racers'] if r['player'] or r['slot'] == self.battle['rival']]
-            self.battle['for'] = min((p for p in places if p), default=None)
         return self.mode
 
     def wipe(self, t_ms):
@@ -268,12 +253,11 @@ class MkdsView:
         self.motion = MapMotion()
         self._view = None   # (key, the course's world window, scale, mirror or None)
         self._deck = None   # (key, the upper decks' road, cut from the map: drawn over the racers below)
-        self._tilt = None   # (key, TiltedCourse, HeightStrip or None) for the course in 2.5D
         self.hires = hires
         self.lift = lift
         self.hires_ok = hires_ok or (lambda: False)
         self._head_at = None     # (where the player's head goes on the voxel frame, its sprite): queued after
-        self.voxel = True        # the voxel course when it can be (False: the 2.5D one)
+        self.voxel = True        # the voxel course when it can be (False: the flat map)
         self.voxel_sync = False  # make it as it's asked for, not on a thread (pictures, tests)
         self._voxel = None       # (key, VoxelCourse)
         self._vox_frame = None   # the voxel frame being drawn on
@@ -419,9 +403,7 @@ class MkdsView:
         self.mini.draw(canvas, self.mini.fit(mode, w - 8), (x + w // 2, y + h - 2 - STRIP_H + 2), STRIP_TEXT,
                        align='center')
         if self.voxel and self._voxel_view(canvas, race, inner, t_ms):
-            return
-        if self._tilted(canvas, race, inner, t_ms):
-            return
+            return                                     # (or it's on its way: the panel empty till then)
         window, scale, mirror, turn = self._window(race, inner.size)
 
         def to(wx, wz):
@@ -449,9 +431,11 @@ class MkdsView:
     # -- the course as voxel terrain (overlay/mkds_voxel.py) -------------------------
 
     def _voxel_view(self, canvas, race, inner, t_ms):
-        """Draws the voxel course, if it can be (as the tilted view: its
-        heights, a course that matches its file) and it's ready: True when
-        it did."""
+        """Draws the voxel course if it can be (its heights, a course that
+        matches its file): True when it did, or when it's still being made
+        (its map loading, its first frame on its thread), so the panel waits
+        empty rather than showing another view for a frame or two; False
+        when the course can't be (the flat map, then)."""
         cps = race.get('checkpoints') or ()
         course_file = COURSES[race['course']][1]
         heights = HEIGHTS.get(course_file)
@@ -464,7 +448,7 @@ class MkdsView:
         if not self._voxel or self._voxel[0] != key:
             colours = map_colours(self.art, course_file, mirror)
             if colours is None and self.art and self.art.pending():
-                return False                            # (its map's on its way)
+                return True                             # (its map's on its way)
             if self._voxel:
                 self._voxel[1].close()
             course = VoxelCourse(cps, heights, inner.size, self.decks(race, mirror), colours,
@@ -475,16 +459,15 @@ class MkdsView:
             return False
         got = course.frame(t_ms)
         if got is None:
-            return False
+            return True                                 # (its first frame's on its way)
         mode = self.cams.update(race, t_ms)
         wipe = self.cams.wipe(t_ms)
-        battle = self.cams.battle
         if self._vox_frame is None or self._vox_frame.get_size() != got[0].get_size():
             self._vox_frame = pygame.Surface(got[0].get_size())
             self._vox_other = pygame.Surface(got[0].get_size())
 
         def shot(camera):
-            return self._chase(race, course, battle, t_ms) if camera == 'follow' else got
+            return self._chase(race, course, t_ms) if camera == 'follow' else got
         if mode != 'follow' and not wipe:
             self._heading = None
         work = self._vox_frame
@@ -498,12 +481,9 @@ class MkdsView:
         canvas.blit(work, inner.topleft)
         if self._head_at:
             (hx, hy), head = self._head_at
-            hw, hh = HEAD_SMALL
-            self.hires(canvas, head, (inner.x + hx - hw // 2, inner.y + hy - hh, hw, hh), inner)
+            self.hires(canvas, head, self.head_rect(head, inner.x + hx, inner.y + hy - HEAD_RING[0], HEAD_SMALL), inner)
             if self.lift:
                 self.lift(canvas)                      # (toasts and anything else drawn after: over it)
-        if mode == 'follow' and battle and battle.get('for'):
-            self._chip(canvas, f"BATTLE FOR {ordinal(battle['for']).upper()}")
         return True
 
     def _compose(self, surf, race, course, got, t_ms, queue=False):
@@ -513,10 +493,9 @@ class MkdsView:
         self._voxel_racers(surf, race, course, view, t_ms)
         self._queue_head = False
 
-    def _chase(self, race, course, battle, t_ms):
+    def _chase(self, race, course, t_ms):
         """The follow camera's frame: behind the player, looking along the
-        road (the heading eased toward it), back far enough for a battle's
-        rival."""
+        road (the heading eased toward it)."""
         me = next(r for r in race['racers'] if r['player'])
         x, z, y = self.motion.at3(me['slot'], t_ms)
         mids = course.mids
@@ -533,10 +512,7 @@ class MkdsView:
         else:
             turn = (want - self._heading + math.pi) % (2 * math.pi) - math.pi
             self._heading += turn * 0.15
-        rival = None
-        if battle and battle.get('rival') is not None and battle['rival'] in self.motion.now:
-            rival = self.motion.at3(battle['rival'], t_ms)
-        view = course.chase_view(x, z, y if y is not None else course.base, self._heading, rival)
+        view = course.chase_view(x, z, y if y is not None else course.base, self._heading)
         return course.chase_frame(view, t_ms)          # (the frame, and the view it was drawn in)
 
     @staticmethod
@@ -550,14 +526,6 @@ class MkdsView:
         for i in range(bars):
             area = (w - cover, i * bh, cover, bh) if i % 2 == 0 else (0, i * bh, cover, bh)
             work.blit(other, area[:2], area)
-
-    def _chip(self, canvas, text):
-        """The mode's strip under the map, saying what the cut's for."""
-        x, y, w, h = MAP
-        strip = (x + 2, y + h - 2 - STRIP_H, w - 4, STRIP_H)
-        pygame.draw.rect(canvas, ui.darken(CHIP, 150), strip)
-        self.mini.draw(canvas, self.mini.fit(text, w - 8), (x + w // 2, y + h - 2 - STRIP_H + 2), CHIP,
-                       align='center')
 
     def _voxel_racers(self, surf, race, course, view, t_ms):
         """The racers on the voxel course, far first, the player last; one
@@ -597,9 +565,8 @@ class MkdsView:
         if r['player']:
             head = self.art.head(r.get('character')) if self.art else None
             if head:
-                hw, hh = HEAD_SMALL
-                cy = sy - hh // 2
-                rad = max(hw, hh) // 2 + 1
+                hw, hh = round(HEAD_SMALL[0]), round(HEAD_SMALL[1])
+                cy, rad = sy - HEAD_RING[0], HEAD_RING[1]
                 pygame.draw.circle(surf, EDGE_SHADOW, (sx, cy), rad + 1)
                 pygame.draw.circle(surf, ring or ui.THEME['text_light'], (sx, cy), rad, 1)
                 if getattr(self, '_queue_head', False):
@@ -608,7 +575,7 @@ class MkdsView:
                     small = self._vox_sprites.get(('small', r.get('character')))
                     if small is None:
                         small = self._vox_sprites[('small', r.get('character'))] = pygame.transform.scale(head, (hw, hh))
-                    surf.blit(small, (sx - hw // 2, sy - hh))
+                    surf.blit(small, (sx - hw // 2, cy - hh // 2))
                 return
         radius = max(2, round(3 * size * (1.3 if r['player'] else 1)))
         pygame.draw.circle(surf, EDGE_SHADOW, (sx, sy - radius), radius + 1)
@@ -619,83 +586,16 @@ class MkdsView:
         if r['place'] and not r['player']:
             self.mini.draw(surf, str(r['place']), (sx + radius + 2, sy - radius * 2 - 2), (255, 255, 255), TRACK_EDGE)
 
-    # -- the course in 2.5D (overlay/mkds_tilt.py) --------------------------------------
-
-    def _tilted(self, canvas, race, inner, t_ms):
-        """Draws the course tilted with its height strip, if it can be (its
-        heights, matching the console's checkpoints, and a course that
-        matches its file): True when it did."""
-        cps = race.get('checkpoints') or ()
-        course_file = COURSES[race['course']][1]
-        heights = HEIGHTS.get(course_file)
-        if not usable(cps, heights):
-            return False
-        mirror = self._mirror(race)
-        if mirror is None:
-            return False
-        key = (race['course'], len(cps), mirror, inner.size)
-        if not self._tilt or self._tilt[0] != key:
-            decks = self.decks(race, mirror)
-            strip = None
-            map_h = inner.h
-            if max(heights) - min(heights) >= FLAT_BELOW:
-                map_h = inner.h - STRIP_H_PX - STRIP_GAP
-                strip = HeightStrip(cps, heights, (inner.w, STRIP_H_PX)).build()
-            course = TiltedCourse(cps, heights, (inner.w, map_h), decks, self.upper)
-            ground = None
-            if self.art:
-                ground = self.art.course_map(course_file, course.window(), course.size, mirror, TILT_DIM, course.turn)
-                if ground is None and self.art.pending():
-                    course.build(None)                  # (the map's on its way: this once without it)
-                    self._draw_tilted(canvas, race, inner, course, strip, t_ms)
-                    return True
-            self._tilt = (key, course.build(ground), strip)
-        _, course, strip = self._tilt
-        self._draw_tilted(canvas, race, inner, course, strip, t_ms)
-        return True
-
-    def _draw_tilted(self, canvas, race, inner, course, strip, t_ms):
-        clip = canvas.get_clip()
-        canvas.set_clip(inner)
-        canvas.blit(course.ground, inner.topleft)
-        decks = course.decks
-        up = {r['slot'] for r in race['racers'] if decks and self.upper(dict(r, **self._live(r, t_ms)), decks)}
-
-        def layer(racers):
-            placed = []
-            for r in racers:
-                x, z, y = self.motion.at3(r['slot'], t_ms)
-                (px, py), (gx, gy) = course.racer_point(x, z, y)
-                placed.append((py, r, (round(inner.x + px), round(inner.y + py)), (round(inner.x + gx), round(inner.y + gy))))
-            placed.sort(key=lambda p: (p[1]['player'], p[0]))          # (far first, the player last)
-            for _, r, (px, py), (gx, gy) in placed:
-                pygame.draw.ellipse(canvas, TRACK_EDGE, (gx - 3, gy - 1, 7, 3))
-                if py < gy - 3:
-                    pygame.draw.line(canvas, TRACK_EDGE, (gx, gy), (px, py + 2))
-                self._marker(canvas, r, px, py)
-        layer([r for r in race['racers'] if r['slot'] not in up])
-        if course.bridges is not None:
-            canvas.blit(course.bridges, inner.topleft)
-        layer([r for r in race['racers'] if r['slot'] in up])
-        canvas.set_clip(clip)
-        if strip:
-            sx, sy = inner.x, inner.bottom - strip.size[1]
-            canvas.blit(strip.surface, (sx, sy))
-            for r in sorted(race['racers'], key=lambda r: (r['player'], -(r['place'] or 99))):
-                x, z, y = self.motion.at3(r['slot'], t_ms)
-                px, py = strip.place(x, z, r['checkpoint'], y)
-                px, py = round(sx + px), round(sy + py)
-                if r['player']:
-                    pygame.draw.circle(canvas, TRACK_EDGE, (px, py), 4)
-                    pygame.draw.circle(canvas, (255, 255, 255), (px, py), 3)
-                    pygame.draw.circle(canvas, color_of(r), (px, py), 2)
-                else:
-                    pygame.draw.circle(canvas, TRACK_EDGE, (px, py), 3)
-                    pygame.draw.circle(canvas, PLACE_COLORS[1] if r['place'] == 1 else color_of(r), (px, py), 2)
-
-    def _live(self, racer, t_ms):
-        x, z, y = self.motion.at3(racer['slot'], t_ms)
-        return {'x': x, 'z': z, 'y': y}
+    @staticmethod
+    def head_rect(head, cx, cy, size):
+        """Where the head goes (x, y, w, h: canvas pixels, fractions and all)
+        at `size` so its visible pixels' middle is on a ring drawn round
+        (cx, cy): a circle's middle is the corner at its point, and the
+        sprite's see-through margins aren't the same all round."""
+        w, h = size
+        box = head.get_bounding_rect()
+        kx, ky = w / head.get_width(), h / head.get_height()
+        return (cx - (box.x + box.w / 2) * kx, cy - (box.y + box.h / 2) * ky, w, h)
 
     def _marker(self, canvas, r, px, py):
         """A racer on the map: its dot and place, or the player's head."""
@@ -706,7 +606,12 @@ class MkdsView:
                 ring = PLACE_COLORS[1] if r['place'] == 1 else t['text_light']
                 pygame.draw.circle(canvas, TRACK_EDGE, (px, py), 9)
                 pygame.draw.circle(canvas, ring, (px, py), 8, 1)
-                canvas.blit(head, (px - head.get_width() // 2, py - head.get_height() // 2))
+                if self.hires and self.hires_ok():     # (a touch smaller, at the window's resolution: inside the ring)
+                    self.hires(canvas, head, self.head_rect(head, px, py, HEAD_FLAT))
+                    if self.lift:
+                        self.lift(canvas)
+                else:
+                    canvas.blit(head, (px - head.get_width() // 2, py - head.get_height() // 2))
             else:
                 self._dot(canvas, r, px, py, 4, ring=PLACE_COLORS[1] if r['place'] == 1 else t['text_light'])
             return

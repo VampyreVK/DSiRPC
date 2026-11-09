@@ -606,18 +606,14 @@ table), so HP and moves show up quickly.
   away between, coloured from the course's map (`Assets/MarioKartDS`, placed
   in the game's world by `core/mkds_maps.py`), seen by a camera that circles
   the whole course once a minute (a frame each degree, drawn near to far,
-  the few around the one showing kept). It cuts to a chase camera behind you
-  for 7 s when a racer a place either side has been within 0.6 checkpoints
-  of you for 0.8 s (a battle: the mode's strip under the map says "BATTLE
-  FOR 3RD"), and when the last lap starts, with the overlay's bars wiping in
-  and out (`CutDirector`: 18 s between battle cuts; the chase camera's
-  frames drawn live, 15 a second). Each racer is a dot with its place
+  the few around the one showing kept) before the start and after you
+  finish; through the race it follows you, a chase camera behind you, with
+  the overlay's bars wiping between the two (`CameraDirector`; the chase
+  camera's frames drawn live, 15 a second). Each racer is a dot with its place
   at its live height over its shadow (the leader's ringed in gold, yours
   your head, on top; a ring where a hill's in front), gliding from read to
-  read (`MapMotion`). Until the voxel course is ready it's tilted in 2.5D
-  (`overlay/mkds_tilt.py`: the map as the ground and the road a ribbon at
-  its own height, with shadows under raised stretches, and a strip of the
-  lap's heights under it). Where the course crosses over itself (`DECKS`: Figure-8's
+  read (`MapMotion`). Until the voxel course is ready (it's made on a thread:
+  a moment as the race loads) the panel waits, empty. Where the course crosses over itself (`DECKS`: Figure-8's
   bridge, loops, a cannon's arc) the upper road is drawn see-through over the
   racers below it. Without heights for the course it's the course from above,
   flat (a wide course turned a quarter turn), with the same decks; with no
@@ -886,7 +882,7 @@ numbers mean.
 | `core/saves.py` | `SaveStore`: the PC's copy of the consoles' saves for the launcher's save sync (a folder per game, the latest save and its history, `saves.json`), and the three-way plan |
 | `core/save_session.py` | The save sync's exchange: one request per connection (plan, upload, download, history, done), with every message's layout |
 | `app/tray.py`, `app/setup_wizard.py`, `app/startup.py` | The tray icon (the menu bar icon on a Mac), setup and Start with Windows / Open at Login (above) |
-| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `tetris.py` (Tetris DS's board view), `mkds.py` (Mario Kart DS's race view), `mkds_voxel.py` (its course as voxel terrain), `mkds_tilt.py` (its course in 2.5D and the height strip), `mkds_art.py` (cuts its art from `Assets/MarioKartDS`), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
+| `overlay/` | The overlay window: `app.py` (`OverlayWindow`: window and keys), `music.py` (its ambient music), `scenes.py` (the party, battle and waiting views, banners, animation, move detection, and `blit_hires()` / `lift()` / `present()`, which draw sprites shown smaller than their pixels at the window's resolution), `remote.py` (the overlay window in a process of its own, for macOS's menu bar), `gamecard.py` (the game card for any other game), `tetris.py` (Tetris DS's board view), `mkds.py` (Mario Kart DS's race view), `mkds_voxel.py` (its course as voxel terrain), `mkds_art.py` (cuts its art from `Assets/MarioKartDS`), `unova.py` (Black and White's main view, battle HUD and trainer intro), `unova_backdrop.py` (their battle background and turfs), `unova_art.py` (cuts their art from `Assets/PokemonBlackUI`), `seasons.py` (the Unova view's seasonal effects), `effects.py` (move animations, by flavour and type), `markers.py` (condition markers), `backdrop.py` (battle backgrounds and weather), `ui.py` (palette, panels, bars, HP and achievement meters, move buttons, pixel icons drawn in code: the game card, trophy and DSi), `sprites.py` (asset conversion), `font.py` (pixel fonts, fitting and wrapping text) |
 
 ---
 

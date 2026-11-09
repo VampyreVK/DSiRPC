@@ -21,8 +21,8 @@ course climbs, with every racer standing on it at their real height.
     View           a camera: where it is, which way it looks, how high, and
                    where its horizon is on the screen. orbit_view() is the
                    broadcast camera's at an angle; chase_view() one behind a
-                   racer, pulled back to keep a rival in the frame too (drawn
-                   live, chase_frame(), at most CHASE_FPS a second).
+                   racer (drawn live, chase_frame(), at most CHASE_FPS a
+                   second).
 
 The racers are drawn over a frame by overlay/mkds.py (place(), hidden()),
 each frame, in the view the frame was drawn in.
@@ -81,7 +81,7 @@ FADE_FROM, FADE_OVER = 2.0, 0.22  # the ground fades to the background from this
 DECK_ALPHA = 215
 EDGE = (8, 10, 14)
 CHASE_FPS = 15              # the chase camera's frames a second (drawn live)
-CHASE_BACK = 9.0            # it sits this many road widths behind the racer (or further, for a rival)...
+CHASE_BACK = 9.0            # it sits this many road widths behind the racer...
 CHASE_PITCH = 45.0          # ... this far up (degrees, looking down at the racer)
 CHASE_AT = 0.62             # ... with the racer this far down the frame
 
@@ -280,7 +280,7 @@ class VoxelCourse:
                      if road[k] is not None else 0)
             if road[k] is not None and y > road[k] + deck and apart > JOIN:
                 tunnel[k] = (road[k], lateral[k] if lateral[k] is not None else 0.0)
-            road[k], near[k] = y, False
+            road[k], near[k], from_seg[k] = y, False, over_seg[k]
         for k, y in enumerate(road):
             if y is not None:
                 hm[k] = y
@@ -290,6 +290,7 @@ class VoxelCourse:
             if f <= 0 and road[k] is None:
                 hm[k] = flat                     # (faded right out: flat, so nothing at the edge stands up)
         self.hm, self.road, self.near, self.fade = hm, road, near, fade
+        self.road_seg = from_seg
 
     def _cells_near(self, ax, az, bx, bz, reach):
         """The cells within `reach` of the segment's bounding box."""
@@ -354,17 +355,21 @@ class VoxelCourse:
         shade = [tuple(int(v * SHADE) for v in c) for c in lit]
         cols = [None] * n
         deck = DECK_THICK * self.exaggerate
+        segs, count = self.road_seg, len(self.mids)
+        apart = lambda a, b: min((segs[a] - segs[b]) % count, (segs[b] - segs[a]) % count)   # noqa: E731
         for gz in range(gh):
             for gx in range(gw):
                 k = gz * gw + gx
                 if self.road[k] is not None:
                     # (its edge: any of its eight neighbours off the road, so the outline's joined at the
                     # corners too and doesn't break into dashes on a diagonal)
-                    # (a road well under it counts as off it: an overpass keeps its outline over a tunnel, the
-                    # road going into one doesn't get one across it at the mouth)
+                    # (another stretch of road well under it counts as off it: an overpass keeps its outline
+                    # over a tunnel, the road going into one doesn't get one across it at the mouth, and a
+                    # steep road's own cells, a deck's height apart, aren't each other's edge)
                     edge = any(0 <= gx + dx < gw and 0 <= gz + dz < gh
                                and (self.road[(gz + dz) * gw + gx + dx] is None
-                                    or self.road[k] - self.road[(gz + dz) * gw + gx + dx] > deck)
+                                    or (self.road[k] - self.road[(gz + dz) * gw + gx + dx] > deck
+                                        and apart(k, (gz + dz) * gw + gx + dx) > JOIN))
                                for dx in (-1, 0, 1) for dz in (-1, 0, 1) if dx or dz)
                     cols[k] = ROAD_EDGE if edge else ROAD_FILL
                 elif clean[k] is not None:
@@ -493,27 +498,17 @@ class VoxelCourse:
             horizon = self.h / 2 - (min(ys) + max(ys)) / 2
         return view._replace(horizon=horizon)
 
-    def chase_view(self, x, z, y, heading, rival=None):
+    def chase_view(self, x, z, y, heading):
         """A camera behind the racer at (x, z), height y, looking along
-        `heading` (an angle, radians), far enough back that `rival` ((x, z,
-        y) or None) is in the frame too."""
+        `heading` (an angle, radians)."""
         fx, fz = math.cos(heading), math.sin(heading)
         rx, rz = -fz, fx
         back = CHASE_BACK * 2 * self.half_road
         ry = self.raised(y)
-        for _ in range(12):
-            h = ry + back * math.tan(math.radians(CHASE_PITCH))
-            view = View(x - fx * back, z - fz * back, fx, fz, rx, rz, h, 0.0, self.cell,
-                        back + self.radius * 1.6)
-            sy = self.project((x, z, ry), view)[1]
-            view = view._replace(horizon=self.h * CHASE_AT - sy)
-            if rival is None:
-                return view
-            ox, oy, od = self.project((rival[0], rival[1], self.raised(rival[2])), view)
-            if od > 1 and 6 <= ox <= self.w - 6 and 6 <= oy <= self.h - 6:
-                return view
-            back *= 1.25
-        return view
+        h = ry + back * math.tan(math.radians(CHASE_PITCH))
+        view = View(x - fx * back, z - fz * back, fx, fz, rx, rz, h, 0.0, self.cell, back + self.radius * 1.6)
+        sy = self.project((x, z, ry), view)[1]
+        return view._replace(horizon=self.h * CHASE_AT - sy)
 
     # -- the frames ---------------------------------------------------------------------
 

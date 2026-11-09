@@ -1,7 +1,7 @@
 """
 mkds_voxel.py - the race view's course as voxel terrain (overlay/mkds.py), seen
-by a broadcast camera that circles the whole course, and cutting to one
-behind the player for a battle or the last lap: the course's map
+by a broadcast camera that circles the whole course before the start and
+after the finish, and one behind the player through the race: the course's map
 (overlay/mkds_art.py) as the ground's colours, raised into hills where the
 course climbs, with every racer standing on it at their real height.
 

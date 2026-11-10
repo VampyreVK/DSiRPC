@@ -42,12 +42,21 @@ ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
 
 
+def _set_name(code, data):
+    """A set for the log: its code and its frame lane's ring of samples."""
+    try:
+        return f"{code}: {offline.read_set(data)['ring']}-sample ring"
+    except offline.FormatError:
+        return code
+
+
 class ConsoleSync:
-    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="",
+    def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="", on_notes=None,
                  saves=None, on_saves=None, on_here=None, updates=None, stats=None):
         self.sets_for = sets_for
         self.on_unlocks = on_unlocks
         self.on_console = on_console
+        self.on_notes = on_notes      # ([shadow note]): the console's shadow check's, before the sets are made
         self.on_here = on_here
         self.saves = saves
         self.on_saves = on_saves
@@ -165,6 +174,7 @@ class ConsoleSync:
             game, stamps, unlock_bytes = offline.parse_request(header, read)
             console = offline.request_console(header)
             unlocks = offline.read_unlocks(unlock_bytes)
+            notes = offline.read_shadow_notes(unlock_bytes)
         except offline.FormatError as e:
             logging.warning(f"Offline sync from {addr[0]}: {e}")
             conn.sendall(offline.build_answer(1, 0, []))
@@ -175,6 +185,11 @@ class ConsoleSync:
                 self.on_console(addr[0], game, console)
             except Exception:
                 logging.exception("Offline sync: on_console failed")
+        if notes and self.on_notes:  # (before the sets: what it found decides their frame lanes)
+            try:
+                self.on_notes(notes)
+            except Exception:
+                logging.exception("Offline sync: on_notes failed")
         # The sets first (that may download the game's), so the unlocks are
         # logged with their names; the sets leave out what was just unlocked.
         try:
@@ -186,14 +201,16 @@ class ConsoleSync:
         # "Taken" is every valid slot in the file (repeats included): the
         # launcher clears the file only when that matches its own count, so
         # 0 leaves them there.
-        taken = 0 if keep else offline.count_unlocks(unlock_bytes)
+        taken = 0 if keep else offline.count_slots(unlock_bytes)
+        notes = taken - offline.count_unlocks(unlock_bytes) if taken else 0   # (the shadow check's)
         conn.sendall(offline.build_answer(0, taken, sets))
         self._await_hangup(conn)
         self.last = {'from': addr[0], 'game': game, 'unlocks': unlocks, 'taken': taken,
                      'sets': [code for code, _ in sets]}
         logging.info(f"Offline sync with the console at {addr[0]}"
-                     + (f" (starting {game})" if game else "") + f": {taken} unlock(s) taken, "
-                     f"{len(sets)} set(s) sent" + (f" ({', '.join(c for c, _ in sets)})" if sets else ""))
+                     + (f" (starting {game})" if game else "") + f": {taken - notes} unlock(s)"
+                     + (f", {notes} shadow note(s)" if notes else "") + " taken, "
+                     f"{len(sets)} set(s) sent" + (f" ({', '.join(_set_name(c, d) for c, d in sets)})" if sets else ""))
 
     @staticmethod
     def _await_hangup(conn):

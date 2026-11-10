@@ -79,9 +79,26 @@ static int readFile(const char *path, uint8_t *buf, uint32_t max, uint32_t *len)
 	return 1;
 }
 
+// Prints "T <id>" for each unlock since the last call. The checker only
+// keeps the latest ACH_RECENT ids (prelude.h makes that 64 here), so this
+// runs after every call into it that can unlock (the sample, the tick, each
+// idle visit) rather than once a command, and stops the run if more than
+// that came in between instead of leaving some out.
+static u16 seen;
+static void reportUnlocks(void) {
+	if (probeAchTriggered == seen) return;
+	u32 ids[ACH_RECENT];
+	int n = ProbeAch_RecentIds(ids, ACH_RECENT), newer = (u16)(probeAchTriggered - seen);
+	if (newer > n) {
+		printf("too many unlocks at once to report: %d\n", newer);
+		exit(5);
+	}
+	for (int i = n - newer; i < n; i++) printf("T %u\n", ids[i]);
+	seen = probeAchTriggered;
+}
+
 int main(void) {
 	static char line[1 << 16];
-	u16 seen = 0;
 	while (fgets(line, sizeof line, stdin)) {
 		char cmd[16];
 		if (sscanf(line, "%15s", cmd) != 1) continue;
@@ -115,14 +132,21 @@ int main(void) {
 			vline = 192;
 			ProbeAch_Sample();
 			ProbeAch_Tick(192, idle);
+			reportUnlocks();
 			for (int v = 0; v < visits; v++) {
 				vline = (vline + 7) % 263;
 				if (nullWait) {
 					ProbeAch_Idle(NULL);
+					reportUnlocks();
 					continue;
 				}
 				romWait = rw && (v == 0);
-				if (ProbeAch_Idle(romWaiting)) { romWait = 0; ProbeAch_Idle(romWaiting); }
+				if (ProbeAch_Idle(romWaiting)) {
+					reportUnlocks();
+					romWait = 0;
+					ProbeAch_Idle(romWaiting);
+				}
+				reportUnlocks();
 			}
 		} else if (!strcmp(cmd, "push")) {
 			unsigned id, when;
@@ -156,12 +180,7 @@ int main(void) {
 			printf("unknown command %s\n", cmd);
 			return 4;
 		}
-		if (probeAchTriggered != seen) {
-			u32 ids[8]; int n = ProbeAch_RecentIds(ids, 8);
-			int newer = probeAchTriggered - seen; if (newer > n) newer = n;
-			for (int i = n - newer; i < n; i++) printf("T %u\n", ids[i]);
-			seen = probeAchTriggered;
-		}
+		reportUnlocks();
 		fflush(stdout);
 	}
 	return 0;

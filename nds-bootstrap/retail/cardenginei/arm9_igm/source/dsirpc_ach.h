@@ -26,4 +26,11 @@ void Ach_DrawMain(void);
 // The Achievements screen, until B is pressed.
 void Ach_Screen(void);
 
+// The Wi-Fi sign's color (a SKIN_ICON_* to or into it), from what the ARM7
+// said of DSiRPC when the menu opened (dsirpc_ach_menu.h's `link`): green
+// while DSiRPC is asking for things, amber while the console is connecting
+// or DSiRPC hasn't asked for a few seconds, red if the Wi-Fi failed, gray
+// if this nds-bootstrap isn't talking to DSiRPC at all.
+int Ach_LinkIcon(void);
+
 #endif // DSIRPC_ACH_H

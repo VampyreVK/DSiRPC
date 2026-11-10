@@ -179,9 +179,12 @@ static bool unlock_header_ok(const uint8_t *buf, size_t n)
 }
 
 // The slots DSiRPC will take: an ID, a valid code and a matching check
-// (core/offline.py counts them the same way).
-static int count_unlocks(const uint8_t *buf, size_t n)
+// (core/offline.py's count_slots() counts them the same way). *notes: how
+// many of them are the checker's shadow notes (IDs from 0xFFFFFF00), not
+// unlocks.
+static int count_slots(const uint8_t *buf, size_t n, int *notes)
 {
+    *notes = 0;
     if (!unlock_header_ok(buf, n))
         return 0;
     size_t slots = n / UNLOCK_SLOT;
@@ -196,9 +199,20 @@ static int count_unlocks(const uint8_t *buf, size_t n)
         for (int w = 0; w < 7; w++)
             sum += get16(s + w * 2);
         if (get32(s) != 0 && get32(s) != PLAYTIME_ID && valid_code(s + 4) && (sum & 0xFFFF) == get16(s + 14))
+        {
             count++;
+            if (get32(s) >= 0xFFFFFF00)
+                (*notes)++;
+        }
     }
     return count;
+}
+
+// The unlocks waiting (the shadow notes left out)
+static int count_unlocks(const uint8_t *buf, size_t n)
+{
+    int notes;
+    return count_slots(buf, n, &notes) - notes;
 }
 
 int unlocks_used(void)
@@ -707,7 +721,8 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     size_t unlock_len = read_file(job->unlocks_path, unlock_buf, sizeof(unlock_buf), &longer);
     if (!unlock_header_ok(unlock_buf, unlock_len))
         unlock_len = 0;
-    int waiting = count_unlocks(unlock_buf, unlock_len);
+    int notes;
+    int waiting = count_slots(unlock_buf, unlock_len, &notes);
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
@@ -759,7 +774,7 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     if (waiting > 0 && taken == waiting)
     {
         if (clear_unlocks(job->unlocks_path))
-            result->unlocks_sent = taken;
+            result->unlocks_sent = taken - notes; // (the notes went too, but aren't unlocks)
         else
             snprintf(msg, msgsz, "Can't clear RPCUNLK.BIN;\nDSiRPC gets them again next\ntime (no harm done)");
     }

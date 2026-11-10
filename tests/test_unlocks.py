@@ -144,3 +144,59 @@ def test_an_unlock_already_seen_isnt_counted_twice(make_engine, game, tmp_path):
     assert link.sent == [(y, T0 + 5)]
     log = (tmp_path / "achievements.log").read_text()
     assert f"\t{y}\t" in log and f"\t{x}\t" not in log
+
+
+# -- --clear-learning ------------------------------------------------------------
+
+@pytest.fixture
+def learning(tmp_path, monkeypatch):
+    """frame_needs.json in tmp_path, with what two games learned."""
+    from core import frame_needs
+    monkeypatch.setattr(frame_needs, "path", lambda ra_dir=None: str(tmp_path / "cache" / "frame_needs.json"))
+    data = frame_needs.empty()
+    frame_needs.add(data, "TEST", 900001, "m1", "console")
+    frame_needs.add_clean(data, "TEST", 900002, "m2")
+    frame_needs.add(data, "OTHR", 5, "m5", "pc")
+    frame_needs.save(data)
+    return frame_needs
+
+
+def _relearner(make_engine, game, which):
+    e = make_engine(FakeLink(game))
+    e.clear_learning, e._relearned, e._ignored_notes = which, False, 0
+    for name in ("_wipe_learning", "_shadow_notes"):
+        setattr(e, name, types.MethodType(getattr(engine_module.Engine, name), e))
+    return e
+
+
+def test_clear_learning_wipes_every_game_or_one(make_engine, game, learning, tmp_path):
+    e = _relearner(make_engine, game, "TEST")
+    e._wipe_learning()
+    left = learning.load()
+    assert "TEST" not in left["games"] and "TEST" not in left["clean"] and "OTHR" in left["games"]
+    backup = tmp_path / "cache" / "frame_needs.json.bak"
+    assert "TEST" in learning._clean(__import__("json").loads(backup.read_text()))["games"]
+    e = _relearner(make_engine, game, "all")
+    e._wipe_learning()
+    assert learning.load() == learning.empty()
+
+
+def test_clear_learning_drops_the_consoles_notes_once_but_keeps_its_unlocks(make_engine, game, learning):
+    e = _relearner(make_engine, game, "TEST")
+    e._wipe_learning()
+    a, b = game.playable_achievements[0], game.playable_achievements[1]
+    current = dict(e.sets_for(None, {}, []))["TEST"]
+    e._relearned = False   # (a fresh run: that sync was its first)
+    # The first sync: the notes go, the unlocks don't, and the set goes again though it's current
+    notes = [{"code": "TEST", "id": a["id"], "proven": True}, {"code": "TEST", "id": b["id"], "proven": False}]
+    e._shadow_notes(notes)
+    assert learning.proven(learning.load(), "TEST", game.playable_achievements) == set()
+    resent = dict(e.sets_for(None, {"TEST": offline.set_stamp(current)}, [unlock(a["id"])]))
+    assert "TEST" in resent
+    assert e.take([unlock(a["id"])]) is not False
+    assert a["id"] in {aid for aid, _ in e.ra_link.sent}
+    # Only once: the next sync's notes are kept, and a current set isn't sent again
+    e._shadow_notes(notes)
+    assert learning.proven(learning.load(), "TEST", game.playable_achievements) == {a["id"]}
+    again = e.sets_for(None, {"TEST": offline.set_stamp(resent["TEST"])}, [])
+    assert "TEST" not in dict(again) or dict(again)["TEST"] != resent["TEST"]

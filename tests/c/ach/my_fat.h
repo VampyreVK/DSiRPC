@@ -5,5 +5,6 @@
 #define CLUSTER_FREE 0
 typedef struct { uint32_t firstCluster; int which; } aFile;
 void getBootFileCluster(aFile *f, const char *name, int x);
+void getFileFromCluster(aFile *f, uint32_t cluster, int x);
 uint32_t fileRead(char *buf, aFile *f, uint32_t at, uint32_t len);
 uint32_t fileWrite(const char *buf, aFile *f, uint32_t at, uint32_t len);

@@ -59,6 +59,18 @@
 #define INGAME_MENU_EXT_LOCATION_B4DS                0x02380000
 #define CHEAT_ENGINE_BUFFERED_LOCATION	             0x026E0000
 #define INGAME_MENU_LOCATION                         0x02F88000
+// DSiRPC: the in-game menu's window in DSi mode (its code and data, swapped
+// with the game RAM under it when it opens) is INGAME_MENU_SIZE, not
+// upstream's 0xA000, for its graphical skin (dsirpc_skin.c). It has to end
+// before 0x02FA0000, DSIRPC_ACH_LOCATION's RAM (0x0CFA0000 is the same RAM),
+// which the menu reads and the ARM7 writes while it's open. Its two slots in
+// pagefile.sys are past the end of upstream's 6 MB, which nds-bootstrap
+// makes the file big enough for (twlPageFileSize in conf_sd.cpp). Both
+// offsets are round numbers (a byte and zeros), so the ARM7 cardengine, which
+// is nearly full, loads them in one instruction pair, not from a literal.
+#define INGAME_MENU_SIZE                             0xC000
+#define INGAME_MENU_PAGEFILE_OFFSET                  0x600000 // the menu
+#define INGAME_MENU_GAMERAM_PAGEFILE_OFFSET          0x620000 // the game RAM under it (up to 128 KB)
 #define INGAME_MENU_LOCATION_B4DS                    0x023E6000
 #define INGAME_MENU_LOCATION_B4DS_EXTMEM             (INGAME_MENU_LOCATION_B4DS+0x400000)
 #define CACHE_ADDRESS_TABLE_LOCATION                 0x027D8000

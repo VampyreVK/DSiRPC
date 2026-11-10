@@ -644,8 +644,8 @@ void loadInGameMenu(void) {
 	const u32 igmLocation = INGAME_MENU_LOCATION;
 
 	sharedAddr[5] = 0x4C4D4749; // 'IGML'
-	fileWrite((char*)igmLocation, &pageFile, 0xA000, 0xA000);	// Backup part of game RAM to page file
-	fileRead((char*)igmLocation, &pageFile, 0, 0xA000);	// Read in-game menu
+	fileWrite((char*)igmLocation, &pageFile, INGAME_MENU_GAMERAM_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Backup part of game RAM to page file (DSiRPC: INGAME_MENU_SIZE)
+	fileRead((char*)igmLocation, &pageFile, INGAME_MENU_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Read in-game menu
 	sharedAddr[5] = 0;
 }
 
@@ -656,8 +656,8 @@ void unloadInGameMenu(void) {
 	const u32 igmLocation = INGAME_MENU_LOCATION;
 
 	sharedAddr[5] = 0x4C4D4749; // 'IGML'
-	fileWrite((char*)igmLocation, &pageFile, 0, 0xA000);	// Store in-game menu
-	fileRead((char*)igmLocation, &pageFile, 0xA000, 0xA000);	// Restore part of game RAM from page file
+	fileWrite((char*)igmLocation, &pageFile, INGAME_MENU_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Store in-game menu
+	fileRead((char*)igmLocation, &pageFile, INGAME_MENU_GAMERAM_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Restore part of game RAM from page file
 	sharedAddr[5] = 0;
 }
 

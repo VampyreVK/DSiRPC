@@ -1,7 +1,7 @@
 // probe_ach_vm.c - see probe_ach_vm.h. Each function names the rcheevos
 // 12.5 function it ports; keep them in step with that code.
 //
-// The program (version 2), little endian, built by DSiRPC with rcheevos'
+// The program (version 3), little endian, built by DSiRPC with rcheevos'
 // own parser (third_party/rcheevos/dsirpc_offline.c):
 //
 //   u32 2, u16 plain memrefs P, u16 modified memrefs M, u16 achievements A,
@@ -9,7 +9,8 @@
 //   P x 8 bytes: u32 address, u8 size, u8 value type, u16 0
 //   M x 20 bytes: u8 size, u8 value type, u8 modifier type, u8 0,
 //                 operand parent, operand modifier
-//   A x achievement: u32 id, u8 condsets, u8 has core, u16 conditions,
+//   A x achievement: u32 id, u16 condsets (bits 0-14) and has core (bit 15),
+//       u16 conditions,
 //       then each condset: u16 pause, reset, hit target, measured, other
 //       counts, u16 0, and its conditions in that order, 16 bytes each:
 //       u32 w (type 0-3, operator 4-7, kind1 8-11, kind2 12-15, size1 16-20,
@@ -65,6 +66,9 @@ typedef uint32_t __attribute__((may_alias)) u32_alias;
 typedef uint16_t __attribute__((may_alias)) u16_alias;
 static uint32_t rd16(const uint8_t *p) { return *(const u16_alias *)p; }
 static uint32_t rd32(const uint8_t *p) { return *(const u32_alias *)p; }
+
+// An achievement's condsets (its u16 at 4, bit 15 being "has core")
+static uint32_t condsets(const uint8_t *a) { return rd16(a + 4) & 0x7fff; }
 
 // -- memory -----------------------------------------------------------------
 
@@ -139,13 +143,25 @@ static uint32_t transformOperand(uint32_t v, uint8_t kind, uint8_t size) {
 	return v;
 }
 
-static uint8_t memrefType(const AchVm *vm, uint32_t i) {
+// A memref's value type, from the program (AchVm_Load() keeps it in
+// memChanged's bits 4-5, so it's read from there)
+static uint8_t programType(const AchVm *vm, uint32_t i) {
 	if (i < vm->nPlain) return vm->plain[i * PLAIN_SIZE + 5];
 	return vm->mod[(i - vm->nPlain) * MOD_SIZE + 1];
 }
 
-// rc_get_memref_value_value. memChanged: bit 0 changed in the last update,
-// bit 1 in the one before (for unchanged() below).
+// memChanged: bit 0 changed in the last update; bits 4-5 the value type.
+// For AchVm_Sample() (set at load): bit 2 a modified memref reads this
+// one's value, bit 1 its delta or prior value too.
+#define MC_HISTORY 2
+#define MC_FEEDS   4
+#define MC_FAST    8   // a modified memref modifiedValue() can work out directly (set at load)
+
+static uint32_t memrefType(const AchVm *vm, uint32_t i) {
+	return vm->memChanged[i] >> 4;
+}
+
+// rc_get_memref_value_value. memChanged: bit 0 changed in the last update.
 static uint32_t memrefRead(const AchVm *vm, uint32_t i, uint8_t read) {
 	if (read == READ_DELTA && !(vm->memChanged[i] & 1)) return vm->memValue[i];
 	if (read == READ_DELTA || read == READ_PRIOR) return vm->memPrior[i];
@@ -261,11 +277,38 @@ static uint64_t packedOperand(const AchVm *vm, const uint8_t *op) {
 	return operand(vm, ksr & 0xff, (ksr >> 8) & 0xff, (ksr >> 16) & 0xff, rd32(op + 4));
 }
 
-// rc_get_modified_memref_value
-static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
+// Whether modifiedValue() can work out modified memref i directly (MC_FAST):
+// an accumulation or an indirect read (AddSource, SubSource, AddAddress) of
+// two operands that are each a constant or a memref's value read with a
+// mask (transformSize()'s first case), both numbers. All of that is in the
+// program, so it's worked out once, at load.
+static int fastModified(const AchVm *vm, const uint8_t *m) {
+	uint32_t oper = m[2], ka = rd32(m + 4), kb = rd32(m + 12); // (kind, size, read, 0)
+	if (oper < O_ADD_ACCUMULATOR || ((ka | kb) & 0xfd) || // K_ADDRESS or K_CONST
+	    ((ka >> 8) & 0xff) >= S_BITCOUNT || ((kb >> 8) & 0xff) >= S_BITCOUNT) return 0;
+	return ((ka & 2) || isInt(memrefType(vm, rd32(m + 8)))) && ((kb & 2) || isInt(memrefType(vm, rd32(m + 12 + 4))));
+}
+
+// rc_get_modified_memref_value. fast: fastModified() said so (at load).
+static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m, uint32_t fast) {
 	uint32_t head = rd32(m); // size, type, modifier type, 0
-	uint64_t pv = packedOperand(vm, m + 4), pm = packedOperand(vm, m + 12);
 	uint32_t oper = (head >> 16) & 0xff;
+	if (fast) {
+		// what operand() and the two-number case below work out, directly
+		uint32_t ka = rd32(m + 4), kb = rd32(m + 12), a = rd32(m + 8), b = rd32(m + 16), z;
+		if (!(ka & 2)) {
+			z = (ka >> 8) & 0xff;
+			a = (vm->memValue[a] & masks[z]) >> maskShifts[z];
+		}
+		if (!(kb & 2)) {
+			z = (kb >> 8) & 0xff;
+			b = (vm->memValue[b] & masks[z]) >> maskShifts[z];
+		}
+		if (oper == O_ADD_ACCUMULATOR) return a + b;
+		if (oper == O_SUB_ACCUMULATOR) return a - b;
+		return peekSized(vm, a + b, head & 0xff); // O_INDIRECT_READ
+	}
+	uint64_t pv = packedOperand(vm, m + 4), pm = packedOperand(vm, m + 12);
 	if (isInt(TV_T(pv)) && isInt(TV_T(pm))) {
 		// two numbers: what the general code below works out, directly
 		if (oper == O_ADD_ACCUMULATOR) return TV_V(pv) + TV_V(pm);
@@ -298,16 +341,26 @@ static uint32_t modifiedValue(const AchVm *vm, const uint8_t *m) {
 	return value.v;
 }
 
-// rc_update_memref_value, plus whether it changed in the update before
-static inline __attribute__((always_inline)) void setMemref(AchVm *vm, uint32_t i, uint32_t v) {
-	uint8_t before = (uint8_t)(vm->memChanged[i] << 1) & 2;
+// rc_update_memref_value. Returns 1 if it changed.
+static inline __attribute__((always_inline)) int setMemref(AchVm *vm, uint32_t i, uint32_t v) {
+	uint8_t c = vm->memChanged[i];
 	if (vm->memValue[i] == v) {
-		vm->memChanged[i] = before;
-	} else {
-		vm->memPrior[i] = vm->memValue[i];
-		vm->memValue[i] = v;
-		vm->memChanged[i] = before | 1;
+		vm->memChanged[i] = c & ~1;
+		return 0;
 	}
+	vm->memPrior[i] = vm->memValue[i];
+	vm->memValue[i] = v;
+	vm->memChanged[i] = c | 1;
+	return 1;
+}
+
+// Memref i changed in this update: the achievements that name it are
+// stamped with it (for unchanged()).
+static void stamp(AchVm *vm, uint32_t i) {
+	if (!vm->mapStart) return;
+	const uint16_t *p = vm->mapList + vm->mapStart[i], *end = vm->mapList + vm->mapStart[i + 1];
+	uint32_t u = vm->updates, *change = vm->achChange;
+	while (p < end) change[*p++] = u;
 }
 
 // rc_update_memref_values, from memref vm->memNext on. Returns 1 when
@@ -318,9 +371,10 @@ static int updateMemrefs(AchVm *vm, int (*keepGoing)(void *ud), void *ud) {
 		if (i < nPlain) {
 			const uint8_t *p = vm->plain + i * PLAIN_SIZE;
 			uint32_t head = rd32(p + 4); // size, type
-			if (((head >> 8) & 0xff) != T_NONE) setMemref(vm, i, peekSized(vm, rd32(p), head & 0xff));
-		} else {
-			setMemref(vm, i, modifiedValue(vm, vm->mod + (i - nPlain) * MOD_SIZE));
+			if (((head >> 8) & 0xff) != T_NONE && setMemref(vm, i, peekSized(vm, rd32(p), head & 0xff)))
+				stamp(vm, i);
+		} else if (setMemref(vm, i, modifiedValue(vm, vm->mod + (i - nPlain) * MOD_SIZE, vm->memChanged[i] & MC_FAST))) {
+			stamp(vm, i);
 		}
 		i++;
 		if (!(i & (ACHVM_CHECK_EVERY - 1)) && i < nMem && keepGoing && !keepGoing(ud)) {
@@ -546,7 +600,7 @@ static int runCondset(const AchVm *vm, AchVm_Cursor *cur, int (*keepGoing)(void 
 }
 
 static uint32_t achBytes(const uint8_t *a) {
-	return 8 + a[4] * SET_SIZE + rd16(a + 6) * COND_SIZE;
+	return 8 + condsets(a) * SET_SIZE + rd16(a + 6) * COND_SIZE;
 }
 
 // rcheevos checks every achievement every frame. Checking one again whose
@@ -554,20 +608,41 @@ static uint32_t achBytes(const uint8_t *a) {
 // value, and each delta, reads the same as last time), and whose last check
 // left its state and its hits as they were (hitSig()), comes out the same:
 // no trigger, the same state, the same hits. Such an achievement is skipped
-// (unchanged() says 1).
+// (unchanged() says 1). "Its memory values" are the memrefs its conditions
+// name (not what a modified one is built from: its own value covers that);
+// when one changes, stamp() notes the update in the achievement's
+// achChange, so it's unchanged if that's older than the update before
+// (the same as none of them having changed in this update or the one before).
 static int unchanged(const AchVm *vm, const uint8_t *a) {
-	const uint8_t *cs = a + 8;
-	for (uint32_t s = a[4]; s > 0; s--) {
-		uint32_t n = rd16(cs) + rd16(cs + 2) + rd16(cs + 4) + rd16(cs + 6) + rd16(cs + 8);
-		const uint8_t *c = cs + SET_SIZE;
-		for (; n > 0; n--, c += COND_SIZE) {
-			uint32_t w = rd32(c);
-			if (((w >> 8) & 0x0f) != K_CONST && vm->memChanged[rd32(c + 4)]) return 0;
-			if (((w >> 12) & 0x0f) != K_CONST && vm->memChanged[rd32(c + 8)]) return 0;
+	(void)a;
+	return vm->mapStart && vm->achChange[vm->nextIndex] + 1 < vm->updates;
+}
+
+// Builds the map unchanged() uses (fill 0: counts each memref's
+// achievements into mapStart[i + 1]; fill 1: lists them, mapStart[] being
+// where each list starts). Each achievement goes in a memref's list once:
+// mark[] (memPrior for now) says which achievement put it there last, and
+// at[] (memValue) where the list goes on.
+static void mapAchievements(AchVm *vm, int fill) {
+	const uint8_t *a = vm->achStart;
+	uint32_t *mark = vm->memPrior, *at = vm->memValue;
+	for (uint32_t k = 1; k <= vm->nAch; k++) {
+		const uint8_t *c = a + 8;
+		for (uint32_t s = condsets(a); s > 0; s--) {
+			uint32_t n = rd16(c) + rd16(c + 2) + rd16(c + 4) + rd16(c + 6) + rd16(c + 8);
+			for (c += SET_SIZE; n > 0; n--, c += COND_SIZE) {
+				uint32_t w = rd32(c);
+				for (uint32_t j = 0; j < 2; j++, w >>= 4) {
+					uint32_t i = rd32(c + 4 + 4 * j);
+					if (((w >> 8) & 0x0f) == K_CONST || mark[i] == k) continue;
+					mark[i] = k;
+					if (fill) vm->mapList[at[i]++] = (uint16_t)(k - 1);
+					else vm->mapStart[i + 1]++;
+				}
+			}
 		}
-		cs = c;
+		a = c;
 	}
-	return 1;
 }
 
 // An achievement's hits, as far as they can matter, hashed: the count of a
@@ -578,7 +653,7 @@ static int unchanged(const AchVm *vm, const uint8_t *a) {
 static uint32_t hitSig(const uint8_t *a, const uint32_t *hits) {
 	uint32_t sig = 0;
 	const uint8_t *cs = a + 8;
-	for (uint32_t s = a[4]; s > 0; s--) {
+	for (uint32_t s = condsets(a); s > 0; s--) {
 		uint32_t n = rd16(cs) + rd16(cs + 2) + rd16(cs + 4) + rd16(cs + 6) + rd16(cs + 8);
 		const uint8_t *c = cs + SET_SIZE;
 		for (; n > 0; n--, c += COND_SIZE, hits++) {
@@ -598,7 +673,7 @@ static int runAchievement(AchVm *vm, AchVm_Triggered onTriggered, int (*keepGoin
 	const uint8_t *a = vm->nextAch;
 	uint8_t *state = &vm->achState[vm->nextIndex];
 	uint32_t *hits = vm->hits + vm->nextHit;
-	uint32_t nSets = a[4], hasCore = a[5], nConds = rd16(a + 6), i;
+	uint32_t nSets = condsets(a), hasCore = rd16(a + 4) >> 15, nConds = rd16(a + 6), i;
 
 	if (!cur->inAchievement) {
 		uint8_t st = *state;
@@ -624,6 +699,9 @@ static int runAchievement(AchVm *vm, AchVm_Triggered onTriggered, int (*keepGoin
 		if (++cur->set < nSets) beginCondset(cur);
 	}
 	cur->inAchievement = 0;
+	// (unlocked by AchVm_SetUnlocked() while the pass had stopped part way
+	// through this one: it stays that way)
+	if ((*state & 3) == ACHVM_TRIGGERED) return 1;
 
 	uint8_t st = *state, was = st & (3 | HAD_HITS), now;
 	int ret = cur->ret;
@@ -632,6 +710,7 @@ static int runAchievement(AchVm *vm, AchVm_Triggered onTriggered, int (*keepGoin
 	if (ev->wasReset) {
 		for (i = 0; i < nConds; i++) hits[i] = 0;
 		if (st & HAD_HITS) { // rcheevos reports RESET, the state doesn't change
+			if (vm->onReset) vm->onReset(rd32(a), ud);
 			now = st & 3;
 			goto done;
 		}
@@ -661,8 +740,9 @@ static uint32_t align4(uint32_t n) { return (n + 3) & ~3u; }
 
 // Checks the program and works out where everything is. Returns 0 if the
 // program isn't valid, else 1 plus the state size (0 for a program with no
-// achievements, which is valid: a set's lane can be empty).
-static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm) {
+// achievements, which is valid: a set's lane can be empty). *mapBytes: how
+// much of that is unchanged()'s map.
+static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm, uint32_t *mapBytes) {
 	if (size < HEADER_SIZE || rd32(p) != ACHVM_PROGRAM_VERSION) return 0;
 	uint32_t nPlain = rd16(p + 4), nMod = rd16(p + 6), nAch = rd16(p + 8), nConds = rd32(p + 12);
 	uint32_t nMem = nPlain + nMod;
@@ -679,11 +759,11 @@ static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm) {
 			if (op[0] != K_CONST && rd32(op + 4) >= nMem) return 0;
 		}
 	}
-	uint32_t conds = 0;
+	uint32_t conds = 0, refs = 0;
 	for (uint32_t i = 0; i < nAch; i++) {
 		if (pos + 8 > size) return 0;
 		const uint8_t *a = p + pos;
-		uint32_t nSets = a[4], achConds = rd16(a + 6), counted = 0;
+		uint32_t nSets = condsets(a), achConds = rd16(a + 6), counted = 0;
 		if (pos + achBytes(a) > size) return 0;
 		const uint8_t *cs = a + 8;
 		for (uint32_t s = 0; s < nSets; s++) {
@@ -693,6 +773,7 @@ static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm) {
 				uint32_t w = rd32(c);
 				if (((w >> 8) & 0x0f) != K_CONST && rd32(c + 4) >= nMem) return 0;
 				if (((w >> 12) & 0x0f) != K_CONST && rd32(c + 8) >= nMem) return 0;
+				refs += (((w >> 8) & 0x0f) != K_CONST) + (((w >> 12) & 0x0f) != K_CONST);
 			}
 			counted += n;
 			cs = c;
@@ -701,7 +782,7 @@ static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm) {
 		conds += counted;
 		pos += achBytes(a);
 	}
-	if (conds != nConds || pos != size) return 0;
+	if (conds != nConds || pos != size || refs > 0xFFFF) return 0;
 
 	if (vm) {
 		vm->plain = p + HEADER_SIZE;
@@ -712,17 +793,21 @@ static uint32_t checkProgram(const uint8_t *p, uint32_t size, AchVm *vm) {
 		vm->nAch = (uint16_t)nAch;
 		vm->nConds = nConds;
 	}
-	return 1 + nMem * 8 + nConds * 4 + nAch * 4 + align4(nMem) + align4(nAch);
+	// unchanged()'s map, after the rest: achChange (a u32 per achievement),
+	// mapStart (nMem + 1 u16) and mapList (at most a u16 per memref a
+	// condition names). None for no achievements.
+	*mapBytes = nAch ? nAch * 4 + align4(2 * (nMem + 1)) + align4(2 * refs) : 0;
+	return 1 + nMem * 8 + nConds * 4 + nAch * 4 + align4(nMem) + align4(nAch) + *mapBytes;
 }
 
 uint32_t AchVm_StateSize(const void *program, uint32_t size) {
-	uint32_t need = checkProgram((const uint8_t *)program, size, 0);
+	uint32_t mapBytes, need = checkProgram((const uint8_t *)program, size, 0, &mapBytes);
 	return need ? need - 1 : 0;
 }
 
 int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint32_t stateSize,
                const uint8_t *ram, uint32_t ramSize) {
-	uint32_t need = checkProgram((const uint8_t *)program, size, vm);
+	uint32_t mapBytes, need = checkProgram((const uint8_t *)program, size, vm, &mapBytes);
 	if (need-- == 0) return ACHVM_E_FORMAT;
 	if (need > stateSize || ((uintptr_t)state & 3)) return ACHVM_E_SPACE;
 
@@ -735,6 +820,31 @@ int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint3
 	vm->achSig = vm->hits + vm->nConds;
 	vm->memChanged = (uint8_t *)(vm->achSig + vm->nAch);
 	vm->achState = vm->memChanged + align4(nMem);
+	for (uint32_t i = 0; i < nMem; i++) vm->memChanged[i] = (uint8_t)(programType(vm, i) << 4);
+	for (uint32_t i = 0; i < vm->nMod; i++) {
+		const uint8_t *op = vm->mod + i * MOD_SIZE + 4;
+		if (fastModified(vm, op - 4)) vm->memChanged[vm->nPlain + i] |= MC_FAST;
+		for (int j = 0; j < 2; j++, op += 8) {
+			if (op[0] == K_CONST) continue;
+			int history = op[0] == K_DELTA || op[0] == K_PRIOR || (op[0] == K_RECALL && op[2] != READ_VALUE);
+			vm->memChanged[rd32(op + 4)] |= MC_FEEDS | (history ? MC_HISTORY : 0);
+		}
+	}
+	vm->mapStart = 0;
+	if (mapBytes) {
+		vm->achChange = (uint32_t *)(vm->achState + align4(vm->nAch));
+		vm->mapStart = (uint16_t *)(vm->achChange + vm->nAch);
+		vm->mapList = vm->mapStart + ((nMem + 2) & ~1u);
+		mapAchievements(vm, 0);
+		for (uint32_t i = 0; i < nMem; i++) {
+			vm->mapStart[i + 1] += vm->mapStart[i];
+			vm->memValue[i] = vm->mapStart[i];
+			vm->memPrior[i] = 0;
+		}
+		mapAchievements(vm, 1);
+		for (uint32_t i = 0; i < nMem; i++) vm->memValue[i] = vm->memPrior[i] = 0;
+	}
+	vm->updates = 2; // (so an achChange of 0 is older than the update before the first)
 
 	vm->ram = ram;
 	vm->ramSize = ramSize;
@@ -754,12 +864,14 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 	if (vm->nAch == 0) return 0;
 	if (vm->passStage == 0) {
 		vm->memNext = 0;
+		vm->updates++;
 		vm->passStage = 1;
 	}
 	if (vm->passStage == 1) {
 		if (vm->feed) {
 			uint32_t nMem = vm->nPlain + vm->nMod;
-			for (uint32_t i = 0; i < nMem; i++) setMemref(vm, i, vm->feed[i]);
+			for (uint32_t i = 0; i < nMem; i++)
+				if (setMemref(vm, i, vm->feed[i])) stamp(vm, i);
 		} else if (!updateMemrefs(vm, keepGoing, ud)) {
 			return 0;
 		}
@@ -782,18 +894,46 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 	}
 }
 
-void AchVm_Sample(AchVm *vm, uint32_t *out) {
-	uint32_t nMem = vm->nPlain + vm->nMod;
-	vm->memNext = 0;
-	updateMemrefs(vm, 0, 0);
-	for (uint32_t i = 0; i < nMem; i++) out[i] = vm->memValue[i];
+// updateMemrefs() all at once, without the time checks or unchanged()'s
+// stamps (nothing is checked on the sampling VM), the values going
+// straight to out. The sampling VM's own memory values only matter to its
+// modified memrefs, so a value none of them reads just goes to out, and one
+// they only read as it is now is kept without its prior value.
+static inline __attribute__((always_inline)) void sampleOne(AchVm *vm, uint32_t i, uint32_t v, uint32_t *out) {
+	uint32_t c = vm->memChanged[i];
+	if (c & MC_HISTORY) setMemref(vm, i, v);
+	else if (c & MC_FEEDS) vm->memValue[i] = v;
+	out[i] = v;
 }
 
-void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud) {
-	vm->feed = in;
-	AchVm_Run(vm, 0, onTriggered, ud);
-	vm->feed = 0;
+void AchVm_Sample(AchVm *vm, uint32_t *out) {
+	uint32_t nPlain = vm->nPlain, nMem = nPlain + vm->nMod, i = 0;
+	const uint8_t *p = vm->plain;
+	for (; i < nPlain; i++, p += PLAIN_SIZE) {
+		uint32_t a = rd32(p), size = p[4];
+		if (p[5] == T_NONE) {
+			out[i] = 0; // (never read: memValue stays 0)
+			continue;
+		}
+		// (a byte, the commonest size, without peekSized())
+		sampleOne(vm, i, (size == S_8 && a < vm->ramSize) ? vm->ram[a] : peekSized(vm, a, size), out);
+	}
+	for (p = vm->mod; i < nMem; i++, p += MOD_SIZE) sampleOne(vm, i, modifiedValue(vm, p, vm->memChanged[i] & MC_FAST), out);
 }
+
+int AchVm_RunFed(AchVm *vm, const uint32_t *in, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered,
+                 void *ud) {
+	vm->feed = in; // (only read as a pass starts: the values are the VM's own after that)
+	int done = AchVm_Run(vm, keepGoing, onTriggered, ud);
+	vm->feed = 0;
+	return done || !vm->nAch;
+}
+
+#ifndef ARM7 // (the console uses AchVm_RunFed())
+void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud) {
+	AchVm_RunFed(vm, in, 0, onTriggered, ud);
+}
+#endif
 
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i) {
 	const uint8_t *a = vm->achStart;

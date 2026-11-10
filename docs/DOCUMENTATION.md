@@ -4,7 +4,9 @@ How DSiRPC works, in detail: the parts, the network protocol, what was
 changed in nds-bootstrap, the Pokémon Platinum memory map, the sprite
 pipeline and troubleshooting. For installing and using DSiRPC, start with the
 [README](../README.md); for running it from the source code, building the
-console files and making releases, see [DEVELOPMENT.md](DEVELOPMENT.md).
+console files and making releases, see [DEVELOPMENT.md](DEVELOPMENT.md). Offline
+achievements, end to end and with the reasons, have their own document:
+[OFFLINE_ACHIEVEMENTS.md](OFFLINE_ACHIEVEMENTS.md).
 
 ## TL;DR
 
@@ -302,6 +304,7 @@ DSi), the Discord Rich Presence as a hub listener
 | `--dry-run` | off | Log the presence instead of sending it, and send nothing to RetroAchievements (no session, pings or unlocks). Also acts as if nothing were unlocked (as `--blank-ra`), and leaves the console's waiting unlocks on it (the sync answers that it took none) |
 | `--blank-ra` | off | Act as if the RetroAchievements account had nothing unlocked: `RALink.known_unlocks()` is empty and sessions report nothing unlocked, so every achievement is checked, the console gets whole sets, and every unlock is sent (`unlocked.json` still records the real state) |
 | `--clear-ra` | off | At the console's first sync in this run: take its waiting unlocks without sending them (so the launcher clears them) and send every set again, even current ones |
+| `--clear-learning [CODE]` | off | Forget what the shadow check learned, for every game or just `CODE`: as DSiRPC starts, `ra/cache/frame_needs.json` loses those proofs and clean counts (`frame_needs.json.bak` keeps the file as it was); at the console's first sync, its waiting shadow notes are taken without being kept (the launcher clears them; its unlocks go on as usual) and those sets are sent again, built without proofs, so the frame lanes go back to `timing()`'s guesses. The console keeps nothing else learned: its shadow state is in RAM, per start |
 | `--client-id ID` | from `dsirpc.cfg` | Discord application ID for every game |
 | `--interval S` | `5`, or `2` with the overlay | Seconds between reads. Discord accepts about one update per 5 s. |
 | `--file ram_dump.bin` | - | Use a 4 MB RAM dump (for example from melonDS) instead of the DSi. With `--dry-run` (and no overlay) it prints the presence once and exits |
@@ -1104,20 +1107,56 @@ time it was sent) and the ones past main RAM. rcheevos parses them, as it does f
 DSiRPC's addition to the library (`third_party/rcheevos/dsirpc_offline.c`)
 writes out what it parsed as the programs the console's checker runs
 (section 8). A set has two: the frame lane, checked every frame, and the
-pass lane, checked in passes. `split_lanes()` fills the frame lane with
-the achievements that need it (`timing()` 2 or 3), the cheapest first so
-as many as possible fit, then the others, while its cost stays within
-`FRAME_SAMPLE_CYCLES` (40,000 ARM7 cycles a frame, about 19 scanlines, for
-sampling its memory values in the VBlank) and `FRAME_CHECK_CYCLES`
-(110,000, about 52 scanlines of the game's idle time, for checking a
-sample, assuming most achievements' values don't change on most frames);
-`frame_costs()` has the costs, fitted to the checker on `tools/arm7_model`.
-Small sets go in the frame lane whole; a big one gets a few hundred
-conditions' worth there and the rest in the pass lane. Left out: achievements
-rcheevos can't parse, those that need floating point (the console's ARM7
-has none), and, if the set and its state don't fit in the 250 KB the
-console sets aside (256 KB less 4 KB for reading `RPCUNLK.BIN` and 2 KB for
-the per-frame capture's ring), the biggest pass lane ones. Each set is
+pass lane, checked in passes. `split_lanes()` fills the frame lane in this
+order: the achievements proven to need it (`ra/cache/frame_needs.json`,
+below), then the ones `timing()` guesses need it (2 or 3) that haven't been
+found clean, then those guesses the console's shadow check found no
+difference for in `CLEAN_SESSIONS` (2) sessions or more, then the rest; the
+cheapest first within each group, so as many as possible fit. Each one is
+tried by compiling the lane with it (the memory values achievements share
+count once, as on the console), and it goes in only while the lane's cost
+stays within `FRAME_SAMPLE_CYCLES` (42,000 ARM7 cycles a frame, about 20
+scanlines, for sampling its memory values in the VBlank),
+`FRAME_CHECK_CYCLES` (110,000, about 52 scanlines of the game's idle time,
+for checking a sample, assuming most achievements' values don't change on
+most frames) and `FRAME_BUSY_CYCLES` (7 x 110,000: a frame where every value
+changed, which the ring has to absorb); `frame_costs()` and
+`frame_busy_cost()` have the costs, fitted to the checker on
+`tools/arm7_model`. Small sets go in the frame lane whole; a big one gets a
+few hundred conditions' worth there and the rest in the pass lane. Left
+out: achievements rcheevos can't parse and those that need floating point
+(the console's ARM7 has none). The set and its state have to fit in the
+250 KB the console sets aside (256 KB less 4 KB for reading `RPCUNLK.BIN`
+and 2 KB for the per-frame capture's ring; `set_memory()` adds it up). When
+one doesn't, `build_set()` gives things up in this order: first the shadow
+check's copy of the frame lane (the console then doesn't shadow that game,
+and DSiRPC logs it), then frame lane achievements, the least needed first,
+which move to the pass lane (still checked, in passes), and only then the
+biggest pass lane achievements. All this is fitted with the smallest ring
+of frame lane samples (`RING_MIN`, 8); then the ring doubles while the set
+still fits, up to `RING_MAX` (256 samples, about 4 seconds), so the checking
+can fall that far behind in a busy stretch (a load, a line clear) and catch
+up without losing a sample. Animal Crossing: Wild World (ADME, 157 achievements) fits whole
+with an 8-sample ring and no shadow check; Tetris DS gets 256 samples.
+
+Which achievements really need the frame lane is learned while playing,
+because `timing()` can't tell a flag that's set for one frame from a value
+that stays put. A shadow check runs a frame lane's achievements twice, every
+frame and every 8th frame (the way the pass lane would), from the same
+memory, and an achievement that comes out differently (one unlocked or saw
+a reset and the other didn't, for more than 3 of the sparse checks) is
+proof that it needs every frame. On the PC, `frame_needs.Shadow` does this
+with the per-frame capture's frames (`core/frame_capture.py`, `"by":
+["pc"]`). On the console, the checker shadows its own frame lane (section
+8) and leaves notes in `RPCUNLK.BIN` (section 7), which the launcher's
+sync brings over (`"by": ["console"]`, and `clean` counts for achievements
+watched a while with no difference). Both go into
+`ra/cache/frame_needs.json` (`core/frame_needs.py`), keyed by achievement
+ID and the CRC-32 of its MemAddr, so a proof stops counting once
+RetroAchievements changes the achievement. Proofs are only ever added
+(merging is a union; a set download never touches the file) and are what
+puts an achievement first in `split_lanes()`'s order; clean counts only
+move one down. `--clear-learning [CODE]` (section 5) forgets them. Each set is
 noted in `ra/cache/console_sets.json` by its stamp (`remember_set()`), and
 goes only if the console's copy is missing or has another stamp. The console
 saves every unlock, including the ones made while DSiRPC was watching, so
@@ -1149,7 +1188,7 @@ to be configured.
 ASCII text:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N a9s=N vb=N
 ```
 
 | Field | Meaning |
@@ -1171,6 +1210,7 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N 
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
 | `a9` | DSiRPC's ARM9 half, which writes the ARM9's data cache back to main RAM in the game's idle time so rpcprobe's reads are up to date. `1`: rpcprobe found it in the ARM9 cardengine. `2` or more: found, and the game's `OS_Halt` patched for the write-backs (`a9` is 1 + the copies patched; rpcprobe looks for `OS_Halt` in the first few seconds of a game and asks again after a soft reset). `0`: an ARM9 cardengine without it (DLDI, GSDD or TWLSDK variant), so values the game just wrote can be read a frame late. |
+| `a9s` | The copies of the game's `OS_Halt` found (0 to 4): by rpcprobe's search of the game's static code, or, when that finds none, by the ARM9 half's search of ITCM (where some games' SDK puts it: an autoload block the game copies there as it starts, which only the ARM9 can read); `9` while either is still looking. With `a9=1`, `0` means neither found the pattern (`tools/find_idle.py` shows where the game waits instead), and a number means they were found but not patched. DSiRPC logs what `a9` and `a9s` say, in words, when they change (`Console: CODE: ARM9 half ...`). Older builds don't send it. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 DSiRPC logs these once a minute: "Console: its VBlank tick (rpcprobe) took up to N scanlines over the last minute (M typical; a frame has 263), R network frames and Q requests a second" (the longest and median `vb=`, and how fast `rx` and `req` went up), so a log shows what the Wi-Fi side cost the console while something was slow.
@@ -1251,7 +1291,14 @@ sync value was 0 or 3, so it never replaces one of nds-bootstrap's commands
 the ARM9 checks the block on any IPC sync interrupt. There it checks that each
 address still holds `OS_Halt` and makes its first two instructions jump to
 its own routine, which writes the cache back, counts it in the block's
-`cleaned` and then halts, as `OS_Halt` would have. Interrupts stay on, so the
+`cleaned` and then halts, as `OS_Halt` would have. Some games' SDK puts
+`OS_Halt` in ITCM instead (an autoload block the game copies there as it
+starts), which the ARM7 can't read: when rpcprobe's search finds no copy, it
+asks with none listed, and the ARM9 half searches ITCM itself (if it's on;
+an 8192-word compare in that interrupt, once a game and again after a soft
+reset), patches each copy it finds there the same way, only over all three
+of its words, and says in the block's `found` that it looked and how many
+it found, so rpcprobe stops asking (block version 5). Interrupts stay on, so the
 game's own come first, and a game busy all frame (Pokémon Black and White
 loading a battle) never gets there: the write-backs only use time the ARM9
 would have spent halted. A game that idles once its frame is done, as most
@@ -1341,7 +1388,12 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
    ```
 
    `status` 0 is OK, 1 that the request couldn't be read. `taken` is how
-   many valid unlock slots it got, repeats included. The sets are the ones
+   many valid unlock slots it got, repeats and the shadow check's notes
+   included (`offline.count_slots()`): the launcher counts every valid slot
+   but the playtime one, and only clears the file when the two match. Both
+   sides tell the notes apart only for people: DSiRPC logs
+   `N unlock(s), M shadow note(s) taken`, and the launcher's "unlocks
+   sent" and "to sync" leave the notes out. The sets are the ones
    the console doesn't have or has another stamp of, the started game's
    first.
 4. The launcher zeroes the unlock slots if `taken` matches its own count
@@ -1385,18 +1437,38 @@ twice and DSiRPC never gets one (`core/offline.py` leaves out any that it
 does, and so does the launcher's unlock count).
 The console saves every unlock, online too, so DSiRPC leaves out the ones it
 already knows about (`engine._offline_unlocks()`, `RALink.known_unlocks()`).
+Other slots are the console's shadow check's notes (section 8): achievement
+ID `0xFFFFFFFE` (`offline.PROVEN_ID`: the achievement needs the frame lane)
+or `0xFFFFFFFD` (`CLEAN_ID`: it was shadowed a while with no difference), the
+game's code, the achievement's ID in place of `when`, and `seq` 0. They're
+written the same way as unlocks, one 16-byte write each, from the same
+queue. A game start writes at most 64 of them and never takes the last 32
+free slots, which stay for unlocks. An unlock's `seq` is its slot number
+less the notes written before it in that start, so the unlocks' numbers
+stay one after another. `read_unlocks()` leaves the notes out,
+`read_shadow_notes()` reads them (each achievement once, a proof winning
+over a clean note), and `engine._shadow_notes()` adds them to
+`ra/cache/frame_needs.json`; a set rebuilt with a new proof goes back to
+the console at the same sync.
 
-**`CODE.DRS`** (a set, version 4) has a 64-byte header: `"DRSE"`, u16
-version (4), u16 header size (64), game code[4], u32 RetroAchievements game
+**`CODE.DRS`** (a set, version 5) has a 64-byte header: `"DRSE"`, u16
+version (5), u16 header size (64), game code[4], u32 RetroAchievements game
 ID, u32 stamp (CRC-32 of everything after the header), u16 achievement
 count (both lanes), u16 flags (0), u32 pass lane program size, u32 its
 state size (the RAM the checker needs for it), u32 list size, u32 frame
-lane program size, then 24 bytes of zeros (the console keeps its notes for
-the in-game menu in its RAM copy of bytes 40-63). The set and its state
-(the pass lane's, the frame lane's twice and its ring of 8 samples, 4 bytes
-a memory value each) have to fit in 250 KB (`offline.ACH_MEMORY`:
-nds-bootstrap's 256 KB less the 4 KB the console reads `RPCUNLK.BIN` into
-and the per-frame capture's 2 KB ring). The pass lane's program follows,
+lane program size, then at byte 40 u32 0 (reserved), at byte 44 u8 the
+frame lane's ring (2 to the power of this many samples, 3 to 8, so 8 to
+256; anything else means 16), then 19 bytes of zeros. The console reads
+byte 44 before anything else, because it then keeps its notes for
+the in-game menu in its RAM copy of bytes 40-63. The set and its state
+(the pass lane's, the frame lane's twice and its ring of samples, 4 bytes
+a memory value each, and when there's room the shadow check's copy of the
+frame lane: a third VM and state, one more sample and 8 bytes an
+achievement) have
+to fit in 250 KB (`offline.ACH_MEMORY`: nds-bootstrap's 256 KB less the
+4 KB the console reads `RPCUNLK.BIN` into and the per-frame capture's 2 KB
+ring). The console shadows a game only when what's left after the set and
+its state holds that copy. The pass lane's program follows,
 then the frame lane's (either can be empty, 0 bytes): rcheevos' parse of
 the achievements, as the checker runs them. Its layout is described at the top
 of nds-bootstrap's `rpcprobe/probe_ach_vm.c`: the memory values to read
@@ -1416,7 +1488,11 @@ unlocks there); then the titles and descriptions, NUL-terminated plain ASCII
 plain, anything else `?`). The launcher only reads the code and the stamp,
 which are in the same place in every version. (Version 1 had the MemAddr
 text instead of a program; version 2 had no list; version 3 had no frame
-lane. The console still checks versions 2 and 3.)
+lane; version 4 had no ring byte (the console gives it 16 samples). The
+console still checks versions 2 to 4.) The programs themselves are version 3
+(`offline.PROGRAM_VERSION`): an achievement's group count is a u16, bits
+0-14 the groups (up to 32,767; version 2 had a u8, so at most 255) and
+bit 15 whether it has a core group.
 
 ### The save sync (TCP 4245)
 
@@ -1593,7 +1669,7 @@ DSiRPC ach n=<achievements> t=<unlocked> p=<passes> l=<lines> s=<saved> x=<not s
 ```
 
 `n` is how many achievements the checker runs (both lanes), or why it isn't
-running: -1 `RPCSET.BIN` isn't a version 2, 3 or 4 set, -2 it's another
+running: -1 `RPCSET.BIN` isn't a version 2 to 5 set, -2 it's another
 game's set, -3 it's too big, -4 a program doesn't add up, -5 it's damaged
 (CRC). `t` counts the achievements it has unlocked since the game started,
 `ids` are the latest (up to 8, as many as fit), `p` is how many passes over
@@ -1603,8 +1679,8 @@ the frame lane's sampling, with `h=0` (a game whose swiHalt nds-bootstrap
 couldn't hook, so the VBlank does all the checking) the sampling and its
 turn of checking. `f` is how many of the `n` are checked every frame, `fr`
 how many frames they were checked for since the last report (about 60),
-`fd` how many frames couldn't be sampled because the checking had fallen 8
-behind, and `fc` how many samples were taken with no write-back of the
+`fd` how many frames couldn't be sampled because the checking had fallen a
+whole ring behind (8 to 256 frames, as the set says), and `fc` how many samples were taken with no write-back of the
 ARM9's data cache since the VBlank before (the game busy all frame, or its
 `OS_Halt` not patched: no ARM9 half, or not yet). `st` is the set's stamp (8 hex digits), which tells DSiRPC
 which achievements the console checks. `s` is how many of its unlocks it saved to
@@ -1670,8 +1746,9 @@ the console only runs the result:
   touch the SD card), `RPCSET.BIN` is read into `DSIRPC_ACH_LOCATION`, the
   256 KB the bootloader keeps the ROM cache out of: the set, then the
   checker's state (every memory value with its last change, every
-  condition's hit count; the pass lane's, the frame lane's twice, and the
-  frame lane's ring of 8 samples). It's only used if its game code is the
+  condition's hit count; the pass lane's, the frame lane's twice, the
+  frame lane's ring of samples, 8 to 256 as the set's header says, and the
+  shadow check's copy when the set left room for it). It's only used if its game code is the
   running game's. `RPCUNLK.BIN` is read into the 4 KB after the set's space
   (sets are built to leave them free) to find where the next unlock goes
   and which of the game's achievements already wait there; those aren't
@@ -1696,9 +1773,26 @@ the console only runs the result:
   checking takes the samples in order (`AchVm_RunSampled()`, a pass with
   those values as its memory, prior values and changes included). So every
   frame is checked as it was, however late, and its memory is always read
-  at the same point of the frame. If the checking falls 8 frames behind,
-  frames go unsampled until there's room (a gap; `fd=` in the report). The
-  pass lane is the rest, in passes as before.
+  at the same point of the frame. If the checking falls a whole ring behind
+  (8 to 256 frames: DSiRPC gives each set as big a ring as its leftover
+  memory holds, section 6), frames go unsampled until there's room (a gap;
+  `fd=` in the report). The pass lane is the rest, in passes as before.
+- **The shadow check.** Which frame lane achievements really need every
+  frame is learned here too (section 6). A second copy of the frame lane
+  (`shadowVm`) checks every 8th sample (`SH_EVERY`) again, the way the pass
+  lane would. Each unlock and each reset (a ResetIf clearing hits) the
+  frame lane sees counts +1 for its achievement and each the shadow sees
+  -1; one left uneven for more than `SH_WINDOW` (3) shadow passes is proof
+  that it needs the frame lane, and one whose memory changed for `SH_CLEAN`
+  (600) samples with nothing uneven is clean so far. Either way a note goes
+  into the unlock queue for `RPCUNLK.BIN` (section 7), and the achievement
+  isn't judged again in that start. The shadow never holds up the frame
+  lane: it gets its own copy of the sample, runs only while no sample is
+  waiting (stopping for a new one, like the pass lane), and a due sample is
+  left out if it's still on the last one. It never unlocks anything; only
+  the frame lane does. A set without room for the copy (DSiRPC drops it
+  first when a set doesn't fit) isn't shadowed, and `ACH_SHADOW` 0 builds
+  the checker without it.
 - **Skipping what can't have changed.** Checking an achievement again whose
   memory values didn't change in this update or the one before (so every
   value and every delta reads the same), and whose last check left its
@@ -1755,9 +1849,11 @@ the console only runs the result:
   skipping checker, the one without skipping and rcheevos agreed on every
   trigger and state after every frame (18 runs of 5,000-8,000 frames, and
   36 runs of random achievements), and so did sampling now and checking
-  later with a random lag; `probe_ach.c` itself, with real version 4 sets
-  from `core/offline.py`, matched rcheevos frame for frame in its frame
-  lane, checking in the idle time and in the VBlank. With Wi-Fi, its
+  later with a random lag; `probe_ach.c` itself, with real sets from
+  `core/offline.py` (version 4 then; the tests build version 5 sets now,
+  with the shadow check on and off and with rings of 8 to 256 samples),
+  matched rcheevos frame for frame in its frame lane, checking in the idle
+  time and in the VBlank. With Wi-Fi, its
   report (section 7) shows on hardware what it unlocks and how long it
   takes.
 - **Saving.** Each unlock goes into a small queue (7 places) with its time

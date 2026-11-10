@@ -2605,9 +2605,9 @@ int arm7_main(void) {
 		getFileFromCluster(&pageFile, pageFileCluster, bootstrapOnFlashcard);
 
 		// Write ARM9 SCFG registers to in-game menu before locking the registers
-		fileWrite((char*)&waitSysCyclesOffset, &pageFile, IGM_TEXT_SIZE_ALIGNED+0x4, sizeof(u32));
-		fileWrite((char*)&arm9_SCFG_EXT, &pageFile, IGM_TEXT_SIZE_ALIGNED+0x8, sizeof(u32));
-		fileWrite((char*)&arm9_SCFG_CLK, &pageFile, IGM_TEXT_SIZE_ALIGNED+0xC, sizeof(u16));
+		fileWrite((char*)&waitSysCyclesOffset, &pageFile, INGAME_MENU_PAGEFILE_OFFSET+IGM_TEXT_SIZE_ALIGNED+0x4, sizeof(u32));
+		fileWrite((char*)&arm9_SCFG_EXT, &pageFile, INGAME_MENU_PAGEFILE_OFFSET+IGM_TEXT_SIZE_ALIGNED+0x8, sizeof(u32));
+		fileWrite((char*)&arm9_SCFG_CLK, &pageFile, INGAME_MENU_PAGEFILE_OFFSET+IGM_TEXT_SIZE_ALIGNED+0xC, sizeof(u16));
 	}
 
 	// dbg_printf("Starting the NDS file...");

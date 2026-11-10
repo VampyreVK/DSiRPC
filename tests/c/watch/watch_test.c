@@ -19,6 +19,7 @@ extern DsirpcWatchBlock dsirpcWatchBlock;
 void dsirpcIdle(void);
 void dsirpcWatchService(void);
 void dsirpcWatchReset(void);
+extern int fakeItcmOn;                             // the stand-in dsirpcItcmOn()'s answer
 
 // The hardware probe_watch.c touches (watch_decls.h and the -D overrides
 // point it here): VCOUNT moves a line per read, IPC_SYNC is a variable, and
@@ -50,6 +51,7 @@ void IC_InvalidateRange(const void *b, unsigned s) { (void)b; (void)s; icInvalid
 #define BEYOND (BIN + CODE + 0x100)
 static u8 header[0x200];
 
+static int noStaticHalt;                           // a game whose OS_Halt isn't in its static code
 static void putHalt(u32 a) { W(a) = DSIRPC_OS_HALT_0; W(a + 4) = DSIRPC_OS_HALT_1; W(a + 8) = DSIRPC_OS_HALT_2; }
 static int isHalt(u32 a) { return W(a) == DSIRPC_OS_HALT_0 && W(a + 4) == DSIRPC_OS_HALT_1 && W(a + 8) == DSIRPC_OS_HALT_2; }
 static int patched(u32 a) { return W(a) == 0xE51FF004u && W(a + 4) == (u32)(uintptr_t)dsirpcIdle; }
@@ -63,7 +65,7 @@ static void loadGame(void) {
 	u32 params = BIN + 0x7E4;
 	W(params + 0x08) = BIN + CODE;                 // autoload start
 	W(params + 0x1C) = 0xDEC00621u; W(params + 0x20) = 0x2106C0DEu;
-	putHalt(HALT1); putHalt(HALT2);
+	if (!noStaticHalt) { putHalt(HALT1); putHalt(HALT2); }
 	W(LOOKALIKE) = DSIRPC_OS_HALT_0; W(LOOKALIKE + 4) = DSIRPC_OS_HALT_1; W(LOOKALIKE + 8) = 0xE12FFF1Fu; // bx pc
 	putHalt(BEYOND);
 	u32 bin = BIN, stored = STORED;
@@ -285,6 +287,77 @@ static void caseReset(void) {
 	CHECK(patched(HALT1) && patched(HALT2) && dsirpcWatchBlock.hooked == 2);
 }
 
+// ITCM (32 KB at 0x01FF8000), for games whose OS_Halt is there
+#define ITCM 0x01FF8000u
+static void mapItcm(void) {
+	void *m = mmap((void *)ITCM, 0x8000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+	CHECK(m == (void *)ITCM);
+	for (u32 a = ITCM; a < ITCM + 0x8000; a += 4) W(a) = 0xE1A00000u ^ (a * 40503u); // junk "code"
+}
+
+// No OS_Halt in the static code: rpcprobe asks with none listed, the ARM9
+// finds the copy in ITCM and patches it (not the look-alike), says so in
+// `found`, a9s= says 1, and rpcprobe stops asking
+static void caseItcm(void) {
+	mapItcm();
+	fakeItcmOn = 1;
+	putHalt(ITCM + 0x7F0);                         // its third word in ITCM's last
+	W(ITCM + 0x100) = DSIRPC_OS_HALT_0; W(ITCM + 0x104) = DSIRPC_OS_HALT_1; W(ITCM + 0x108) = 0;
+	noStaticHalt = 1;                              // not in the static code
+	int visits = search();
+	CHECK(visits > 10 && dsirpcWatchBlock.ask == 1);
+	for (int i = 0; i < DSIRPC_IDLE_SITES; i++) CHECK(dsirpcWatchBlock.haltAt[i] == 0);
+	CHECK(ProbeWatch_Sites() == 9);                // the ARM9 hasn't looked yet
+	dsirpcWatchService();
+	CHECK(patched(ITCM + 0x7F0) && W(ITCM + 0x7F8) == DSIRPC_OS_HALT_2);
+	CHECK(W(ITCM + 0x100) == DSIRPC_OS_HALT_0 && W(ITCM + 0x104) == DSIRPC_OS_HALT_1);
+	CHECK(dsirpcWatchBlock.hooked == 1 && dsirpcWatchBlock.found == (DSIRPC_FOUND_LOOKED | 1));
+	CHECK(icInvalidates == 0 && isHalt(BEYOND));
+	ProbeWatch_Tick();
+	CHECK(probeWatchArm9 == 2 && ProbeWatch_Sites() == 1);
+	CHECK(ticksUntilAsk(500) == 500 && dsirpcWatchBlock.ask == 1);  // no more asks
+	dsirpcWatchBlock.ask++;                        // asked again anyway: already in, not patched twice
+	dsirpcWatchService();
+	CHECK(dsirpcWatchBlock.hooked == 1 && patched(ITCM + 0x7F0));
+	// A soft reset: asked again, and the game's fresh copy patched
+	dsirpcWatchReset();
+	CHECK(dsirpcWatchBlock.found == 0);
+	putHalt(ITCM + 0x7F0);
+	CHECK(ticksUntilAsk(1000) <= 61);
+	dsirpcWatchService();
+	CHECK(patched(ITCM + 0x7F0) && dsirpcWatchBlock.hooked == 1);
+}
+
+// None in ITCM either: the ARM9 says it looked and found none, a9s= says 0,
+// and rpcprobe stops asking
+static void itcmNone(int on) {
+	mapItcm();
+	fakeItcmOn = on;
+	noStaticHalt = 1;
+	search();
+	CHECK(dsirpcWatchBlock.ask == 1);
+	dsirpcWatchService();
+	CHECK(dsirpcWatchBlock.hooked == 0 && dsirpcWatchBlock.found == DSIRPC_FOUND_LOOKED);
+	ProbeWatch_Tick();
+	CHECK(probeWatchArm9 == 1 && ProbeWatch_Sites() == 0);
+	CHECK(ticksUntilAsk(500) == 500);
+}
+static void caseItcmNone(void) { itcmNone(1); }
+// ITCM off: the ARM9 doesn't look, and says the same
+static void caseItcmOff(void) { itcmNone(0); }
+
+// Static copies found: the ARM9 doesn't look in ITCM, and a9s= counts them
+static void caseItcmNotNeeded(void) {
+	mapItcm();
+	fakeItcmOn = 1;
+	putHalt(ITCM + 0x200);
+	search();
+	dsirpcWatchService();
+	CHECK(dsirpcWatchBlock.hooked == 2 && dsirpcWatchBlock.found == 0 && isHalt(ITCM + 0x200));
+	ProbeWatch_Tick();
+	CHECK(ProbeWatch_Sites() == 2);
+}
+
 // The doorbell is never rung over another of nds-bootstrap's commands
 static void caseDoorbell(void) {
 	search();
@@ -315,6 +388,10 @@ static const struct { const char *name; void (*run)(void); } cases[] = {
 	{ "fetch", caseFetch },
 	{ "reset", caseReset },
 	{ "doorbell", caseDoorbell },
+	{ "itcm", caseItcm },
+	{ "itcm-none", caseItcmNone },
+	{ "itcm-off", caseItcmOff },
+	{ "itcm-not-needed", caseItcmNotNeeded },
 };
 
 int main(int argc, char **argv) {

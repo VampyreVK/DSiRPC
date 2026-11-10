@@ -209,9 +209,21 @@ achievements every frame, Tetris DS's busy stretches outran an 8- or
 write for a while before it reaches main RAM, where the ARM7 reads it.
 DSiRPC's ARM9 half patches the game's `OS_Halt` so the ARM9 writes its data
 cache back whenever the game idles, which most games do once their frame is
-done, so the values are in main RAM by the next VBlank. Hellos say whether
-it's there (`a9=2` or more); the report counts samples taken with no
-write-back since the VBlank before (`fc=`).
+done, so the values are in main RAM by the next VBlank. rpcprobe finds
+`OS_Halt` by its three instructions in the game's static code
+(`probe_watch.c`) and hands the addresses to the ARM9 (`dsirpc_watch.c`),
+which patches each one only if all three words are still there. Some games'
+SDK puts `OS_Halt` in ITCM instead (an autoload block the game copies there
+as it starts), which the ARM7 can't read: when rpcprobe's search finds none,
+it asks anyway, and the ARM9 searches ITCM itself, once a game, and patches
+what it finds the same way. Hellos say whether it's there (`a9=2` or more)
+and how many copies were found (`a9s=`), and DSiRPC logs it in words
+("ARM9 half found, 1 idle call(s) patched"); the report counts samples
+taken with no write-back since the VBlank before (`fc=`). A game whose
+idle call is neither (`a9=1 a9s=0`) gets no write-backs, so a value can be
+read a frame or more late, and one that changes and changes back while it's
+still in the cache can be missed; `tools/find_idle.py` shows where such a
+game waits.
 
 ## 6. Learning which achievements need every frame
 

@@ -11,7 +11,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 255.255.255.255, port 4244:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N a9s=N vb=N
 ```
 
 Watch them with `tools/hello_listener.py` (in the repo root).
@@ -34,6 +34,7 @@ Watch them with `tools/hello_listener.py` (in the repo root).
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
 | `a9` | DSiRPC's ARM9 half, which writes the ARM9's data cache back to main RAM in the game's idle time so rpcprobe's reads are up to date. `1`: rpcprobe found it in the ARM9 cardengine. `2` or more: found, and the game's `OS_Halt` patched for the write-backs (`a9` is 1 + the copies patched; rpcprobe looks for `OS_Halt` in the first few seconds of a game and asks again after a soft reset). `0`: an ARM9 cardengine without it (DLDI, GSDD or TWLSDK variant, or an older build), so values the game just wrote can be read a frame late. In builds before 2026-10-19, `2` to `5` meant a VBlank hook for the per-frame capture's snapshots. Older builds don't send `a9`. |
+| `a9s` | The copies of the game's `OS_Halt` found (0 to 4): by rpcprobe's search of the game's static code, or, when that finds none, by the ARM9 half's search of ITCM (where some games' SDK puts it: an autoload block the game copies there as it starts, which only the ARM9 can read); `9` while either is still looking. With `a9=1`, `0` means neither found the pattern (`tools/find_idle.py` shows where the game waits instead), and a number means they were found but not patched. DSiRPC logs what `a9` and `a9s` say, in words, when they change (`Console: CODE: ARM9 half ...`). Older builds don't send it. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 If hellos arrive but reads are slow or time out now and then, run the link

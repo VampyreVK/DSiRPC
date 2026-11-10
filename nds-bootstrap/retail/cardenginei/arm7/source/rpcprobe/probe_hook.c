@@ -209,7 +209,7 @@ static void handoffProbe(void) {
 static void handoffSend(void) {
 	// "DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX"
 	// plus, with requests on, " rx=N req=N arp=N eap=N rxm=N e53=N txm=N
-	// t53=N rep=N a9=N", then " vb=N" - at most 169 bytes. Static rather than
+	// t53=N rep=N a9=N a9s=N", then " vb=N" - at most 175 bytes. Static rather than
 	// on the stack: this runs on the game's ARM7 IRQ stack, which is small.
 	static char msg[176];
 	int n = 0;
@@ -254,6 +254,9 @@ static void handoffSend(void) {
 	// (probe_watch.h).
 	n += putStr(&msg[n], " a9=");
 	n += putDec(&msg[n], probeWatchArm9);
+	// The copies of OS_Halt the search found (9: not done yet)
+	n += putStr(&msg[n], " a9s=");
+	n += putDec(&msg[n], ProbeWatch_Sites());
 #endif
 	// Longest VBlank tick since the last hello, in scanlines (one is about
 	// 64 us; a whole frame is 263). Big values mean rpcprobe is eating

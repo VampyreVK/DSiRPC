@@ -36,6 +36,7 @@ GitHub runs them all on every change to the code they cover
 | `test_bw_parser.py` | `core/bw_parser.py` on a made-up Black/White RAM image: trainer, encrypted party, field, battles, the Continue menu, the quick battle and field reads, the gait |
 | `test_hub.py` | `core/hub.py` against the fake DSi in real time: Black/White end to end, the gait in the field, and the RetroAchievements side with and without the console's checker; how long the launcher counts as there |
 | `test_frame_check.py` | `tools/frame_check.py`: its analysis, arguments, logs, capture and counter search |
+| `test_find_idle.py` | `tools/find_idle.py`'s reading of ARM code on made-up buffers: wait-for-interrupt instructions, rpcprobe's exact `OS_Halt` pattern against the same shape with another register or one inside a function, autoload copies and where they run, the module params and autoload list, the BIOS waits |
 | `test_readme_art.py` | The README's banner and icons (`docs/images/`) up to date with the launcher's pixel art they're drawn from (`tools/readme_art.py`), and the banner still for anyone whose browser asks for less motion |
 | `test_launcher_ini.py` | The launcher's `nds-bootstrap.ini` handling (`launcher/source/bootstrap_ini.c`): the game, its save (TWiLight's save places and slots), the rest of TWiLight's ini kept as it was, and DS mode for DSi-enhanced games every time |
 

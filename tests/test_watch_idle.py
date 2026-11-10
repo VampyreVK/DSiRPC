@@ -10,14 +10,16 @@ import pytest
 
 from helpers import ARM9_SOURCE, C_DIR, COMMON_INCLUDE, RPCPROBE, cbuild
 
-CASES = ["search", "bad-header", "patch", "guard", "fresh", "no-arm9", "capture", "fetch", "reset", "doorbell"]
+CASES = ["search", "bad-header", "patch", "guard", "fresh", "no-arm9", "capture", "fetch", "reset", "doorbell", "itcm",
+         "itcm-none", "itcm-off", "itcm-not-needed"]
 
 
 @pytest.fixture(scope="module")
 def watch_test(cc, tmp_path_factory):
     out = tmp_path_factory.mktemp("watch")
     arm9 = open(os.path.join(ARM9_SOURCE, "dsirpc_watch.c")).read()
-    arm9 = cbuild.strip_asm(arm9, "dsirpcIdle:", "void dsirpcIdle(void) {} // (the ARM routine: a stand-in)\n")
+    arm9 = cbuild.strip_asm(arm9, "dsirpcIdle:", "void dsirpcIdle(void) {} // (the ARM routines: stand-ins)\n"
+                                                 "int fakeItcmOn;\nint dsirpcItcmOn(void) { return fakeItcmOn; }\n")
     arm9_host = out / "dsirpc_watch_host.c"
     arm9_host.write_text(arm9)
     exe = str(out / "watch_test")

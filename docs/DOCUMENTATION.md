@@ -1188,7 +1188,7 @@ to be configured.
 ASCII text:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N a9s=N vb=N
 ```
 
 | Field | Meaning |
@@ -1210,6 +1210,7 @@ DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N 
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
 | `a9` | DSiRPC's ARM9 half, which writes the ARM9's data cache back to main RAM in the game's idle time so rpcprobe's reads are up to date. `1`: rpcprobe found it in the ARM9 cardengine. `2` or more: found, and the game's `OS_Halt` patched for the write-backs (`a9` is 1 + the copies patched; rpcprobe looks for `OS_Halt` in the first few seconds of a game and asks again after a soft reset). `0`: an ARM9 cardengine without it (DLDI, GSDD or TWLSDK variant), so values the game just wrote can be read a frame late. |
+| `a9s` | The copies of the game's `OS_Halt` found (0 to 4): by rpcprobe's search of the game's static code, or, when that finds none, by the ARM9 half's search of ITCM (where some games' SDK puts it: an autoload block the game copies there as it starts, which only the ARM9 can read); `9` while either is still looking. With `a9=1`, `0` means neither found the pattern (`tools/find_idle.py` shows where the game waits instead), and a number means they were found but not patched. DSiRPC logs what `a9` and `a9s` say, in words, when they change (`Console: CODE: ARM9 half ...`). Older builds don't send it. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 DSiRPC logs these once a minute: "Console: its VBlank tick (rpcprobe) took up to N scanlines over the last minute (M typical; a frame has 263), R network frames and Q requests a second" (the longest and median `vb=`, and how fast `rx` and `req` went up), so a log shows what the Wi-Fi side cost the console while something was slow.
@@ -1290,7 +1291,14 @@ sync value was 0 or 3, so it never replaces one of nds-bootstrap's commands
 the ARM9 checks the block on any IPC sync interrupt. There it checks that each
 address still holds `OS_Halt` and makes its first two instructions jump to
 its own routine, which writes the cache back, counts it in the block's
-`cleaned` and then halts, as `OS_Halt` would have. Interrupts stay on, so the
+`cleaned` and then halts, as `OS_Halt` would have. Some games' SDK puts
+`OS_Halt` in ITCM instead (an autoload block the game copies there as it
+starts), which the ARM7 can't read: when rpcprobe's search finds no copy, it
+asks with none listed, and the ARM9 half searches ITCM itself (if it's on;
+an 8192-word compare in that interrupt, once a game and again after a soft
+reset), patches each copy it finds there the same way, only over all three
+of its words, and says in the block's `found` that it looked and how many
+it found, so rpcprobe stops asking (block version 5). Interrupts stay on, so the
 game's own come first, and a game busy all frame (Pokémon Black and White
 loading a battle) never gets there: the write-backs only use time the ARM9
 would have spent halted. A game that idles once its frame is done, as most

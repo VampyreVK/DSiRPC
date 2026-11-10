@@ -351,13 +351,13 @@ void ProbeAch_Load(const void *ndsHeader) {
 
 	u8 *base = (u8 *)DSIRPC_ACH_LOCATION;
 	fileRead((char *)base, &file, 0, ACH_HEADER_SIZE);
-	u32 poolSize = rd32(base + 40); // (version 5: before the menu's anchor goes over bytes 40-63)
-	u8 slots = base[44];            // version 5: the frame lane's ring, 2^3 to 2^8 samples (0: 16)
+	u8 slots = base[44]; // version 5: the frame lane's ring, 2^3 to 2^8 samples (0: 16); read before
+	                     // the menu's anchor goes over bytes 40-63 (40-43 are reserved, 0)
 	anchorStart(ndsHeader, DSIRPC_MENU_CHECKING);
 
 	// "DRSE", version 2-5, header size 64, game code, RA game id, stamp,
 	// achievements, flags, program size, state size, (3:) list size,
-	// (4:) frame lane program size
+	// (4:) frame lane program size, (5:) 4 reserved, the frame lane's ring
 	u16 version = base[4] | (base[5] << 8);
 	if (base[0] != 'D' || base[1] != 'R' || base[2] != 'S' || base[3] != 'E' ||
 	    version < 2 || version > 5 || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
@@ -377,11 +377,11 @@ void ProbeAch_Load(const void *ndsHeader) {
 	u32 frameSize = (version >= 4) ? rd32(base + 36) : 0;
 	const u8 *frameProgram = base + ACH_HEADER_SIZE + programSize;
 	listOffset = ACH_HEADER_SIZE + programSize + frameSize;
-	if (version < 5) poolSize = slots = 0; // (the shadow pool: not used yet)
+	if (version < 5) slots = 0;
 	frameSlots = (slots >= 3 && slots <= 8) ? 1 << slots : ACH_FRAME_SLOTS;
-	bodySize = programSize + frameSize + listSize + poolSize;
+	bodySize = programSize + frameSize + listSize;
 	u32 stateOffset = (ACH_HEADER_SIZE + bodySize + 3) & ~3u;
-	if (programSize > ACH_SET_SPACE || frameSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE || poolSize > ACH_SET_SPACE ||
+	if (programSize > ACH_SET_SPACE || frameSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE ||
 	    stateSize > ACH_SET_SPACE || stateOffset + stateSize > ACH_SET_SPACE ||
 	    ((listSize || frameSize) && ((programSize | frameSize) & 3))) {
 		loadFailed(PROBE_ACH_E_SIZE);

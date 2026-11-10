@@ -202,12 +202,14 @@ class ConsoleSync:
         # launcher clears the file only when that matches its own count, so
         # 0 leaves them there.
         taken = 0 if keep else offline.count_slots(unlock_bytes)
+        notes = taken - offline.count_unlocks(unlock_bytes) if taken else 0   # (the shadow check's)
         conn.sendall(offline.build_answer(0, taken, sets))
         self._await_hangup(conn)
         self.last = {'from': addr[0], 'game': game, 'unlocks': unlocks, 'taken': taken,
                      'sets': [code for code, _ in sets]}
         logging.info(f"Offline sync with the console at {addr[0]}"
-                     + (f" (starting {game})" if game else "") + f": {taken} unlock(s) taken, "
+                     + (f" (starting {game})" if game else "") + f": {taken - notes} unlock(s)"
+                     + (f", {notes} shadow note(s)" if notes else "") + " taken, "
                      f"{len(sets)} set(s) sent" + (f" ({', '.join(_set_name(c, d) for c, d in sets)})" if sets else ""))
 
     @staticmethod

@@ -98,6 +98,9 @@ jobs:
             nds-bootstrap/retail/common/include
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe
             nds-bootstrap/retail/cardenginei/arm9/source
+            nds-bootstrap/retail/cardenginei/arm9_igm/source
+            nds-bootstrap/retail/common/source_general
+            nds-bootstrap/retail/nitrofiles/fonts
             launcher/source
             launcher/music
             launcher/audio

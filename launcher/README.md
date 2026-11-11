@@ -186,10 +186,28 @@ plus:
   set's list and the unlocks waiting in `RPCUNLK.BIN`). **L**/**R** change
   the order, **Y** makes a favorite, **X** lists the achievements, with the
   one picked described on the top screen. `games.idx` keeps each game's
-  name, publisher and code from its banner by the file's size and time, so
-  only new or changed games are read, plus the favorites and when each game
-  was last started from the launcher (written in the classic look too, when
-  a game starts). If nds-bootstrap isn't next to the launcher, the classic
+  name, publisher and code from its banner by the file's name, size and
+  time, so only new or changed games are read, plus the favorites, when each
+  game was last started from the launcher (written in the classic look too,
+  when a game starts), and each game's RetroAchievements hash with what
+  DSiRPC said of it. In the list, a game with a set shows its count as
+  before; one RetroAchievements has no set for shows a gray "no set" and
+  goes by its file's name (a ROM hack keeps the original's banner), and one
+  DSiRPC hasn't checked yet a gray "new". **X** says which in place of the
+  achievements: "No set for this version" (RetroAchievements has the game,
+  but not this ROM: another region, revision or a hack), "No achievement
+  set" (it doesn't have the game), or "Not checked yet" (sync with
+  DSiRPC). At the sync, every game with a set gets it, started or not, and
+  the boot screen's sets step says how far DSiRPC got ("Checking 12/70",
+  "Sets 3/9").
+- **First-time setup** (`picker_setup()`, from `main.c` as it connects or
+  goes offline): when there's a game on the SD card that `games.idx`
+  doesn't have yet (or that changed), the boot screen shows "Setting up new
+  games", a card like the save sync's with each game's name, how many are
+  left and a bar, while the launcher hashes each one once
+  (`source/romhash.c`, `source/md5.c`: the RetroAchievements hash, about
+  1 MB read a game). B leaves the rest for the next start. Nothing shows
+  when no game is new. The hashes go to DSiRPC at the sync after it. If nds-bootstrap isn't next to the launcher, the classic
   file browser asks for it.
 - **The top screen** (`top_modern()`): the bar has a status chip
   (Connecting, Connected, No Wi-Fi, Offline) and the battery icon (filled to

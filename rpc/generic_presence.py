@@ -137,9 +137,12 @@ def split_text(text, limit=128):
 
 
 def title(game, ra_set=None):
+    code = (game or {}).get("code")
+    own = games.file_name(code)     # a file RetroAchievements has no set for: its own name
+    if own:
+        return own
     if ra_set and ra_set.title:
         return ra_set.title
-    code = (game or {}).get("code")
     return games.NAMES.get(code, code or "a DS game")
 
 

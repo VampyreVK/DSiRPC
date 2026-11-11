@@ -59,6 +59,22 @@ class PortInUse(Exception):
     """UDP port 4244 is taken: DSiRPC (or one of its tools) is already running."""
 
 
+HASH_LOOKUP_THREADS = 8  # RetroAchievements lookups of the launcher's hashes at a time
+SET_FETCH_THREADS = 4    # sets downloaded at a time for the console
+
+
+def _game_name(code):
+    """A game's name for the log: core/games.py's, its set's, or its code"""
+    from core import games, ra_set
+    if code in games.NAMES:
+        return games.NAMES[code]
+    try:
+        s = ra_set.for_game(code, ra_set.RA_DIR)
+    except (ra_set.SetFileError, OSError):
+        s = None
+    return s.title if s is not None and s.title else code
+
+
 def _relearning(engine, code=None):
     """--clear-learning's first sync, for this game (code) or any."""
     cl = getattr(engine, "clear_learning", None)
@@ -159,7 +175,8 @@ class Engine:
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
                                             saves=self._save_store, on_saves=self._on_saves,
                                             on_here=self._launcher_here, updates=self._console_files,
-                                            stats=self._console_stats, on_notes=self._shadow_notes)
+                                            stats=self._console_stats, on_notes=self._shadow_notes,
+                                            on_roms=self._console_roms)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
         self._console_update = None    # the console's files for its updates (core/console_update.py)
 
@@ -317,7 +334,7 @@ class Engine:
         self.source.launcher = {'ip': ip, 'game': None, 'title': '', 'at': time.time(), 'here': True,
                                 'console': seen.get('console', console) if same else console}
 
-    def _offline_sets(self, game, stamps, unlocks=()):
+    def _offline_sets(self, game, stamps, unlocks=(), progress=None):
         """[(code, .DRS bytes)] for the console: the game it's starting
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
@@ -334,11 +351,49 @@ class Engine:
         self._clearing = self.clear_ra and not self._cleared
         self._cleared = self._cleared or self._clearing
         link = self.ra_link if self.ra_enabled else None
-        codes = ([game] if game else []) + [c for c in ra_set.codes() if c != game]
+        from core import rom_hashes
+        hashes = rom_hashes.load()
+        by_hash = rom_hashes.set_codes(hashes)   # every game on the SD card RetroAchievements has a set for
+        codes = ([game] if game else []) + sorted((set(ra_set.codes()) | set(by_hash)) - {game})
+        # Their sets fetched now if they aren't here yet (or are another game's): once, then kept in ra/
+        fetch = []
+        if link is not None:
+            for code in by_hash:
+                if code == game:
+                    continue
+                try:
+                    local = ra_set.for_game(code)
+                except ra_set.SetFileError:
+                    local = None
+                if local is None or local.id != by_hash[code]:
+                    fetch.append(code)
+        fetched = {}
+        if fetch:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            if progress:
+                progress(0, len(fetch), offline.PROGRESS_SETS)
+            with ThreadPoolExecutor(SET_FETCH_THREADS) as pool:
+                jobs = {pool.submit(link.set_for_code, code): code for code in fetch}
+                for n, job in enumerate(as_completed(jobs), 1):
+                    try:
+                        fetched[jobs[job]] = job.result()
+                    except Exception:
+                        logging.exception(f"Offline sync: {jobs[job]}: couldn't get its set")
+                    if progress:
+                        progress(n, len(fetch), offline.PROGRESS_SETS)
         out = []
-        for code in codes:
+        for i, code in enumerate(codes):
+            if progress and i % 4 == 0:
+                progress(i, len(codes), offline.PROGRESS_SETS)   # (building them takes a while too)
+            if not rom_hashes.may_send(hashes, code):
+                continue    # no set for the versions on the console, or not answered yet (_console_roms())
             try:
-                s = link.set_for_code(code) if (link and code == game) else ra_set.for_game(code)
+                if code in fetched:
+                    s = fetched[code]
+                elif link and code == game:
+                    s = link.set_for_code(code)
+                else:
+                    s = ra_set.for_game(code)
             except ra_set.SetFileError as e:
                 logging.info(f"Offline sync: {code}: {e}")
                 continue
@@ -385,6 +440,79 @@ class Engine:
                          f"console, re-sent {len(resent)} set(s)" + (f" ({', '.join(resent)})" if resent else ""))
             self._relearned = True
         return out
+
+    def _console_roms(self, roms, hashed, hash_ms, progress=None):
+        """The launcher's games by their RetroAchievements hash (sync version
+        2, core/rom_hashes.py): kept, every hash not asked yet asked of
+        RetroAchievements (HASH_LOOKUP_THREADS at a time, the game being
+        started first; progress(done, of, what) keeps the launcher waiting),
+        a hash it doesn't know told apart by the game's title (it has the
+        game, or not: the title never links a set), and a set linked to a game
+        by its title dropped where the hashes say RetroAchievements has none
+        for the versions on the console. Returns {md5: offline.RA_*}."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from core import offline, rom_hashes
+        if hashed:
+            logging.info(f"Offline sync: the launcher hashed {hashed} game(s) in {hash_ms / 1000:.1f} s")
+        store = rom_hashes.load()
+        rom_hashes.record(store, roms)
+        link = self.ra_link if self.ra_enabled else None
+        names = {r[1]: (r[3] if len(r) > 3 and r[3] else r[0]) for r in roms}
+        codes = {r[1]: r[0] for r in roms}
+        todo = list(dict.fromkeys(r[1] for r in sorted(roms, key=lambda r: not r[2])
+                                  if rom_hashes.answer(store, r[1]) is None))
+        new = []
+        if link is not None and todo:
+            if progress:
+                progress(0, len(todo), offline.PROGRESS_CHECKING)
+            with ThreadPoolExecutor(HASH_LOOKUP_THREADS) as pool:
+                jobs = {pool.submit(link.lookup_hash, md5): md5 for md5 in todo}
+                done, reachable = 0, True
+                for job in as_completed(jobs):
+                    if job.cancelled() or not reachable:
+                        continue
+                    try:
+                        gid = job.result()
+                    except Exception:
+                        logging.exception(f"Offline sync: couldn't look {jobs[job]} up")
+                        gid = None
+                    done += 1
+                    if gid is None:     # out of reach: the rest stay unknown ("new") till the next sync
+                        reachable = False
+                        for other in jobs:
+                            other.cancel()
+                    else:
+                        rom_hashes.remember(store, jobs[job], gid)
+                        new.append(jobs[job])
+                    if progress:
+                        progress(done, len(todo), offline.PROGRESS_CHECKING)
+        # A hash RetroAchievements doesn't know: does it have the game at all?
+        titled = {}
+        for md5 in [m for m in codes if rom_hashes.answer(store, m) == 0 and "game" not in store["games"][m]]:
+            code = codes[md5]
+            if code not in titled:
+                titled[code] = link.title_has_game(code) if link is not None else None
+            if titled[code] is not None:
+                rom_hashes.remember(store, md5, 0, titled[code])
+        for md5 in new:
+            st = rom_hashes.status(store, md5)
+            if st in (rom_hashes.NOT_THIS_ROM, rom_hashes.NO_GAME):
+                logging.info(f"RetroAchievements has no set for {names[md5]} ({codes[md5]}, hash {md5}): "
+                             + ("it has the game, but not this ROM" if st == rom_hashes.NOT_THIS_ROM
+                                else "it doesn't have the game"))
+        try:
+            rom_hashes.save(store)
+        except OSError as e:
+            logging.warning(f"Offline sync: couldn't save {rom_hashes.path()}: {e}")
+        for code in sorted(set(codes.values())):
+            if rom_hashes.unsupported(store, code):
+                s = rom_hashes.drop_title_link(code)
+                if s is not None:
+                    logging.warning(f"RetroAchievements: {code}: the set it was linked to by its title ({s.title}, "
+                                    f"game {s.id}) isn't for the version on the console, so it won't be used or sent "
+                                    "to the console any more (kept in ra/cache/unsupported/; unlocks already earned "
+                                    "stay)")
+        return {md5: rom_hashes.status(store, md5) for md5 in codes}
 
     def _reconcile(self, link, s):
         """Before the console gets the game it's starting: RetroAchievements'
@@ -633,7 +761,7 @@ class Engine:
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
                           saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates,
-                          stats=old.stats, on_notes=old.on_notes)
+                          stats=old.stats, on_notes=old.on_notes, on_roms=old.on_roms)
         try:
             new.start()
         except OSError as e:

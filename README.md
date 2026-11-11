@@ -140,6 +140,12 @@ play: on the couch next to your PC, on a train, or with the Wi-Fi off.
   haven't earned yet, all of them in the sets tested so far. The few it
   can't are ones that need decimal math, which DSiRPC checks when it's
   watching.
+- **The right set for your copy:** the first time the launcher sees a game,
+  it works out the game file's RetroAchievements hash (a moment for each
+  game, once), so DSiRPC picks the set for that exact version, every game
+  with a set gets it at the next sync, and the launcher marks the ones
+  RetroAchievements has no set for (by their file's name, so a ROM hack
+  isn't called by the game it's based on).
 - **Every frame where it counts:** an achievement that hangs on a single
   frame (a T-Spin, a one-frame flag, a hit count) is checked on every frame
   the game draws, even when the game is busy. The rest are checked many

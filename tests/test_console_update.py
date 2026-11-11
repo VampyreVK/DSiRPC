@@ -382,7 +382,7 @@ def test_finding_a_dsirpc_from_another_release(setup):
     def answer():
         data, addr = udp.recvfrom(64)
         if data.startswith(offline.DISCOVER):
-            udp.sendto(offline.ANSWER + struct.pack("<BH", offline.VERSION + 1, 4321), addr)
+            udp.sendto(offline.ANSWER + struct.pack("<BH", offline.SYNC_VERSION + 1, 4321), addr)
     t = threading.Thread(target=answer, daemon=True)
     t.start()
     out = setup.run("find", port=udp.getsockname()[1])

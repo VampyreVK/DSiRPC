@@ -52,8 +52,12 @@ def _set_name(code, data):
 
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="", on_notes=None,
-                 saves=None, on_saves=None, on_here=None, updates=None, stats=None):
+                 saves=None, on_saves=None, on_here=None, updates=None, stats=None, on_roms=None):
         self.sets_for = sets_for
+        # ([(code, md5, started, name)], hashed, ms, progress) -> {md5:
+        # offline.RA_*}: the launcher's hashes (sync version 2), before the
+        # sets are made. progress(done, of, what) keeps the launcher waiting.
+        self.on_roms = on_roms
         self.on_unlocks = on_unlocks
         self.on_console = on_console
         self.on_notes = on_notes      # ([shadow note]): the console's shadow check's, before the sets are made
@@ -132,7 +136,8 @@ class ConsoleSync:
     def _discover(self):
         data, addr = self.udp.recvfrom(64)
         if data.startswith(offline.DISCOVER):
-            self.udp.sendto(offline.ANSWER + struct.pack("<BH", offline.VERSION, self.port), addr)
+            asked = data[len(offline.DISCOVER)] if len(data) > len(offline.DISCOVER) else 1
+            self.udp.sendto(offline.ANSWER + struct.pack("<BH", offline.sync_version(asked), self.port), addr)
         elif self.on_here and (data.startswith(offline.HERE) or data.startswith(offline.BYE)):
             here = data.startswith(offline.HERE)
             model = data[len(offline.HERE)] if here and len(data) > len(offline.HERE) else 0
@@ -171,7 +176,8 @@ class ConsoleSync:
             return
         try:
             header = magic + read(offline.REQUEST.size - 4)
-            game, stamps, unlock_bytes = offline.parse_request(header, read)
+            request = offline.parse_sync(header, read)
+            game, stamps, unlock_bytes = request['game'], request['stamps'], request['unlocks']
             console = offline.request_console(header)
             unlocks = offline.read_unlocks(unlock_bytes)
             notes = offline.read_shadow_notes(unlock_bytes)
@@ -185,6 +191,17 @@ class ConsoleSync:
                 self.on_console(addr[0], game, console)
             except Exception:
                 logging.exception("Offline sync: on_console failed")
+        statuses, progress = {}, None
+        if request['version'] >= 2:  # (before the sets: a game RetroAchievements has no set for gets none)
+            def progress(done, total, what):
+                conn.sendall(offline.build_progress(done, total, what))
+            statuses = {r[1]: offline.RA_UNKNOWN for r in request['roms']}
+            if self.on_roms:
+                try:
+                    statuses.update(self.on_roms(request['roms'], request['hashed'], request['hash_ms'],
+                                                 progress) or {})
+                except Exception:
+                    logging.exception("Offline sync: on_roms failed")
         if notes and self.on_notes:  # (before the sets: what it found decides their frame lanes)
             try:
                 self.on_notes(notes)
@@ -193,7 +210,7 @@ class ConsoleSync:
         # The sets first (that may download the game's), so the unlocks are
         # logged with their names; the sets leave out what was just unlocked.
         try:
-            sets = self.sets_for(game, stamps, unlocks)
+            sets = self.sets_for(game, stamps, unlocks, progress) if progress else self.sets_for(game, stamps, unlocks)
         except Exception:
             logging.exception("Offline sync: couldn't make the achievement sets")
             sets = []
@@ -203,10 +220,10 @@ class ConsoleSync:
         # 0 leaves them there.
         taken = 0 if keep else offline.count_slots(unlock_bytes)
         notes = taken - offline.count_unlocks(unlock_bytes) if taken else 0   # (the shadow check's)
-        conn.sendall(offline.build_answer(0, taken, sets))
+        conn.sendall(offline.build_answer(0, taken, sets, request['version'], statuses))
         self._await_hangup(conn)
         self.last = {'from': addr[0], 'game': game, 'unlocks': unlocks, 'taken': taken,
-                     'sets': [code for code, _ in sets]}
+                     'sets': [code for code, _ in sets], 'version': request['version'], 'statuses': statuses}
         logging.info(f"Offline sync with the console at {addr[0]}"
                      + (f" (starting {game})" if game else "") + f": {taken - notes} unlock(s)"
                      + (f", {notes} shadow note(s)" if notes else "") + " taken, "

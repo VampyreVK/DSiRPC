@@ -57,6 +57,8 @@ def make_engine(tmp_path, monkeypatch, game):
     monkeypatch.setattr(ra_set, "codes", lambda *a, **k: ["TEST"])
     monkeypatch.setattr(ra_set, "for_game", lambda code, *a, **k: game if code == "TEST" else None)
     monkeypatch.setattr(offline, "remember_set", lambda *a, **k: None)
+    from core import rom_hashes    # (not the PC's own list of the console's games)
+    monkeypatch.setattr(rom_hashes, "load", lambda *a, **k: rom_hashes.empty())
     monkeypatch.setattr(engine_module, "LOG_DIR", str(tmp_path))
     monkeypatch.setattr(engine_module, "ACHIEVEMENTS_LOG", str(tmp_path / "achievements.log"))
 

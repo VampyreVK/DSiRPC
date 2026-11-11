@@ -604,7 +604,7 @@ void top_game(const TopGame *g)
     }
     else
     {
-        ui_text_right(&cv, W - 16, ry, "No set yet", C_DIM);
+        ui_text_right(&cv, W - 16, ry, g->no_list != NULL ? g->no_list : "No set yet", C_DIM);
     }
     ry += 25;
     ui_text(&cv, 16, ry, "DSiRPC playtime", C_LINES);

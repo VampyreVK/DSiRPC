@@ -13,9 +13,9 @@ import pytest
 
 from helpers import launcher_ui as lui
 
-SCREENS = ["connecting", "syncing", "ready", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
+SCREENS = ["connecting", "syncing", "ready", "setup_games", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
            "update_progress", "update_done", "settings", "settings_address", "settings_music", "settings_lid", "games",
-           "achievements", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
+           "achievements", "achievements_unsupported", "achievements_no_game", "achievements_new", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
 
 # Palette colors as the DS shows them (5 bits a channel)
 GREEN, AMBER, RED, CYAN = (88, 208, 128), (240, 192, 48), (232, 72, 56), (72, 200, 232)
@@ -142,7 +142,9 @@ def test_games_idx_keeps_what_was_read(host, sd):
     games(host, sd)
     with open(os.path.join(sd, "DSiRPC", "games.idx"), encoding="ascii") as f:
         lines = f.read().splitlines()
-    assert lines[0] == "DSiRPC games 1" and len(lines) == len(lui.GAMES) + 1
+    assert lines[0] == "DSiRPC games 2" and len(lines) == len(lui.GAMES) + 1
+    # (the picker doesn't hash: the boot's first-time setup does, tests/test_rom_hash.py)
+    assert all(ln.split(" ")[6:8] == ["-", "0"] for ln in lines[1:])
     assert any(ln.endswith("Tetris DS.nds\tTetris DS\tNintendo") for ln in lines)
 
     # A banner changed behind games.idx's back (same size and time): the

@@ -115,6 +115,9 @@ static char launcher_path[PATH_LEN];  // this launcher's own file, or "" (update
 static LauncherSettings settings;
 static int saves_changed = -2;        // saves changed since the last save sync (-1: never synced)
 static bool have_fat;
+static char index_dir[PATH_LEN];      // the launcher's folder: games.idx (picker.c)
+static uint16_t hashed_since_sync;    // games the first-time setup hashed, and how long it
+static uint32_t hash_ms_since_sync;   // took, for DSiRPC's log at the next sync
 static char last_title[64];           // the game last started, for the Play tile
 
 static void wait_frames(int frames)
@@ -363,6 +366,13 @@ static void say_line(const char *text)
         show_step(row_dsirpc, STEP_ACTIVE, "Looking");
     else if (strncmp(text, "Found DSiRPC at ", 16) == 0)
         show_step(row_dsirpc, STEP_ACTIVE, text + 16);
+    else if (strncmp(text, "Checking games ", 15) == 0 || strncmp(text, "Getting sets ", 13) == 0)
+    {
+        // DSiRPC asking RetroAchievements about the games, then getting their sets
+        char value[32];
+        snprintf(value, sizeof(value), "%s %s", text[0] == 'C' ? "Checking" : "Sets", strrchr(text, ' ') + 1);
+        show_step(row_sets, STEP_ACTIVE, value);
+    }
     else if (strncmp(text, "Saving the ", 11) == 0)
     {
         char code[5];
@@ -374,9 +384,19 @@ static void say_line(const char *text)
 // Hands DSiRPC the unlocks waiting on the SD card and takes the achievement
 // sets it has (game: the code of the game being started, or ""). B skips
 // it. Returns true if there's something on the screen worth a moment to read.
-static bool run_sync(const char *game)
+static bool run_sync(const char *game, const char *path)
 {
+    // Every game's RetroAchievements hash (the started one's marked), so
+    // DSiRPC knows which game and version each file is
+    uint8_t *roms = NULL;
+    size_t roms_size = 0;
+    int n_roms = have_fat ? picker_rom_hashes(index_dir, path, &roms, &roms_size) : 0;
     SyncJob job = {
+        .roms = roms,
+        .n_roms = n_roms,
+        .roms_size = roms_size,
+        .hashed = hashed_since_sync,
+        .hash_ms = hash_ms_since_sync,
         .sets_dir = sets_dir,
         .unlocks_path = unlocks_path,
         .console_model = console_model(),
@@ -396,9 +416,24 @@ static bool run_sync(const char *game)
     SyncResult result;
     char msg[160];
     int r = sync_with_dsirpc(&job, &result, msg, sizeof(msg));
+    free(roms);
     if (r == 1)
         printf("Synced: %d unlock(s) sent,\n%d achievement set(s) received\n",
                result.unlocks_sent, result.sets_received);
+    if (r == 1 && result.version >= 2)
+    {
+        hashed_since_sync = 0;
+        hash_ms_since_sync = 0;
+    }
+    if (result.rom_status != NULL)
+    {
+        // What RetroAchievements has for each file, for the game list and
+        // the achievements page; a set for a version it has none for goes
+        int removed = picker_store_status(index_dir, sets_dir, result.rom_status, result.n_status);
+        if (removed)
+            printf("%d set(s) removed: no set\nfor that version of the game\n", removed);
+        free(result.rom_status);
+    }
     if (msg[0] != '\0')
         printf("%s\n", msg);
 
@@ -673,7 +708,7 @@ static void start_game(const char *dir, bool quick)
     read_game_code(game, code);
     if (ui_on())
         draw_starting(game, code);
-    bool pause = online && run_sync(code);
+    bool pause = online && run_sync(code, game);
 
     // The files the in-game side uses for achievements in offline play
     int waiting = unlocks_prepare(unlocks_path);
@@ -1098,6 +1133,93 @@ static void check_saves(const char *dir)
     saves_free(&list);
 }
 
+// ---------------------------------------------------------------------------
+// First-time setup: each new game's RetroAchievements hash, once (picker.c),
+// on a card like the save sync's, only when there's a new game
+
+static struct
+{
+    int game;                   // the game being hashed
+    int pct;                    // the percentage last drawn
+    uint32_t ms;                // the time hashing took
+} setup_screen;
+
+static void setup_card(const char *title, int game, int games, int pct)
+{
+    Canvas *c = ui_screen();
+    static const UiKey keys[] = { { "B", "Later", KEY_B } };
+    char line[32], num[8];
+    ui_clear();
+    ui_header("Games");
+    ui_panel(10, 52, UI_W - 20, 76, UI_CYAN);
+    ui_text_fit(c, 20, 61, "Setting up new games", UI_W - 40, UI_CYAN);
+    ui_text_fit(c, 20, 76, title, UI_W - 40, UI_SOFT);
+    snprintf(line, sizeof(line), "Game %d of %d", game + 1, games);
+    ui_text_fit(c, 20, 87, line, UI_W - 40, UI_DIM);
+    snprintf(num, sizeof(num), "%d%%", pct);
+    ui_bar(c, 20, 104, UI_W - 76, 10, pct, UI_CYAN);
+    ui_text_right(c, UI_W - 20, 105, num, UI_TEXT);
+    ui_footer(keys, 1);
+    ui_present();
+}
+
+// Each game timed on its own (cpuStartTiming()'s ticks wrap after about
+// two minutes)
+static void setup_timing(void)
+{
+    setup_screen.ms += cpuEndTiming() / (BUS_CLOCK / 1000);
+    cpuStartTiming(0);
+}
+
+static void setup_progress(int game, int games, const char *title, uint32_t done, uint32_t total, void *ctx)
+{
+    (void)ctx;
+    if (game != setup_screen.game)
+    {
+        setup_timing();
+        setup_screen.game = game;
+    }
+    int pct = (int)(((uint64_t)game * 100 + (total ? (uint64_t)done * 100 / total : 0)) / (games ? games : 1));
+    if (pct == setup_screen.pct)
+        return;
+    if (setup_screen.pct < 0)
+    {
+        printf("\nSetting up new games (B: later)\n");
+        if (ui_on())
+            top_note("Getting your games ready", "Once for each new game");
+    }
+    setup_screen.pct = pct;
+    if (ui_on())
+        setup_card(title, game, games, pct);
+    else
+        printf("\r%d of %d: %d%%  ", game + 1, games, pct);
+}
+
+// Hashes the games that are new since the last time (none: nothing shows).
+// Returns true if the card was up.
+static bool setup_games(const char *dir)
+{
+    PickerSetup setup = {
+        .games_dir = dir_exists(GAMES_DIR) ? GAMES_DIR : dir,
+        .index_dir = dir,
+        .progress = setup_progress,
+        .cancelled = b_pressed,
+    };
+    memset(&setup_screen, 0, sizeof(setup_screen));
+    setup_screen.pct = -1;
+    cpuStartTiming(0);
+    int hashed;
+    int done = picker_setup(&setup, &hashed);
+    setup_screen.ms += cpuEndTiming() / (BUS_CLOCK / 1000);
+    if (done <= 0)
+        return false;
+    hashed_since_sync = (uint16_t)(hashed_since_sync + hashed);
+    hash_ms_since_sync += setup_screen.ms;
+    printf("\n%d game(s) hashed in %u ms\n", hashed, (unsigned)setup_screen.ms);
+    wait_for_key_release();
+    return setup_screen.pct >= 0;
+}
+
 // The modern look's connecting screen, as it starts
 static void draw_connecting(void)
 {
@@ -1164,6 +1286,7 @@ int main(int argc, char *argv[])
     char dir[PATH_LEN];
     launcher_dir(argc, argv, dir, sizeof(dir));
     join_path(sets_dir, sizeof(sets_dir), dir, SETS_FOLDER);
+    snprintf(index_dir, sizeof(index_dir), "%s", dir);
     join_path(settings_path, sizeof(settings_path), dir, SETTINGS_FILE);
     settings_load(settings_path, &settings);
     settings_apply(&settings);
@@ -1230,6 +1353,8 @@ int main(int argc, char *argv[])
         if (connected == SKIPPED)
             show_step(STEP_WIFI, STEP_SKIPPED, "Skipped");
         go_offline(wifi_ready, have_fat);
+        if (have_fat)
+            setup_games(dir);   // (synced the next time DSiRPC is found)
     }
     else
     {
@@ -1259,7 +1384,10 @@ int main(int argc, char *argv[])
 
         if (have_fat)
         {
-            bool warned = run_sync("");
+            // New games: their hashes first, so this sync takes them along
+            if (setup_games(dir) && ui_on())
+                draw_steps("Getting ready", STEPS, NULL, 0);
+            bool warned = run_sync("", NULL);
             if (sync_found_addr != 0)
                 fetch_stats(dir, warned);
             else if (!warned)

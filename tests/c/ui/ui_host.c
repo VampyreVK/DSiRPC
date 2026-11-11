@@ -206,6 +206,22 @@ int main(void)
             host_started(f[0], f[1]);
             printf("started\n");
         }
+        else if (strcmp(line, "hash") == 0 && nf == 1)
+        {
+            host_hash(f[0]);
+        }
+        else if (strcmp(line, "setup") == 0 && nf == 1)
+        {
+            host_setup(f[0]);
+        }
+        else if (strcmp(line, "roms") == 0 && (nf == 1 || nf == 2))
+        {
+            host_roms(f[0], nf == 2 ? f[1] : NULL);
+        }
+        else if (strcmp(line, "status") == 0 && nf == 2)
+        {
+            host_status(f[0], f[1]);
+        }
         else if (strcmp(line, "music") == 0 && nf == 3)
         {
             host_music_log[0] = '\0';

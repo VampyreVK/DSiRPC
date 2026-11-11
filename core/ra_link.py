@@ -52,6 +52,7 @@ import types
 from . import game_titles
 from . import ra_cache
 from . import ra_set
+from . import rom_hashes
 from .ra_api import RAClient, RAError, RANetworkError
 from .ra_hash import RomIndex
 
@@ -104,6 +105,8 @@ class RALink:
                  blank=False):
         self.api = api or RAClient(username, token)
         self.roms = roms
+        self._warned_title = set()     # codes warned about being linked by title (once a run)
+        self._said_no_set = set()      # codes logged as having no set for their version
         self.settings = settings
         self.blank = blank
         self.ra_dir = ra_dir
@@ -174,6 +177,60 @@ class RALink:
         ('session', unlocked IDs), ('noset', why) or ('note', text) to
         game.inbox."""
         self._later(0, self._prepare, game, local_set, 0)
+
+    def lookup_hash(self, md5, timeout=10.0):
+        """RetroAchievements' game for a ROM hash (0: it has no set for it),
+        or None without an answer (no connection)."""
+        api = RAClient(self.api.username, self.api.token, host=self.api.host, timeout=timeout)
+        try:
+            return api.game_id_for_hash(md5)
+        except (RAError, OSError, ValueError, TypeError) as e:
+            logging.info(f"RetroAchievements: couldn't look up hash {md5} ({e})")
+            return None
+
+    def _hash_game(self, code, api):
+        """(hash, game ID) to link the code by: the launcher's hash of the
+        console's file (core/rom_hashes.py) or, failing that, the ROM
+        folder's; the game ID 0 when RetroAchievements has no set for it, and
+        (None, 0) without a hash."""
+        store = rom_hashes.load(self.ra_dir)
+        game_hash = rom_hashes.hash_for(store, code) or self._rom_hash(code)
+        if not game_hash:
+            return None, 0
+        gid = rom_hashes.game_id(store, game_hash)
+        if gid is None:
+            rom_hashes.remember(store, game_hash, api.game_id_for_hash(game_hash))
+            try:
+                rom_hashes.save(store, self.ra_dir)
+            except OSError:
+                pass
+            gid = rom_hashes.game_id(store, game_hash)   # (an ID for a ROM no set supports counts as none)
+        return game_hash, gid
+
+    def title_has_game(self, code):
+        """Whether RetroAchievements has a game of the code's title (one clear
+        match in its list of DS games, core/ra_cache.py's rules), or None
+        without an answer. Only tells "not this ROM" from "no such game":
+        never links a set."""
+        try:
+            for title in game_titles.titles(code, self.cache_dir):
+                if self.candidates(title)[1]:
+                    return True
+            return False
+        except (RAError, OSError, ValueError, KeyError, TypeError) as e:
+            logging.info(f"RetroAchievements: couldn't look {code} up by its title ({e})")
+            return None
+
+    def _title_warning(self, code):
+        if code not in self._warned_title:
+            self._warned_title.add(code)
+            logging.warning(f"RetroAchievements: {code} is linked by its title, not its ROM's hash, so DSiRPC can't "
+                            "tell whether this set supports your copy (the launcher sends the hashes, or set roms "
+                            "in dsirpc.cfg)")
+
+    def _no_set_message(self, code, game_hash):
+        return (f"RetroAchievements has no set for this version of the game "
+                f"({code}, hash {game_hash})")
 
     def _rom_hash(self, code):
         if not self.roms:
@@ -246,16 +303,21 @@ class RALink:
         if not code:
             return
         try:
-            game_hash = self._rom_hash(code)
-            game_id = self.api.game_id_for_hash(game_hash) if game_hash else 0
+            game_hash, game_id = self._hash_game(code, self.api)
             if game_hash and not game_id:
-                logging.info(f"RetroAchievements doesn't know the hash of your {code} file "
-                             "(a version it doesn't support?)")
-                game_hash = None
+                # No title fallback: a set found by its title would be for another version
+                msg = self._no_set_message(code, game_hash)
+                if code not in self._said_no_set:
+                    self._said_no_set.add(code)
+                    logging.info(f"RetroAchievements: {msg}")
+                game.inbox.put(("unsupported", "No RetroAchievements set for this version of the game"))
+                return
             if game_hash:
                 game.inbox.put(("hash", game_hash))
             if not game_id and local:
                 game_id = local.id
+            if not game_hash:
+                self._title_warning(code)
             titles = [] if game_id else self.titles(game)
             if titles:
                 game.inbox.put(("titles", titles))
@@ -309,15 +371,23 @@ class RALink:
             local = ra_set.for_game(code, self.ra_dir)
         except ra_set.SetFileError:
             local = None
-        fresh = local is not None and time.time() - os.path.getmtime(local.path) < REFRESH_SET_AFTER
+        store = rom_hashes.load(self.ra_dir)
+        known = rom_hashes.hash_for(store, code)
+        known_id = rom_hashes.game_id(store, known) if known else None
+        if known_id == 0:
+            return None     # RetroAchievements has no set for the version on the console
+        fresh = local is not None and time.time() - os.path.getmtime(local.path) < REFRESH_SET_AFTER and \
+            (known_id is None or known_id == local.id)
         if fresh or not self.signed_in:
             return local
         api = RAClient(self.api.username, self.api.token, host=self.api.host, timeout=timeout)
         try:
-            game_hash = self._rom_hash(code)
-            game_id = api.game_id_for_hash(game_hash) if game_hash else 0
-            if not game_id:
-                game_hash = None
+            game_hash, game_id = self._hash_game(code, api)
+            if game_hash and not game_id:
+                logging.info(f"RetroAchievements: {self._no_set_message(code, game_hash)}; no set for offline play")
+                return None
+            if not game_hash:
+                self._title_warning(code)
                 game_id = local.id if local else 0
             if not game_id:
                 for title in game_titles.titles(code, self.cache_dir):

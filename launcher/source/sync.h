@@ -31,13 +31,27 @@ typedef struct
     uint16_t port;              // DSiRPC's port, 0 for SYNC_PORT (tests use another)
     void (*say)(const char *text);   // progress for the screen (may be NULL)
     bool (*cancelled)(void);         // true to stop waiting (may be NULL)
+    // Sync version 2: the games' RetroAchievements hashes (n_roms records,
+    // roms_size bytes: picker.c's picker_rom_hashes()), or NULL, and how
+    // many were hashed since the last sync and how long that took
+    const uint8_t *roms;
+    int n_roms;
+    size_t roms_size;
+    uint16_t hashed;
+    uint32_t hash_ms;
 } SyncJob;
+
+#define SYNC_ROM_RECORD     24      // code[4], md5[16], flags u8, name length u8, 2 bytes 0; then the name
+#define SYNC_STATUS_RECORD  20      // md5[16], status u8 (picker.h's PICKER_RA_*), 3 bytes 0
 
 typedef struct
 {
     int unlocks_sent;           // unlocks DSiRPC took (the file was cleared)
     int sets_received;
     char server[20];            // DSiRPC's IP
+    int version;                // the sync's version (1 or 2)
+    uint8_t *rom_status;        // version 2: what RetroAchievements has for the hashes, n_status
+    int n_status;               // records of SYNC_STATUS_RECORD bytes (malloc'd: the caller frees it)
 } SyncResult;
 
 // Makes sure the unlock file exists with the right size and header, so the

@@ -14,8 +14,16 @@
 //
 // games.idx, written whole when something in it changes:
 //
-//   DSiRPC games 1
-//   <size> <mtime> <last started> <favorite> <code> <version> <path>\t<name>\t<publisher>
+//   DSiRPC games 2
+//   <size> <mtime> <last started> <favorite> <code> <version> <hash> <ra> <path>\t<name>\t<publisher>
+//
+// <hash> is the file's RetroAchievements hash (romhash.c: 32 hex digits, "-"
+// not hashed yet, "!" couldn't be: not retried), made by the first-time setup
+// at boot (picker_setup()) and kept as long as the file has the same name,
+// size and time; <ra> what DSiRPC said of it at the last sync (picker.h's
+// PICKER_RA_*: 0 not known yet, 1 RetroAchievements has a set for it, 2 it has
+// the game but not this file, 3 it doesn't have the game).
+// Version 1 had neither: those games are hashed once.
 
 #include <dirent.h>
 #include <stdio.h>
@@ -28,6 +36,7 @@
 #include <nds.h>
 
 #include "picker.h"
+#include "romhash.h"
 #include "stats.h"
 #include "sync.h"
 #include "topscreen.h"
@@ -40,7 +49,8 @@
 #define ROWS            6
 #define ROW_H           24
 #define LIST_Y          (UI_BAR_H + 3)
-#define INDEX_MAGIC     "DSiRPC games 1"
+#define INDEX_MAGIC     "DSiRPC games 2"
+#define INDEX_MAGIC_V1  "DSiRPC games 1"
 #define UNIX_TIME_2000  946684800
 #define UNLOCK_SLOT     16
 #define UNLOCK_SLOTS    256
@@ -63,7 +73,12 @@ typedef struct
     UiBanner *icon;             // read when it's first shown
     bool icon_tried;
     int earned, total;          // achievements (total -1: not counted yet, 0: no set)
+    uint8_t md5[16];            // its RetroAchievements hash, when hashed == HASH_OK
+    uint8_t hashed;             // HASH_*
+    uint8_t ra;                 // PICKER_RA_*: what DSiRPC said of it
 } Game;
+
+enum { HASH_NONE, HASH_OK, HASH_FAILED };
 
 static Game *games;
 static int n_games, cap_games;
@@ -239,6 +254,24 @@ bool picker_banner(const char *path, UiBanner *icon, char *title, size_t tsz, ch
 // ---------------------------------------------------------------------------
 // games.idx
 
+static bool md5_from_hex(const char *hex, uint8_t md5[16])
+{
+    for (int i = 0; i < 16; i++)
+    {
+        unsigned v;
+        if (sscanf(hex + i * 2, "%2x", &v) != 1)
+            return false;
+        md5[i] = (uint8_t)v;
+    }
+    return true;
+}
+
+static void md5_to_hex(const uint8_t md5[16], char hex[33])
+{
+    for (int i = 0; i < 16; i++)
+        snprintf(hex + i * 2, 3, "%02x", md5[i]);
+}
+
 static int cmp_path(const void *a, const void *b)
 {
     return strcasecmp(((const Game *)a)->path, ((const Game *)b)->path);
@@ -248,12 +281,18 @@ static int cmp_path(const void *a, const void *b)
 static Game *load_index(const char *index_dir, int *count)
 {
     *count = 0;
-    char path[PATH_LEN + 16], line[PATH_LEN + TITLE_LEN + PUBLISHER_LEN + 64];
+    char path[PATH_LEN + 16], line[PATH_LEN + TITLE_LEN + PUBLISHER_LEN + 128];
     join_path(path, sizeof(path), index_dir, PICKER_INDEX);
     FILE *f = fopen(path, "rb");
     if (f == NULL)
         return NULL;
-    if (fgets(line, sizeof(line), f) == NULL || strncmp(line, INDEX_MAGIC, strlen(INDEX_MAGIC)) != 0)
+    if (fgets(line, sizeof(line), f) == NULL)
+    {
+        fclose(f);
+        return NULL;
+    }
+    bool v2 = strncmp(line, INDEX_MAGIC, strlen(INDEX_MAGIC)) == 0;
+    if (!v2 && strncmp(line, INDEX_MAGIC_V1, strlen(INDEX_MAGIC_V1)) != 0)
     {
         fclose(f);
         return NULL;
@@ -264,9 +303,13 @@ static Game *load_index(const char *index_dir, int *count)
     {
         line[strcspn(line, "\r\n")] = '\0';
         unsigned size, last;
-        int mtime, fav, ver, at = 0;
-        char code[8];
-        if (sscanf(line, "%u %d %u %d %7s %d %n", &size, &mtime, &last, &fav, code, &ver, &at) != 6 || at == 0)
+        int mtime, fav, ver, ra = 0, at = 0;
+        char code[8], hash[40] = "-";
+        if (v2 ? sscanf(line, "%u %d %u %d %7s %d %39s %d %n", &size, &mtime, &last, &fav, code, &ver, hash, &ra,
+                        &at) != 8
+               : sscanf(line, "%u %d %u %d %7s %d %n", &size, &mtime, &last, &fav, code, &ver, &at) != 6)
+            continue;
+        if (at == 0)
             continue;
         if (*count == cap)
         {
@@ -300,6 +343,11 @@ static Game *load_index(const char *index_dir, int *count)
         g->version = (uint8_t)ver;
         if (strlen(code) == 4 && valid_code(code))
             memcpy(g->code, code, 5);
+        if (strcmp(hash, "!") == 0)
+            g->hashed = HASH_FAILED;
+        else if (strlen(hash) == 32 && md5_from_hex(hash, g->md5))
+            g->hashed = HASH_OK;
+        g->ra = ra >= PICKER_RA_SET && ra <= PICKER_RA_NO_GAME && g->hashed == HASH_OK ? (uint8_t)ra : PICKER_RA_UNKNOWN;
         (*count)++;
     }
     fclose(f);
@@ -329,8 +377,14 @@ static bool write_index(const char *index_dir, const Game *list, int count)
     for (int i = 0; i < count; i++)
     {
         const Game *g = &list[i];
-        fprintf(f, "%u %d %u %d %s %d %s\t%s\t%s\n", (unsigned)g->size, (int)g->mtime, (unsigned)g->last,
-                g->favorite ? 1 : 0, g->code[0] ? g->code : "-", g->version, g->path, g->title, g->publisher);
+        char hash[33];
+        if (g->hashed == HASH_OK)
+            md5_to_hex(g->md5, hash);
+        else
+            snprintf(hash, sizeof(hash), "%s", g->hashed == HASH_FAILED ? "!" : "-");
+        fprintf(f, "%u %d %u %d %s %d %s %d %s\t%s\t%s\n", (unsigned)g->size, (int)g->mtime, (unsigned)g->last,
+                g->favorite ? 1 : 0, g->code[0] ? g->code : "-", g->version, hash, g->ra, g->path, g->title,
+                g->publisher);
     }
     if (fclose(f) != 0)
     {
@@ -505,6 +559,9 @@ static bool load_games(const PickerUi *ui)
             memcpy(g->publisher, e->publisher, sizeof(g->publisher));
             memcpy(g->code, e->code, sizeof(g->code));
             g->version = e->version;
+            memcpy(g->md5, e->md5, sizeof(g->md5));
+            g->hashed = e->hashed;
+            g->ra = e->ra;
             g->read = true;
         }
         else
@@ -648,12 +705,38 @@ static int cheevo_state(const uint8_t *e)
     return is_pending(get32(e)) ? 2 : 0;
 }
 
+// Whether RetroAchievements has no set for the file (picker.h's PICKER_RA_*)
+static bool no_set(const Game *g)
+{
+    return g->ra == PICKER_RA_NOT_THIS_ROM || g->ra == PICKER_RA_NO_GAME;
+}
+
+// The name to show: the banner's, or for a file RetroAchievements has no set
+// for (a ROM hack keeps the original's banner) the file's own
+static const char *shown_title(const Game *g)
+{
+    static char name[TITLE_LEN];
+    if (!no_set(g))
+        return g->title;
+    file_title(name, sizeof(name), g->path);
+    return name;
+}
+
+static bool has_list(const Game *g, const char *sets_dir)
+{
+    CheevoList l;
+    if (!load_list(sets_dir, g->code, &l))
+        return false;
+    free(l.data);
+    return true;
+}
+
 static void count_achievements(Game *g, const char *sets_dir)
 {
     CheevoList l;
     g->total = 0;
     g->earned = 0;
-    if (!load_list(sets_dir, g->code, &l))
+    if (no_set(g) || !load_list(sets_dir, g->code, &l))
         return;
     g->total = l.count;
     for (int i = 0; i < l.count; i++)
@@ -692,6 +775,32 @@ static void achievements_screen(Game *g, const char *sets_dir)
 {
     static const char *const SHOW_NAMES[SHOWS] = { "All", "To earn", "Earned" };
     CheevoList l;
+    const char *why = NULL, *what = NULL;
+    if (g->ra == PICKER_RA_NOT_THIS_ROM)
+    {
+        why = "No set for this version";
+        what = "RetroAchievements has this game, but not this ROM (a different region, revision or hack).";
+    }
+    else if (g->ra == PICKER_RA_NO_GAME)
+    {
+        why = "No achievement set";
+        what = "RetroAchievements has no set for this game.";
+    }
+    else if (!has_list(g, sets_dir) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN))
+    {
+        why = "Not checked yet";
+        what = "Sync with DSiRPC to see this game's achievements.";
+    }
+    if (why != NULL)
+    {
+        static const UiKey keys[] = { { "A", "Back", KEY_A } };
+        ui_sound(SND_ERROR);
+        ui_card(why, what, UI_AMBER, keys, 1);
+        ui_release();
+        ui_wait(KEY_A | KEY_B);
+        ui_sound(SND_BACK);
+        return;
+    }
     if (!load_list(sets_dir, g->code, &l))
     {
         static const UiKey keys[] = { { "A", "Back", KEY_A } };
@@ -742,7 +851,7 @@ static void achievements_screen(Game *g, const char *sets_dir)
         ui_header(NULL);
         snprintf(line, sizeof(line), "%d/%d", earned, l.count);
         int rx = ui_header_right(line, earned == l.count ? UI_GREEN : UI_DIM);
-        ui_text_fit(c, 8, 5, g->title, rx - 16, UI_SOFT);
+        ui_text_fit(c, 8, 5, shown_title(g), rx - 16, UI_SOFT);
         // The DSiRPC playtime, under the header
         format_playtime(when, sizeof(when), st != NULL ? st->seconds : 0);
         if (when[0] != '\0')
@@ -831,12 +940,15 @@ static void show_game(const Game *g)
     const GameStats *st = g->code[0] ? stats_find(&stats, g->code) : NULL;
     TopGame t = {
         .icon = g->icon,
-        .title = g->title,
+        .title = shown_title(g),
         .publisher = g->publisher,
         .code = g->code,
         .version = g->version,
         .earned = g->earned,
         .total = g->total > 0 ? g->total : 0,
+        // (as the list's badge says: RetroAchievements has none, or DSiRPC hasn't checked yet)
+        .no_list = no_set(g) ? "No set"
+                 : g->total <= 0 && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "Not checked yet" : NULL,
         .playtime = st != NULL ? st->seconds : 0,
         .last_played = g->played,
         .now = now_2000(),
@@ -887,8 +999,11 @@ static void draw_row(int row, int index, bool sel, const PickerUi *ui)
     }
     else
     {
-        bw = ui_text_width("no set");
-        ui_text(c, right - bw, y + 7, "no set", UI_DIM);
+        // "new": DSiRPC hasn't said yet whether RetroAchievements has a set
+        // for the file (not hashed, or not synced since); "no set": it has none
+        const char *none = !no_set(g) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "new" : "no set";
+        bw = ui_text_width(none);
+        ui_text(c, right - bw, y + 7, none, UI_DIM);
     }
     int nx = 32;
     if (g->favorite)
@@ -897,7 +1012,7 @@ static void draw_row(int row, int index, bool sel, const PickerUi *ui)
         ui_art(c, nx, y + 7, STAR, 7, star);
         nx += 10;
     }
-    ui_text_fit(c, nx, y + 7, g->title, right - bw - 6 - nx, UI_TEXT);
+    ui_text_fit(c, nx, y + 7, shown_title(g), right - bw - 6 - nx, UI_TEXT);
     ui_touch_add(4, y, UI_W - 16, ROW_H - 2, index);
 }
 
@@ -1061,4 +1176,175 @@ bool pick_game(const PickerUi *ui, char *out, size_t outsz)
     free_games();
     top_dsi();
     return picked;
+}
+
+// ---------------------------------------------------------------------------
+// First-time setup: the RetroAchievements hash of every game, once
+
+typedef struct
+{
+    const PickerSetup *setup;
+    int game, games;
+    const char *title;
+} SetupProgress;
+
+static void setup_progress(uint32_t done, uint32_t total, void *ctx)
+{
+    SetupProgress *p = ctx;
+    if (p->setup->progress != NULL)
+        p->setup->progress(p->game, p->games, p->title, done, total, p->setup->ctx);
+}
+
+int picker_setup(const PickerSetup *setup, int *hashed)
+{
+    *hashed = 0;
+    PickerUi ui = { .games_dir = setup->games_dir, .index_dir = setup->index_dir };
+    n_games = 0;
+    scan_dir(ui.games_dir, 0, ui.index_dir);
+    int count;
+    Game *index = load_index(ui.index_dir, &count);
+    int todo = 0;
+    for (int i = 0; i < n_games; i++)
+    {
+        Game *g = &games[i];
+        Game *e = find_entry(index, count, g->path);
+        if (e != NULL)
+        {
+            g->last = e->last;
+            g->favorite = e->favorite;
+            if (e->size == g->size && e->mtime == g->mtime && e->title[0] != '\0')
+            {
+                memcpy(g->title, e->title, sizeof(g->title));
+                memcpy(g->publisher, e->publisher, sizeof(g->publisher));
+                memcpy(g->code, e->code, sizeof(g->code));
+                g->version = e->version;
+                memcpy(g->md5, e->md5, sizeof(g->md5));
+                g->hashed = e->hashed;
+                g->ra = e->ra;
+                g->read = true;
+            }
+        }
+        todo += !g->read || g->hashed == HASH_NONE;
+    }
+    bool changed = count != n_games;
+    free(index);
+    if (todo == 0)
+    {
+        if (changed)
+            write_index(ui.index_dir, games, n_games);
+        free_games();
+        return 0;
+    }
+
+    int done = 0;
+    for (int i = 0; i < n_games; i++)
+    {
+        Game *g = &games[i];
+        if (g->read && g->hashed != HASH_NONE)
+            continue;
+        if (setup->cancelled != NULL && setup->cancelled())
+            break;
+        if (!g->read)
+        {
+            if (!read_rom(g->path, g->code, &g->version, NULL, g->title, sizeof(g->title), g->publisher,
+                          sizeof(g->publisher)) ||
+                g->title[0] == '\0')
+                file_title(g->title, sizeof(g->title), g->path);
+            g->read = true;
+        }
+        SetupProgress p = { setup, done, todo, g->title };
+        setup_progress(0, 1, &p);
+        int r = rom_hash(g->path, g->md5, setup_progress, &p);
+        g->hashed = r == ROMHASH_OK ? HASH_OK : HASH_FAILED;   // (a failed one isn't tried again until it changes)
+        g->ra = PICKER_RA_UNKNOWN;
+        *hashed += r == ROMHASH_OK;
+        done++;
+    }
+    write_index(ui.index_dir, games, n_games);
+    free_games();
+    return done;
+}
+
+int picker_rom_hashes(const char *index_dir, const char *started, uint8_t **out, size_t *size)
+{
+    *out = NULL;
+    *size = 0;
+    int count;
+    Game *index = load_index(index_dir, &count);
+    int n = 0;
+    for (int i = 0; i < count; i++)
+        n += index[i].hashed == HASH_OK && index[i].code[0] != '\0';
+    if (n == 0 || (*out = calloc(n, PICKER_ROM_RECORD + PICKER_ROM_NAME_MAX)) == NULL)
+    {
+        free(index);
+        return 0;
+    }
+    uint8_t *r = *out;
+    for (int i = 0; i < count; i++)
+    {
+        const Game *g = &index[i];
+        if (g->hashed != HASH_OK || g->code[0] == '\0')
+            continue;
+        char name[TITLE_LEN];
+        file_title(name, sizeof(name), g->path);
+        size_t len = strlen(name) < PICKER_ROM_NAME_MAX ? strlen(name) : PICKER_ROM_NAME_MAX;
+        memcpy(r, g->code, 4);
+        memcpy(r + 4, g->md5, 16);
+        r[20] = started != NULL && strcmp(started, g->path) == 0 ? PICKER_ROM_STARTED : 0;
+        r[21] = (uint8_t)len;
+        memcpy(r + PICKER_ROM_RECORD, name, len);
+        r += PICKER_ROM_RECORD + len;
+    }
+    *size = (size_t)(r - *out);
+    free(index);
+    return n;
+}
+
+int picker_store_status(const char *index_dir, const char *sets_dir, const uint8_t *status, int n)
+{
+    int count;
+    Game *index = load_index(index_dir, &count);
+    if (index == NULL)
+        return 0;
+    bool changed = false;
+    for (int k = 0; k < n; k++)
+    {
+        const uint8_t *s = status + k * PICKER_STATUS_RECORD;
+        uint8_t ra = s[16];
+        if (ra > PICKER_RA_NO_GAME)
+            continue;
+        for (int i = 0; i < count; i++)
+        {
+            Game *g = &index[i];
+            if (g->hashed == HASH_OK && memcmp(g->md5, s, 16) == 0 && g->ra != ra)
+            {
+                g->ra = ra;
+                changed = true;
+            }
+        }
+    }
+    // A game code whose every file has no set for its version: its set on the
+    // SD card (from before the hash said so) goes, so it isn't played with it
+    int removed = 0;
+    for (int i = 0; i < count; i++)
+    {
+        const Game *g = &index[i];
+        if (!no_set(g) || g->code[0] == '\0')
+            continue;
+        bool any_other = false;
+        for (int j = 0; j < count && !any_other; j++)
+        {
+            const Game *o = &index[j];
+            any_other = j != i && strcmp(o->code, g->code) == 0 && !no_set(o);
+        }
+        char path[PATH_LEN], name[16];
+        snprintf(name, sizeof(name), "%.4s.DRS", g->code);
+        join_path(path, sizeof(path), sets_dir, name);
+        if (!any_other && remove(path) == 0)
+            removed++;
+    }
+    if (changed)
+        write_index(index_dir, index, count);
+    free(index);
+    return removed;
 }

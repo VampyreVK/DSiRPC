@@ -17,6 +17,7 @@ import time
 
 from pypresence import ActivityType
 
+from core import games
 from core import platinum_data as pdata
 
 SPRITES = "https://vampyrevk.github.io/DSiRPC/Assets"
@@ -26,6 +27,12 @@ WILD, GYM, TRAINER, CHAMPION, RIVAL, ELITE_FOUR = 0x45C, 0x45D, 0x45F, 0x462, 0x
 
 # What Discord shows after "Playing" (the one Discord application shows every game)
 GAME_NAME = "Pokémon Platinum"
+
+
+def _name():
+    """GAME_NAME, or a file RetroAchievements has no set for (a ROM hack of
+    Platinum keeps its code) by its own name"""
+    return games.file_name(games.PLATINUM_US) or GAME_NAME
 
 
 def front_sprite(species_id, shiny=False):
@@ -106,7 +113,7 @@ def battle_presence(d):
         small_text += f" and {mon_name(mine2)} (Lv {mine2['level']}, {mine2['curr_hp']}/{mine2['max_hp']} HP)"
 
     return {
-        'name': GAME_NAME,
+        'name': _name(),
         'activity_type': ActivityType.COMPETING,
         'details': details,
         'state': state[:128],
@@ -122,7 +129,7 @@ def overworld_presence(d):
     party = [m for m in d['party'] if not m.get('egg')]
     alive = sum(1 for m in party if m['curr_hp'] > 0)
     presence = {
-        'name': GAME_NAME,
+        'name': _name(),
         'activity_type': ActivityType.PLAYING,
         'details': f"Exploring {loc['name']}",
         'state': f"Badges: {len(d['badges'])} | Pokédex: {d['pokedex']['caught']}",

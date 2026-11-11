@@ -138,6 +138,9 @@ class RaGame:
 
     @property
     def title(self):
+        own = games.file_name(self.code)   # a file RetroAchievements has no set for: its own name
+        if own:
+            return own
         if self.set and self.set.title:
             return self.set.title
         if self.code in games.NAMES:
@@ -347,6 +350,9 @@ class RaGame:
                     logging.info(f"RetroAchievements: {games.name(self.game)}: {value}")
                     self.note = value
                     self._try_racache()
+            elif kind == "unsupported":  # RetroAchievements has no set for this version: none is used
+                self.set, self.active = None, {}
+                self.note = value
             elif kind == "titles":
                 self.match_titles = value
             elif kind == "hash":

@@ -47,5 +47,9 @@ extern char host_music_log[1024];
 void host_games(const char *sd, int sort, const char *folder);
 void host_favorite(const char *sd, const char *path);
 void host_started(const char *sd, const char *path);
+void host_hash(const char *path);                         // romhash.c: "hash <result> <md5>"
+void host_setup(const char *sd);                          // picker_setup(): "setup <went through> <hashed> <shown>"
+void host_roms(const char *sd, const char *started);      // picker_rom_hashes(): a line each, then "roms N"
+void host_status(const char *sd, const char *list);       // picker_store_status() with "md5:status,..."
 
 #endif // UI_HOST_H

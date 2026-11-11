@@ -29,6 +29,35 @@
 
 ## Progress log
 
+- 2026-11-10: **Games known by their hash.** Animal Crossing: Wild World
+  never left "In the Character Select" on Discord and unlocked nothing: its
+  set (RetroAchievements game 9594) supports only European ROMs, and the
+  USA ROM had been linked to it by its title. Now the launcher hashes every
+  game on the SD card once, the first time it sees it, the way
+  RetroAchievements does (`launcher/source/romhash.c` and `md5.c`, the same
+  MD5 as `core/ra_hash.py`), in a "Setting up new games" phase on the boot
+  screen that only shows when a game is new, and keeps the hash in
+  `games.idx` by the file's name, size and time. The hashes go to DSiRPC
+  with each sync (sync version 2, which older launchers and DSiRPCs still
+  get along with), DSiRPC asks RetroAchievements about each one once
+  (`core/rom_hashes.py`) and links each game by its hash; a version
+  RetroAchievements has no set for gets none, with no title fallback, its
+  old title link is dropped, and the launcher's game list and achievements
+  page say so. Then, from the first tries: Animal Crossing still got its
+  set, because RetroAchievements answers a hash it knows but no set supports
+  with the game's ID plus 1,000,000,000 (1000009594 here), which was taken
+  for a game ID; now that's "not this ROM". Games without a set go by their
+  file's name (ROM hacks were called by the game they're based on), every
+  hash is asked at once instead of 16 a sync, a few at a time, with DSiRPC
+  telling the launcher how far it got so it doesn't time out, every game
+  with a set gets it at the sync, and the list shows a gray "no set" or
+  "new" (not checked yet) in place of "unsupported", with the X page telling
+  "not this ROM" from "no such game" from "not checked yet". The same day, the ARM9 write-back
+  found Animal Crossing's `OS_Halt` in ITCM (`tools/find_idle.py --rom`
+  showed it there, in an autoload block): the ARM9 half now searches ITCM
+  itself when rpcprobe finds no copy in the static code, and the hellos
+  say how many copies were found (`a9s=`).
+
 - 2026-11-09: **The console checks everything, and learns what needs every
   frame.** nds-bootstrap's frame rate code (`fpsa`) worked out its target
   in floating point, which pulled about 3 KB of soft-float code into the

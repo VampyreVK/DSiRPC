@@ -78,7 +78,8 @@ def trainer_image(d, how=None):
 
 
 def game_name(d):
-    return f"Pokémon {d.get('version') or 'Black'}"
+    # (a file RetroAchievements has no set for, a ROM hack say: its own name)
+    return games.file_name(game_code(d)) or f"Pokémon {d.get('version') or 'Black'}"
 
 
 def game_code(d):

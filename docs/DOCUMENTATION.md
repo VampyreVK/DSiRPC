@@ -154,7 +154,7 @@ Get-ChildItem C:\Projects\DSiRPC\nds-bootstrap\retail\cardenginei\arm7\source -R
 | `sets/CODE.DRS` | Next to the launcher | Achievement sets for offline play, from DSiRPC ([section 7](#offline-play-the-launchers-sync-tcpudp-4245)) |
 | `RPCSET.BIN` | Next to the launcher | A copy of the started game's set (none if it has no set); the in-game achievement checker loads it on the game's first VBlank ([section 8](#the-achievement-checker-probe_achc)) |
 | `launcher.ini` | Next to the launcher | The launcher's settings (L+R): DSiRPC's address (empty: broadcast), the save sync's mode, Auto-update, Lid closed (sleep, or stay connected), the look (modern or classic) and the modern look's sounds and music; and the game last started from the launcher (START) and the game list's order |
-| `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's size and time, so only new games are read), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
+| `games.idx` | Next to the launcher | The modern look's game list: each game's name, publisher and code from its banner (by the file's name, size and time, so only new games are read), its RetroAchievements hash and what DSiRPC said of it (a set, or none for this version), the favorites, and when each was last started from the launcher ([launcher/README.md](../launcher/README.md#the-modern-look)) |
 | `stats.idx` | Next to the launcher | Each game's DSiRPC playtime (the higher of the console's and DSiRPC's, offline play added from `RPCUNLK.BIN` as the launcher starts) and how DSiRPC was doing at the last start (the PC's name, RetroAchievements, Discord), for the modern look offline too ([section 7](#playtimes-tcp-4245)) |
 | `saves.idx` | Next to the launcher | The save sync's memory of each save at its last sync ([section 7](#the-save-sync-tcp-4245)) |
 | `update.idx` | Next to the launcher | The CRC32 of the launcher's file and nds-bootstrap's, with their sizes and times, so the update check only reads a file that changed ([section 7](#console-updates-tcp-4245)) |
@@ -991,15 +991,32 @@ without them.
 
 **Finding the set.** `ra/<code>.json` (or a `ra/games.txt` mapping) first.
 Signed in, RetroAchievements next (`core/ra_link.py`): by the hash of your
-game file when there's a `roms` folder, else by the set file's game ID, else
-by the game's title against RetroAchievements' list of DS and DSi games
+game file, which the launcher sends with each sync (`core/rom_hashes.py`; a
+`roms` folder on the PC still works too), else by the set file's game ID,
+else by the game's title. RetroAchievements answers a hash with the game's
+ID (its set supports that file), the game's ID plus 1,000,000,000 (a file
+it knows for that game, that no set supports: [guess] going by its answer
+for Animal Crossing: Wild World (USA)), or 0 (a file it doesn't know; the
+title then only tells "it has the game, but not this ROM" from "it doesn't
+have the game", and never links a set). Without a set for the file there's
+no title fallback: the game goes by its file's name (a ROM hack keeps the
+original's code and title) with no achievements on Discord, in the log and
+on the overlay ("No RetroAchievements set for this version of the game"),
+the console gets no set for it, and a set linked to it by its title before
+is moved to `ra/cache/unsupported/` (unlocks already earned stay). A game
+whose hash is known but not answered yet (RetroAchievements out of reach)
+gets no set either until it is. A game
+linked by its title (no hash: a launcher from before) gets a warning once a
+run that DSiRPC can't tell whether the set supports your copy. Matched by
+the title against RetroAchievements' list of DS and DSi games
 (`systemgames`, kept a week in `ra/cache/`), with the rules below; the set
 is downloaded into `ra/<code>.json` (again when that copy is over a day
 old). Without an account, or when RetroAchievements has nothing, and with
 `racache` set, DSiRPC looks in the emulator's cache once per session
-(`core/ra_cache.py`). The DSi can't give the RA game ID (RA
-identifies DS games by a hash of the whole ROM), so the game's title is
-matched against the sets' titles. That's the title in the game's header
+(`core/ra_cache.py`). The running game can't give the RA game ID (RA
+identifies DS games by a hash of parts of the ROM file, which only the
+launcher's hash carries), so without it the game's title is matched
+against the sets' titles. That's the title in the game's header
 copy at `0x023FFE00` when it's there: it is under emulators, but not under
 nds-bootstrap on a DSi or 3DS (nds-bootstrap keeps the header at
 `0x027FFE00`, past the 4 MB rpcprobe reads, and with the DSi's bigger RAM
@@ -1365,27 +1382,68 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
 `launcher/source/sync.c` (console) are the two sides; everything here is
 **little endian**.
 
-1. The launcher broadcasts `DSiRPC sync?` + u8 version (1) to UDP 4245,
-   every 0.5 s for 1.5 s. DSiRPC answers `DSiRPC sync!` + u8 version + u16
-   TCP port.
+1. The launcher broadcasts `DSiRPC sync?` + u8 version (the newest it
+   speaks: 2) to UDP 4245, every 0.5 s for 1.5 s. DSiRPC answers
+   `DSiRPC sync!` + u8 version + u16 TCP port, the version the older of the
+   launcher's and its own (`offline.sync_version()`), and both use that one.
+   DSiRPC from before version 2 always answers 1 and launchers from before
+   it ask for 1, so every pairing works; version 1 is everything below but
+   the games' hashes.
 2. The launcher connects over TCP and sends:
 
    ```
    "DRSQ" | version u16 | n u16 | game code[4] | unlock bytes u32 | console model u32
    n x ( code[4] | stamp u32 )        the sets it has
    RPCUNLK.BIN as it is               (or nothing, if it isn't valid)
+   (version 2) m u16 | hashed u16 | hash ms u32
+   m x ( code[4] | md5[16] | flags u8 | name length u8 | 2 bytes 0 | name )
    ```
+
+   The hashes are the RetroAchievements hash of each game file on the SD
+   card (`launcher/source/romhash.c`, the same as `core/ra_hash.py`), from
+   `games.idx`, each with the file's name (without its folder or `.nds`, 63
+   bytes at most), which DSiRPC calls a game RetroAchievements has no set
+   for by; flags 1 marks the file being started. `hashed` and
+   `hash ms` are how many games the launcher's first-time setup hashed since
+   the last sync and how long that took, for DSiRPC's log (`Offline sync:
+   the launcher hashed N game(s) in X s`).
 
    The game code is the one being started, or four zero bytes. The console
    model is TWiLight Menu++'s `CONSOLE_MODEL` from `nds-bootstrap.ini` (0 DSi,
    1 DSi devkit, 2 3DS, 3 New 3DS; older launchers send 0), so DSiRPC says
    "3DS connected!" on a 3DS.
-3. DSiRPC answers:
+3. In version 2, while DSiRPC asks RetroAchievements about the hashes and
+   downloads sets, it sends how far it got, as often as there's news:
+
+   ```
+   "DRSP" | done u16 | of u16 | what u8 (1 checking games, 2 getting sets) | 3 bytes 0
+   ```
+
+   The launcher shows it ("Checking 12/70", "Sets 3/9") and keeps waiting
+   (each frame restarts its 30 s wait), however long that takes. Then
+   DSiRPC answers:
 
    ```
    "DRSA" | version u16 | status u16 | taken u16 | n u16 | reserved u32
    n x ( code[4] | size u32 | the .DRS file )
+   (version 2) k u16 | k x ( md5[16] | status u8 | 3 bytes 0 )
    ```
+
+   The statuses (version 2) say what RetroAchievements has for each hash: 0
+   not known yet (DSiRPC couldn't ask), 1 a set, 2 the game but no set for
+   this file (another region, revision or a hack), 3 not the game at all.
+   The launcher keeps them in `games.idx`, and removes the set of a game
+   code whose every file has none (one from before, linked by the title).
+   DSiRPC asks RetroAchievements about every hash it hasn't asked before at
+   that sync, a few at a time (`HASH_LOOKUP_THREADS`, the started game's
+   first; when RetroAchievements is out of reach it stops there and the rest
+   stay 0), and keeps the answers in `ra/cache/rom_hashes.json`
+   (`core/rom_hashes.py`). Every game with a set gets it at that sync,
+   started or not: the ones not in `ra/` yet are downloaded then
+   (`SET_FETCH_THREADS` at a time) and kept. The launcher lists up to 1,024
+   games (and so hashes and statuses) and names up to 512 of the sets it
+   has in the request (past that, the rest come again at every sync); a set
+   is 1 MB at most.
 
    `status` 0 is OK, 1 that the request couldn't be read. `taken` is how
    many valid unlock slots it got, repeats and the shadow check's notes

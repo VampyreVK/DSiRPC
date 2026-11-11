@@ -116,17 +116,31 @@ what the console checks every frame.
 
 The sync exchange (one per game started while DSiRPC can be found):
 
-    1. The launcher broadcasts UDP b"DSiRPC sync?" + u8 version to port 4245;
-       DSiRPC answers b"DSiRPC sync!" + u8 version + u16 TCP port.
+    1. The launcher broadcasts UDP b"DSiRPC sync?" + u8 version (the newest
+       it speaks) to port 4245; DSiRPC answers b"DSiRPC sync!" + u8 version +
+       u16 TCP port, the version being the older of the launcher's and its
+       own (SYNC_VERSION), and the exchange uses that one. (DSiRPC before
+       version 2 always answered 1, and launchers before it asked for 1.)
     2. Over TCP, the launcher sends a request:
          "DRSQ", u16 version, u16 n cached sets, 4 game code being started,
          u32 unlock bytes, u32 console model; then n x (4 code, u32 stamp); then
-         RPCUNLK.BIN as it is
-       and DSiRPC answers:
+         RPCUNLK.BIN as it is; then (version 2) the games' RetroAchievements
+         hashes: u16 m, u16 games hashed since the last sync, u32 how long that
+         took (ms); then m x (4 code, 16 MD5, u8 flags (1: the file being
+         started), u8 name length (up to 63), 2 bytes 0, the file's name
+         without its folder or ".nds")
+       and DSiRPC answers (version 2: first, while it works, any number of
+       "DRSP", u16 done, u16 of, u8 what (1 checking the games with
+       RetroAchievements, 2 getting their sets), 3 bytes 0, so the launcher
+       keeps waiting and shows how far it got):
          "DRSA", u16 version, u16 status (0 ok), u16 unlocks taken,
-         u16 n sets, u32 reserved; then n x (4 code, u32 size, the .DRS)
+         u16 n sets, u32 reserved; then n x (4 code, u32 size, the .DRS);
+         then (version 2) u16 k, k x (16 MD5, u8 RA_UNKNOWN / RA_SET /
+         RA_NOT_THIS_ROM / RA_NO_GAME, 3 bytes 0): what RetroAchievements has
+         for each hash
        DSiRPC sends every set it has that the console doesn't have (or has an
-       older copy of), the game being started first.
+       older copy of), the game being started first, and none for a game
+       whose hash RetroAchievements has no set for (core/rom_hashes.py).
 
 While the launcher waits for a key, it sends UDP b"DSiRPC here" + u8 console
 model to the port DSiRPC answered from, every 5 seconds, and b"DSiRPC bye"
@@ -144,7 +158,8 @@ import time
 import zlib
 
 SYNC_PORT = 4245
-VERSION = 1
+VERSION = 1                               # RPCUNLK.BIN's, and the sync's first
+SYNC_VERSION = 2                          # the newest sync version: 2 adds the games' hashes
 DISCOVER = b"DSiRPC sync?"
 ANSWER = b"DSiRPC sync!"
 HERE = b"DSiRPC here"
@@ -184,6 +199,16 @@ LIST_TEXT_MAX = 0xFFFF                    # u16 text offsets
 TITLE_MAX, DESCRIPTION_MAX = 80, 255
 
 REQUEST = struct.Struct("<4sHH4sII")
+ROMS_HEADER = struct.Struct("<HHI")       # (version 2) hashes, games hashed since the last sync, ms
+ROM_RECORD = struct.Struct("<4s16sBB2x")  # code, md5, flags, name length; the name follows
+STATUS_RECORD = struct.Struct("<16sB3x")
+PROGRESS = struct.Struct("<4sHHB3x")      # (version 2) "DRSP", done, of, what, before the answer
+PROGRESS_CHECKING, PROGRESS_SETS = 1, 2
+ROM_STARTED = 1
+ROM_NAME_MAX = 63
+# (core/rom_hashes.py's UNKNOWN, HAS_SET, NOT_THIS_ROM, NO_GAME)
+RA_UNKNOWN, RA_SET, RA_NOT_THIS_ROM, RA_NO_GAME = 0, 1, 2, 3
+MAX_ROMS = 1024
 ANSWER_HEADER = struct.Struct("<4sHHHHI")
 MAX_CACHED = 1024
 MAX_UNLOCK_BYTES = 64 * 1024
@@ -730,11 +755,25 @@ def set_stamp(data):
 
 # -- the exchange ---------------------------------------------------------------
 
+def sync_version(asked):
+    """The version DSiRPC answers a launcher's "DSiRPC sync?" with: the
+    older of the launcher's and its own."""
+    return max(1, min(asked or 1, SYNC_VERSION))
+
+
 def parse_request(header, rest_reader):
     """Reads a request: header is its first REQUEST.size bytes, rest_reader(n)
     returns the next n bytes. -> (game code or None, {code: stamp}, unlock bytes)."""
+    r = parse_sync(header, rest_reader)
+    return r["game"], r["stamps"], r["unlocks"]
+
+
+def parse_sync(header, rest_reader):
+    """parse_request()'s, all of it: {'version', 'game', 'stamps', 'unlocks',
+    'roms': [(code, md5 hex, started, file name)], 'hashed', 'hash_ms'} (the
+    last three empty for version 1)."""
     magic, version, cached, game, unlock_bytes, _ = REQUEST.unpack(header)
-    if magic != b"DRSQ" or version != VERSION:
+    if magic != b"DRSQ" or not 1 <= version <= SYNC_VERSION:
         raise FormatError("not a sync request")
     if cached > MAX_CACHED or unlock_bytes > MAX_UNLOCK_BYTES:
         raise FormatError("sync request too big")
@@ -745,7 +784,20 @@ def parse_request(header, rest_reader):
         if valid_code(code):
             stamps[code.decode()] = stamp
     unlocks = rest_reader(unlock_bytes) if unlock_bytes else b""
-    return (game.decode() if valid_code(game) else None), stamps, unlocks
+    roms, hashed, hash_ms = [], 0, 0
+    if version >= 2:
+        n, hashed, hash_ms = ROMS_HEADER.unpack(rest_reader(ROMS_HEADER.size))
+        if n > MAX_ROMS:
+            raise FormatError("sync request too big")
+        for _ in range(n):
+            code, md5, flags, name_len = ROM_RECORD.unpack(rest_reader(ROM_RECORD.size))
+            if name_len > ROM_NAME_MAX:
+                raise FormatError("sync request garbled")
+            name = rest_reader(name_len).decode("ascii", "replace") if name_len else ""
+            if valid_code(code):
+                roms.append((code.decode(), md5.hex(), bool(flags & ROM_STARTED), name))
+    return {'version': version, 'game': game.decode() if valid_code(game) else None, 'stamps': stamps,
+            'unlocks': unlocks, 'roms': roms, 'hashed': hashed, 'hash_ms': hash_ms}
 
 
 def console_name(model):
@@ -761,17 +813,33 @@ def request_console(header):
     return console_name(REQUEST.unpack(header)[5] & 0xFF)
 
 
-def build_request(game, stamps, unlocks, console_model=0):
-    """A request as the launcher sends it (for tests)."""
-    head = REQUEST.pack(b"DRSQ", VERSION, len(stamps), (game or "").encode().ljust(4, b"\0")[:4],
+def build_request(game, stamps, unlocks, console_model=0, version=VERSION, roms=(), hashed=0, hash_ms=0):
+    """A request as the launcher sends it (for tests). roms: [(code, md5
+    hex, started, file name)], for version 2."""
+    head = REQUEST.pack(b"DRSQ", version, len(stamps), (game or "").encode().ljust(4, b"\0")[:4],
                         len(unlocks), console_model)
-    return head + b"".join(struct.pack("<4sI", c.encode(), s) for c, s in stamps.items()) + unlocks
+    out = head + b"".join(struct.pack("<4sI", c.encode(), s) for c, s in stamps.items()) + unlocks
+    if version >= 2:
+        out += ROMS_HEADER.pack(len(roms), hashed, hash_ms)
+        for c, m, started, *name in roms:
+            n = (name[0] if name else "").encode("ascii", "replace")[:ROM_NAME_MAX]
+            out += ROM_RECORD.pack(c.encode(), bytes.fromhex(m), ROM_STARTED if started else 0, len(n)) + n
+    return out
 
 
-def build_answer(status, taken, sets):
-    """sets: [(code, .DRS bytes)]."""
-    out = [ANSWER_HEADER.pack(b"DRSA", VERSION, status, taken, len(sets), 0)]
+def build_progress(done, total, what):
+    """(version 2) a "still working" frame before the answer"""
+    return PROGRESS.pack(b"DRSP", min(done, 0xFFFF), min(total, 0xFFFF), what)
+
+
+def build_answer(status, taken, sets, version=VERSION, statuses=None):
+    """sets: [(code, .DRS bytes)]; statuses (version 2): {md5 hex: RA_*}."""
+    out = [ANSWER_HEADER.pack(b"DRSA", version, status, taken, len(sets), 0)]
     for code, data in sets:
         out.append(struct.pack("<4sI", code.encode(), len(data)))
         out.append(data)
+    if version >= 2:
+        statuses = statuses or {}
+        out.append(struct.pack("<H", len(statuses)))
+        out += [STATUS_RECORD.pack(bytes.fromhex(m), st) for m, st in statuses.items()]
     return b"".join(out)

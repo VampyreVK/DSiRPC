@@ -128,6 +128,7 @@ static ProbeAchStats stats;
 #define SH_CLEAN    600        // samples of its memory changing with no difference: clean
 #define SH_NOTES    64         // notes a game, at most
 #define SH_ROOM     32         // RPCUNLK.BIN slots the notes leave for unlocks
+#define SH_QUEUE_ROOM 3        // save queue slots (of ACH_PENDING - 1) the notes leave for unlocks
 #define SH_PROVEN   0xFFFFFFFE // the notes' slot IDs (DSiRPC's offline.PROVEN_ID, CLEAN_ID)
 #define SH_CLEANED  0xFFFFFFFD
 typedef struct { s8 trig, reset; u8 done, pad; u16 since, act; } ShAch; // a frame lane achievement's
@@ -578,13 +579,17 @@ static void takePushes(void) {
 // waits for it: the shadow gets a copy of its sample (shSample), and checks
 // it only while there's no sample waiting, stopping for any new one; a due
 // sample is left out if the shadow is still on the last one.
+// The counts stop at their ends (a long busy stretch can bring more than
+// 127 between two judgements; wrapped, a difference could read as none)
+static void shUp(s8 *c) { if (*c < 127) (*c)++; }
+static void shDown(s8 *c) { if (*c > -127) (*c)--; }
 static void frameTriggered(u32 id, void *ud) {
-	if (shadowVm) shAch[frameVm.nextIndex].trig++;
+	if (shadowVm) shUp(&shAch[frameVm.nextIndex].trig);
 	onTriggered(id, ud);
 }
-static void frameReset(u32 id, void *ud) { (void)id; (void)ud; shAch[frameVm.nextIndex].reset++; }
-static void shadowTriggered(u32 id, void *ud) { (void)id; (void)ud; shAch[shadowVm->nextIndex].trig--; }
-static void shadowReset(u32 id, void *ud) { (void)id; (void)ud; shAch[shadowVm->nextIndex].reset--; }
+static void frameReset(u32 id, void *ud) { (void)id; (void)ud; shUp(&shAch[frameVm.nextIndex].reset); }
+static void shadowTriggered(u32 id, void *ud) { (void)id; (void)ud; shDown(&shAch[shadowVm->nextIndex].trig); }
+static void shadowReset(u32 id, void *ud) { (void)id; (void)ud; shDown(&shAch[shadowVm->nextIndex].reset); }
 
 static void shadowJudge(void) {
 	for (u16 i = 0; i < frameVm.nAch; i++) {
@@ -600,9 +605,18 @@ static void shadowJudge(void) {
 			if (s->act >= SH_CLEAN) kind = SH_CLEANED;
 		}
 		if (!kind) continue;
+		// No room for notes in RPCUNLK.BIN (SH_ROOM is for unlocks): given up.
+		// Else only while the save queue keeps SH_QUEUE_ROOM free for unlocks
+		// (one judge can find dozens at once); one that waits is noted at a
+		// later judge
+		if (!unlockNext || shNotes >= SH_NOTES || unlockNext + SH_ROOM >= ACH_UNLOCK_SLOTS) {
+			s->done = 1;
+			continue;
+		}
+		if (((pendTail - pendHead - 1) & (ACH_PENDING - 1)) <= SH_QUEUE_ROOM) continue;
+		queueSave(kind, AchVm_AchievementId(&frameVm, i));
 		s->done = 1;
-		if (shNotes < SH_NOTES && unlockNext + SH_ROOM < ACH_UNLOCK_SLOTS &&
-		    queueSave(kind, AchVm_AchievementId(&frameVm, i))) shNotes++;
+		shNotes++;
 	}
 }
 

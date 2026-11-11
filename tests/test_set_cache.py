@@ -73,9 +73,18 @@ def test_built_once(made, tmp_path, monkeypatch):
     assert len(os.listdir(built)) == 1
 
 
-@pytest.mark.parametrize("change", ["set", "skipped", "earned", "proven", "clean", "builder"])
+@pytest.mark.parametrize("change", ["set", "skipped", "earned", "proven", "clean", "offline.py", "ra_game.py",
+                                    "rcheevos.py"])
 def test_built_again_when_something_changed(made, tmp_path, monkeypatch, change):
     built = str(tmp_path / "built")
+    # the builder's files, as copies that can change
+    files = []
+    for real in offline._builder_files():
+        copy = tmp_path / os.path.basename(real)
+        copy.write_bytes(open(real, "rb").read())
+        files.append(str(copy))
+    assert [os.path.basename(f) for f in files] == ["offline.py", "ra_game.py", "rcheevos.py"]
+    monkeypatch.setattr(offline, "_builder_files", lambda: files)
     ids = [a["id"] for a in made.playable_achievements]
     args = dict(skip_ids=(), earned={}, proven=(), clean={})
     offline.build_set(made, "TEST", cache_dir=built, **args)
@@ -91,8 +100,9 @@ def test_built_again_when_something_changed(made, tmp_path, monkeypatch, change)
         args["proven"] = {ids[1]}
     elif change == "clean":
         args["clean"] = {ids[2]: 3}
-    else:
-        monkeypatch.setattr(offline, "_build_key", lambda *a: "another-builder")
+    else:                       # (a change to the code: here, a comment added to the copy)
+        with open(tmp_path / change, "a", encoding="utf-8") as f:
+            f.write("\n# changed\n")
     n = counting(monkeypatch)
     offline.build_set(s, "TEST", cache_dir=built, **args)
     assert n[0] > 0

@@ -34,6 +34,7 @@ changed MemAddr.
 """
 
 import json
+import logging
 import os
 import time
 import zlib
@@ -89,10 +90,14 @@ def _clean(data):
 
 
 def load(ra_dir=None):
+    p = path(ra_dir)
     try:
-        with open(path(ra_dir), encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             return _clean(json.load(f))
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return empty()
+    except (OSError, ValueError) as e:
+        logging.warning(f"Frame needs: couldn't read {p} ({e}): starting from nothing learned")
         return empty()
 
 

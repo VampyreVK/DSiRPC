@@ -60,7 +60,8 @@ class ConsoleSync:
         self.on_roms = on_roms
         self.on_unlocks = on_unlocks
         self.on_console = on_console
-        self.on_notes = on_notes      # ([shadow note]): the console's shadow check's, before the sets are made
+        self.on_notes = on_notes      # ([shadow note], {code: the console's set's stamp}): the console's shadow
+                                      # check's, before the sets are made
         self.on_here = on_here
         self.saves = saves
         self.on_saves = on_saves
@@ -204,7 +205,7 @@ class ConsoleSync:
                     logging.exception("Offline sync: on_roms failed")
         if notes and self.on_notes:  # (before the sets: what it found decides their frame lanes)
             try:
-                self.on_notes(notes)
+                self.on_notes(notes, stamps)
             except Exception:
                 logging.exception("Offline sync: on_notes failed")
         # The sets first (that may download the game's), so the unlocks are

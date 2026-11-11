@@ -706,18 +706,28 @@ def _say_no_shadow(code):
 BUILT_KEEP = 2   # built sets kept a game in ra/cache/built/ (the newest)
 
 
+def _builder_files():
+    """The Python files a built set's bytes depend on: this one, ra_game.py
+    (_unreachable(), which achievements go in) and rcheevos.py (the
+    compiler's wrapper)"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return [os.path.abspath(__file__), os.path.join(here, "ra_game.py"), os.path.join(here, "rcheevos.py")]
+
+
 def _build_key(raset, code, skip_ids, earned, proven, clean):
     """A digest of everything a built set depends on: the set's
     achievements, title and ID, what's skipped and listed as earned, what
-    frame_needs has learned, and the builder (this file and rcheevos)."""
+    frame_needs has learned, and the builder (_builder_files() and the
+    rcheevos library)."""
     import hashlib
     from . import rcheevos
     h = hashlib.sha256()
-    try:
-        with open(__file__, "rb") as f:
-            h.update(f.read())
-    except OSError:
-        h.update(b"?")
+    for path in _builder_files():
+        try:
+            with open(path, "rb") as f:
+                h.update(f.read())
+        except OSError:
+            h.update(b"?")
     lib = getattr(rcheevos, "library_path", lambda: None)()
     if lib:
         try:
@@ -857,9 +867,11 @@ def _known_path(ra_dir):
     return os.path.join(ra_dir, "cache", "console_sets.json")
 
 
-def remember_set(data, ra_dir=None):
+def remember_set(data, ra_dir=None, memaddr=None):
     """Notes which achievements a set DSiRPC built checks in which lane, by
-    its stamp (ra/cache/console_sets.json; the last KNOWN_SETS_KEEP)."""
+    its stamp (ra/cache/console_sets.json; the last KNOWN_SETS_KEEP), and
+    with memaddr ({id: MemAddr}) the logic of its frame lane's, so the
+    console's shadow notes can be told apart from a later version's."""
     try:
         s = read_set(data)
     except FormatError:
@@ -874,6 +886,10 @@ def remember_set(data, ra_dir=None):
         known = {}
     known[f"{s['stamp']:08X}"] = {'code': s['code'], 'game_id': s['game_id'], 'frame': s['frame'],
                                   'pass': s['pass'], 'time': int(time.time())}
+    if memaddr:
+        from . import frame_needs
+        known[f"{s['stamp']:08X}"]['mem'] = {str(aid): frame_needs.memaddr_hash(memaddr[aid])
+                                             for aid in s['frame'] if memaddr.get(aid)}
     if len(known) > KNOWN_SETS_KEEP:
         for stamp in sorted(known, key=lambda k: known[k].get('time', 0))[:len(known) - KNOWN_SETS_KEEP]:
             del known[stamp]
@@ -887,8 +903,9 @@ def remember_set(data, ra_dir=None):
 
 
 def known_set(stamp, ra_dir=None):
-    """{'code', 'game_id', 'frame': set of ids, 'pass': set of ids} of a set
-    DSiRPC built, by its stamp (an int), or None."""
+    """{'code', 'game_id', 'frame': set of ids, 'pass': set of ids, 'mem':
+    {id: its MemAddr's hash} (frame lane; None for a set remembered before
+    that)} of a set DSiRPC built, by its stamp (an int), or None."""
     try:
         with open(_known_path(ra_dir), encoding="utf-8") as f:
             entry = json.load(f).get(f"{stamp:08X}")
@@ -896,8 +913,10 @@ def known_set(stamp, ra_dir=None):
         return None
     if not isinstance(entry, dict):
         return None
+    mem = entry.get('mem')
     return {'code': entry.get('code'), 'game_id': entry.get('game_id', 0),
-            'frame': set(entry.get('frame') or ()), 'pass': set(entry.get('pass') or ())}
+            'frame': set(entry.get('frame') or ()), 'pass': set(entry.get('pass') or ()),
+            'mem': {int(k): v for k, v in mem.items()} if isinstance(mem, dict) else None}
 
 
 def set_stamp(data):

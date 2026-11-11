@@ -302,3 +302,38 @@ def test_what_cant_be_started_is_hidden(host, tmp_path):
     assert "Homebrew Game" not in [name for _, name, _ in badges(host, sd)]
     assert index_lines(sd)[0] == "DSiRPC games 3"
     assert next(ln for ln in index_lines(sd) if "Homebrew Game.nds" in ln).split(" ")[6] == "x"
+
+
+def test_an_unreadable_file_is_tried_again(host, tmp_path):
+    """A file that can't be opened at the setup (an SD card hiccup) isn't
+    marked: it's listed as "new" and hashed at the next boot (a file that
+    isn't a DS file RetroAchievements' way stays marked, as before)"""
+    sd = str(tmp_path / "sd")
+    lui.make_sd(sd)
+    n = len(lui.GAMES)
+    out = lui.run(host, "unreadable Tetris DS.nds", f"setup {sd}")
+    assert [tuple(int(x) for x in ln.split()[1:]) for ln in out if ln.startswith("setup ")] == [(n, n - 1, 1)]
+    tetris = next(ln for ln in index_lines(sd) if "Tetris DS.nds" in ln)
+    assert tetris.split(" ")[6] == "-"                                # not "!" or "x"
+    assert ("ATRE", "Tetris DS", NEW) in badges(host, sd)
+    assert setup(host, sd) == (1, 1, 1)                               # the next boot: hashed
+    assert len(next(ln for ln in index_lines(sd) if "Tetris DS.nds" in ln).split(" ")[6]) == 32
+
+
+def test_a_replaced_file_gets_no_set(host, tmp_path):
+    """At launch the set is only staged for the file games.idx knows: one
+    replaced under the same name since (another size or time) gets none
+    until the next setup looks at it"""
+    sd = str(tmp_path / "sd")
+    lui.make_sd(sd)
+    setup(host, sd)
+    got = {name: md5 for _, md5, _, name in roms(host, sd)}
+    lui.run(host, f"status {sd}|{got['Pokemon Platinum']}:1")
+    platinum = os.path.join(sd, "roms", "nds", "Pokemon Platinum.nds")
+    fits = lambda: lui.run(host, f"fits {sd}|{platinum}")[-1]
+    assert fits() == "fits 1"
+    with open(platinum, "ab") as f:
+        f.write(b"\0" * 512)                                          # (a hack put in its place)
+    assert fits() == "fits 0"
+    setup(host, sd)                                                   # hashed again: not known yet, by its code
+    assert fits() == "fits 1"

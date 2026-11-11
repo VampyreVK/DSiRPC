@@ -24,7 +24,8 @@ KEY = (255, 0, 255)         # the top screen's clear pixels, in a dump with key=
 
 def build(out, sanitize=True):
     sources = [os.path.join(HOST_DIR, f) for f in HOST_SOURCES] + [os.path.join(LAUNCHER, f) for f in LAUNCHER_SOURCES]
-    flags = ["-std=gnu11", "-D__NDS__", "-I", os.path.join(HOST_DIR, "stub"), "-I", HOST_DIR, "-I", LAUNCHER]
+    flags = ["-std=gnu11", "-D__NDS__", "-I", os.path.join(HOST_DIR, "stub"), "-I", HOST_DIR, "-I", LAUNCHER,
+             "-Wl,--wrap=fopen"]      # (host_stubs.c: the "unreadable" command's SD card hiccups)
     return cbuild.build(out, sources, flags=flags, sanitize=("address", "undefined") if sanitize else ())
 
 

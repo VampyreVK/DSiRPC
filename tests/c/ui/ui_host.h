@@ -52,5 +52,6 @@ void host_setup(const char *sd);                          // picker_setup(): "se
 void host_roms(const char *sd, const char *started);      // picker_rom_hashes(): a line each, then "roms N"
 void host_status(const char *sd, const char *list);       // picker_store_status() with "md5:status,..."
 void host_fits(const char *sd, const char *path);         // picker_set_fits(): "fits 0/1"
+extern char host_unreadable[256];                         // "unreadable TEXT": opening a path with it in fails
 
 #endif // UI_HOST_H

@@ -439,7 +439,8 @@ class Engine:
             except (RcheevosError, offline.FormatError) as e:
                 logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
                 continue
-            offline.remember_set(data)  # which achievements the console checks every frame
+            # which achievements the console checks every frame, and their logic
+            offline.remember_set(data, memaddr={a['id']: a['memaddr'] for a in s.achievements})
             if self._clearing or _relearning(self, code) or stamps.get(code) != offline.set_stamp(data):
                 out.append((code, data))
         if self._clearing:
@@ -470,7 +471,7 @@ class Engine:
         names = {r[1]: (r[3] if len(r) > 3 and r[3] else r[0] or r[1]) for r in roms}
         codes = {r[1]: r[0] for r in roms}
         todo = list(dict.fromkeys(r[1] for r in sorted(roms, key=lambda r: not r[2])
-                                  if rom_hashes.answer(store, r[1]) is None))
+                                  if rom_hashes.due(store, r[1])))
         new = []
         if link is not None and todo:
             if progress:
@@ -572,13 +573,19 @@ class Engine:
         except OSError as e:
             logging.warning(f"--clear-learning: couldn't wipe {path}: {e}")
 
-    def _shadow_notes(self, notes):
+    def _shadow_notes(self, notes, stamps=None):
         """The console's shadow check's notes ([{'code', 'id', 'proven'}],
         core/offline.py's read_shadow_notes()): which frame lane achievements
         came out differently checked every frame and every few frames (they
         need the frame lane), and which didn't in a while of their memory
-        changing. Kept in ra/cache/frame_needs.json for the next sets."""
-        from core import frame_needs, ra_set
+        changing. Kept in ra/cache/frame_needs.json for the next sets. A
+        note about logic RetroAchievements has changed since the console's
+        set was built (stamps: the console's sets, {code: stamp}) is left
+        out, and so is a game whose set file can't be read: the rest are
+        still kept. (Either way they count as taken, so the launcher clears
+        RPCUNLK.BIN: kept there, they'd come back at every sync, and the
+        file would fill up.)"""
+        from core import frame_needs, offline, ra_set
         if _relearning(self):  # --clear-learning: not these
             drop = [n for n in notes if _relearning(self, n['code'])]
             self._ignored_notes += len(drop)
@@ -586,10 +593,25 @@ class Engine:
         needs = frame_needs.load()
         changed = False
         for code in sorted({n['code'] for n in notes}):
-            s = ra_set.for_game(code)
+            mine = [n for n in notes if n['code'] == code]
+            try:
+                s = ra_set.for_game(code)
+            except ra_set.SetFileError as e:
+                logging.warning(f"Offline sync: {code}: {len(mine)} shadow note(s) left out: its set file ({e})")
+                continue
             memaddr = {a['id']: a['memaddr'] for a in s.achievements} if s else {}
-            for n in notes:
-                if n['code'] != code or n['id'] not in memaddr:
+            # The logic the console checked: the set it has (by its stamp), as built
+            known = offline.known_set(stamps[code]) if stamps and code in stamps else None
+            ran = known['mem'] if known and known['code'] == code else None
+            if ran is not None:
+                stale = [n for n in mine if n['id'] in memaddr and ran.get(n['id']) is not None
+                         and ran[n['id']] != frame_needs.memaddr_hash(memaddr[n['id']])]
+                if stale:
+                    logging.info(f"Offline sync: {code}: {len(stale)} shadow note(s) left out: RetroAchievements "
+                                 "changed those achievements since the console's set was made")
+                    mine = [n for n in mine if n not in stale]
+            for n in mine:
+                if n['id'] not in memaddr:
                     continue
                 if n['proven']:
                     if frame_needs.add(needs, code, n['id'], memaddr[n['id']], "console"):

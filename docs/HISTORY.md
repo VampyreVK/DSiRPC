@@ -38,8 +38,10 @@
   MD5 as `core/ra_hash.py`), in a "Setting up new games" phase on the boot
   screen that only shows when a game is new, and keeps the hash in
   `games.idx` by the file's name, size and time. The hashes go to DSiRPC
-  with each sync (sync version 2, which older launchers and DSiRPCs still
-  get along with), DSiRPC asks RetroAchievements about each one once
+  with each sync (sync version 2: older launchers and DSiRPCs still sync
+  with it, but the sets themselves need a matching nds-bootstrap, set
+  version 5, which the launcher offers to update in the same boot, right
+  after the sync and before a game starts), DSiRPC asks RetroAchievements about each one once
   (`core/rom_hashes.py`) and links each game by its hash; a version
   RetroAchievements has no set for gets none, with no title fallback, its
   old title link is dropped, and the launcher's game list and achievements
@@ -68,9 +70,11 @@
   512 KB right below the in-game menu's window (`0x0CF08000`-`0x0CF88000`,
   ROM cache before; its old 256 KB at `0x0CFA0000` is ROM cache again), so
   HeartGold gets all 166, 63 of them every frame, the shadow check and a
-  256-sample ring (415 KB). A set built for 512 KB that an older
-  nds-bootstrap gets is refused by its size check before anything is read
-  past the header. The same day, the ARM9 write-back
+  256-sample ring (415 KB). An older nds-bootstrap refuses such a set
+  before reading past its header: one from this branch by its size check,
+  one from main (set version 4 at most) by its version; the in-game menu
+  says "set too big" or "set version?" until the update the launcher
+  offers is in. The same day, the ARM9 write-back
   found Animal Crossing's `OS_Halt` in ITCM (`tools/find_idle.py --rom`
   showed it there, in an autoload block): the ARM9 half now searches ITCM
   itself when rpcprobe finds no copy in the static code, and the hellos

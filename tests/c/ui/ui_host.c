@@ -222,6 +222,10 @@ int main(void)
         {
             host_status(f[0], f[1]);
         }
+        else if (strcmp(line, "unreadable") == 0 && nf == 1)
+        {
+            snprintf(host_unreadable, sizeof(host_unreadable), "%s", f[0]);
+        }
         else if (strcmp(line, "fits") == 0 && nf == 2)
         {
             host_fits(f[0], f[1]);

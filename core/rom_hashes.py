@@ -22,8 +22,9 @@ the exact way to link a game to its set:
      "games": {"<md5>": {"id": <what RetroAchievements answered>, "game": <0/1: the title found the game>,
                          "when": <Unix time>}}}
 
-A hash once answered isn't asked again; a game whose hashes are known but not
-answered yet gets no set (not even one linked by its title) until they are.
+A hash with a set isn't asked again; one without is asked again after
+ASK_AGAIN (due()). A game whose hashes are known but not answered yet gets no
+set (not even one linked by its title) until they are.
 """
 
 import json
@@ -36,6 +37,7 @@ from . import ra_set
 VERSION = 1
 UNKNOWN, HAS_SET, NOT_THIS_ROM, NO_GAME = 0, 1, 2, 3   # what the launcher is told (core/offline.py's RA_*)
 INCOMPATIBLE = 1_000_000_000            # added to the game ID for a hash RetroAchievements knows but no set supports
+ASK_AGAIN = 30 * 86400                  # a "no set" answer is asked again this long after (a set may have come)
 
 
 def path(ra_dir=None):
@@ -47,13 +49,17 @@ def empty():
 
 
 def load(ra_dir=None):
+    p = path(ra_dir)
     try:
-        with open(path(ra_dir), encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             data = json.load(f)
         if data.get("version") == VERSION and isinstance(data.get("roms"), dict) and isinstance(data.get("games"), dict):
             return data
-    except (OSError, ValueError, AttributeError):
+        logging.warning(f"ROM hashes: {p} isn't one this DSiRPC reads: asking again")
+    except FileNotFoundError:
         pass
+    except (OSError, ValueError, AttributeError) as e:
+        logging.warning(f"ROM hashes: couldn't read {p} ({e}): asking again")
     return empty()
 
 
@@ -83,6 +89,22 @@ def answer(data, md5):
     """What RetroAchievements answered for the hash, or None if not asked yet"""
     g = data["games"].get(md5)
     return g.get("id") if isinstance(g, dict) and isinstance(g.get("id"), int) else None
+
+
+def due(data, md5, now=None):
+    """Whether to ask RetroAchievements about the hash at this sync: not
+    asked yet, or its answer was "no set" (0, or a game ID plus
+    INCOMPATIBLE) ASK_AGAIN ago or more (or when isn't known): RetroAchievements
+    may have linked it, or made a set for that version, since. A set found
+    isn't asked about again."""
+    a = answer(data, md5)
+    if a is None:
+        return True
+    if 0 < a < INCOMPATIBLE:
+        return False
+    when = data["games"][md5].get("when")
+    now = time.time() if now is None else now
+    return not isinstance(when, (int, float)) or now - when >= ASK_AGAIN
 
 
 def game_id(data, md5):

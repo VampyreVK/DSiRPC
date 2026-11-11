@@ -85,15 +85,17 @@ enum { HASH_NONE, HASH_OK, HASH_FAILED, HASH_CANT_START };
 
 // Whether this launcher can start the file: its nds-bootstrap hooks a game
 // through Nintendo's SDK, which homebrew (libnds) doesn't have. libnds puts
-// the ARM7's code in the ARM7's own RAM (0x037F8000 on), where Nintendo's SDK
-// never does (main RAM, 0x02380000 on); TWiLight Menu++ tells homebrew by the
-// same. A file whose header can't be read can't be started either.
+// the ARM7's code in the ARM7's own RAM (at 0x037F8000; anything from
+// 0x037F0000, its start, counts), where Nintendo's SDK never does (main RAM,
+// 0x02380000 on); TWiLight Menu++ tells homebrew by the same. A file too short
+// for a header can't be started either; one that can't be opened just now (an
+// SD card hiccup) is left alone, to be looked at again next time.
 static bool cant_start(const char *path)
 {
     uint8_t a7[8];
     FILE *f = fopen(path, "rb");
     if (f == NULL)
-        return true;
+        return false;
     bool ok = fseek(f, 0x34, SEEK_SET) == 0 && fread(a7, 1, sizeof(a7), f) == sizeof(a7);
     fclose(f);
     if (!ok)
@@ -1367,8 +1369,12 @@ int picker_setup(const PickerSetup *setup, int *hashed)
         SetupProgress p = { setup, done, todo, g->title };
         setup_progress(0, 1, &p);
         int r = rom_hash(g->path, g->md5, setup_progress, &p);
-        g->hashed = r == ROMHASH_OK ? HASH_OK : HASH_FAILED;   // (a failed one isn't tried again until it changes)
-        g->ra = r == ROMHASH_OK ? PICKER_RA_UNKNOWN : PICKER_RA_NO_GAME;     // (and has no set)
+        // Not a DS file RetroAchievements' way: not tried again until it changes
+        // (and has no set). Couldn't be read (an SD card hiccup): next time
+        g->hashed = r == ROMHASH_OK ? HASH_OK : r == ROMHASH_NOT_DS ? HASH_FAILED : HASH_NONE;
+        g->ra = r == ROMHASH_NOT_DS ? PICKER_RA_NO_GAME : PICKER_RA_UNKNOWN;
+        if (r == ROMHASH_UNREADABLE)
+            g->title[0] = '\0';    // (its banner and code read again too: games.idx keeps it unread)
         *hashed += r == ROMHASH_OK;
         done++;
     }
@@ -1469,6 +1475,12 @@ bool picker_set_fits(const char *index_dir, const char *path)
     Game *index = load_index(index_dir, &count);
     const Game *e = find_entry(index, count, path);
     bool fits = e == NULL || !(no_set(e) || e->hashed == HASH_CANT_START);
+    // A file that changed since games.idx was written (replaced by another
+    // under the same name): what's known is another file's, so no set
+    struct stat st;
+    if (e != NULL && fits && (stat(path, &st) != 0 || (uint32_t)st.st_size != e->size ||
+                              (int32_t)st.st_mtime != e->mtime))
+        fits = false;
     free(index);
     return fits;
 }

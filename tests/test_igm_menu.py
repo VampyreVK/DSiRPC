@@ -71,3 +71,14 @@ def test_no_set(host, tmp_path, monkeypatch):
     out = igm.run(host, igm.script((60, 0)) + ["text 50"])
     main = joined(igm.text(out, 50))
     assert "Return to Game" in main and "Achievements" not in main and "new achievement" not in main
+
+
+def test_totals_over_a_long_list(host, monkeypatch):
+    """A set of more than the 512 entries the menu lists: its counts and
+    points are the whole set's (one earned past the 512th too)"""
+    many = [(f"Achievement {i}", "", 1, "pc" if i in (0, 1, 2, 550) else "") for i in range(600)]
+    real = igm.ach_image
+    monkeypatch.setattr(igm, "ach_image", lambda *a, **k: real(many))
+    out = igm.run(host, igm.script((90, 0)) + ["text 80"])
+    main = joined(igm.text(out, 80))
+    assert "4/600" in main and "4/600 pts" in main

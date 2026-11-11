@@ -1444,7 +1444,8 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
    The launcher keeps them in `games.idx`, and removes the set of a game
    code whose every file has none (one from before, linked by the title).
    DSiRPC asks RetroAchievements about every hash it hasn't asked before at
-   that sync, a few at a time (`HASH_LOOKUP_THREADS`, the started game's
+   that sync (and again about one it had no set for, once that answer is 30
+   days old: `rom_hashes.due()`), a few at a time (`HASH_LOOKUP_THREADS`, the started game's
    first; when RetroAchievements is out of reach it stops there and the rest
    stay 0), and keeps the answers in `ra/cache/rom_hashes.json`
    (`core/rom_hashes.py`). Every game with a set gets it at that sync,

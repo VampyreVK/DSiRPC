@@ -1,5 +1,5 @@
 """Offline play's checker (rpcprobe/probe_ach.c with probe_ach_vm.c), built
-for the PC with tests/c/ach/ach_host.c, running a real version 4 set from
+for the PC with tests/c/ach/ach_host.c, running a real version 5 set from
 core/offline.py against rcheevos.
 
 Every frame the simulated game writes memory, then the console samples (the
@@ -357,3 +357,45 @@ def test_bad_sets_are_refused(ach_host, rcheevos, tmp_path):
     assert load(b"XXXX" + data[4:]) == -1                            # not a set
     assert load(data[:offline.SET_HEADER.size]) in (-3, -4, -5)      # cut short
     assert load(b"") == 0                                            # no RPCSET.BIN: nothing to check
+
+
+def test_notes_leave_room_for_unlocks(ach_host, rcheevos, tmp_path):
+    """A dozen frame lane achievements whose memory changes every frame
+    come out clean at the same shadow judgement: the notes take no more of
+    the save queue than leaves room for unlocks, so an unlock right after,
+    with nothing saved in between, is kept (it used to find the queue full
+    and be lost); the notes that waited are queued at later judgements."""
+    achs = [{"ID": 700 + k, "Title": f"Watch {k}", "Description": "", "Points": 1, "Flags": 3, "BadgeName": "0",
+             "MemAddr": f"0xH0100!=d0xH0100_0xH0300={k + 1}"} for k in range(12)]
+    achs.append({"ID": 800, "Title": "The one", "Description": "", "Points": 5, "Flags": 3, "BadgeName": "0",
+                 "MemAddr": "0xH0400=1"})
+    s = ra_set.RaSet({"Success": True, "PatchData": {"ID": 4242, "Title": "Busy", "ConsoleID": 18,
+                                                     "RichPresencePatch": "", "Achievements": achs,
+                                                     "Leaderboards": []}})
+    data = offline.build_set(s, "TEST")
+    info = offline.read_set(data)
+    assert set(range(700, 712)) <= set(info["frame"])
+    path = tmp_path / "RPCSET.BIN"
+    path.write_bytes(data)
+    dump = tmp_path / "RPCUNLK.BIN"
+    lines = [f"set {path}"]
+    for f in range(900):
+        lines.append(f"w 100 {f & 0xFF:02x}")
+        if f == 850:
+            lines.append("w 400 01")
+        lines.append("frame 1 2")
+    lines += ["save", f"dump {dump}"]
+    # then saved as it goes: the notes that waited come too
+    for f in range(900, 1300):
+        lines += [f"w 100 {f & 0xFF:02x}", "frame 1 2", "save"]
+    lines += [f"dump {tmp_path / 'later.BIN'}"]
+    out = _session(ach_host, lines)
+    assert [int(ln.split()[1]) for ln in out if ln.startswith("T ")] == [800]
+    first_save = next(ln for ln in out if ln.startswith("saved "))
+    assert first_save.endswith("lost 0"), first_save
+    raw = dump.read_bytes()
+    assert [u["id"] for u in offline.read_unlocks(raw, now=CLOCK.timestamp() + 86400)] == [800]
+    notes = offline.read_shadow_notes(raw)
+    assert 0 < len(notes) <= offline.UNLOCK_SLOTS and len(notes) <= 7 - 3     # (the queue's room, less 3)
+    later = offline.read_shadow_notes((tmp_path / "later.BIN").read_bytes())
+    assert {n["id"] for n in later} == set(range(700, 712)) and not any(n["proven"] for n in later)

@@ -4,7 +4,7 @@
 // The program (version 3), little endian, built by DSiRPC with rcheevos'
 // own parser (third_party/rcheevos/dsirpc_offline.c):
 //
-//   u32 2, u16 plain memrefs P, u16 modified memrefs M, u16 achievements A,
+//   u32 3, u16 plain memrefs P, u16 modified memrefs M, u16 achievements A,
 //   u16 0, u32 conditions C
 //   P x 8 bytes: u32 address, u8 size, u8 value type, u16 0
 //   M x 20 bytes: u8 size, u8 value type, u8 modifier type, u8 0,

@@ -51,6 +51,7 @@ static u32 achLink; // the anchor's `link`: 0 if there's none
 static const DsirpcListEntry *achEntries;
 static const char *achText;
 static u16 achCount, achEarned, achNew, achNewFrom;
+static u16 achTotal;                  // in the whole list (achCount: listed, ACH_MAX at most)
 static u32 achPoints, achPointsEarned;
 static u16 achOrder[ACH_MAX];
 #define ACH_NEW_COLS 28 // inside the main screen's panel
@@ -190,12 +191,15 @@ static void achLoadList(u32 offset) {
 	achEntries = e;
 	achText = text;
 	achCount = n;
-	for (u16 i = 0; i < n; i++) {
+	achTotal = l->count;
+	for (u16 i = 0; i < l->count; i++) { // (the totals: every entry, listed or not)
 		achPoints += e[i].points;
 		if (achIsEarned(&e[i])) {
 			achEarned++;
 			achPointsEarned += e[i].points;
 		}
+	}
+	for (u16 i = 0; i < n; i++) {
 		if (achIsNew(&e[i])) achNew++;
 		// insertion sort: a few hundred entries at most
 		u16 j = i;
@@ -218,7 +222,7 @@ void Ach_Open(int show) {
 	achStatus = ACH_ABSENT;
 	achLink = 0;
 	achEntries = 0;
-	achCount = achEarned = achNew = 0;
+	achCount = achEarned = achNew = achTotal = 0;
 	achPoints = achPointsEarned = 0;
 	if (!show) return;
 
@@ -293,7 +297,7 @@ void Ach_DrawMain(void) {
 	if (achCount) {
 		n = achNum(line, achEarned);
 		line[n++] = '/';
-		n += achNum(&line[n], achCount);
+		n += achNum(&line[n], achTotal);
 		line[n] = 0;
 		printRight(28, y, (const unsigned char *)line, FONT_LIGHT_BLUE, false);
 		y++;
@@ -303,7 +307,7 @@ void Ach_DrawMain(void) {
 		n += achStr(&line[n], " pts");
 		line[n] = 0;
 		printRight(28, y, (const unsigned char *)line, FONT_LIGHT_GRAY, false);
-		Skin_Progress(3, y, 28 - n - 4, achEarned, achCount);
+		Skin_Progress(3, y, 28 - n - 4, achEarned, achTotal);
 	} else {
 		const char *why;
 		switch (achStatus) {
@@ -366,7 +370,7 @@ static void achDraw(int top, int sel) {
 
 	n = achNum(line, achEarned); // "12/102 earned", "145/777 pts"
 	line[n++] = '/';
-	n += achNum(&line[n], achCount);
+	n += achNum(&line[n], achTotal);
 	n += achStr(&line[n], " earned");
 	line[n] = 0;
 	print(0, 0, (const unsigned char *)line, FONT_LIGHT_BLUE, false);

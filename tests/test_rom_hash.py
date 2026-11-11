@@ -196,10 +196,16 @@ def test_hashes_for_the_sync_and_the_answer(host, tmp_path):
     assert hashlib.md5(b"").hexdigest() not in "".join(index_lines(sd))
 
 
+NEW = ("new", "Not checked yet", "Not checked yet")
+NO_GAME = ("no set", "No set", "No achievement set")
+
+
 def badges(host, sd):
-    """The list's [(code, shown name, badge: "count", "new" or "no set")]"""
-    return [(r[0], r[1], r[7]) for r in (ln[5:].split("|") for ln in lui.run(host, f"games {sd}|1")
-                                         if ln.startswith("game "))]
+    """The list's [(code, shown name, (badge, top screen line, X's card))]:
+    the badge "count", "new" or "no set", the top screen's line when there's
+    no count, X's card's title ("list": the achievements)"""
+    return [(r[0], r[1], tuple(r[7:10])) for r in (ln[5:].split("|") for ln in lui.run(host, f"games {sd}|1")
+                                                   if ln.startswith("game "))]
 
 
 def test_every_file_gets_a_state(host, tmp_path):
@@ -223,8 +229,8 @@ def test_every_file_gets_a_state(host, tmp_path):
     # Before any sync: the unhashable one is already "no set", the rest "new"
     # (Platinum, with its set on the card, its count)
     before = badges(host, sd)
-    assert [b for c, _, b in before if c == "TEST"] == ["no set"]
-    assert all(b == "new" for c, name, b in before if c not in ("TEST", "CPUE"))
+    assert [st for c, _, st in before if c == "TEST"] == [NO_GAME]
+    assert all(st == NEW for c, name, st in before if c not in ("TEST", "CPUE"))
     # Every hashed file goes to DSiRPC, homebrew too (no code), the hack apart from Platinum
     got = roms(host, sd)
     assert len(got) == n - 1 and "TEST" not in [c for c, *_ in got]
@@ -232,17 +238,22 @@ def test_every_file_gets_a_state(host, tmp_path):
     assert set(homebrew) == {"Homebrew A", "Homebrew B"} and len(set(homebrew.values())) == 2
     platinum = {name: md5 for code, md5, _, name in got if code == "CPUE"}
     assert set(platinum) == {"Pokemon Platinum", "Platinum Hack"} and len(set(platinum.values())) == 2
-    # DSiRPC's answer: Platinum has a set, the hack not this ROM, homebrew no
-    # game, the rest a set or none; one it couldn't check (0)
-    answer = {md5: (1 if name in ("Pokemon Platinum", "Tetris DS") else 2 if name == "Platinum Hack"
+    # DSiRPC's answer: Platinum and Tetris DS have a set (Tetris DS's not on
+    # the card yet), the hack not this ROM, Homebrew A no game, Homebrew B a
+    # set it can't be given (no code: portalDS on Viv's card), the rest no
+    # game; one it couldn't check (0)
+    answer = {md5: (1 if name in ("Pokemon Platinum", "Tetris DS", "Homebrew B") else 2 if name == "Platinum Hack"
                     else 0 if name == "Mario Kart DS" else 3) for _, md5, _, name in got}
     lui.run(host, f"status {sd}|" + ",".join(f"{m}:{s}" for m, s in answer.items()))
-    after = {name: (code, b) for code, name, b in badges(host, sd)}
-    assert after["Homebrew A"] == ("-", "no set") and after["Homebrew B"] == ("-", "no set")
-    assert after["Platinum Hack"] == ("CPUE", "no set")
-    assert after["Pokemon Platinum Version"] == ("CPUE", "count")          # (its set stays: the hack's doesn't count)
+    after = {name: (code, st) for code, name, st in badges(host, sd)}
+    assert after["Homebrew A"] == ("-", NO_GAME) and after["Too Big"] == ("TEST", NO_GAME)
+    assert after["Homebrew B"] == ("-", ("no set", "No set", "Set can't be used"))
+    assert after["Platinum Hack"] == ("CPUE", ("no set", "No set", "No set for this version"))
+    assert after["Pokemon Platinum Version"] == ("CPUE", ("count", "No achievements", "list"))   # (the hack's doesn't count)
     assert os.path.exists(os.path.join(sd, "DSiRPC", "sets", "CPUE.DRS"))
-    assert [name for name, (_, b) in after.items() if b == "new"] == ["Mario Kart DS"]
-    # The unhashable one and homebrew read "No achievement set" on X (status 3)
+    assert after["Tetris DS"] == ("ATRE", ("new", "At the next sync", "No achievements here yet"))
+    assert after["Mario Kart DS"] == ("AMCE", NEW)
+    assert [name for name, (_, st) in after.items() if st[0] == "new"] == ["Mario Kart DS", "Tetris DS"]
+    # How they stay in games.idx (the unhashable one marked 3 by the launcher itself)
     by_name = {ln.split("\t")[0].rsplit("/", 1)[-1]: ln.split(" ")[7] for ln in index_lines(sd)[1:]}
-    assert by_name["Too Big.nds"] == "3" and by_name["Homebrew A.nds"] == "3" and by_name["Homebrew B.nds"] == "3"
+    assert by_name["Too Big.nds"] == "3" and by_name["Homebrew A.nds"] == "3" and by_name["Homebrew B.nds"] == "1"

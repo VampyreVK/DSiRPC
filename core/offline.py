@@ -114,7 +114,7 @@ ra/cache/console_sets.json by stamp (remember_set(), known_set()): the
 console's "DSiRPC ach" report says which set it runs (st=), so DSiRPC knows
 what the console checks every frame.
 
-The sync exchange (one per game started while DSiRPC can be found):
+The sync exchange (when the launcher starts and when it starts a game, while DSiRPC can be found):
 
     1. The launcher broadcasts UDP b"DSiRPC sync?" + u8 version (the newest
        it speaks) to port 4245; DSiRPC answers b"DSiRPC sync!" + u8 version +

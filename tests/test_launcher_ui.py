@@ -15,7 +15,7 @@ from helpers import launcher_ui as lui
 
 SCREENS = ["connecting", "syncing", "ready", "setup_games", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
            "update_progress", "update_done", "settings", "settings_address", "settings_music", "settings_lid", "games",
-           "achievements", "achievements_unsupported", "achievements_no_game", "achievements_new", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
+           "achievements", "achievements_unsupported", "achievements_no_game", "achievements_new", "achievements_coming", "achievements_no_code", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
 
 # Palette colors as the DS shows them (5 bits a channel)
 GREEN, AMBER, RED, CYAN = (88, 208, 128), (240, 192, 48), (232, 72, 56), (72, 200, 232)

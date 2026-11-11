@@ -83,6 +83,20 @@ void host_picker_screens(const char *sd)
     show_game(&games[order[other]]);
     achievements_screen(&games[order[other]], ui.sets_dir);
     host_shot("achievements_new");
+    // Then RetroAchievements has a set for it, not on the card yet; and the
+    // same for a file without a game code (homebrew: it can't be given it)
+    Game *o = &games[order[other]];
+    o->hashed = HASH_OK;
+    o->ra = PICKER_RA_SET;
+    draw_list(other, other >= ROWS ? other - ROWS + 1 : 0, &ui);
+    show_game(o);
+    achievements_screen(o, ui.sets_dir);
+    host_shot("achievements_coming");
+    o->code[0] = '\0';
+    draw_list(other, other >= ROWS ? other - ROWS + 1 : 0, &ui);
+    show_game(o);
+    achievements_screen(o, ui.sets_dir);
+    host_shot("achievements_no_code");
     free_games();
     top_dsi();
 }
@@ -115,9 +129,12 @@ void host_games(const char *sd, int sort, const char *folder)
     {
         Game *g = &games[order[i]];
         count_achievements(g, ui.sets_dir);
-        printf("game %s|%s|%s|%d|%d|%u|%d/%d|%s\n", g->code[0] ? g->code : "-", shown_title(g), g->publisher,
+        // (then the badge, the top screen's line without a count, and X's card: one state)
+        RaState s = ra_state(g);
+        const char *what, *card = ra_card(s, &what);
+        printf("game %s|%s|%s|%d|%d|%u|%d/%d|%s|%s|%s\n", g->code[0] ? g->code : "-", shown_title(g), g->publisher,
                g->version, g->favorite, (unsigned)g->played, g->earned, g->total,
-               g->total > 0 ? "count" : no_count_badge(g));
+               s == RA_LISTED ? "count" : ra_badge(s), ra_top(s), card != NULL ? card : "list");
     }
     printf("games %d\n", n_games);
     free_games();

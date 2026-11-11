@@ -199,8 +199,12 @@ plus:
   **X** says which in place of the
   achievements: "No set for this version" (RetroAchievements has the game,
   but not this ROM: another region, revision or a hack), "No achievement
-  set" (it doesn't have the game), or "Not checked yet" (sync with
-  DSiRPC). At the sync, every game with a set gets it, started or not, and
+  set" (it doesn't have the game, or the file can't be hashed), "Set can't
+  be used" (it has a set, but the file has no game code to find it by:
+  homebrew), "No achievements here yet" (the set comes at the next sync,
+  also "new" in the list) or "Not checked yet" (sync with DSiRPC). The
+  badge, the top screen and X all follow one state (`ra_state()`). At the
+  sync, every game with a set gets it, started or not, and
   the boot screen's sets step says how far DSiRPC got ("Checking 12/70",
   "Sets 3/9").
 - **First-time setup** (`picker_setup()`, from `main.c` as it connects or

@@ -73,6 +73,7 @@ typedef struct
     UiBanner *icon;             // read when it's first shown
     bool icon_tried;
     int earned, total;          // achievements (total -1: not counted yet, 0: no set)
+    bool listed;                // its set is on the SD card (counted with total)
     uint8_t md5[16];            // its RetroAchievements hash, when hashed == HASH_OK
     uint8_t hashed;             // HASH_*
     uint8_t ra;                 // PICKER_RA_*: what DSiRPC said of it
@@ -711,7 +712,75 @@ static int cheevo_state(const uint8_t *e)
 // Whether RetroAchievements has no set for the file (picker.h's PICKER_RA_*)
 static bool no_set(const Game *g)
 {
-    return g->ra == PICKER_RA_NOT_THIS_ROM || g->ra == PICKER_RA_NO_GAME;
+    return g->ra == PICKER_RA_NOT_THIS_ROM || g->ra == PICKER_RA_NO_GAME || g->hashed == HASH_FAILED;
+}
+
+// Where a game stands with its achievements: the one answer the list's
+// badge, the top screen and X all show (after count_achievements())
+typedef enum
+{
+    RA_LISTED,          // its set is on the SD card: the count, and X lists them
+    RA_NEW,             // DSiRPC hasn't checked the file yet (not hashed, or not synced since)
+    RA_COMING,          // RetroAchievements has a set, not on the SD card yet (the next sync brings it)
+    RA_NOT_THIS_ROM,    // RetroAchievements has the game, but no set for this file
+    RA_NO_GAME,         // it has no set for the game (homebrew; or a file that can't be hashed its way)
+    RA_NO_CODE,         // it has a set, but the file has no game code to find it by (homebrew)
+} RaState;
+
+static RaState ra_state(const Game *g)
+{
+    if (g->ra == PICKER_RA_NOT_THIS_ROM)
+        return RA_NOT_THIS_ROM;
+    if (g->ra == PICKER_RA_NO_GAME || g->hashed == HASH_FAILED)
+        return RA_NO_GAME;
+    if (g->total >= 0 && g->listed)
+        return RA_LISTED;
+    if (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN)
+        return RA_NEW;
+    return g->code[0] == '\0' ? RA_NO_CODE : RA_COMING;
+}
+
+// The list's badge without a count ("new": DSiRPC still has something to
+// tell or bring), the top screen's line, and X's card (NULL: the list)
+static const char *ra_badge(RaState s)
+{
+    return s == RA_NEW || s == RA_COMING ? "new" : "no set";
+}
+
+static const char *ra_top(RaState s)
+{
+    switch (s)
+    {
+    case RA_LISTED: return "No achievements";      // (a set with none: the count says it otherwise)
+    case RA_NEW: return "Not checked yet";
+    case RA_COMING: return "At the next sync";
+    default: return "No set";
+    }
+}
+
+static const char *ra_card(RaState s, const char **what)
+{
+    switch (s)
+    {
+    case RA_NEW:
+        *what = "Sync with DSiRPC to see this game's achievements.";
+        return "Not checked yet";
+    case RA_COMING:
+        *what = "DSiRPC puts this game's set on the SD card at the next sync.";
+        return "No achievements here yet";
+    case RA_NOT_THIS_ROM:
+        *what = "RetroAchievements has this game, but not this ROM (a different region, revision or hack).";
+        return "No set for this version";
+    case RA_NO_GAME:
+        *what = "RetroAchievements has no set for this game.";
+        return "No achievement set";
+    case RA_NO_CODE:
+        *what = "RetroAchievements has a set for this game, but DSiRPC finds sets by game code and this file has none.";
+        return "Set can't be used";
+    default:
+        *what = NULL;
+        return NULL;
+    }
 }
 
 // The name to show: the banner's, or for a file RetroAchievements has no set
@@ -725,30 +794,15 @@ static const char *shown_title(const Game *g)
     return name;
 }
 
-// The list's badge for a game without a count: "new" while DSiRPC hasn't
-// said whether RetroAchievements has a set for the file (not hashed, or not
-// synced since), "no set" when it has none
-static const char *no_count_badge(const Game *g)
-{
-    return !no_set(g) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "new" : "no set";
-}
-
-static bool has_list(const Game *g, const char *sets_dir)
-{
-    CheevoList l;
-    if (!load_list(sets_dir, g->code, &l))
-        return false;
-    free(l.data);
-    return true;
-}
-
 static void count_achievements(Game *g, const char *sets_dir)
 {
     CheevoList l;
     g->total = 0;
     g->earned = 0;
+    g->listed = false;
     if (no_set(g) || !load_list(sets_dir, g->code, &l))
         return;
+    g->listed = true;
     g->total = l.count;
     for (int i = 0; i < l.count; i++)
         g->earned += cheevo_state(l.entries + i * 16) != 0;
@@ -786,39 +840,15 @@ static void achievements_screen(Game *g, const char *sets_dir)
 {
     static const char *const SHOW_NAMES[SHOWS] = { "All", "To earn", "Earned" };
     CheevoList l;
-    const char *why = NULL, *what = NULL;
-    if (g->ra == PICKER_RA_NOT_THIS_ROM)
-    {
-        why = "No set for this version";
-        what = "RetroAchievements has this game, but not this ROM (a different region, revision or hack).";
-    }
-    else if (g->ra == PICKER_RA_NO_GAME)
-    {
-        why = "No achievement set";
-        what = "RetroAchievements has no set for this game.";
-    }
-    else if (!has_list(g, sets_dir) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN))
-    {
-        why = "Not checked yet";
-        what = "Sync with DSiRPC to see this game's achievements.";
-    }
+    count_achievements(g, sets_dir);    // (the set on the SD card as it is now)
+    const char *what = NULL, *why = ra_card(ra_state(g), &what);
+    if (why == NULL && !load_list(sets_dir, g->code, &l))
+        why = ra_card(RA_COMING, &what);
     if (why != NULL)
     {
         static const UiKey keys[] = { { "A", "Back", KEY_A } };
         ui_sound(SND_ERROR);
         ui_card(why, what, UI_AMBER, keys, 1);
-        ui_release();
-        ui_wait(KEY_A | KEY_B);
-        ui_sound(SND_BACK);
-        return;
-    }
-    if (!load_list(sets_dir, g->code, &l))
-    {
-        static const UiKey keys[] = { { "A", "Back", KEY_A } };
-        ui_sound(SND_ERROR);
-        ui_card("No achievements here yet",
-                "DSiRPC puts a game's set on the SD card when the game is started while it's around.", UI_AMBER,
-                keys, 1);
         ui_release();
         ui_wait(KEY_A | KEY_B);
         ui_sound(SND_BACK);
@@ -957,9 +987,7 @@ static void show_game(const Game *g)
         .version = g->version,
         .earned = g->earned,
         .total = g->total > 0 ? g->total : 0,
-        // (as the list's badge says: RetroAchievements has none, or DSiRPC hasn't checked yet)
-        .no_list = no_set(g) ? "No set"
-                 : g->total <= 0 && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "Not checked yet" : NULL,
+        .no_list = ra_top(ra_state(g)),     // (as the list's badge and X say)
         .playtime = st != NULL ? st->seconds : 0,
         .last_played = g->played,
         .now = now_2000(),
@@ -1001,16 +1029,17 @@ static void draw_row(int row, int index, bool sel, const PickerUi *ui)
         count_achievements(g, ui->sets_dir);
     char badge[16];
     int right = UI_W - 16, bw;
-    if (g->total > 0)
+    RaState state = ra_state(g);
+    if (state == RA_LISTED)
     {
-        bool all = g->earned == g->total;
+        bool all = g->total > 0 && g->earned == g->total;
         snprintf(badge, sizeof(badge), "%d/%d", g->earned, g->total);
         bw = ui_chip_width(badge);
         ui_chip(c, right - bw, y + 5, badge, all ? UI_GREEN : UI_CHIP, all ? UI_GREEN_DARK : UI_SOFT);
     }
     else
     {
-        const char *none = no_count_badge(g);
+        const char *none = ra_badge(state);
         bw = ui_text_width(none);
         ui_text(c, right - bw, y + 7, none, UI_DIM);
     }

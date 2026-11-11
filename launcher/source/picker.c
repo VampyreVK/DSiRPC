@@ -724,7 +724,7 @@ typedef enum
     RA_COMING,          // RetroAchievements has a set, not on the SD card yet (the next sync brings it)
     RA_NOT_THIS_ROM,    // RetroAchievements has the game, but no set for this file
     RA_NO_GAME,         // it has no set for the game (homebrew; or a file that can't be hashed its way)
-    RA_NO_CODE,         // it has a set, but the file has no game code to find it by (homebrew)
+    RA_NO_CODE,         // it has a set, but the file is homebrew (no game code): achievements can't be checked
 } RaState;
 
 static RaState ra_state(const Game *g)
@@ -754,6 +754,7 @@ static const char *ra_top(RaState s)
     case RA_LISTED: return "No achievements";      // (a set with none: the count says it otherwise)
     case RA_NEW: return "Not checked yet";
     case RA_COMING: return "At the next sync";
+    case RA_NO_CODE: return "Not supported";
     default: return "No set";
     }
 }
@@ -775,8 +776,8 @@ static const char *ra_card(RaState s, const char **what)
         *what = "RetroAchievements has no set for this game.";
         return "No achievement set";
     case RA_NO_CODE:
-        *what = "RetroAchievements has a set for this game, but DSiRPC finds sets by game code and this file has none.";
-        return "Set can't be used";
+        *what = "RetroAchievements has a set for this game, but DSiRPC can't check achievements in homebrew.";
+        return "No homebrew support yet";
     default:
         *what = NULL;
         return NULL;

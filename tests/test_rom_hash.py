@@ -247,7 +247,7 @@ def test_every_file_gets_a_state(host, tmp_path):
     lui.run(host, f"status {sd}|" + ",".join(f"{m}:{s}" for m, s in answer.items()))
     after = {name: (code, st) for code, name, st in badges(host, sd)}
     assert after["Homebrew A"] == ("-", NO_GAME) and after["Too Big"] == ("TEST", NO_GAME)
-    assert after["Homebrew B"] == ("-", ("no set", "No set", "Set can't be used"))
+    assert after["Homebrew B"] == ("-", ("no set", "Not supported", "No homebrew support yet"))
     assert after["Platinum Hack"] == ("CPUE", ("no set", "No set", "No set for this version"))
     assert after["Pokemon Platinum Version"] == ("CPUE", ("count", "No achievements", "list"))   # (the hack's doesn't count)
     assert os.path.exists(os.path.join(sd, "DSiRPC", "sets", "CPUE.DRS"))

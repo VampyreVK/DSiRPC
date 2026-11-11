@@ -61,9 +61,10 @@
 #define INGAME_MENU_LOCATION                         0x02F88000
 // DSiRPC: the in-game menu's window in DSi mode (its code and data, swapped
 // with the game RAM under it when it opens) is INGAME_MENU_SIZE, not
-// upstream's 0xA000, for its graphical skin (dsirpc_skin.c). It has to end
-// before 0x02FA0000, DSIRPC_ACH_LOCATION's RAM (0x0CFA0000 is the same RAM),
-// which the menu reads and the ARM7 writes while it's open. Its two slots in
+// upstream's 0xA000, for its graphical skin (dsirpc_skin.c). It starts where
+// DSIRPC_ACH_LOCATION's RAM ends (0x0CF88000 is the same RAM as 0x02F88000)
+// and mustn't reach into it: the menu reads that RAM and the ARM7 writes it
+// while it's open, and its swap (below) would put back stale state. Its two slots in
 // pagefile.sys are past the end of upstream's 6 MB, which nds-bootstrap
 // makes the file big enough for (twlPageFileSize in conf_sd.cpp). Both
 // offsets are round numbers (a byte and zeros), so the ARM7 cardengine, which
@@ -137,14 +138,20 @@
 // probe_ach.c), with the per-frame capture's ring in its last 2 KB
 // (probe_watch.c; main RAM rather than the ARM7 cardengine's own, which is
 // full). The ROM cache and ROM-in-RAM loading skip it (romLocationAdjust()
-// in bootloaderi's main.arm7.c). It ends at 0x0CFE0000: a DSi-enhanced game
-// (unit code > 0, like Pokemon Black and White) uses the 128 KB above that
-// (0x02FE0000, the same RAM), which romLocationAdjust() keeps the ROM cache
-// out of too (also when its jump past this area lands there); it used to
-// start at 0x0CFB0000, so its last 64 KB (the unlock file and the ring)
+// in bootloaderi's main.arm7.c); everything else takes these two constants
+// (rpcprobe's ACH_SET_SPACE, the in-game menu's list, DSiRPC's
+// offline.ACH_MEMORY must match). 512 KB right below the in-game menu's
+// window (INGAME_MENU_LOCATION, 0x02F88000: 0x0CF88000 is the same RAM),
+// in what is the ROM cache's area in DS mode, the only mode DSiRPC runs
+// games in (nds-bootstrap's other uses of 0x02F00000-0x02F80000 are for
+// DSi mode and DSiWare). It was 256 KB at 0x0CFA0000-0x0CFE0000, up to the
+// 128 KB a DSi-enhanced game (unit code > 0, like Pokemon Black and White)
+// uses at 0x0CFE0000 (0x02FE0000, the same RAM), which upstream's
+// romLocationAdjust() keeps the ROM cache out of; earlier still at
+// 0x0CFB0000, where its last 64 KB (the unlock file and the ring)
 // overwrote those games' memory.
-#define DSIRPC_ACH_LOCATION        0x0CFA0000
-#define DSIRPC_ACH_SIZE            0x40000
+#define DSIRPC_ACH_LOCATION        0x0CF08000
+#define DSIRPC_ACH_SIZE            0x80000
 #define DSIRPC_WATCH_RING_SIZE     0x800
 #define DSIRPC_WATCH_RING_LOCATION (DSIRPC_ACH_LOCATION + DSIRPC_ACH_SIZE - DSIRPC_WATCH_RING_SIZE)
 

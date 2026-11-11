@@ -207,6 +207,12 @@ void host_roms(const char *sd, const char *started)
     free(roms);
 }
 
+void host_fits(const char *sd, const char *path)
+{
+    PickerUi ui = sd_card(sd);
+    printf("fits %d\n", picker_set_fits(ui.index_dir, path));
+}
+
 void host_status(const char *sd, const char *list)
 {
     PickerUi ui = sd_card(sd);

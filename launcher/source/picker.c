@@ -14,11 +14,12 @@
 //
 // games.idx, written whole when something in it changes:
 //
-//   DSiRPC games 2
+//   DSiRPC games 3
 //   <size> <mtime> <last started> <favorite> <code> <version> <hash> <ra> <path>\t<name>\t<publisher>
 //
 // <hash> is the file's RetroAchievements hash (romhash.c: 32 hex digits, "-"
-// not hashed yet, "!" couldn't be: not retried), made by the first-time setup
+// not hashed yet, "!" couldn't be: not retried, "x" a file this launcher can't
+// start, homebrew: not hashed; both left off the list), made by the first-time setup
 // at boot (picker_setup()) and kept as long as the file has the same name,
 // size and time; <ra> what DSiRPC said of it at the last sync (picker.h's
 // PICKER_RA_*: 0 not known yet, 1 RetroAchievements has a set for it, 2 it has
@@ -49,7 +50,8 @@
 #define ROWS            6
 #define ROW_H           24
 #define LIST_Y          (UI_BAR_H + 3)
-#define INDEX_MAGIC     "DSiRPC games 2"
+#define INDEX_MAGIC     "DSiRPC games 3"
+#define INDEX_MAGIC_V2  "DSiRPC games 2"    // (the same lines; its files not checked for starting yet)
 #define INDEX_MAGIC_V1  "DSiRPC games 1"
 #define UNIX_TIME_2000  946684800
 #define UNLOCK_SLOT     16
@@ -79,7 +81,36 @@ typedef struct
     uint8_t ra;                 // PICKER_RA_*: what DSiRPC said of it
 } Game;
 
-enum { HASH_NONE, HASH_OK, HASH_FAILED };
+enum { HASH_NONE, HASH_OK, HASH_FAILED, HASH_CANT_START };
+
+// Whether this launcher can start the file: its nds-bootstrap hooks a game
+// through Nintendo's SDK, which homebrew (libnds) doesn't have. libnds puts
+// the ARM7's code in the ARM7's own RAM (0x037F8000 on), where Nintendo's SDK
+// never does (main RAM, 0x02380000 on); TWiLight Menu++ tells homebrew by the
+// same. A file whose header can't be read can't be started either.
+static bool cant_start(const char *path)
+{
+    uint8_t a7[8];
+    FILE *f = fopen(path, "rb");
+    if (f == NULL)
+        return true;
+    bool ok = fseek(f, 0x34, SEEK_SET) == 0 && fread(a7, 1, sizeof(a7), f) == sizeof(a7);
+    fclose(f);
+    if (!ok)
+        return true;
+    uint32_t entry = a7[0] | (a7[1] << 8) | (a7[2] << 16) | ((uint32_t)a7[3] << 24);
+    uint32_t dest = a7[4] | (a7[5] << 8) | (a7[6] << 16) | ((uint32_t)a7[7] << 24);
+    return entry >= 0x037F0000 && entry < 0x04000000 && dest >= 0x037F0000 && dest < 0x04000000;
+}
+
+// Left off the list (and the sync): files that can't be started here, or
+// hashed RetroAchievements' way
+static bool hidden(const Game *g)
+{
+    return g->hashed == HASH_CANT_START || g->hashed == HASH_FAILED;
+}
+
+static bool index_unchecked;   // load_index(): games.idx from before "x" (version 1 or 2)
 
 static Game *games;
 static int n_games, cap_games;
@@ -292,7 +323,9 @@ static Game *load_index(const char *index_dir, int *count)
         fclose(f);
         return NULL;
     }
-    bool v2 = strncmp(line, INDEX_MAGIC, strlen(INDEX_MAGIC)) == 0;
+    bool v3 = strncmp(line, INDEX_MAGIC, strlen(INDEX_MAGIC)) == 0;
+    bool v2 = v3 || strncmp(line, INDEX_MAGIC_V2, strlen(INDEX_MAGIC_V2)) == 0;
+    index_unchecked = !v3;
     if (!v2 && strncmp(line, INDEX_MAGIC_V1, strlen(INDEX_MAGIC_V1)) != 0)
     {
         fclose(f);
@@ -346,6 +379,8 @@ static Game *load_index(const char *index_dir, int *count)
             memcpy(g->code, code, 5);
         if (strcmp(hash, "!") == 0)
             g->hashed = HASH_FAILED;
+        else if (strcmp(hash, "x") == 0)
+            g->hashed = HASH_CANT_START;
         else if (strlen(hash) == 32 && md5_from_hex(hash, g->md5))
             g->hashed = HASH_OK;
         // (a file that can't be hashed RetroAchievements' way has no set, by definition)
@@ -385,7 +420,7 @@ static bool write_index(const char *index_dir, const Game *list, int count)
         if (g->hashed == HASH_OK)
             md5_to_hex(g->md5, hash);
         else
-            snprintf(hash, sizeof(hash), "%s", g->hashed == HASH_FAILED ? "!" : "-");
+            snprintf(hash, sizeof(hash), "%s", g->hashed == HASH_FAILED ? "!" : g->hashed == HASH_CANT_START ? "x" : "-");
         fprintf(f, "%u %d %u %d %s %d %s %d %s\t%s\t%s\n", (unsigned)g->size, (int)g->mtime, (unsigned)g->last,
                 g->favorite ? 1 : 0, g->code[0] ? g->code : "-", g->version, hash, g->ra, g->path, g->title,
                 g->publisher);
@@ -575,24 +610,41 @@ static bool load_games(const PickerUi *ui)
     }
     free(index);
 
-    bool changed = to_read > 0 || count != n_games;
+    bool changed = to_read > 0 || count != n_games || index_unchecked;
     int done = 0;
     for (int i = 0; i < n_games; i++)
     {
         Game *g = &games[i];
         if (g->read)
+        {
+            if (index_unchecked && g->hashed != HASH_CANT_START && cant_start(g->path))
+                g->hashed = HASH_CANT_START;
             continue;
+        }
         if (done % 4 == 0)
             reading(done, to_read);
         if (!read_rom(g->path, g->code, &g->version, NULL, g->title, sizeof(g->title), g->publisher,
                       sizeof(g->publisher)) ||
             g->title[0] == '\0')
             file_title(g->title, sizeof(g->title), g->path);
+        if (cant_start(g->path))
+            g->hashed = HASH_CANT_START;
         g->read = true;
         done++;
     }
     if (changed)
         write_index(ui->index_dir, games, n_games);
+    // Homebrew this launcher can't start, and files that can't be hashed: not listed
+    int kept = 0;
+    for (int i = 0; i < n_games; i++)
+    {
+        if (hidden(&games[i]))
+            continue;
+        if (kept != i)
+            games[kept] = games[i];
+        kept++;
+    }
+    n_games = kept;
 
     stats_free(&stats);
     stats_load(ui->index_dir, &stats);
@@ -725,6 +777,8 @@ typedef enum
     RA_NOT_THIS_ROM,    // RetroAchievements has the game, but no set for this file
     RA_NO_GAME,         // it has no set for the game (homebrew; or a file that can't be hashed its way)
     RA_NO_CODE,         // it has a set, but the file is homebrew (no game code): achievements can't be checked
+                        // (homebrew this launcher can't start isn't listed at all: this is for any other)
+    RA_EMPTY,           // its set is on the SD card, with no achievements in it (RetroAchievements has none yet)
 } RaState;
 
 static RaState ra_state(const Game *g)
@@ -734,7 +788,7 @@ static RaState ra_state(const Game *g)
     if (g->ra == PICKER_RA_NO_GAME || g->hashed == HASH_FAILED)
         return RA_NO_GAME;
     if (g->total >= 0 && g->listed)
-        return RA_LISTED;
+        return g->total > 0 ? RA_LISTED : RA_EMPTY;
     if (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN)
         return RA_NEW;
     return g->code[0] == '\0' ? RA_NO_CODE : RA_COMING;
@@ -751,7 +805,8 @@ static const char *ra_top(RaState s)
 {
     switch (s)
     {
-    case RA_LISTED: return "No achievements";      // (a set with none: the count says it otherwise)
+    case RA_LISTED: return "";                     // (the count says it)
+    case RA_EMPTY: return "None yet";
     case RA_NEW: return "Not checked yet";
     case RA_COMING: return "At the next sync";
     case RA_NO_CODE: return "Not supported";
@@ -778,6 +833,9 @@ static const char *ra_card(RaState s, const char **what)
     case RA_NO_CODE:
         *what = "RetroAchievements has a set for this game, but DSiRPC can't check achievements in homebrew.";
         return "No homebrew support yet";
+    case RA_EMPTY:
+        *what = "RetroAchievements has this game, but no achievements for it yet.";
+        return "No achievements yet";
     default:
         *what = NULL;
         return NULL;
@@ -1242,7 +1300,7 @@ int picker_setup(const PickerSetup *setup, int *hashed)
     scan_dir(ui.games_dir, 0, ui.index_dir);
     int count;
     Game *index = load_index(ui.index_dir, &count);
-    int todo = 0;
+    int todo = 0, marked = 0;
     for (int i = 0; i < n_games; i++)
     {
         Game *g = &games[i];
@@ -1263,9 +1321,24 @@ int picker_setup(const PickerSetup *setup, int *hashed)
                 g->read = true;
             }
         }
+        if ((!g->read || g->hashed == HASH_NONE || index_unchecked) && g->hashed != HASH_CANT_START &&
+            cant_start(g->path))
+        {
+            if (!g->read)
+            {
+                read_rom(g->path, g->code, &g->version, NULL, g->title, sizeof(g->title), g->publisher,
+                         sizeof(g->publisher));
+                if (g->title[0] == '\0')
+                    file_title(g->title, sizeof(g->title), g->path);
+                g->read = true;
+            }
+            g->hashed = HASH_CANT_START;    // (not hashed, synced or shown)
+            g->ra = PICKER_RA_UNKNOWN;
+            marked++;
+        }
         todo += !g->read || g->hashed == HASH_NONE;
     }
-    bool changed = count != n_games;
+    bool changed = count != n_games || marked > 0 || index_unchecked;
     free(index);
     if (todo == 0)
     {
@@ -1388,4 +1461,14 @@ int picker_store_status(const char *index_dir, const char *sets_dir, const uint8
         write_index(index_dir, index, count);
     free(index);
     return removed;
+}
+
+bool picker_set_fits(const char *index_dir, const char *path)
+{
+    int count;
+    Game *index = load_index(index_dir, &count);
+    const Game *e = find_entry(index, count, path);
+    bool fits = e == NULL || !(no_set(e) || e->hashed == HASH_CANT_START);
+    free(index);
+    return fits;
 }

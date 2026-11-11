@@ -182,7 +182,7 @@ RESERVED_IDS = 0xFFFFFF00                 # slot IDs from this up aren't unlocks
 PROVEN_ID = 0xFFFFFFFE                    # a slot saying an achievement needs the frame lane
 CLEAN_ID = 0xFFFFFFFD                     # a slot saying one was shadowed a while with no difference
 WATCH_RING_SIZE = 0x800                   # nds-bootstrap's DSIRPC_WATCH_RING_SIZE (locations.h)
-ACH_MEMORY = 0x40000 - UNLOCK_FILE_SIZE - WATCH_RING_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE less
+ACH_MEMORY = 0x80000 - UNLOCK_FILE_SIZE - WATCH_RING_SIZE   # nds-bootstrap's DSIRPC_ACH_SIZE less
                                           # RPCUNLK.BIN's space and the capture's ring (probe_ach.c's
                                           # ACH_SET_SPACE)
 FRAME_SLOTS = 16                          # probe_ach.c's ACH_FRAME_SLOTS: a set's ring when its header doesn't say
@@ -593,14 +593,184 @@ def set_memory(pass_program, frame_program, list_size, shadow=True, slots=FRAME_
 _NO_SHADOW_SAID = set()   # the games build_set() has said so for in this run
 
 
-def build_set(raset, code, skip_ids=(), earned=None, proven=(), clean=None):
+def _fit_slow(rest, frame, frame_program, list_size, code, tick=None):
+    """The fit as it first was (kept as the reference for _fit_fast()): one
+    step at a time, the pass lane compiled again at each. Returns (pass
+    program, its achievements, frame lane, frame program, shadow, moved)."""
+    from .rcheevos import compile_offline
+    rest, frame = list(rest), list(frame)
+    shadow, moved = True, 0
+    while True:
+        if tick:
+            tick()
+        program, _ = compile_offline(rest)
+        _, _, _, achievements = program_info(program)
+        if not achievements or set_memory(program, frame_program, _align4(list_size), shadow=shadow,
+                                          slots=RING_MIN) <= ACH_MEMORY:
+            break
+        if shadow:
+            shadow = False
+            _say_no_shadow(code)
+            continue
+        if frame:
+            rest.append(frame.pop())
+            moved += 1
+            frame_program = compile_offline(frame)[0] if frame else b""
+            continue
+        biggest = max(achievements, key=lambda a: a[1] + a[2] * 4)[0]
+        rest = [t for t in rest if t[0] != biggest]
+    return program, achievements, frame, frame_program, shadow, moved
+
+
+def _fit_fast(rest, frame, frame_program, list_size, code, tick=None):
+    """The same fit as _fit_slow(), the same set byte for byte, by halving
+    instead of one step at a time: what fits only grows as achievements move
+    from the frame lane to the pass lane (one state there, not two and the
+    ring) or are left out, so the step the slow way stops at is found in a
+    few compiles. The ones left out go biggest first, as there (their sizes
+    taken from one compile)."""
+    from .rcheevos import compile_offline
+    rest, frame = list(rest), list(frame)
+    whole_frame = list(frame)       # (its program given)
+    compiled = {}
+
+    def build(pass_lane, kept):
+        if tick:
+            tick()
+        program, _ = compile_offline(pass_lane)
+        fprog = frame_program if kept == whole_frame else compile_offline(kept)[0] if kept else b""
+        return program, program_info(program)[3], fprog
+
+    def fits(state, shadow):
+        program, achievements, fprog = state
+        return not achievements or set_memory(program, fprog, _align4(list_size), shadow=shadow,
+                                              slots=RING_MIN) <= ACH_MEMORY
+
+    whole = build(rest, frame)
+    if fits(whole, True):
+        return whole[0], whole[1], frame, whole[2], True, 0
+    _say_no_shadow(code)
+    if fits(whole, False):
+        return whole[0], whole[1], frame, whole[2], False, 0
+
+    # Frame lane achievements to the pass lane, the last first: the most kept that fits
+    def keeping(k):
+        if k not in compiled:
+            compiled[k] = build(rest + frame[k:][::-1], frame[:k])
+        return compiled[k]
+    if frame:
+        if fits(keeping(0), False):
+            lo, hi = 0, len(frame)      # (keeping lo fits, keeping hi doesn't)
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                if fits(keeping(mid), False):
+                    lo = mid
+                else:
+                    hi = mid
+            program, achievements, fprog = keeping(lo)
+            return program, achievements, frame[:lo], fprog, False, len(frame) - lo
+        rest = rest + frame[::-1]
+        moved, frame = len(frame), []
+        base = keeping(0)
+    else:
+        moved, base = 0, whole
+
+    # Still too big: the biggest achievements left out, as few as fit
+    order = [a[0] for _, a in sorted(enumerate(base[1]), key=lambda p: (-(p[1][1] + p[1][2] * 4), p[0]))]
+    dropped = {}
+
+    def dropping(m):
+        if m not in dropped:
+            gone = set(order[:m])
+            dropped[m] = build([t for t in rest if t[0] not in gone], [])
+        return dropped[m]
+    lo, hi = 0, len(order)              # (dropping lo doesn't fit, dropping hi does)
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if fits(dropping(mid), False):
+            hi = mid
+        else:
+            lo = mid
+    program, achievements, fprog = dropping(hi)
+    return program, achievements, frame, fprog, False, moved
+
+
+def _say_no_shadow(code):
+    # (every sync builds the sets again: said once a run, then only in the debug log)
+    logging.log(logging.DEBUG if code in _NO_SHADOW_SAID else logging.INFO,
+                f"Offline sets: {code}: no room for the shadow check's copy of the frame lane; "
+                "the console won't shadow this game")
+    _NO_SHADOW_SAID.add(code)
+
+
+BUILT_KEEP = 2   # built sets kept a game in ra/cache/built/ (the newest)
+
+
+def _build_key(raset, code, skip_ids, earned, proven, clean):
+    """A digest of everything a built set depends on: the set's
+    achievements, title and ID, what's skipped and listed as earned, what
+    frame_needs has learned, and the builder (this file and rcheevos)."""
+    import hashlib
+    from . import rcheevos
+    h = hashlib.sha256()
+    try:
+        with open(__file__, "rb") as f:
+            h.update(f.read())
+    except OSError:
+        h.update(b"?")
+    lib = getattr(rcheevos, "library_path", lambda: None)()
+    if lib:
+        try:
+            st = os.stat(lib)
+            h.update(f"{lib}|{st.st_size}|{int(st.st_mtime)}".encode())
+        except OSError:
+            pass
+    parts = [code, raset.id, raset.title, raset.achievements, sorted(skip_ids),
+             sorted((int(k), int(v or 0)) for k, v in (earned or {}).items()), sorted(proven),
+             sorted((int(k), int(v)) for k, v in (clean or {}).items()), ACH_MEMORY, SET_VERSION]
+    h.update(json.dumps(parts, sort_keys=True, default=str).encode())
+    return h.hexdigest()[:32]
+
+
+def build_set(raset, code, skip_ids=(), earned=None, proven=(), clean=None, cache_dir=None, tick=None, fit=None):
     """The offline set for a game (bytes), from its RaSet. skip_ids: the
     achievements already unlocked (left out of the programs); earned: {id:
     Unix time it was earned, or 0} for the in-game menu's list; proven: the
     ids known to need the frame lane (core/frame_needs.py's proven()); clean:
     {id: sessions the console's shadow check found no difference}, for
     split_lanes()'s order. Needs
-    rcheevos with DSiRPC's compiler (rcheevos.RcheevosMissing otherwise)."""
+    rcheevos with DSiRPC's compiler (rcheevos.RcheevosMissing otherwise).
+    cache_dir: built sets kept there by a digest of all of that
+    (_build_key()), so an unchanged set isn't built again, after a restart
+    too; tick(): called as it goes, to keep the launcher waiting."""
+    key = path = None
+    if cache_dir:
+        key = _build_key(raset, code, skip_ids, earned, proven, clean)
+        path = os.path.join(cache_dir, f"{code}-{key}.drs")
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            read_set(data)      # (a damaged one is built again)
+            return data
+        except (OSError, FormatError, struct.error):
+            pass
+    data = _build_set(raset, code, skip_ids, earned, proven, clean, tick, fit or _fit_fast)
+    if path:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(path + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(path + ".tmp", path)
+            old = sorted((os.path.getmtime(os.path.join(cache_dir, n)), n) for n in os.listdir(cache_dir)
+                         if n.startswith(code + "-") and n.endswith(".drs"))
+            for _, n in old[:-BUILT_KEEP]:
+                os.remove(os.path.join(cache_dir, n))
+        except OSError:
+            pass
+    return data
+
+
+def _build_set(raset, code, skip_ids, earned, proven, clean, tick, fit):
     from .ra_game import _unreachable
     from .rcheevos import compile_offline
     todo = [(a["id"], a["memaddr"]) for a in raset.playable_achievements
@@ -613,33 +783,14 @@ def build_set(raset, code, skip_ids=(), earned=None, proven=(), clean=None):
         frame_program, _ = compile_offline(frame)
     # The list's size doesn't depend on which achievements are checked
     list_size = len(build_list(raset, earned))
-    shadow, slots, moved = True, RING_MIN, 0
-    while True:
-        program, _ = compile_offline(rest)
-        _, _, _, achievements = program_info(program)
-        if not achievements or set_memory(program, frame_program, _align4(list_size), shadow=shadow,
-                                          slots=slots) <= ACH_MEMORY:
-            break
-        if shadow:
-            # too big for the console: the shadow check's copy goes first (the
-            # console leaves it out when there's no room), never an achievement
-            shadow = False
-            # (every sync builds the sets again: said once a run, then only in the debug log)
-            logging.log(logging.DEBUG if code in _NO_SHADOW_SAID else logging.INFO,
-                        f"Offline sets: {code}: no room for the shadow check's copy of the frame lane; "
-                        "the console won't shadow this game")
-            _NO_SHADOW_SAID.add(code)
-            continue
-        if frame:
-            # then frame lane achievements move to the pass lane, the least needed
-            # first (still checked; there they take one state, not two and the ring)
-            rest.append(frame.pop())
-            moved += 1
-            frame_program = compile_offline(frame)[0] if frame else b""
-            continue
-        # still too big: leave out the biggest achievement
-        biggest = max(achievements, key=lambda a: a[1] + a[2] * 4)[0]
-        rest = [t for t in rest if t[0] != biggest]
+    # Too big for the console: the shadow check's copy goes first (the console
+    # leaves it out when there's no room), never an achievement; then frame
+    # lane achievements move to the pass lane, the least needed first (still
+    # checked; there they take one state, not two and the ring); then the
+    # biggest achievements are left out
+    slots = RING_MIN
+    program, achievements, frame, frame_program, shadow, moved = fit(rest, frame, frame_program, list_size,
+                                                                     code, tick)
     if moved:
         logging.info(f"Offline sets: {code}: {moved} frame lane achievement(s) moved to the pass lane to fit the console")
     # The ring of the frame lane's samples (fitted at RING_MIN): as big as what's

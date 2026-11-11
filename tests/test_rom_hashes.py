@@ -262,6 +262,30 @@ def test_files_sharing_a_code_stay_apart(ra_dir):
     assert rom_hashes.may_send(store, "CPUE") and rom_hashes.set_codes(store) == {"CPUE": 11732}
 
 
+def test_a_hack_beside_its_original_gets_the_original_its_set(ra_dir):
+    """HeartGold and a hack of it (the same code IPKE): the set for the code
+    is the original's, whichever file comes first (the hack's hash sorts
+    first here, as on Viv's card); with only the hack, none"""
+    hg, hack = "7a78d767" + "0" * 24, "99573062" + "0" * 24
+    (ra_dir / "IPKE.json").write_text(json.dumps(set_file(7212, "Pokemon HeartGold Version")))
+    store = rom_hashes.empty()
+    rom_hashes.record(store, [("IPKE", hg, False, "Pokemon - HeartGold Version"),
+                              ("IPKE", hack, False, "iridium demo 0.3")], now=100)
+    rom_hashes.remember(store, hg, 7212)
+    rom_hashes.remember(store, hack, 0, True)
+    rom_hashes.save(store)
+    assert rom_hashes.hash_for(store, "IPKE") == hack and rom_hashes.set_hash(store, "IPKE") == hg
+    link = ra_link.RALink(api=Api({}), ra_dir=str(ra_dir))
+    try:
+        s = link.set_for_code("IPKE")
+        assert s is not None and s.id == 7212
+        del store["roms"][hg]
+        rom_hashes.save(store)
+        assert link.set_for_code("IPKE") is None
+    finally:
+        link.stop()
+
+
 def test_waiting_for_an_answer_sends_nothing(ra_dir):
     """A known hash RetroAchievements hasn't answered (out of reach): nothing
     decided, nothing dropped, and no set meanwhile (not the one linked by

@@ -117,7 +117,7 @@ def test_setup_hashes_once(host, tmp_path):
     n = len(lui.GAMES)
     assert setup(host, sd) == (n, n, 1)               # every game, with the card up
     lines = index_lines(sd)
-    assert lines[0] == "DSiRPC games 2"
+    assert lines[0] == "DSiRPC games 3"
     games = os.path.join(sd, "roms", "nds")
     for name, *_ in lui.GAMES:
         line = next(ln for ln in lines if ln.split("\t")[0].endswith(name))
@@ -229,8 +229,8 @@ def test_every_file_gets_a_state(host, tmp_path):
     # Before any sync: the unhashable one is already "no set", the rest "new"
     # (Platinum, with its set on the card, its count)
     before = badges(host, sd)
-    assert [st for c, _, st in before if c == "TEST"] == [NO_GAME]
-    assert all(st == NEW for c, name, st in before if c not in ("TEST", "CPUE"))
+    assert "TEST" not in [c for c, _, _ in before]           # (can't be hashed: not listed)
+    assert all(st == NEW for c, name, st in before if c != "CPUE")
     # Every hashed file goes to DSiRPC, homebrew too (no code), the hack apart from Platinum
     got = roms(host, sd)
     assert len(got) == n - 1 and "TEST" not in [c for c, *_ in got]
@@ -246,10 +246,10 @@ def test_every_file_gets_a_state(host, tmp_path):
                     else 0 if name == "Mario Kart DS" else 3) for _, md5, _, name in got}
     lui.run(host, f"status {sd}|" + ",".join(f"{m}:{s}" for m, s in answer.items()))
     after = {name: (code, st) for code, name, st in badges(host, sd)}
-    assert after["Homebrew A"] == ("-", NO_GAME) and after["Too Big"] == ("TEST", NO_GAME)
+    assert after["Homebrew A"] == ("-", NO_GAME) and "Too Big" not in after
     assert after["Homebrew B"] == ("-", ("no set", "Not supported", "No homebrew support yet"))
     assert after["Platinum Hack"] == ("CPUE", ("no set", "No set", "No set for this version"))
-    assert after["Pokemon Platinum Version"] == ("CPUE", ("count", "No achievements", "list"))   # (the hack's doesn't count)
+    assert after["Pokemon Platinum Version"] == ("CPUE", ("count", "", "list"))   # (the hack's doesn't count)
     assert os.path.exists(os.path.join(sd, "DSiRPC", "sets", "CPUE.DRS"))
     assert after["Tetris DS"] == ("ATRE", ("new", "At the next sync", "No achievements here yet"))
     assert after["Mario Kart DS"] == ("AMCE", NEW)
@@ -257,3 +257,48 @@ def test_every_file_gets_a_state(host, tmp_path):
     # How they stay in games.idx (the unhashable one marked 3 by the launcher itself)
     by_name = {ln.split("\t")[0].rsplit("/", 1)[-1]: ln.split(" ")[7] for ln in index_lines(sd)[1:]}
     assert by_name["Too Big.nds"] == "3" and by_name["Homebrew A.nds"] == "3" and by_name["Homebrew B.nds"] == "1"
+
+
+def test_what_cant_be_started_is_hidden(host, tmp_path):
+    """Homebrew this launcher can't start (libnds: its ARM7 code in the ARM7's
+    own RAM) isn't listed, hashed, synced or counted in the setup; a ROM hack
+    of a game with a set is listed by its file's name with "no set", and its
+    original's set is never staged for it; a set with no achievements reads
+    "no set"; and a games.idx from before is checked once."""
+    sd = str(tmp_path / "sd")
+    now = lui.make_sd(sd)
+    games = os.path.join(sd, "roms", "nds")
+    homebrew = bytearray(lui.rom("####", "Homebrew Game\nSomeone"))
+    struct.pack_into("<II", homebrew, 0x34, 0x037F8000, 0x037F8000)     # (ARM7 entry, where it loads)
+    lui.write(os.path.join(games, "Homebrew Game.nds"), bytes(homebrew))
+    hack = os.path.join(games, "Platinum Hack.nds")
+    lui.write(hack, lui.rom("CPUE", "Pokemon Platinum Version\nA hacker", "ball"))
+    lui.write(os.path.join(sd, "DSiRPC", "sets", "ATRE.DRS"), lui.set_file("ATRE", [], now))   # (no achievements)
+    n = len(lui.GAMES) + 1
+    assert setup(host, sd) == (n, n, 1)                  # (the homebrew one: not hashed, not counted)
+    line = next(ln for ln in index_lines(sd) if "Homebrew Game.nds" in ln)
+    assert line.split(" ")[6] == "x" and index_lines(sd)[0] == "DSiRPC games 3"
+    got = roms(host, sd)
+    assert len(got) == n and "Homebrew Game" not in [name for *_, name in got]
+    names = [name for _, name, _ in badges(host, sd)]
+    assert "Homebrew Game" not in names and len(names) == n
+    # DSiRPC: Platinum and Tetris DS have a set, the hack not this ROM
+    want = {name: md5 for _, md5, _, name in got}
+    lui.run(host, f"status {sd}|{want['Pokemon Platinum']}:1,{want['Platinum Hack']}:2,{want['Tetris DS']}:1")
+    after = {name: (code, st) for code, name, st in badges(host, sd)}
+    assert after["Platinum Hack"] == ("CPUE", ("no set", "No set", "No set for this version"))
+    assert after["Pokemon Platinum Version"][1][0] == "count"
+    assert after["Tetris DS"] == ("ATRE", ("no set", "None yet", "No achievements yet"))
+    # At launch: Platinum's set for Platinum, never for the hack (nor the homebrew)
+    fits = lambda path: lui.run(host, f"fits {sd}|{path}")[-1]
+    assert fits(os.path.join(games, "Pokemon Platinum.nds")) == "fits 1"
+    assert fits(hack) == "fits 0" and fits(os.path.join(games, "Homebrew Game.nds")) == "fits 0"
+    assert fits(os.path.join(games, "Not There Yet.nds")) == "fits 1"     # (not known: by its code, as before)
+    # games.idx from before: the homebrew one hashed then, checked now and left off
+    lines = index_lines(sd)
+    old = ["DSiRPC games 2"] + [ln.replace(" x ", " " + "ab" * 16 + " ", 1) for ln in lines[1:]]
+    with open(os.path.join(sd, "DSiRPC", "games.idx"), "w", encoding="utf-8") as f:
+        f.write("\n".join(old) + "\n")
+    assert "Homebrew Game" not in [name for _, name, _ in badges(host, sd)]
+    assert index_lines(sd)[0] == "DSiRPC games 3"
+    assert next(ln for ln in index_lines(sd) if "Homebrew Game.nds" in ln).split(" ")[6] == "x"

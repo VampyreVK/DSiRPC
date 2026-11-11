@@ -891,11 +891,13 @@ bool romLocationAdjust(const tNDSHeader* ndsHeader, const bool laterSdk, const b
 	} else if (*romLocation == 0x0D000000-blockSize) {
 		*romLocation += blockSize;
 	}
-	// DSiRPC: keep out of the in-game achievement checker's memory. It ends
-	// at 0x0CFE0000, which the check above keeps a DSi-enhanced game's ROM
-	// out of, so that's skipped here too (the check above only sees
-	// addresses from before this jump, and the ROM cache's last slots went
-	// there: Pokemon Black and White's memory)
+	// DSiRPC: keep out of the in-game achievement checker's memory. If the
+	// jump past it ever lands on 0x0CFE0000, a DSi-enhanced game's own 128 KB,
+	// that's skipped too (the check above only sees addresses from before
+	// this jump: when the area ended there, the ROM cache's last slots went
+	// into Pokemon Black and White's memory). Ending at 0x0CF88000 now, the
+	// jump doesn't land there, and the slots after it reach 0x0CFE0000
+	// exactly (16 or 32 KB apart), where the check above skips it
 	if (*romLocation < DSIRPC_ACH_LOCATION+DSIRPC_ACH_SIZE && *romLocation+blockSize > DSIRPC_ACH_LOCATION) {
 		*romLocation = DSIRPC_ACH_LOCATION+DSIRPC_ACH_SIZE;
 		if (*romLocation == 0x0CFE0000 && !ntrType) {

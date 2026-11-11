@@ -714,7 +714,12 @@ static void start_game(const char *dir, bool quick)
     int waiting = unlocks_prepare(unlocks_path);
     char unlocks_text[48];
     StepState unlocks_state = unlocks_step(waiting, unlocks_used(), online, unlocks_text, sizeof(unlocks_text));
-    bool have_set = stage_set(sets_dir, code, staged_set_path);
+    // The code's set, if it's for this very file (after the sync: what DSiRPC said of it)
+    bool have_set = false, fits = picker_set_fits(index_dir, game);
+    if (fits)
+        have_set = stage_set(sets_dir, code, staged_set_path);
+    else
+        remove(staged_set_path);    // (a hack: never its original's set)
     write_handoff();
     if (ui_on())
     {
@@ -723,6 +728,8 @@ static void start_game(const char *dir, bool quick)
             show_step(1, STEP_SKIPPED, "No game code");
         else if (have_set)
             show_step(1, STEP_DONE, code);
+        else if (!fits)
+            show_step(1, STEP_SKIPPED, "None for this file");
         else
         {
             snprintf(text, sizeof(text), "None for %s yet", code);

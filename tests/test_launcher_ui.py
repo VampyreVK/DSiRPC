@@ -142,7 +142,7 @@ def test_games_idx_keeps_what_was_read(host, sd):
     games(host, sd)
     with open(os.path.join(sd, "DSiRPC", "games.idx"), encoding="ascii") as f:
         lines = f.read().splitlines()
-    assert lines[0] == "DSiRPC games 2" and len(lines) == len(lui.GAMES) + 1
+    assert lines[0] == "DSiRPC games 3" and len(lines) == len(lui.GAMES) + 1
     # (the picker doesn't hash: the boot's first-time setup does, tests/test_rom_hash.py)
     assert all(ln.split(" ")[6:8] == ["-", "0"] for ln in lines[1:])
     assert any(ln.endswith("Tetris DS.nds\tTetris DS\tNintendo") for ln in lines)

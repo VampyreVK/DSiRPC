@@ -61,6 +61,7 @@ class PortInUse(Exception):
 
 HASH_LOOKUP_THREADS = 8  # RetroAchievements lookups of the launcher's hashes at a time
 SET_FETCH_THREADS = 4    # sets downloaded at a time for the console
+BUILD_TICK = 5.0         # seconds between "still working" frames while a set is built (the launcher waits 30)
 
 
 def _game_name(code):
@@ -382,9 +383,18 @@ class Engine:
                     if progress:
                         progress(n, len(fetch), offline.PROGRESS_SETS)
         out = []
+        built = os.path.join(ra_set.RA_DIR, "cache", "built")   # (an unchanged set isn't built again)
+        said = [time.monotonic()]
         for i, code in enumerate(codes):
-            if progress and i % 4 == 0:
+            if progress:
                 progress(i, len(codes), offline.PROGRESS_SETS)   # (building them takes a while too)
+                said[0] = time.monotonic()
+
+            def tick(i=i):
+                # a long build: said again now and then, so the launcher keeps waiting
+                if progress and time.monotonic() - said[0] >= BUILD_TICK:
+                    progress(i, len(codes), offline.PROGRESS_SETS)
+                    said[0] = time.monotonic()
             if not rom_hashes.may_send(hashes, code):
                 continue    # no set for the versions on the console, or not answered yet (_console_roms())
             try:
@@ -422,7 +432,7 @@ class Engine:
             proven = frame_needs.proven(needs, code, s.playable_achievements)
             clean = frame_needs.clean_counts(needs, code, s.playable_achievements)
             try:
-                data = offline.build_set(s, code, set(earned), earned, proven, clean)
+                data = offline.build_set(s, code, set(earned), earned, proven, clean, cache_dir=built, tick=tick)
             except RcheevosMissing as e:
                 logging.warning(f"Offline sync: no achievement sets for the console: {e}")
                 return out

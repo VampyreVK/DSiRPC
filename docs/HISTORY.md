@@ -56,7 +56,21 @@
   stayed "new": the launcher only sent files with a valid game code (24
   hashed, 19 sent on Viv's card), and a file that couldn't be hashed never
   got a state. Now every hashed file is sent (no code: four zero bytes) and
-  kept by its hash, and an unhashable one is "no set" from the start. The same day, the ARM9 write-back
+  kept by its hash, and an unhashable one is "no set" from the start. Then HeartGold stayed "new": a hack of it shared its code, and the set for the code was looked up through whichever file came first (the hack); now it is the set of the code's file that has one, and the launcher only stages a code's set for a file it's for, so a hack never runs with its original's. Sets with no achievements (Brain Age 2, MySims Kingdom) read "no set", and files the launcher can't start (libnds homebrew) or hash aren't listed. Then every sync took about 30 s on
+  "Sets 4/9": HeartGold's set (166 achievements, the biggest programs yet)
+  was built again at every sync before its stamp was compared, and its fit
+  to the console's memory recompiled the whole pass lane at each of about
+  80 steps (0.12 s a compile). Built sets are now kept by a digest of what
+  they depend on (`ra/cache/built/`), and the fit is found by halving: 3.4 s
+  when it has to run (the same bytes), nothing when nothing changed. Even
+  so, HeartGold's set didn't fit the console's 256 KB: 143 of its 166
+  achievements checked, none every frame. The checker's memory moved to
+  512 KB right below the in-game menu's window (`0x0CF08000`-`0x0CF88000`,
+  ROM cache before; its old 256 KB at `0x0CFA0000` is ROM cache again), so
+  HeartGold gets all 166, 63 of them every frame, the shadow check and a
+  256-sample ring (415 KB). A set built for 512 KB that an older
+  nds-bootstrap gets is refused by its size check before anything is read
+  past the header. The same day, the ARM9 write-back
   found Animal Crossing's `OS_Halt` in ITCM (`tools/find_idle.py --rom`
   showed it there, in an autoload block): the ARM9 half now searches ITCM
   itself when rpcprobe finds no copy in the static code, and the hellos

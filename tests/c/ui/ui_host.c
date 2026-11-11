@@ -222,6 +222,10 @@ int main(void)
         {
             host_status(f[0], f[1]);
         }
+        else if (strcmp(line, "fits") == 0 && nf == 2)
+        {
+            host_fits(f[0], f[1]);
+        }
         else if (strcmp(line, "music") == 0 && nf == 3)
         {
             host_music_log[0] = '\0';

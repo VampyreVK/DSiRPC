@@ -194,16 +194,23 @@ plus:
   before; one RetroAchievements has no set for shows a gray "no set" and
   goes by its file's name (a ROM hack keeps the original's banner), and one
   DSiRPC hasn't checked yet a gray "new" (after one sync with DSiRPC, only
-  if RetroAchievements was out of reach: homebrew without a game code is
-  checked too, and a file that can't be hashed is "no set" from the start).
-  **X** says which in place of the
+  if RetroAchievements was out of reach). A set with no achievements in it
+  (RetroAchievements has the game, but none yet) is "no set" too. Files the
+  launcher can't start aren't listed at all, nor hashed or synced: homebrew
+  built with libnds (its ARM7 code loads into the ARM7's own RAM, where
+  Nintendo's SDK never puts it, which nds-bootstrap's hooks need; the same
+  sign TWiLight Menu++ goes by) and files that can't be hashed
+  RetroAchievements' way. ROM hacks stay. **X** says which in place of the
   achievements: "No set for this version" (RetroAchievements has the game,
   but not this ROM: another region, revision or a hack), "No achievement
-  set" (it doesn't have the game, or the file can't be hashed), "No
-  homebrew support yet" (RetroAchievements has a set, but DSiRPC
-  can't check achievements in homebrew: nds-bootstrap's hooks need a
-  retail game), "No achievements here yet" (the set comes at the next sync,
-  also "new" in the list) or "Not checked yet" (sync with DSiRPC). The
+  set" (it doesn't have the game), "No achievements yet" (its set has none),
+  "No homebrew support yet" (homebrew that can be started, with a set:
+  DSiRPC can't check achievements in homebrew; not normally seen, as such
+  homebrew isn't listed), "No achievements here yet" (the set comes at the
+  next sync, also "new" in the list) or "Not checked yet" (sync with
+  DSiRPC). A game code's set is only staged for a file it's for
+  (`picker_set_fits()`): a ROM hack sharing its original's code starts with
+  none ("None for this file"), never its original's. The
   badge, the top screen and X all follow one state (`ra_state()`). At the
   sync, every game with a set gets it, started or not, and
   the boot screen's sets step says how far DSiRPC got ("Checking 12/70",

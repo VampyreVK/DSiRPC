@@ -58,18 +58,23 @@ class RcheevosMissing(RcheevosError):
 _lib = None
 
 
-def library():
-    """Loads the rcheevos library once. Raises RcheevosMissing if it isn't there."""
-    global _lib
-    if _lib is not None:
-        return _lib
+def library_path():
+    """Where the rcheevos library is for this system (there or not)."""
     if sys.platform == "win32":
         name = "rcheevos.dll"
     elif sys.platform == "darwin":
         name = "librcheevos.dylib"
     else:
         name = "librcheevos.so"
-    path = os.path.join(LIB_DIR, name)
+    return os.path.join(LIB_DIR, name)
+
+
+def library():
+    """Loads the rcheevos library once. Raises RcheevosMissing if it isn't there."""
+    global _lib
+    if _lib is not None:
+        return _lib
+    path = library_path()
     if not os.path.exists(path):
         raise RcheevosMissing(f"rcheevos library not found: {path} (see third_party/rcheevos/README.md)")
     try:

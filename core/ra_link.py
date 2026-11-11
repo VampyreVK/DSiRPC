@@ -372,17 +372,19 @@ class RALink:
         except ra_set.SetFileError:
             local = None
         store = rom_hashes.load(self.ra_dir)
-        known = rom_hashes.hash_for(store, code)
+        # The set of the code's file that has one (a ROM hack can share the
+        # code: never the file that happens to be named first)
+        known = rom_hashes.set_hash(store, code)
+        if known is None and rom_hashes.hashes_for(store, code):
+            return None     # no file of the code on the console has a set (or none answered yet)
         known_id = rom_hashes.game_id(store, known) if known else None
-        if known_id == 0:
-            return None     # RetroAchievements has no set for the version on the console
         fresh = local is not None and time.time() - os.path.getmtime(local.path) < REFRESH_SET_AFTER and \
             (known_id is None or known_id == local.id)
         if fresh or not self.signed_in:
             return local
         api = RAClient(self.api.username, self.api.token, host=self.api.host, timeout=timeout)
         try:
-            game_hash, game_id = self._hash_game(code, api)
+            game_hash, game_id = (known, known_id) if known else self._hash_game(code, api)
             if game_hash and not game_id:
                 logging.info(f"RetroAchievements: {self._no_set_message(code, game_hash)}; no set for offline play")
                 return None

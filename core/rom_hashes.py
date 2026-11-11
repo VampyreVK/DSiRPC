@@ -125,6 +125,17 @@ def hash_for(data, code):
     return hs[0] if hs else None
 
 
+def set_hash(data, code):
+    """The hash of the code's file RetroAchievements has a set for (the one
+    started last first), or None: the set the code's games on the console get
+    (a ROM hack sharing the code has none of its own; the launcher only
+    stages a code's set for a file it's for)"""
+    for md5 in hashes_for(data, code):
+        if status(data, md5) == HAS_SET:
+            return md5
+    return None
+
+
 def unsupported(data, code):
     """True when every known file of the code has been answered and none has
     a set: RetroAchievements has no set for the versions on the console."""

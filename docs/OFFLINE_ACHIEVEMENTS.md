@@ -93,9 +93,11 @@ conditions`. The constants are fitted to the checker itself, run on
 and memory waits), the busy one so that it never comes out under what the
 model measured.
 
-**Fitting it in.** The console sets aside 256 KB (`DSIRPC_ACH_SIZE`) at
-`DSIRPC_ACH_LOCATION`, less 4 KB for reading `RPCUNLK.BIN` and 2 KB for the
-per-frame capture's ring: 250 KB (`offline.ACH_MEMORY`). The set file, the
+**Fitting it in.** The console sets aside 512 KB (`DSIRPC_ACH_SIZE`) at
+`DSIRPC_ACH_LOCATION` (`0x0CF08000`, right below the in-game menu's window),
+less 4 KB for reading `RPCUNLK.BIN` and 2 KB for the per-frame capture's
+ring: 506 KB (`offline.ACH_MEMORY`; 250 KB of 256 KB until 2026-11-11,
+which Pokemon HeartGold's 166 achievements didn't fit). The set file, the
 pass lane's state, the frame lane's state twice (one copy samples, one
 checks), its ring of samples and, when there's room, the shadow check's copy
 all have to fit (`set_memory()`). `build_set()` fits the set with the
@@ -302,7 +304,7 @@ samples without the ARM9's write-back.
 
 | What | What happens |
 |---|---|
-| The set doesn't fit in 250 KB | No shadow check, then frame lane achievements move to the pass lane, then the biggest pass lane ones are left out (section 1) |
+| The set doesn't fit in 506 KB | No shadow check, then frame lane achievements move to the pass lane, then the biggest pass lane ones are left out (section 1) |
 | An achievement needs floating point, or has more than 32,767 groups | Not in the set; checked by the PC while DSiRPC watches |
 | The checking falls a whole ring behind | Frames go unsampled until there's room (`fd=`); the pass lane waits |
 | No swiHalt hook | Checking (20 scanlines) and saving happen in the VBlank |

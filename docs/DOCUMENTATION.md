@@ -1143,7 +1143,7 @@ changed, which the ring has to absorb); `frame_costs()` and
 few hundred conditions' worth there and the rest in the pass lane. Left
 out: achievements rcheevos can't parse and those that need floating point
 (the console's ARM7 has none). The set and its state have to fit in the
-250 KB the console sets aside (256 KB less 4 KB for reading `RPCUNLK.BIN`
+506 KB the console sets aside (512 KB less 4 KB for reading `RPCUNLK.BIN`
 and 2 KB for the per-frame capture's ring; `set_memory()` adds it up). When
 one doesn't, `build_set()` gives things up in this order: first the shadow
 check's copy of the frame lane (the console then doesn't shadow that game,
@@ -1349,7 +1349,7 @@ since the record before (so a value may be a frame late), and
 order. The ring holds `2048 / recSize` records: 256 frames (about 4 s) with
 one 4-byte watch, 56 (about a second) with eight. Nothing is written to the
 game: the list is rpcprobe's own memory, and the ring is the last 2 KB of
-the 256 KB nds-bootstrap sets aside for DSiRPC (`DSIRPC_WATCH_RING_LOCATION`
+the 512 KB nds-bootstrap sets aside for DSiRPC (`DSIRPC_WATCH_RING_LOCATION`
 in `locations.h`; the ARM7 cardengine's own memory is full). DSiRPC uses the
 capture for the achievements it checks every frame (section 6).
 
@@ -1408,8 +1408,11 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
    (homebrew often has `####`), which DSiRPC keeps by its hash like the
    rest and, when RetroAchievements doesn't know it, answers 3 without a
    title search. A file that can't be hashed RetroAchievements' way (too
-   small, no valid header, its code over 16 MB) isn't sent: the launcher
-   marks it 3 itself. `hashed` and
+   small, no valid header, its code over 16 MB) isn't sent, nor homebrew
+   the launcher can't start (libnds: its ARM7 code in the ARM7's own RAM);
+   neither is listed. Several files can share a code (a ROM hack keeps its
+   original's): the code's set is the one of its file that has one, and the
+   launcher only stages it for that file. `hashed` and
    `hash ms` are how many games the launcher's first-time setup hashed since
    the last sync and how long that took, for DSiRPC's log (`Offline sync:
    the launcher hashed N game(s) in X s`).
@@ -1449,7 +1452,17 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
    (`SET_FETCH_THREADS` at a time) and kept. The launcher lists up to 1,024
    games (and so hashes and statuses) and names up to 512 of the sets it
    has in the request (past that, the rest come again at every sync); a set
-   is 1 MB at most.
+   is 1 MB at most. A set is built (`offline.build_set()`) only when
+   something it depends on changed: what's built is kept in
+   `ra/cache/built/` by a digest of the set's achievements, the unlocks
+   left out and listed, what `frame_needs` learned and the builder itself
+   (`core/offline.py` and the rcheevos library), so a sync with nothing new
+   compares stamps without building anything, after a restart too. A
+   build that runs long says so every `BUILD_TICK` seconds ("DRSP"), so
+   the launcher keeps waiting. When a set is too big for the console,
+   the fit (shadow copy left out, frame lane achievements moved to the pass
+   lane, the biggest left out) is found by halving (`_fit_fast()`), the same
+   set byte for byte as one step at a time (`_fit_slow()`).
 
    `status` 0 is OK, 1 that the request couldn't be read. `taken` is how
    many valid unlock slots it got, repeats and the shadow check's notes
@@ -1529,7 +1542,7 @@ the in-game menu in its RAM copy of bytes 40-63. The set and its state
 a memory value each, and when there's room the shadow check's copy of the
 frame lane: a third VM and state, one more sample and 8 bytes an
 achievement) have
-to fit in 250 KB (`offline.ACH_MEMORY`: nds-bootstrap's 256 KB less the
+to fit in 506 KB (`offline.ACH_MEMORY`: nds-bootstrap's 512 KB less the
 4 KB the console reads `RPCUNLK.BIN` into and the per-frame capture's 2 KB
 ring). The console shadows a game only when what's left after the set and
 its state holds that copy. The pass lane's program follows,
@@ -1779,9 +1792,9 @@ All paths below are under `nds-bootstrap/retail/`.
 | `common/source/my_fat.c`, `common/source/my_sd.c` | Debug-only fixes so a clean `-DDEBUG` build compiles with GCC 14: a guarded `#include "nocashMessage.h"`, and `(u32)` casts on pointers passed to `dbg_hexa`. Normal builds are byte-identical. |
 | `cardenginei/arm7/source/rpcprobe/` | All DSiRPC ARM7 code (next table) |
 | `bootloaderi/source/arm7/hook_arm7.c`, `bootloaderi/source/arm7/patch_arm7.c` | The swiHalt hook for rpcprobe in a game with `altReadMethod` (the Gen 4 and Gen 5 Pokémon games, among others): `patchSwiHalt()` puts it in for an ARM7 in ARM code but leaves `newSwiHaltAddr` at 0, so the ARM9 keeps pinging the ARM7 for its ROM reads, and `b_ipcReads` (`ce7->valueBits` bit 26) tells the ARM7 cardengine to serve nothing in that hook, just call `Probe_HaltTick(NULL, NULL)`. |
-| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory (and, for a DSi-enhanced game, out of the 128 KB right after it, as upstream does), and the ROM-in-RAM size limit is 256 KB smaller to match |
+| `bootloaderi/source/arm7/main.arm7.c` | `DSIRPC_KEEP_DSI_WIFI 1`: skips the switch to DS-mode Wi-Fi so the launcher's association survives. `romLocationAdjust()` keeps the ROM cache and ROM-in-RAM loading out of the achievement checker's memory (and, for a DSi-enhanced game, out of the 128 KB right after it, as upstream does), and the ROM-in-RAM size limit is 512 KB smaller to match |
 | `arm9/source/conf_sd.cpp` | The patch offset cache is `patchOffsetCache/<game code>-<header CRC>-DSiRPC.bin`, a file of its own, never the one TWiLight Menu++'s nds-bootstrap keeps for the same game. That file has the same version and no note of DS or DSi mode, so it may come from a DSi-mode run, and once the versions differ, the two builds would rebuild each other's at every switch |
-| `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CFA0000`) and `DSIRPC_ACH_SIZE` (256 KB): the achievement checker's memory, in the ROM cache's area near the top of the DSi's 16 MB (the middle of the 3DS's 32 MB), ending at `0x0CFE0000`, where a DSi-enhanced game's own top 128 KB starts (`0x02FE0000`, the same RAM: it used to overlap it by 64 KB, which corrupted Pokémon Black and White); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
+| `common/include/locations.h` | `DSIRPC_ACH_LOCATION` (`0x0CF08000`) and `DSIRPC_ACH_SIZE` (512 KB): the achievement checker's memory, in the ROM cache's area near the top of the DSi's 16 MB (the middle of the 3DS's 32 MB), ending at `0x0CF88000`, where the in-game menu's window starts (until 2026-11-11 it was 256 KB at `0x0CFA0000`, ending where a DSi-enhanced game's own top 128 KB starts, `0x02FE0000`, the same RAM: before that it overlapped it by 64 KB, which corrupted Pokémon Black and White); its last 2 KB are the per-frame capture's ring (`DSIRPC_WATCH_RING_LOCATION`) |
 | `bootloaderi/source/arm7/patch_common.c` | `DSIRPC_PLATINUM_NO_WIRELESS_SEARCH 1`: for `CPUE` Rev 1 only, and only if the expected instructions are found. It patches `CommManager_InitializeSearchParty` to return immediately and `CommManager_GetAvailableConnections` to return 0 (`0x02037D48`, `0x02037DA0`). This removes the communication error after Continue. |
 
 ### `rpcprobe/` files
@@ -1808,7 +1821,7 @@ the console only runs the result:
 
 - **Loading.** On the game's first VBlank (the only time the VBlank may
   touch the SD card), `RPCSET.BIN` is read into `DSIRPC_ACH_LOCATION`, the
-  256 KB the bootloader keeps the ROM cache out of: the set, then the
+  512 KB the bootloader keeps the ROM cache out of: the set, then the
   checker's state (every memory value with its last change, every
   condition's hit count; the pass lane's, the frame lane's twice, the
   frame lane's ring of samples, 8 to 256 as the set's header says, and the

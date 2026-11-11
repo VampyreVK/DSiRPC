@@ -32,9 +32,9 @@
 #include "dsirpc_ach_menu.h"
 #include "probe_ach.h"
 
-uint8_t hostAch[0x40000] __attribute__((aligned(4)));
+uint8_t hostAch[0x80000] __attribute__((aligned(4)));
 uint8_t hostRam[0x400000] __attribute__((aligned(4)));
-static uint8_t setFile[0x40000], unlockFile[4096];
+static uint8_t setFile[0x80000], unlockFile[4096];   // (setFile: as big as DSIRPC_ACH_SIZE)
 static uint32_t setLen;
 static int haveUnlockFile, unlockFileGiven;
 

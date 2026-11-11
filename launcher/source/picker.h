@@ -50,6 +50,13 @@ bool pick_game(const PickerUi *ui, char *out, size_t outsz);
 // Notes in games.idx that a game is being started (for the Recent order).
 void picker_started(const char *index_dir, const char *path);
 
+// Whether the game code's set on the SD card may be staged for the file
+// being started: not when DSiRPC said RetroAchievements has no set for this
+// file (a ROM hack shares its original's code, and its memory layout isn't
+// the original's), nor for one that can't be hashed or started here. Files
+// games.idx doesn't know (or not yet checked) go by their code, as before.
+bool picker_set_fits(const char *index_dir, const char *path);
+
 // A game's banner: its icon, and its name and publisher in English (either
 // may be NULL). false if it has none.
 bool picker_banner(const char *path, UiBanner *icon, char *title, size_t tsz, char *publisher, size_t psz);

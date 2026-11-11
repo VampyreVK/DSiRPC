@@ -60,7 +60,7 @@ enum
     PICKER_RA_UNKNOWN,          // not asked yet (or DSiRPC couldn't ask)
     PICKER_RA_SET,              // RetroAchievements has a set for it
     PICKER_RA_NOT_THIS_ROM,     // it has the game, but no set for this file (another region, revision or a hack)
-    PICKER_RA_NO_GAME,          // it doesn't have the game
+    PICKER_RA_NO_GAME,          // it doesn't have the game (or the file can't be hashed its way)
 };
 
 // The first-time setup at boot: every game's RetroAchievements hash, once
@@ -80,8 +80,9 @@ typedef struct
 // were hashed in *hashed (the rest couldn't be: not tried again).
 int picker_setup(const PickerSetup *setup, int *hashed);
 
-// The games' hashes for the sync with DSiRPC, from games.idx: malloc'd
-// records of PICKER_ROM_RECORD bytes (code[4], md5[16], flags u8 with
+// The games' hashes for the sync with DSiRPC, from games.idx (every file
+// hashed, with a game code or not): malloc'd records of PICKER_ROM_RECORD
+// bytes (code[4], four zero bytes for none, md5[16], flags u8 with
 // PICKER_ROM_STARTED for the file at `started` (may be NULL), the name's
 // length u8, 2 bytes 0), each followed by the file's name (without its
 // folder or ".nds", PICKER_ROM_NAME_MAX at most). Returns how many (*out

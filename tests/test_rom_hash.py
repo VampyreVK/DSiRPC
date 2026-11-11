@@ -185,7 +185,7 @@ def test_hashes_for_the_sync_and_the_answer(host, tmp_path):
     assert by_name["Tetris DS.nds"] == "0"
     # The game list: no count, and the file's own name (a hack keeps the original's banner)
     rows = {ln.split("|")[0][5:]: ln.split("|") for ln in lui.run(host, f"games {sd}|1") if ln.startswith("game ")}
-    assert rows["ADME"][-1] == "0/0" and rows["ADME"][1] == "Animal Crossing WW"
+    assert rows["ADME"][6] == "0/0" and rows["ADME"][1] == "Animal Crossing WW" and rows["ADME"][7] == "no set"
     assert rows["CPUE"][1].endswith("Platinum Version")          # (a game with a set: its banner's name, as before)
     # A game it doesn't have at all goes the same way
     lui.run(host, f"status {sd}|{want['ADME']}:3")
@@ -194,3 +194,55 @@ def test_hashes_for_the_sync_and_the_answer(host, tmp_path):
     # And a hash it never sent stays unknown
     assert setup(host, sd) == (0, 0, 0)
     assert hashlib.md5(b"").hexdigest() not in "".join(index_lines(sd))
+
+
+def badges(host, sd):
+    """The list's [(code, shown name, badge: "count", "new" or "no set")]"""
+    return [(r[0], r[1], r[7]) for r in (ln[5:].split("|") for ln in lui.run(host, f"games {sd}|1")
+                                         if ln.startswith("game "))]
+
+
+def test_every_file_gets_a_state(host, tmp_path):
+    """Homebrew with no game code ("####", or four zero bytes), a hack sharing
+    its original's code, a commercial game never started, and a file that
+    can't be hashed RetroAchievements' way: every hashed file goes to DSiRPC
+    by its hash, the unhashable one is "no set" without asking anything, and
+    after DSiRPC's answer nothing is "new"; only a hash DSiRPC couldn't check
+    (RetroAchievements out of reach) stays "new"."""
+    sd = str(tmp_path / "sd")
+    lui.make_sd(sd)
+    games = os.path.join(sd, "roms", "nds")
+    lui.write(os.path.join(games, "Homebrew A.nds"), lui.rom("####", "Homebrew A\nSomeone"))
+    zero = bytearray(lui.rom("ZZZZ", "Homebrew B\nSomeone else"))
+    zero[0x0C:0x10] = b"\0\0\0\0"
+    lui.write(os.path.join(games, "Homebrew B.nds"), bytes(zero))
+    lui.write(os.path.join(games, "Platinum Hack.nds"), lui.rom("CPUE", "Pokemon Platinum Version\nA hacker", "ball"))
+    made_rom(os.path.join(games, "Too Big.nds"), arm9=12 << 20, arm7=5 << 20, size=0x6000)
+    n = len(lui.GAMES) + 4
+    assert setup(host, sd) == (n, n - 1, 1)
+    # Before any sync: the unhashable one is already "no set", the rest "new"
+    # (Platinum, with its set on the card, its count)
+    before = badges(host, sd)
+    assert [b for c, _, b in before if c == "TEST"] == ["no set"]
+    assert all(b == "new" for c, name, b in before if c not in ("TEST", "CPUE"))
+    # Every hashed file goes to DSiRPC, homebrew too (no code), the hack apart from Platinum
+    got = roms(host, sd)
+    assert len(got) == n - 1 and "TEST" not in [c for c, *_ in got]
+    homebrew = {name: md5 for code, md5, _, name in got if code == ""}
+    assert set(homebrew) == {"Homebrew A", "Homebrew B"} and len(set(homebrew.values())) == 2
+    platinum = {name: md5 for code, md5, _, name in got if code == "CPUE"}
+    assert set(platinum) == {"Pokemon Platinum", "Platinum Hack"} and len(set(platinum.values())) == 2
+    # DSiRPC's answer: Platinum has a set, the hack not this ROM, homebrew no
+    # game, the rest a set or none; one it couldn't check (0)
+    answer = {md5: (1 if name in ("Pokemon Platinum", "Tetris DS") else 2 if name == "Platinum Hack"
+                    else 0 if name == "Mario Kart DS" else 3) for _, md5, _, name in got}
+    lui.run(host, f"status {sd}|" + ",".join(f"{m}:{s}" for m, s in answer.items()))
+    after = {name: (code, b) for code, name, b in badges(host, sd)}
+    assert after["Homebrew A"] == ("-", "no set") and after["Homebrew B"] == ("-", "no set")
+    assert after["Platinum Hack"] == ("CPUE", "no set")
+    assert after["Pokemon Platinum Version"] == ("CPUE", "count")          # (its set stays: the hack's doesn't count)
+    assert os.path.exists(os.path.join(sd, "DSiRPC", "sets", "CPUE.DRS"))
+    assert [name for name, (_, b) in after.items() if b == "new"] == ["Mario Kart DS"]
+    # The unhashable one and homebrew read "No achievement set" on X (status 3)
+    by_name = {ln.split("\t")[0].rsplit("/", 1)[-1]: ln.split(" ")[7] for ln in index_lines(sd)[1:]}
+    assert by_name["Too Big.nds"] == "3" and by_name["Homebrew A.nds"] == "3" and by_name["Homebrew B.nds"] == "3"

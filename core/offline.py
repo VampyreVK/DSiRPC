@@ -794,8 +794,8 @@ def parse_sync(header, rest_reader):
             if name_len > ROM_NAME_MAX:
                 raise FormatError("sync request garbled")
             name = rest_reader(name_len).decode("ascii", "replace") if name_len else ""
-            if valid_code(code):
-                roms.append((code.decode(), md5.hex(), bool(flags & ROM_STARTED), name))
+            # (a file without a game code, homebrew often: "" for its code)
+            roms.append((code.decode() if valid_code(code) else "", md5.hex(), bool(flags & ROM_STARTED), name))
     return {'version': version, 'game': game.decode() if valid_code(game) else None, 'stamps': stamps,
             'unlocks': unlocks, 'roms': roms, 'hashed': hashed, 'hash_ms': hash_ms}
 

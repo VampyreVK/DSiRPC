@@ -67,7 +67,8 @@ def save(data, ra_dir=None):
 
 def record(data, roms, now=None):
     """The launcher's list: [(code, md5, started, file name)] (the name may be
-    left out)"""
+    left out; the code is "" for a file without one, homebrew often). Kept by
+    the file's hash: files sharing a code (hacks, homebrew) stay apart."""
     now = int(time.time() if now is None else now)
     for code, md5, started, *rest in roms:
         entry = data["roms"].setdefault(md5, {"code": code, "seen": now, "started": 0})

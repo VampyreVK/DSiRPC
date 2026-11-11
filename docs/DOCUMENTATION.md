@@ -1403,7 +1403,13 @@ picked), it looks for DSiRPC and syncs. `core/offline.py` (PC) and
    card (`launcher/source/romhash.c`, the same as `core/ra_hash.py`), from
    `games.idx`, each with the file's name (without its folder or `.nds`, 63
    bytes at most), which DSiRPC calls a game RetroAchievements has no set
-   for by; flags 1 marks the file being started. `hashed` and
+   for by; flags 1 marks the file being started. Every file hashed goes,
+   with a game code or not: the code is four zero bytes for one without
+   (homebrew often has `####`), which DSiRPC keeps by its hash like the
+   rest and, when RetroAchievements doesn't know it, answers 3 without a
+   title search. A file that can't be hashed RetroAchievements' way (too
+   small, no valid header, its code over 16 MB) isn't sent: the launcher
+   marks it 3 itself. `hashed` and
    `hash ms` are how many games the launcher's first-time setup hashed since
    the last sync and how long that took, for DSiRPC's log (`Offline sync:
    the launcher hashed N game(s) in X s`).

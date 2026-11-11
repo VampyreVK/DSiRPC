@@ -52,7 +52,11 @@
   telling the launcher how far it got so it doesn't time out, every game
   with a set gets it at the sync, and the list shows a gray "no set" or
   "new" (not checked yet) in place of "unsupported", with the X page telling
-  "not this ROM" from "no such game" from "not checked yet". The same day, the ARM9 write-back
+  "not this ROM" from "no such game" from "not checked yet". Homebrew then
+  stayed "new": the launcher only sent files with a valid game code (24
+  hashed, 19 sent on Viv's card), and a file that couldn't be hashed never
+  got a state. Now every hashed file is sent (no code: four zero bytes) and
+  kept by its hash, and an unhashable one is "no set" from the start. The same day, the ARM9 write-back
   found Animal Crossing's `OS_Halt` in ITCM (`tools/find_idle.py --rom`
   showed it there, in an autoload block): the ARM9 half now searches ITCM
   itself when rpcprobe finds no copy in the static code, and the hellos

@@ -79,7 +79,7 @@ def launchers(cc, tmp_path_factory):
 
 def run_launcher(exe, port, tmp_path, roms=()):
     hashes = tmp_path / "hashes.txt"
-    hashes.write_text("".join(f"{c} {m} {int(s)} {n}\n" for c, m, s, n in roms))
+    hashes.write_text("".join(f"{c or '-'} {m} {int(s)} {n}\n" for c, m, s, n in roms))
     r = subprocess.run([exe, str(port), str(tmp_path / "sets"), str(tmp_path / "RPCUNLK.BIN"), "-", str(hashes)],
                        capture_output=True, text=True, env=cbuild.run_env(), timeout=120)
     lines = r.stdout.splitlines()
@@ -87,7 +87,8 @@ def run_launcher(exe, port, tmp_path, roms=()):
     return [int(x) for x in head[1:]], {ln.split()[1]: int(ln.split()[2]) for ln in lines if ln.startswith("status ")}
 
 
-TWO = [("ADME", ADME_USA, False, "Animal_Crossing_WW"), ("CPUE", CPUE, True, "Platinum")]
+TWO = [("ADME", ADME_USA, False, "Animal_Crossing_WW"), ("CPUE", CPUE, True, "Platinum"),
+       ("", "aaaa0000aaaa0000aaaa0000aaaa0000", False, "Homebrew")]     # (no game code: four zero bytes)
 
 
 @pytest.mark.parametrize("launcher,dsirpc", [("new", "new"), ("new", "old"), ("old", "new"), ("old", "old")])
@@ -100,7 +101,8 @@ def test_old_and_new(launchers, tmp_path, monkeypatch, launcher, dsirpc):
         seen.append((roms, hashed, ms))
         for i in range(3):                             # still working...
             progress(i, 3, offline.PROGRESS_CHECKING)
-        return {r[1]: (offline.RA_NOT_THIS_ROM if r[0] == "ADME" else offline.RA_SET) for r in roms}
+        return {r[1]: (offline.RA_NOT_THIS_ROM if r[0] == "ADME" else offline.RA_NO_GAME if not r[0]
+                       else offline.RA_SET) for r in roms}
     sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host="127.0.0.1", on_roms=on_roms)
     sync.start()
     try:
@@ -110,8 +112,9 @@ def test_old_and_new(launchers, tmp_path, monkeypatch, launcher, dsirpc):
     assert r == 1
     if launcher == dsirpc == "new":
         assert version == 2 and sync.last["version"] == 2
-        assert seen == [(TWO, 2, 1234)]
-        assert statuses == {ADME_USA: offline.RA_NOT_THIS_ROM, CPUE: offline.RA_SET} and n == 2
+        assert seen == [(TWO, len(TWO), 1234)]      # (the host says it hashed every one, in 1234 ms)
+        assert statuses == {ADME_USA: offline.RA_NOT_THIS_ROM, CPUE: offline.RA_SET, TWO[2][1]: offline.RA_NO_GAME}
+        assert n == 3
     else:
         assert version == 1 and sync.last["version"] == 1 and seen == [] and statuses == {}
 
@@ -222,6 +225,41 @@ def test_unknown_hash_told_apart_by_title(ra_dir):
     link = Link({ADME_USA: 0, HACK: 0}, titles={"ADME": True, "IPKE": False})
     got = engine(link).roms([("ADME", ADME_USA, False, "Animal Crossing WW"), ("IPKE", HACK, False, "Heart Red")], 0, 0)
     assert got == {ADME_USA: rom_hashes.NOT_THIS_ROM, HACK: rom_hashes.NO_GAME}
+
+
+HOMEBREW_A = "aaaa0000aaaa0000aaaa0000aaaa0000"
+HOMEBREW_B = "bbbb0000bbbb0000bbbb0000bbbb0000"
+
+
+def test_homebrew_without_a_code(ra_dir, caplog):
+    """Files with no game code (homebrew, "####" on the console: four zero
+    bytes) go by their hash: two of them stay apart, one RetroAchievements
+    doesn't know is "no such game" without a title search, and one it has a
+    set for is said to be unusable (the console's sets go by game code)"""
+    data = offline.build_request("", {}, b"", version=2, roms=[("", HOMEBREW_A, False, "Homebrew A")])
+    read, _ = reader(data)
+    assert offline.parse_sync(read(offline.REQUEST.size), read)["roms"] == [("", HOMEBREW_A, False, "Homebrew A")]
+    titles = []
+    link = Link({HOMEBREW_A: 0, HOMEBREW_B: 4242})
+    link.title_has_game = lambda code: titles.append(code) or True
+    with caplog.at_level(logging.INFO):
+        got = engine(link).roms([("", HOMEBREW_A, False, "Homebrew A"), ("", HOMEBREW_B, False, "Homebrew B")], 2, 100)
+    assert got == {HOMEBREW_A: rom_hashes.NO_GAME, HOMEBREW_B: rom_hashes.HAS_SET} and titles == []
+    assert "no set for Homebrew A (no game code, hash" in caplog.text
+    assert "a set for Homebrew B (no game code" in caplog.text and "can't be given it" in caplog.text
+    store = rom_hashes.load()
+    assert {e["name"] for e in store["roms"].values()} == {"Homebrew A", "Homebrew B"}
+    assert rom_hashes.set_codes(store) == {} and (ra_dir / "ADME.json").exists()     # (nothing else touched)
+
+
+def test_files_sharing_a_code_stay_apart(ra_dir):
+    """A ROM hack keeps its original's code: each file gets its own answer"""
+    link = Link({CPUE: 11732, HACK: 0}, titles={"CPUE": True})
+    got = engine(link).roms([("CPUE", CPUE, False, "Pokemon Platinum"), ("CPUE", HACK, True, "Renegade Platinum")],
+                            0, 0)
+    assert got == {CPUE: rom_hashes.HAS_SET, HACK: rom_hashes.NOT_THIS_ROM}
+    store = rom_hashes.load()
+    assert rom_hashes.may_send(store, "CPUE") and rom_hashes.set_codes(store) == {"CPUE": 11732}
 
 
 def test_waiting_for_an_answer_sends_nothing(ra_dir):

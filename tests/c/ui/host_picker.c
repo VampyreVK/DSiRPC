@@ -115,8 +115,9 @@ void host_games(const char *sd, int sort, const char *folder)
     {
         Game *g = &games[order[i]];
         count_achievements(g, ui.sets_dir);
-        printf("game %s|%s|%s|%d|%d|%u|%d/%d\n", g->code[0] ? g->code : "-", shown_title(g), g->publisher, g->version,
-               g->favorite, (unsigned)g->played, g->earned, g->total);
+        printf("game %s|%s|%s|%d|%d|%u|%d/%d|%s\n", g->code[0] ? g->code : "-", shown_title(g), g->publisher,
+               g->version, g->favorite, (unsigned)g->played, g->earned, g->total,
+               g->total > 0 ? "count" : no_count_badge(g));
     }
     printf("games %d\n", n_games);
     free_games();

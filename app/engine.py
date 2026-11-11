@@ -457,7 +457,7 @@ class Engine:
         store = rom_hashes.load()
         rom_hashes.record(store, roms)
         link = self.ra_link if self.ra_enabled else None
-        names = {r[1]: (r[3] if len(r) > 3 and r[3] else r[0]) for r in roms}
+        names = {r[1]: (r[3] if len(r) > 3 and r[3] else r[0] or r[1]) for r in roms}
         codes = {r[1]: r[0] for r in roms}
         todo = list(dict.fromkeys(r[1] for r in sorted(roms, key=lambda r: not r[2])
                                   if rom_hashes.answer(store, r[1]) is None))
@@ -487,7 +487,8 @@ class Engine:
                     if progress:
                         progress(done, len(todo), offline.PROGRESS_CHECKING)
         # A hash RetroAchievements doesn't know: does it have the game at all?
-        titled = {}
+        # (a file without a game code, homebrew often, has no title to look up: no)
+        titled = {"": False}
         for md5 in [m for m in codes if rom_hashes.answer(store, m) == 0 and "game" not in store["games"][m]]:
             code = codes[md5]
             if code not in titled:
@@ -496,15 +497,19 @@ class Engine:
                 rom_hashes.remember(store, md5, 0, titled[code])
         for md5 in new:
             st = rom_hashes.status(store, md5)
+            which = f"{names[md5]} ({codes[md5] or 'no game code'}, hash {md5})"
             if st in (rom_hashes.NOT_THIS_ROM, rom_hashes.NO_GAME):
-                logging.info(f"RetroAchievements has no set for {names[md5]} ({codes[md5]}, hash {md5}): "
+                logging.info(f"RetroAchievements has no set for {which}: "
                              + ("it has the game, but not this ROM" if st == rom_hashes.NOT_THIS_ROM
                                 else "it doesn't have the game"))
+            elif st == rom_hashes.HAS_SET and not codes[md5]:
+                logging.info(f"RetroAchievements has a set for {which}, but without a game code the console "
+                             "can't be given it")
         try:
             rom_hashes.save(store)
         except OSError as e:
             logging.warning(f"Offline sync: couldn't save {rom_hashes.path()}: {e}")
-        for code in sorted(set(codes.values())):
+        for code in sorted(set(codes.values()) - {""}):
             if rom_hashes.unsupported(store, code):
                 s = rom_hashes.drop_title_link(code)
                 if s is not None:

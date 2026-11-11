@@ -4,7 +4,7 @@
 //
 //   sync_host <port> <sets dir> <unlocks file> <game code or -> [<hashes file>]
 //
-// The hashes file: a line each, "<code> <md5 hex> <started 0/1> <file name>". Prints
+// The hashes file: a line each, "<code or -> <md5 hex> <started 0/1> <file name>". Prints
 // "sync <result> <version> <unlocks sent> <sets received> <statuses>", then
 // "status <md5 hex> <status>" for each, and "msg <text>" (and "say <text>"
 // for what the screen shows as it goes).
@@ -38,7 +38,8 @@ int main(int argc, char **argv)
         {
             uint8_t *r = roms + size;
             memset(r, 0, SYNC_ROM_RECORD);
-            memcpy(r, code, 4);
+            if (strcmp(code, "-") != 0)     // ("-": no game code, homebrew: four zero bytes)
+                memcpy(r, code, 4);
             for (int i = 0; i < 16; i++)
             {
                 unsigned v;

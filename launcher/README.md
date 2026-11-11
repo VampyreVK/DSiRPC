@@ -193,7 +193,10 @@ plus:
   DSiRPC said of it. In the list, a game with a set shows its count as
   before; one RetroAchievements has no set for shows a gray "no set" and
   goes by its file's name (a ROM hack keeps the original's banner), and one
-  DSiRPC hasn't checked yet a gray "new". **X** says which in place of the
+  DSiRPC hasn't checked yet a gray "new" (after one sync with DSiRPC, only
+  if RetroAchievements was out of reach: homebrew without a game code is
+  checked too, and a file that can't be hashed is "no set" from the start).
+  **X** says which in place of the
   achievements: "No set for this version" (RetroAchievements has the game,
   but not this ROM: another region, revision or a hack), "No achievement
   set" (it doesn't have the game), or "Not checked yet" (sync with

@@ -347,7 +347,10 @@ static Game *load_index(const char *index_dir, int *count)
             g->hashed = HASH_FAILED;
         else if (strlen(hash) == 32 && md5_from_hex(hash, g->md5))
             g->hashed = HASH_OK;
-        g->ra = ra >= PICKER_RA_SET && ra <= PICKER_RA_NO_GAME && g->hashed == HASH_OK ? (uint8_t)ra : PICKER_RA_UNKNOWN;
+        // (a file that can't be hashed RetroAchievements' way has no set, by definition)
+        g->ra = g->hashed == HASH_FAILED ? PICKER_RA_NO_GAME
+              : ra >= PICKER_RA_SET && ra <= PICKER_RA_NO_GAME && g->hashed == HASH_OK ? (uint8_t)ra
+              : PICKER_RA_UNKNOWN;
         (*count)++;
     }
     fclose(f);
@@ -722,6 +725,14 @@ static const char *shown_title(const Game *g)
     return name;
 }
 
+// The list's badge for a game without a count: "new" while DSiRPC hasn't
+// said whether RetroAchievements has a set for the file (not hashed, or not
+// synced since), "no set" when it has none
+static const char *no_count_badge(const Game *g)
+{
+    return !no_set(g) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "new" : "no set";
+}
+
 static bool has_list(const Game *g, const char *sets_dir)
 {
     CheevoList l;
@@ -999,9 +1010,7 @@ static void draw_row(int row, int index, bool sel, const PickerUi *ui)
     }
     else
     {
-        // "new": DSiRPC hasn't said yet whether RetroAchievements has a set
-        // for the file (not hashed, or not synced since); "no set": it has none
-        const char *none = !no_set(g) && (g->hashed != HASH_OK || g->ra == PICKER_RA_UNKNOWN) ? "new" : "no set";
+        const char *none = no_count_badge(g);
         bw = ui_text_width(none);
         ui_text(c, right - bw, y + 7, none, UI_DIM);
     }
@@ -1256,7 +1265,7 @@ int picker_setup(const PickerSetup *setup, int *hashed)
         setup_progress(0, 1, &p);
         int r = rom_hash(g->path, g->md5, setup_progress, &p);
         g->hashed = r == ROMHASH_OK ? HASH_OK : HASH_FAILED;   // (a failed one isn't tried again until it changes)
-        g->ra = PICKER_RA_UNKNOWN;
+        g->ra = r == ROMHASH_OK ? PICKER_RA_UNKNOWN : PICKER_RA_NO_GAME;     // (and has no set)
         *hashed += r == ROMHASH_OK;
         done++;
     }
@@ -1273,7 +1282,7 @@ int picker_rom_hashes(const char *index_dir, const char *started, uint8_t **out,
     Game *index = load_index(index_dir, &count);
     int n = 0;
     for (int i = 0; i < count; i++)
-        n += index[i].hashed == HASH_OK && index[i].code[0] != '\0';
+        n += index[i].hashed == HASH_OK;
     if (n == 0 || (*out = calloc(n, PICKER_ROM_RECORD + PICKER_ROM_NAME_MAX)) == NULL)
     {
         free(index);
@@ -1283,12 +1292,14 @@ int picker_rom_hashes(const char *index_dir, const char *started, uint8_t **out,
     for (int i = 0; i < count; i++)
     {
         const Game *g = &index[i];
-        if (g->hashed != HASH_OK || g->code[0] == '\0')
+        if (g->hashed != HASH_OK)
             continue;
         char name[TITLE_LEN];
         file_title(name, sizeof(name), g->path);
         size_t len = strlen(name) < PICKER_ROM_NAME_MAX ? strlen(name) : PICKER_ROM_NAME_MAX;
-        memcpy(r, g->code, 4);
+        memset(r, 0, PICKER_ROM_RECORD);
+        if (g->code[0] != '\0')
+            memcpy(r, g->code, 4);      // (homebrew often has none, "####": four zero bytes)
         memcpy(r + 4, g->md5, 16);
         r[20] = started != NULL && strcmp(started, g->path) == 0 ? PICKER_ROM_STARTED : 0;
         r[21] = (uint8_t)len;

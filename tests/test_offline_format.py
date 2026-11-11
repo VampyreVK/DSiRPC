@@ -10,7 +10,7 @@ import zlib
 
 import pytest
 
-from core import offline, ra_set
+from core import frame_needs, offline, ra_set
 from helpers import gen_set
 
 NOW = datetime.datetime(2026, 10, 19, 12, 0, 0).timestamp()
@@ -223,14 +223,20 @@ def test_answer_layout():
 # -- which set the console runs ---------------------------------------------------
 
 def test_known_sets(puzzle_set, tmp_path):
-    _, data = puzzle_set
+    s, data = puzzle_set
     info = offline.read_set(data)
     assert offline.known_set(info["stamp"], str(tmp_path)) is None
     offline.remember_set(data, str(tmp_path))
     known = offline.known_set(info["stamp"], str(tmp_path))
     assert known == {"code": "TEST", "game_id": info["game_id"], "frame": set(info["frame"]),
-                     "pass": set(info["pass"])}
+                     "pass": set(info["pass"]), "mem": None}     # (no MemAddrs given: none kept)
     offline.remember_set(b"not a set", str(tmp_path))         # ignored
+    # with the MemAddrs, the frame lane's logic (for the console's shadow notes)
+    memaddr = {a["id"]: a["memaddr"] for a in s.achievements}
+    offline.remember_set(data, str(tmp_path), memaddr=memaddr)
+    mem = offline.known_set(info["stamp"], str(tmp_path))["mem"]
+    assert set(mem) == set(info["frame"])
+    assert all(mem[i] == frame_needs.memaddr_hash(memaddr[i]) for i in mem)
 
 
 def test_known_sets_keep_the_newest(puzzle_set, tmp_path):

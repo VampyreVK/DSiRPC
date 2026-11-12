@@ -37,6 +37,7 @@
 #define OP_GET           3
 #define OP_HIST          4
 #define OP_DONE          5
+#define OP_BATCH         6
 #define PUT_SYNC         1
 #define PUT_BACKUP       2
 #define PUT_SAFETY       3
@@ -1464,6 +1465,45 @@ int saves_restore(const SyncJob *job, const SaveConsole *console, const struct s
         saves_write_index(list);
     }
     return r > 0 ? 1 : -1;
+}
+
+uint32_t saves_item_bytes(const SaveItem *it, bool backup_only)
+{
+    if (it->excluded || it->done)
+        return 0;
+    SaveAction action = it->action;
+    if (action == SA_CONFLICT)
+        action = it->choice == SC_KEEP_CONSOLE ? SA_UPLOAD : it->choice == SC_TAKE_PC ? SA_DOWNLOAD : SA_IN_SYNC;
+    switch (action)
+    {
+    case SA_UPLOAD:
+    case SA_BACKUP:
+        return it->size;
+    case SA_DOWNLOAD:
+    case SA_DOWNLOAD_NEW:
+        return backup_only ? 0 : (it->present ? it->size : 0) + it->pc_size;
+    default:
+        return 0;
+    }
+}
+
+void saves_batch(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server, int n,
+                 uint32_t bytes)
+{
+    uint8_t req[HEADER_SIZE + 6];
+    size_t len = request_header(req, console, OP_BATCH);
+    put16(req + len, (uint16_t)(n < 0 ? 0 : n > 0xFFFF ? 0xFFFF : n));
+    put32(req + len + 2, bytes);
+    len += 6;
+    char msg[64];
+    int sock;
+    uint8_t answer[6];
+    int r = sync_open(job, server, &sock, msg, sizeof(msg));
+    if (r > 0)
+        r = sync_send(job, sock, req, len, msg, sizeof(msg));
+    if (r > 0)
+        sync_recv(job, sock, answer, sizeof(answer), msg, sizeof(msg));
+    sync_close(sock);
 }
 
 void saves_done(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,

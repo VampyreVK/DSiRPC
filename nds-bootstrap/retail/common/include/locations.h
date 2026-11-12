@@ -59,6 +59,19 @@
 #define INGAME_MENU_EXT_LOCATION_B4DS                0x02380000
 #define CHEAT_ENGINE_BUFFERED_LOCATION	             0x026E0000
 #define INGAME_MENU_LOCATION                         0x02F88000
+// DSiRPC: the in-game menu's window in DSi mode (its code and data, swapped
+// with the game RAM under it when it opens) is INGAME_MENU_SIZE, not
+// upstream's 0xA000, for its graphical skin (dsirpc_skin.c). It starts where
+// DSIRPC_ACH_LOCATION's RAM ends (0x0CF88000 is the same RAM as 0x02F88000)
+// and mustn't reach into it: the menu reads that RAM and the ARM7 writes it
+// while it's open, and its swap (below) would put back stale state. Its two slots in
+// pagefile.sys are past the end of upstream's 6 MB, which nds-bootstrap
+// makes the file big enough for (twlPageFileSize in conf_sd.cpp). Both
+// offsets are round numbers (a byte and zeros), so the ARM7 cardengine, which
+// is nearly full, loads them in one instruction pair, not from a literal.
+#define INGAME_MENU_SIZE                             0xC000
+#define INGAME_MENU_PAGEFILE_OFFSET                  0x600000 // the menu
+#define INGAME_MENU_GAMERAM_PAGEFILE_OFFSET          0x620000 // the game RAM under it (up to 128 KB)
 #define INGAME_MENU_LOCATION_B4DS                    0x023E6000
 #define INGAME_MENU_LOCATION_B4DS_EXTMEM             (INGAME_MENU_LOCATION_B4DS+0x400000)
 #define CACHE_ADDRESS_TABLE_LOCATION                 0x027D8000
@@ -125,14 +138,20 @@
 // probe_ach.c), with the per-frame capture's ring in its last 2 KB
 // (probe_watch.c; main RAM rather than the ARM7 cardengine's own, which is
 // full). The ROM cache and ROM-in-RAM loading skip it (romLocationAdjust()
-// in bootloaderi's main.arm7.c). It ends at 0x0CFE0000: a DSi-enhanced game
-// (unit code > 0, like Pokemon Black and White) uses the 128 KB above that
-// (0x02FE0000, the same RAM), which romLocationAdjust() keeps the ROM cache
-// out of too (also when its jump past this area lands there); it used to
-// start at 0x0CFB0000, so its last 64 KB (the unlock file and the ring)
+// in bootloaderi's main.arm7.c); everything else takes these two constants
+// (rpcprobe's ACH_SET_SPACE, the in-game menu's list, DSiRPC's
+// offline.ACH_MEMORY must match). 512 KB right below the in-game menu's
+// window (INGAME_MENU_LOCATION, 0x02F88000: 0x0CF88000 is the same RAM),
+// in what is the ROM cache's area in DS mode, the only mode DSiRPC runs
+// games in (nds-bootstrap's other uses of 0x02F00000-0x02F80000 are for
+// DSi mode and DSiWare). It was 256 KB at 0x0CFA0000-0x0CFE0000, up to the
+// 128 KB a DSi-enhanced game (unit code > 0, like Pokemon Black and White)
+// uses at 0x0CFE0000 (0x02FE0000, the same RAM), which upstream's
+// romLocationAdjust() keeps the ROM cache out of; earlier still at
+// 0x0CFB0000, where its last 64 KB (the unlock file and the ring)
 // overwrote those games' memory.
-#define DSIRPC_ACH_LOCATION        0x0CFA0000
-#define DSIRPC_ACH_SIZE            0x40000
+#define DSIRPC_ACH_LOCATION        0x0CF08000
+#define DSIRPC_ACH_SIZE            0x80000
 #define DSIRPC_WATCH_RING_SIZE     0x800
 #define DSIRPC_WATCH_RING_LOCATION (DSIRPC_ACH_LOCATION + DSIRPC_ACH_SIZE - DSIRPC_WATCH_RING_SIZE)
 

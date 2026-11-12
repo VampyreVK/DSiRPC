@@ -58,12 +58,15 @@ def _quiet_streams():
         sys.stderr = open(os.devnull, "w")
 
 
+MODES = ["run", "tray", "setup"]
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(
         prog="dsirpc.py",
         description="DSiRPC: Discord Rich Presence and a stream overlay from a real DSi",
         epilog="Settings are in dsirpc.cfg ('dsirpc.py setup' writes it).")
-    ap.add_argument("mode", nargs="?", choices=["run", "tray", "setup"], default="run",
+    ap.add_argument("mode", nargs="?", choices=MODES, default="run",
                     help="run here (default), as a tray icon, or first-time setup")
     ap.add_argument("--overlay", action="store_true", help="also open the overlay window (run mode)")
     ap.add_argument("--no-discord", action="store_true", help="don't show anything on Discord")
@@ -78,6 +81,11 @@ def parse_args(argv=None):
     ap.add_argument("--clear-ra", action="store_true",
                     help="at the console's first sync, throw away the unlocks waiting on it (nothing sent) "
                          "and send it every set again")
+    ap.add_argument("--clear-learning", nargs="?", const="all", metavar="CODE",
+                    help="forget which achievements were found to need checking every frame (all games, or "
+                         "just CODE): wipes ra/cache/frame_needs.json (backed up as frame_needs.json.bak), and at "
+                         "the console's first sync throws its shadow check's notes away and sends those sets "
+                         "again, so the console goes back to guessing; its unlocks are kept")
     ap.add_argument("--client-id", help="Discord application ID for every game (instead of dsirpc.cfg's)")
     ap.add_argument("--file", help="use a 4 MB RAM dump (e.g. from melonDS) instead of the DSi")
     ap.add_argument("--game", metavar="CODE", help="with --file: the dump's game code, if it isn't Platinum (e.g. AMCE)")
@@ -90,14 +98,26 @@ def parse_args(argv=None):
     ap.add_argument("--scale", type=int, help="overlay window size as a multiple of 256x192 (keys 1-6 too)")
     ap.add_argument("--chroma", metavar="RRGGBB", help="overlay background colour, for a chroma key in OBS")
     ap.add_argument("-v", "--verbose", action="store_true", help="more detail in the log")
-    return ap.parse_args(argv)
+    args = ap.parse_args(argv)
+    # --clear-learning's CODE is optional, so "--clear-learning tray" takes the
+    # mode as the code: a mode name there is the mode (no game code is one)
+    cl = args.clear_learning
+    if cl is not None and cl.lower() in MODES:
+        if args.mode == "run":
+            args.mode = cl.lower()
+        cl = "all"
+    if cl is not None:
+        cl = "all" if cl.lower() == "all" else cl.upper()
+    args.clear_learning = cl
+    return args
 
 
 def _engine_args(args):
     return dict(file=args.file, game=args.game, demo=args.demo, demo_name=args.name,
                 dsi_ip=args.dsi_ip, port=args.port, interval=args.interval,
                 client_id=args.client_id, dry_run=args.dry_run, ra=not args.no_ra,
-                blank_ra=args.blank_ra, clear_ra=args.clear_ra)
+                blank_ra=args.blank_ra, clear_ra=args.clear_ra,
+                clear_learning=args.clear_learning)     # (parse_args(): "all", a game code or None)
 
 
 def _missing_packages(e):

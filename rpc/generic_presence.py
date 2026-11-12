@@ -137,9 +137,12 @@ def split_text(text, limit=128):
 
 
 def title(game, ra_set=None):
+    code = (game or {}).get("code")
+    own = games.file_name(code)     # a file RetroAchievements has no set for: its own name
+    if own:
+        return own
     if ra_set and ra_set.title:
         return ra_set.title
-    code = (game or {}).get("code")
     return games.NAMES.get(code, code or "a DS game")
 
 
@@ -193,6 +196,38 @@ def build_presence(game, ra_set=None, rich_presence=None, start=None, check_imag
             presence["small_text"] = ra_line
     elif icon:
         presence["large_image"], presence["large_text"] = icon, name
+    if start:
+        presence["start"] = int(start)
+    return presence
+
+
+LAUNCHER_ICON = "pixel"     # Assets/Consoles' picture for the launcher's presence (Pixel.gif)
+
+
+def launcher_presence(launcher, activity=None, start=None):
+    """The presence while the console is in the DSiRPC launcher (core/hub.py's
+    launcher_state: {'console', 'game', 'title', ...}): "Playing DSiRPC", the
+    Pixel logo as the big image ("DSiRPC on 3DS" or "DSiRPC on DSi" when you
+    hover it) and no small one. The first line says it's in the launcher (or
+    starting the game picked there), the second what the launcher is doing
+    with DSiRPC (activity: core/launcher_activity.py's line(), e.g. "Syncing
+    saves (2 of 5)"), or that the game's loading; none while it's idle."""
+    console = launcher.get('console') or "DSi"
+    icon = console_icon(LAUNCHER_ICON)
+    if launcher.get('game'):
+        details = _clip(f"Starting {launcher.get('title') or launcher['game']}")
+    else:
+        details = "In the launcher"
+    presence = {
+        "activity_type": ActivityType.PLAYING,
+        "name": "DSiRPC",
+        "details": details,
+        "large_image": icon[1] if icon else f"{CONSOLES_URL}/Pixel.gif",
+        "large_text": f"DSiRPC on {console}",
+    }
+    state = _clip(activity) if activity else "Loading the game" if launcher.get('game') else None
+    if state:
+        presence["state"] = state
     if start:
         presence["start"] = int(start)
     return presence

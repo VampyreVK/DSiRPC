@@ -127,8 +127,9 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
   has none, so it has no Sounds row either).
 - `MUSIC`: `bright` (the default), `subtle` or `off`, the modern look's menu
   music ([below](#the-menu-music)); no row in the classic look either.
-- `GAME_SORT`: `recent`, `name` or `favorites`, the modern game list's order
-  (L/R there, not on the settings screen).
+- `GAME_SORT`: `recent`, `name`, `favorites` or `unlocked` (the most
+  achievements unlocked first), the modern game list's order (L/R there, not
+  on the settings screen).
 - `LAST_GAME`: the game last started from the launcher, for **START** on the
   main screen and in the game browser (not on the settings screen).
 
@@ -186,10 +187,43 @@ plus:
   set's list and the unlocks waiting in `RPCUNLK.BIN`). **L**/**R** change
   the order, **Y** makes a favorite, **X** lists the achievements, with the
   one picked described on the top screen. `games.idx` keeps each game's
-  name, publisher and code from its banner by the file's size and time, so
-  only new or changed games are read, plus the favorites and when each game
-  was last started from the launcher (written in the classic look too, when
-  a game starts). If nds-bootstrap isn't next to the launcher, the classic
+  name, publisher and code from its banner by the file's name, size and
+  time, so only new or changed games are read, plus the favorites, when each
+  game was last started from the launcher (written in the classic look too,
+  when a game starts), and each game's RetroAchievements hash with what
+  DSiRPC said of it. In the list, a game with a set shows its count as
+  before; one RetroAchievements has no set for shows a gray "no set" and
+  goes by its file's name (a ROM hack keeps the original's banner), and one
+  DSiRPC hasn't checked yet a gray "new" (after one sync with DSiRPC, only
+  if RetroAchievements was out of reach). A set with no achievements in it
+  (RetroAchievements has the game, but none yet) is "no set" too. Files the
+  launcher can't start aren't listed at all, nor hashed or synced: homebrew
+  built with libnds (its ARM7 code loads into the ARM7's own RAM, where
+  Nintendo's SDK never puts it, which nds-bootstrap's hooks need; the same
+  sign TWiLight Menu++ goes by) and files that can't be hashed
+  RetroAchievements' way. ROM hacks stay. **X** says which in place of the
+  achievements: "No set for this version" (RetroAchievements has the game,
+  but not this ROM: another region, revision or a hack), "No achievement
+  set" (it doesn't have the game), "No achievements yet" (its set has none),
+  "No homebrew support yet" (homebrew that can be started, with a set:
+  DSiRPC can't check achievements in homebrew; not normally seen, as such
+  homebrew isn't listed), "No achievements here yet" (the set comes at the
+  next sync, also "new" in the list) or "Not checked yet" (sync with
+  DSiRPC). A game code's set is only staged for a file it's for
+  (`picker_set_fits()`): a ROM hack sharing its original's code starts with
+  none ("None for this file"), never its original's. The
+  badge, the top screen and X all follow one state (`ra_state()`). At the
+  sync, every game with a set gets it, started or not, and
+  the boot screen's sets step says how far DSiRPC got ("Checking 12/70",
+  "Sets 3/9").
+- **First-time setup** (`picker_setup()`, from `main.c` as it connects or
+  goes offline): when there's a game on the SD card that `games.idx`
+  doesn't have yet (or that changed), the boot screen shows "Setting up new
+  games", a card like the save sync's with each game's name, how many are
+  left and a bar, while the launcher hashes each one once
+  (`source/romhash.c`, `source/md5.c`: the RetroAchievements hash, about
+  1 MB read a game). B leaves the rest for the next start. Nothing shows
+  when no game is new. The hashes go to DSiRPC at the sync after it. If nds-bootstrap isn't next to the launcher, the classic
   file browser asks for it.
 - **The top screen** (`top_modern()`): the bar has a status chip
   (Connecting, Connected, No Wi-Fi, Offline) and the battery icon (filled to

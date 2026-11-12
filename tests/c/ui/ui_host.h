@@ -30,6 +30,7 @@ void host_update_screens(void);
 void host_settings_screens(void);
 void host_picker_screens(const char *sd);
 void host_save_screens(void);
+void host_save_batch(void);
 
 // The demo's screens (ui_host.c's demo command): one state each, drawn
 void host_demo_connecting(int done);
@@ -47,5 +48,11 @@ extern char host_music_log[1024];
 void host_games(const char *sd, int sort, const char *folder);
 void host_favorite(const char *sd, const char *path);
 void host_started(const char *sd, const char *path);
+void host_hash(const char *path);                         // romhash.c: "hash <result> <md5>"
+void host_setup(const char *sd);                          // picker_setup(): "setup <went through> <hashed> <shown>"
+void host_roms(const char *sd, const char *started);      // picker_rom_hashes(): a line each, then "roms N"
+void host_status(const char *sd, const char *list);       // picker_store_status() with "md5:status,..."
+void host_fits(const char *sd, const char *path);         // picker_set_fits(): "fits 0/1"
+extern char host_unreadable[256];                         // "unreadable TEXT": opening a path with it in fails
 
 #endif // UI_HOST_H

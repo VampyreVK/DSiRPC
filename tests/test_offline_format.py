@@ -10,7 +10,7 @@ import zlib
 
 import pytest
 
-from core import offline, ra_set
+from core import frame_needs, offline, ra_set
 from helpers import gen_set
 
 NOW = datetime.datetime(2026, 10, 19, 12, 0, 0).timestamp()
@@ -121,7 +121,8 @@ def test_list_round_trip():
 
 @pytest.fixture(scope="module")
 def puzzle_set(rcheevos):
-    s = ra_set.RaSet(gen_set.make_set(150, seed=2))
+    # (big enough that it doesn't all fit in the frame lane)
+    s = ra_set.RaSet(gen_set.make_set(250, seed=2))
     return s, offline.build_set(s, "TEST")
 
 
@@ -154,7 +155,8 @@ def test_set_leaves_out_unlocked(puzzle_set, rcheevos):
 def test_set_fits_the_consoles_memory(rcheevos):
     s = ra_set.RaSet(gen_set.make_set(900, seed=6))
     info = offline.read_set(offline.build_set(s, "BIGG"))
-    need = offline.set_memory(info["program"], info["frame_program"], len(offline.build_list(s)))
+    # (what has to fit: the shadow check's copy is left out when it doesn't)
+    need = offline.set_memory(info["program"], info["frame_program"], len(offline.build_list(s)), shadow=False)
     assert need <= offline.ACH_MEMORY
     assert 0 < len(info["frame"]) + len(info["pass"]) <= 900
     sample, check = offline.frame_costs(*offline.program_counts(info["frame_program"]))
@@ -221,14 +223,20 @@ def test_answer_layout():
 # -- which set the console runs ---------------------------------------------------
 
 def test_known_sets(puzzle_set, tmp_path):
-    _, data = puzzle_set
+    s, data = puzzle_set
     info = offline.read_set(data)
     assert offline.known_set(info["stamp"], str(tmp_path)) is None
     offline.remember_set(data, str(tmp_path))
     known = offline.known_set(info["stamp"], str(tmp_path))
     assert known == {"code": "TEST", "game_id": info["game_id"], "frame": set(info["frame"]),
-                     "pass": set(info["pass"])}
+                     "pass": set(info["pass"]), "mem": None}     # (no MemAddrs given: none kept)
     offline.remember_set(b"not a set", str(tmp_path))         # ignored
+    # with the MemAddrs, the frame lane's logic (for the console's shadow notes)
+    memaddr = {a["id"]: a["memaddr"] for a in s.achievements}
+    offline.remember_set(data, str(tmp_path), memaddr=memaddr)
+    mem = offline.known_set(info["stamp"], str(tmp_path))["mem"]
+    assert set(mem) == set(info["frame"])
+    assert all(mem[i] == frame_needs.memaddr_hash(memaddr[i]) for i in mem)
 
 
 def test_known_sets_keep_the_newest(puzzle_set, tmp_path):
@@ -241,3 +249,49 @@ def test_known_sets_keep_the_newest(puzzle_set, tmp_path):
     kept = json.loads(path.read_text())
     assert len(kept) == offline.KNOWN_SETS_KEEP
     assert f"{offline.read_set(data)['stamp']:08X}" in kept and "00000000" not in kept
+
+
+def test_the_shadow_copy_never_costs_an_achievement(rcheevos, monkeypatch, caplog):
+    """A set that fits the console only without the frame lane's shadow copy
+    keeps every achievement, and the shadow is what's left out."""
+    s = ra_set.RaSet(gen_set.make_set(250, seed=2))
+    info = offline.read_set(offline.build_set(s, "TEST"))
+    list_size = len(offline.build_list(s))
+    with_shadow = offline.set_memory(info["program"], info["frame_program"], list_size)
+    without = offline.set_memory(info["program"], info["frame_program"], list_size, shadow=False)
+    assert without < with_shadow
+    monkeypatch.setattr(offline, "ACH_MEMORY", (with_shadow + without) // 2)   # room for one, not the other
+    with caplog.at_level("INFO"):
+        tight = offline.read_set(offline.build_set(s, "TEST"))
+    assert set(tight["frame"]) | set(tight["pass"]) == set(info["frame"]) | set(info["pass"])
+    assert offline.set_memory(tight["program"], tight["frame_program"], list_size) > offline.ACH_MEMORY
+    assert offline.set_memory(tight["program"], tight["frame_program"], list_size, shadow=False) <= offline.ACH_MEMORY
+    assert "no room for the shadow check" in caplog.text
+
+
+def test_a_set_short_of_room_gets_the_small_ring_before_losing_anything(rcheevos, monkeypatch, caplog):
+    """No room even without the shadow copy, but enough with the frame
+    lane's ring at 8 samples instead of 16: the header says 8, and every
+    achievement and the whole frame lane stay."""
+    s = ra_set.RaSet(gen_set.make_set(250, seed=2))
+    info = offline.read_set(offline.build_set(s, "TEST"))
+    assert info["ring"] >= 16
+    list_size = len(offline.build_list(s))
+    need = lambda slots: offline.set_memory(info["program"], info["frame_program"], list_size, shadow=False, slots=slots)
+    monkeypatch.setattr(offline, "ACH_MEMORY", (need(8) + need(16)) // 2)
+    with caplog.at_level("INFO"):
+        tight = offline.read_set(offline.build_set(s, "TEST"))
+    assert tight["ring"] == 8
+    assert tight["frame"] == info["frame"] and tight["pass"] == info["pass"]
+
+
+def test_the_ring_takes_the_memory_left_over(rcheevos, monkeypatch):
+    """The frame lane's ring is the biggest power of 2 from 8 to 256 samples
+    that the console's memory has room for, and the header says so."""
+    s = ra_set.RaSet(gen_set.make_set(250, seed=2))
+    info = offline.read_set(offline.build_set(s, "TEST"))
+    list_size = len(offline.build_list(s))
+    need = lambda slots: offline.set_memory(info["program"], info["frame_program"], list_size, slots=slots)
+    assert info["ring"] == 256 and need(256) <= offline.ACH_MEMORY
+    monkeypatch.setattr(offline, "ACH_MEMORY", need(64) + 100)       # room for 64, not 128
+    assert offline.read_set(offline.build_set(s, "TEST"))["ring"] == 64

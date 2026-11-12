@@ -85,3 +85,32 @@ void host_demo_saves_done(void)
     message_tone("Saves synced", "3 uploaded\n1 downloaded\n\nEverything else is in sync.",
                  UI_GREEN);
 }
+
+// A sync's bar across its saves (saveui.c's batch): each step's done of
+// total as the batch's, printed in turn ("batch 0,256,...")
+void host_save_batch(void)
+{
+    static const struct { const char *what; uint32_t done, total; } steps[] = {
+        { "Uploading Pokemon Black", 0, 512 }, { "Uploading Pokemon Black", 256, 512 },
+        { "Uploading Pokemon Black", 512, 512 },
+        { "Backing up Platinum first", 0, 256 }, { "Backing up Platinum first", 256, 256 },
+        { "Downloading Platinum", 0, 1024 }, { "Downloading Platinum", 512, 1024 },
+        { "Trying again (2 of 3)", 0, 1 },                  // (a retry's wait)
+        { "Downloading Platinum", 0, 1024 }, { "Downloading Platinum", 512, 1024 },
+        { "Downloading Platinum", 1024, 1024 },
+    };
+    memset(&batch, 0, sizeof(batch));
+    batch.on = true;
+    batch.total = 512 + 256 + 1024;
+    printf("batch ");
+    for (size_t i = 0; i < sizeof(steps) / sizeof(steps[0]); i++)
+    {
+        uint32_t of;
+        uint32_t done = batch_done(steps[i].what, steps[i].done, steps[i].total, &of);
+        printf("%s%u", i ? "," : "", (unsigned)done);
+        if (of != batch.total)
+            printf("!");
+    }
+    printf("\n");
+    batch.on = false;
+}

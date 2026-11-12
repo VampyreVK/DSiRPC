@@ -37,7 +37,7 @@ console and your PC.
   lines and level, in the overlay and on Discord.
 - **RetroAchievements on real hardware:** achievements are checked while you
   play, by your PC and by the console itself. They show up in a menu in-game on the
-  console (L + Down + B), blink the DSi power LED when you have a new unlock, and can go straight to your RetroAchievements profile if you choose.
+  console (L + Down + B), pulse a DSi LED when you have a new unlock, and can go straight to your RetroAchievements profile if you choose.
 - **Play anywhere:** away from your Wi-Fi, the console keeps checking
   achievements and hands them over the next time it sees your PC. A
   hotspot that drops out for a few seconds doesn't lose it either.
@@ -45,7 +45,8 @@ console and your PC.
   keeps the last 10 versions from each console, and carries your progress
   between your DSi and 3DS.
 - **A launcher that looks the part:** your games with their own icons,
-  sorted by when you last played them or with your favorites first, each
+  sorted by when you last played them, with your favorites first or by the
+  achievements you've unlocked, each
   game's achievements and DSiRPC playtime (offline play counts too), the
   battery, soft menu sounds, menu music (Bright or Subtle) and the touch
   screen. The original text screens are one setting away.
@@ -111,10 +112,80 @@ shortcuts worth knowing:
 | Main screen | **L + R** | Open the settings (the **Settings** tile) |
 | Main screen | **SELECT** | Leave the launcher (**X** leaves it still connected) |
 | Game list | **X** / **Y** | See the game's achievements / make it a favorite |
-| Game list | **L** / **R** | Sort by last played, A to Z, or favorites first |
+| Game list | **L** / **R** | Sort by last played, A to Z, favorites first, or most unlocked first |
 
 In the classic look, **START** opens a file browser instead, where
 **START** starts the last game.
+
+### In a game
+
+Press **L + Down + B** in a game for the in-game menu, in the launcher's
+look. Besides going back to the game, resetting it and the rest of
+nds-bootstrap's menu, it lists the game's achievements, with any new
+unlocks up top. The Wi-Fi sign at its top left is green while DSiRPC is
+talking to the console, yellow while it isn't (or the console is still
+connecting), red if the Wi-Fi failed, and gray if DSiRPC isn't running.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/igm-menu.gif" width="272" alt="The in-game menu on the console, moving: the main menu, the game's achievements, then the options">
+</p>
+<p align="center"><sub>The in-game menu, drawn by its own code: the main menu, a game's achievements and the options.</sub></p>
+
+## <img src="docs/images/icons/trophy.svg" width="26" height="26" alt="">&nbsp;Offline RetroAchievements
+
+The console checks your achievements itself, so they unlock wherever you
+play: on the couch next to your PC, on a train, or with the Wi-Fi off.
+
+- **Every achievement the console can do:** a game started from the launcher
+  gets its achievement set, and the console checks the achievements you
+  haven't earned yet, all of them in the sets tested so far. The few it
+  can't are ones that need decimal math, which DSiRPC checks when it's
+  watching.
+- **The right set for your copy:** the first time the launcher sees a game,
+  it works out the game file's RetroAchievements hash (a moment for each
+  game, once), so DSiRPC picks the set for that exact version, every game
+  with a set gets it at the next sync, and the launcher marks the ones
+  RetroAchievements has no set for (by their file's name, so a ROM hack
+  isn't called by the game it's based on).
+- **Every frame where it counts:** an achievement that hangs on a single
+  frame (a T-Spin, a one-frame flag, a hit count) is checked on every frame
+  the game draws, even when the game is busy. The rest are checked many
+  times a second.
+- **Games run at their usual speed:** the checking runs in the time the
+  console's second processor would otherwise spend waiting.
+- **See them right away:** the in-game menu (**L + Down + B**) shows your new
+  unlocks up top and lists every achievement, earned ones first, with when
+  you earned them.
+- **A light when you unlock one:** on a DSi, the LED you picked for
+  TWiLight Menu++'s **ROM read LED** setting (Wi-Fi, power in purple, or
+  camera) pulses after a new unlock until you open the in-game menu.
+- **Handed over at the next sync:** unlocks are saved to the SD card as they
+  happen. The next time the launcher sees DSiRPC, they go to your PC, and to
+  your RetroAchievements profile if you turned that on.
+- **It gets better as you play:** the console notices which achievements
+  really need checking every frame and tells DSiRPC, which builds the
+  game's next set around that.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/VampyreVK/DSiRPC/renders/igm-achievements.gif" width="272" alt="The in-game menu on the console, moving: two new achievements on the main screen, then the game's whole list, earned ones first, with each one's description">
+</p>
+<p align="center"><sub>Two new unlocks in the in-game menu, then the game's list: drawn by the menu's own code.</sub></p>
+
+**How it works, briefly.** DSiRPC has
+[rcheevos](https://github.com/RetroAchievements/rcheevos), the engine
+emulators use, read each game's achievements, and turns what it read into
+a compact program for the console. The launcher copies it to the SD card.
+In the game, DSiRPC's nds-bootstrap runs that program on the console's
+second processor (the ARM7) with a port of rcheevos' rules, so it unlocks
+exactly what rcheevos would. Achievements that need every frame go in a
+*frame lane*: their memory is read at the start of every frame into a
+buffer of up to 256 frames (about 4 seconds), and checked in order as time
+allows, so a busy moment never skips one. The rest go in a *pass lane*,
+checked again and again. An achievement whose memory hasn't changed is
+skipped. A *shadow check* runs the frame lane a second time, the way the
+pass lane would, and notes for DSiRPC any achievement that came out
+differently: proof that it needs the frame lane. All the details are in
+[docs/OFFLINE_ACHIEVEMENTS.md](docs/OFFLINE_ACHIEVEMENTS.md).
 
 ## <img src="docs/images/icons/ball.svg" width="26" height="26" alt="">&nbsp;Pokémon, in full
 
@@ -249,6 +320,7 @@ games run at their usual speed.
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Everything about using DSiRPC, in detail |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Running from the source code, building the console files, the command line and testing flags, tools, tests and releases |
 | [docs/DOCUMENTATION.md](docs/DOCUMENTATION.md) | The technical reference: the protocol, the achievement checker, the memory maps, troubleshooting |
+| [docs/OFFLINE_ACHIEVEMENTS.md](docs/OFFLINE_ACHIEVEMENTS.md) | Offline achievements end to end: building the sets, the two lanes, the console's checker, learning what needs every frame, the unlocks' way back |
 | [launcher/README.md](launcher/README.md), [nds-bootstrap/DSIRPC_CHANGES.md](nds-bootstrap/DSIRPC_CHANGES.md) | The console side: the launcher, and what was changed in nds-bootstrap |
 | [tests/README.md](tests/README.md) | The tests GitHub runs on every change |
 | [docs/HISTORY.md](docs/HISTORY.md) | How the project got here |

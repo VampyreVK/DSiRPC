@@ -17,14 +17,15 @@ HOST_DIR = os.path.join(REPO, "tests", "c", "ui")
 HOST_SOURCES = ["ui_host.c", "host_stubs.c", "host_main.c", "host_update.c", "host_settings.c", "host_picker.c",
                 "host_saves.c"]
 LAUNCHER_SOURCES = ["ui.c", "topscreen.c", "browser.c", "sync.c", "savesync.c", "stats.c", "bootstrap_ini.c",
-                    "music.c"]
+                    "music.c", "md5.c", "romhash.c"]
 UNIX_2000 = 946684800
 KEY = (255, 0, 255)         # the top screen's clear pixels, in a dump with key=1
 
 
 def build(out, sanitize=True):
     sources = [os.path.join(HOST_DIR, f) for f in HOST_SOURCES] + [os.path.join(LAUNCHER, f) for f in LAUNCHER_SOURCES]
-    flags = ["-std=gnu11", "-D__NDS__", "-I", os.path.join(HOST_DIR, "stub"), "-I", HOST_DIR, "-I", LAUNCHER]
+    flags = ["-std=gnu11", "-D__NDS__", "-I", os.path.join(HOST_DIR, "stub"), "-I", HOST_DIR, "-I", LAUNCHER,
+             "-Wl,--wrap=fopen"]      # (host_stubs.c: the "unreadable" command's SD card hiccups)
     return cbuild.build(out, sources, flags=flags, sanitize=("address", "undefined") if sanitize else ())
 
 

@@ -22,6 +22,7 @@
 #include "locations.h"
 #include "dsirpc_ach_menu.h"
 #include "dsirpc_ach.h"
+#include "dsirpc_skin.h"
 
 #ifndef ACH_BASE // (the PC test has its own)
 #include <nds/system.h>
@@ -36,8 +37,9 @@ static void waitFrame(void) {
 #endif
 
 #define ACH_MAX          512    // entries listed (a longer list is cut short)
-#define ACH_ROWS         8      // entries a page, two lines each
-#define ACH_TOP          1      // the first entry's line
+#define ACH_ROWS         5      // entries a page, two lines each, with half a line
+                                // above and below (Skin_SplitRow()): lines 1-16
+#define ACH_TOP          1      // the line over the first entry (its top half the list's)
 #define ACH_RULE         17     // the line between the list and the details
 #define ACH_DETAIL       18     // the highlighted one's text ...
 #define ACH_DETAIL_LINES 5      // ... on lines 18-22
@@ -45,12 +47,15 @@ static void waitFrame(void) {
 #define ACH_COLS         32
 
 static s16 achStatus = ACH_ABSENT;
+static u32 achLink; // the anchor's `link`: 0 if there's none
 static const DsirpcListEntry *achEntries;
 static const char *achText;
 static u16 achCount, achEarned, achNew, achNewFrom;
+static u16 achTotal;                  // in the whole list (achCount: listed, ACH_MAX at most)
 static u32 achPoints, achPointsEarned;
 static u16 achOrder[ACH_MAX];
-static char achNewTitle[2][ACH_COLS - 1]; // the two newest new ones, for the main screen
+#define ACH_NEW_COLS 28 // inside the main screen's panel
+static char achNewTitle[2][ACH_NEW_COLS + 1]; // the two newest new ones, for the main screen
 
 static const unsigned char achLabel[] = "Achievements";
 
@@ -186,12 +191,15 @@ static void achLoadList(u32 offset) {
 	achEntries = e;
 	achText = text;
 	achCount = n;
-	for (u16 i = 0; i < n; i++) {
+	achTotal = l->count;
+	for (u16 i = 0; i < l->count; i++) { // (the totals: every entry, listed or not)
 		achPoints += e[i].points;
 		if (achIsEarned(&e[i])) {
 			achEarned++;
 			achPointsEarned += e[i].points;
 		}
+	}
+	for (u16 i = 0; i < n; i++) {
 		if (achIsNew(&e[i])) achNew++;
 		// insertion sort: a few hundred entries at most
 		u16 j = i;
@@ -204,7 +212,7 @@ static void achLoadList(u32 offset) {
 	for (int k = 0; k < 2 && k < achNew; k++) { // new ones are listed first
 		const char *t = achText + achEntries[achOrder[k]].title;
 		int c = 0;
-		while (t[c] && c < ACH_COLS - 2) { achNewTitle[k][c] = t[c]; c++; }
+		while (t[c] && c < ACH_NEW_COLS) { achNewTitle[k][c] = t[c]; c++; }
 		if (t[c] && c) achNewTitle[k][c - 1] = '~';
 		achNewTitle[k][c] = 0;
 	}
@@ -212,8 +220,9 @@ static void achLoadList(u32 offset) {
 
 void Ach_Open(int show) {
 	achStatus = ACH_ABSENT;
+	achLink = 0;
 	achEntries = 0;
-	achCount = achEarned = achNew = 0;
+	achCount = achEarned = achNew = achTotal = 0;
 	achPoints = achPointsEarned = 0;
 	if (!show) return;
 
@@ -224,10 +233,25 @@ void Ach_Open(int show) {
 	// over from an earlier game
 	if (a->magic == DSIRPC_MENU_ANCHOR_MAGIC && a->open == 1) {
 		achStatus = a->status;
+		achLink = a->link;
 		achNewFrom = a->newFrom;
 		if (achStatus == DSIRPC_MENU_READY && a->list) achLoadList(a->list);
 	}
 	(*revertMpu)();
+}
+
+// Fewer hellos (~1 a second) than this since DSiRPC last asked for
+// anything: it's still asking
+#define ACH_LINK_HEARD 3
+
+int Ach_LinkIcon(void) {
+	if (!(achLink & 0x80)) return SKIN_ICON_GRAY; // no anchor, or rpcprobe isn't running
+	switch ((achLink >> 4) & 7) { // probe_hook.c's stages
+		case 2:  return ((achLink >> 16) < ACH_LINK_HEARD) ? SKIN_ICON_GREEN : 0; // sending
+		case 3:  return SKIN_ICON_RED;  // the Wi-Fi failed
+		case 5:  return SKIN_ICON_GRAY; // off (the lid closed)
+		default: return 0;              // still connecting
+	}
 }
 
 int Ach_HasScreen(void) {
@@ -240,38 +264,50 @@ const unsigned char *Ach_Label(void) {
 
 // -- the main screen ---------------------------------------------------------
 
-#define ACH_BANNER  10 // lines 10-13: the new unlocks
-#define ACH_SUMMARY 18 // line 18: how many are earned
+#define ACH_CARD 14 // its panel's top edge, under the menu's panel (9 items at most)
+
+// Prints `line` centered on row y of the panel, a star on each side
+static void achBanner(int y, const char *line) {
+	int n = 0;
+	while (line[n]) n++;
+	printCenter(16, y, (const unsigned char *)line, (FontPalette)FONT_AMBER, false);
+	Skin_Icon(16 - (n + 1) / 2 - 2, y, SKIN_ICON_STAR);
+	Skin_Icon(16 + n / 2 + 1, y, SKIN_ICON_STAR);
+}
 
 void Ach_DrawMain(void) {
 	if (achStatus == ACH_ABSENT) return;
 	char line[ACH_COLS + 1];
-	int n;
+	int n, y = ACH_CARD + 1;
 
 	if (achNew) {
-		n = achStr(line, "* ");
-		n += achNum(&line[n], achNew);
-		n += achStr(&line[n], achNew == 1 ? " new achievement! *" : " new achievements! *");
+		n = achNum(line, achNew);
+		n += achStr(&line[n], achNew == 1 ? " new achievement!" : " new achievements!");
 		line[n] = 0;
-		printCenter(16, ACH_BANNER, (const unsigned char *)line, FONT_LIME, false);
-		for (int k = 0; k < 2 && k < achNew; k++) {
-			printCenter(16, ACH_BANNER + 1 + k, (const unsigned char *)achNewTitle[k], FONT_WHITE, false);
-		}
-		if (achNew > 2) {
-			n = achStr(line, "and ");
-			n += achNum(&line[n], achNew - 2);
-			n += achStr(&line[n], " more");
-			line[n] = 0;
-			printCenter(16, ACH_BANNER + 3, (const unsigned char *)line, FONT_LIGHT_GRAY, false);
+		achBanner(y++, line);
+		for (int k = 0; k < 2 && k < achNew; k++) { // (the banner says how many more)
+			printCenter(16, y++, (const unsigned char *)achNewTitle[k], FONT_WHITE, false);
 		}
 	}
 
-	n = achStr(line, "Achievements: ");
+	// A trophy, "Achievements" and how many are earned; under them, a bar
+	// filled as far as they go and the points (or why there are none)
+	Skin_Icon(3, y, SKIN_ICON_TROPHY);
+	print(5, y, achLabel, FONT_WHITE, false);
 	if (achCount) {
-		n += achNum(&line[n], achEarned);
-		n += achStr(&line[n], " of ");
-		n += achNum(&line[n], achCount);
-		n += achStr(&line[n], " earned");
+		n = achNum(line, achEarned);
+		line[n++] = '/';
+		n += achNum(&line[n], achTotal);
+		line[n] = 0;
+		printRight(28, y, (const unsigned char *)line, FONT_LIGHT_BLUE, false);
+		y++;
+		n = achNum(line, achPointsEarned);
+		line[n++] = '/';
+		n += achNum(&line[n], achPoints);
+		n += achStr(&line[n], " pts");
+		line[n] = 0;
+		printRight(28, y, (const unsigned char *)line, FONT_LIGHT_GRAY, false);
+		Skin_Progress(3, y, 28 - n - 4, achEarned, achTotal);
 	} else {
 		const char *why;
 		switch (achStatus) {
@@ -284,10 +320,10 @@ void Ach_DrawMain(void) {
 			case -5:                   why = "set damaged"; break;
 			default:                   why = "set not loaded"; break;
 		}
-		n += achStr(&line[n], why);
+		y++;
+		print(5, y, (const unsigned char *)why, FONT_LIGHT_BLUE, false);
 	}
-	line[n] = 0;
-	print(1, ACH_SUMMARY, (const unsigned char *)line, FONT_LIGHT_BLUE, false);
+	Skin_Panel(1, ACH_CARD, 30, y - ACH_CARD + 2);
 }
 
 // -- the Achievements screen ------------------------------------------------------
@@ -310,10 +346,31 @@ static void achDraw(int top, int sel) {
 	char line[ACH_COLS + 1];
 	int n;
 	clearScreen(false);
+	// A title bar, the entries in stripes (the highlighted one glowing), a
+	// rule, then the highlighted one's text and the keys on the bars' color.
+	// Each stripe is half a line taller than its two lines at the top and
+	// at the bottom: the lines between entries are split (Skin_SplitRow()).
+	Skin_Header(0);
+	Skin_Fill(ACH_TOP, ACH_ROWS * 3 + 1, 3);
+	for (int r = 0; r <= ACH_ROWS; r++) {
+		// the tones of the entries above and below line ACH_TOP + r * 3
+		int up = 3, down = 3, pip = 0;
+		if (r > 0 && top + r - 1 < achCount) {
+			up = (top + r - 1 == sel) ? 2 : ((r - 1) & 1) ? 1 : 3;
+			if (top + r - 1 == sel) pip = 1;
+		}
+		if (r < ACH_ROWS && top + r < achCount) {
+			down = (top + r == sel) ? 2 : (r & 1) ? 1 : 3;
+			if (top + r == sel) pip = 2;
+		}
+		Skin_SplitRow(ACH_TOP + r * 3, r, up, down, pip);
+	}
+	Skin_Rule(ACH_RULE);
+	Skin_Fill(ACH_DETAIL, 24 - ACH_DETAIL, 0);
 
 	n = achNum(line, achEarned); // "12/102 earned", "145/777 pts"
 	line[n++] = '/';
-	n += achNum(&line[n], achCount);
+	n += achNum(&line[n], achTotal);
 	n += achStr(&line[n], " earned");
 	line[n] = 0;
 	print(0, 0, (const unsigned char *)line, FONT_LIGHT_BLUE, false);
@@ -325,10 +382,13 @@ static void achDraw(int top, int sel) {
 
 	for (int r = 0; r < ACH_ROWS && top + r < achCount; r++) {
 		const DsirpcListEntry *e = &achEntries[achOrder[top + r]];
-		int y = ACH_TOP + r * 2;
+		int y = ACH_TOP + 1 + r * 3;
 		FontPalette pal = !achIsEarned(e) ? FONT_DARKER_GRAY
 		                : (e->flags & DSIRPC_LIST_ON_CONSOLE) ? FONT_LIME : FONT_WHITE;
-		if (top + r == sel) printChar(0, y, '>', FONT_WHITE, false);
+		if (top + r == sel) Skin_SelectRows(y, 2);
+		else if (r & 1) Skin_Fill(y, 2, 1);
+		Skin_Icon(1, y + 1, !achIsEarned(e) ? SKIN_ICON_LOCK
+		                    : (e->flags & DSIRPC_LIST_ON_CONSOLE) ? (SKIN_ICON_TROPHY | SKIN_ICON_GREEN) : SKIN_ICON_TROPHY);
 		achPrintN(1, y, achText + e->title, ACH_COLS - 1, pal);
 
 		if (achIsEarned(e)) {
@@ -352,7 +412,6 @@ static void achDraw(int top, int sel) {
 		if (achIsNew(e)) print(ACH_COLS - 3, y + 1, (const unsigned char *)"NEW", FONT_LIME, false);
 	}
 
-	for (int x = 0; x < ACH_COLS; x++) printChar(x, ACH_RULE, '-', FONT_DARKER_GRAY, false);
 	const DsirpcListEntry *e = &achEntries[achOrder[sel]];
 	const char *title = achText + e->title;
 	int y = ACH_DETAIL, lines = ACH_DETAIL_LINES;

@@ -11,7 +11,7 @@ Once running, the DSi broadcasts one UDP packet per second to
 255.255.255.255, port 4244:
 
 ```
-DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N vb=N
+DSiRPC hello #N gpio=XXXX rev=XX ioen=XX last=X gc=XXXX v=XX hc=XXXX rx=N req=N arp=N eap=N rxm=N e53=N txm=N t53=N rep=N a9=N a9s=N vb=N
 ```
 
 Watch them with `tools/hello_listener.py` (in the repo root).
@@ -34,6 +34,7 @@ Watch them with `tools/hello_listener.py` (in the repo root).
 | `t53` | CMD53 writes that failed (SDIO error or timeout). |
 | `rep` | Requests the PC sent again with the same sequence number, meaning it never got the reply. |
 | `a9` | DSiRPC's ARM9 half, which writes the ARM9's data cache back to main RAM in the game's idle time so rpcprobe's reads are up to date. `1`: rpcprobe found it in the ARM9 cardengine. `2` or more: found, and the game's `OS_Halt` patched for the write-backs (`a9` is 1 + the copies patched; rpcprobe looks for `OS_Halt` in the first few seconds of a game and asks again after a soft reset). `0`: an ARM9 cardengine without it (DLDI, GSDD or TWLSDK variant, or an older build), so values the game just wrote can be read a frame late. In builds before 2026-10-19, `2` to `5` meant a VBlank hook for the per-frame capture's snapshots. Older builds don't send `a9`. |
+| `a9s` | The copies of the game's `OS_Halt` found (0 to 4): by rpcprobe's search of the game's static code, or, when that finds none, by the ARM9 half's search of ITCM (where some games' SDK puts it: an autoload block the game copies there as it starts, which only the ARM9 can read); `9` while either is still looking. With `a9=1`, `0` means neither found the pattern (`tools/find_idle.py` shows where the game waits instead), and a number means they were found but not patched. DSiRPC logs what `a9` and `a9s` say, in words, when they change (`Console: CODE: ARM9 half ...`). Older builds don't send it. |
 | `vb` | Longest VBlank tick of the in-game side since the previous hello, in scanlines (about 64 µs each; a whole frame is 263). A tick that sends a 256-byte frame with CMD52 (roughly 19 µs per SDIO command) takes about 76 lines, 4.8 ms, and play was smooth at that on hardware. With CMD53 sending (`txm=53`) it should be far lower, except in the hello right after each 10th one, which covers a CMD52 hello tick. Values approaching a whole frame mean rpcprobe is holding up the game's own ARM7 work long enough to stutter; lower `RPCPROBE_RX_BYTES_PER_VBLANK` in `rpcprobe_build.h`. |
 
 If hellos arrive but reads are slow or time out now and then, run the link
@@ -64,7 +65,7 @@ DSiRPC logs these (`Console: ...` lines in `logs\dsirpc.log`).
 
 | Field | Meaning |
 |---|---|
-| `n` | Achievements the checker runs (both lanes). Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2, 3 or 4 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 250 KB (256 KB less the 4 KB `RPCUNLK.BIN` is read into and the capture's 2 KB ring), `-4` a program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
+| `n` | Achievements the checker runs (both lanes). Below 0, why it doesn't: `-1` `RPCSET.BIN` isn't a version 2, 3, 4 or 5 set (DSiRPC and the launcher are from a different release than this nds-bootstrap), `-2` it's another game's set (the game wasn't started from the launcher), `-3` too big for its 506 KB (512 KB less the 4 KB `RPCUNLK.BIN` is read into and the capture's 2 KB ring), `-4` a program doesn't add up, `-5` damaged (CRC-32). No report at all: there's no `RPCSET.BIN` (no set for this game, or it wasn't started from the launcher). |
 | `t` | Achievements it has unlocked since the game started |
 | `p` | Passes over the pass lane since the last report (about a second). A pass is rcheevos' "frame": the higher, the closer to checking every frame. |
 | `l` | The most scanlines it used in one VBlank since the last report. With `h=1`, that's the frame lane's sampling (DSiRPC sizes it to about 19 at most); with `h=0`, the sampling plus its checking (`RPCPROBE_ACH_LINES_PER_VBLANK` is that budget, 20; it can go a scanline or two over, since it checks the time every 8 conditions). `vb=` in the hello includes it. |
@@ -91,6 +92,15 @@ can be made smaller on the PC side (`FRAME_SAMPLE_CYCLES` in DSiRPC's
 or `RPCPROBE_ACH_IDLE_LINES_PER_FRAME`; with `h=0`, lower
 `RPCPROBE_ACH_LINES_PER_VBLANK`. `RPCPROBE_ACH 0` builds without the
 checker.
+
+The shadow check (`probe_ach.c`) has no report fields of its own: what it
+finds goes to `RPCUNLK.BIN` as notes (slot IDs 0xFFFFFFFE proven,
+0xFFFFFFFD clean), which DSiRPC logs at the next sync ("needs checking
+every frame (the console found)") and keeps in `ra/cache/frame_needs.json`.
+To start its learning over, run DSiRPC once with `--clear-learning` (or
+`--clear-learning CODE`). If `fd` (frames not sampled) goes up with it, the
+frame lane is too big for the game's idle time; building with
+`-DACH_SHADOW=0` turns the shadow check off, to compare.
 
 ## 2. RAM viewer status byte
 
@@ -125,7 +135,7 @@ are none ("no set loaded": the game wasn't started from the launcher;
 different releases; "set not loaded": its program doesn't add up; "sync to
 list": a version 2 set, without the list). Nothing at all means no
 anchor: this isn't DSiRPC's nds-bootstrap, or the game runs in DSi mode. The
-anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CFA0028`) if you want to look
+anchor is at `DSIRPC_ACH_LOCATION` + 40 (`0x0CF08028`) if you want to look
 at it with the RAM viewer: `"DRMA"`, the game code, the status, the last
 unlock number, the one the menu last saw, open, and the list's offset
 (`common/include/dsirpc_ach_menu.h`).

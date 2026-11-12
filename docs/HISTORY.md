@@ -29,6 +29,138 @@
 
 ## Progress log
 
+- 2026-11-10: **Games known by their hash.** Animal Crossing: Wild World
+  never left "In the Character Select" on Discord and unlocked nothing: its
+  set (RetroAchievements game 9594) supports only European ROMs, and the
+  USA ROM had been linked to it by its title. Now the launcher hashes every
+  game on the SD card once, the first time it sees it, the way
+  RetroAchievements does (`launcher/source/romhash.c` and `md5.c`, the same
+  MD5 as `core/ra_hash.py`), in a "Setting up new games" phase on the boot
+  screen that only shows when a game is new, and keeps the hash in
+  `games.idx` by the file's name, size and time. The hashes go to DSiRPC
+  with each sync (sync version 2: older launchers and DSiRPCs still sync
+  with it, but the sets themselves need a matching nds-bootstrap, set
+  version 5, which the launcher offers to update in the same boot, right
+  after the sync and before a game starts), DSiRPC asks RetroAchievements about each one once
+  (`core/rom_hashes.py`) and links each game by its hash; a version
+  RetroAchievements has no set for gets none, with no title fallback, its
+  old title link is dropped, and the launcher's game list and achievements
+  page say so. Then, from the first tries: Animal Crossing still got its
+  set, because RetroAchievements answers a hash it knows but no set supports
+  with the game's ID plus 1,000,000,000 (1000009594 here), which was taken
+  for a game ID; now that's "not this ROM". Games without a set go by their
+  file's name (ROM hacks were called by the game they're based on), every
+  hash is asked at once instead of 16 a sync, a few at a time, with DSiRPC
+  telling the launcher how far it got so it doesn't time out, every game
+  with a set gets it at the sync, and the list shows a gray "no set" or
+  "new" (not checked yet) in place of "unsupported", with the X page telling
+  "not this ROM" from "no such game" from "not checked yet". Homebrew then
+  stayed "new": the launcher only sent files with a valid game code (24
+  hashed, 19 sent on Viv's card), and a file that couldn't be hashed never
+  got a state. Now every hashed file is sent (no code: four zero bytes) and
+  kept by its hash, and an unhashable one is "no set" from the start. Then HeartGold stayed "new": a hack of it shared its code, and the set for the code was looked up through whichever file came first (the hack); now it is the set of the code's file that has one, and the launcher only stages a code's set for a file it's for, so a hack never runs with its original's. Sets with no achievements (Brain Age 2, MySims Kingdom) read "no set", and files the launcher can't start (libnds homebrew) or hash aren't listed. Then every sync took about 30 s on
+  "Sets 4/9": HeartGold's set (166 achievements, the biggest programs yet)
+  was built again at every sync before its stamp was compared, and its fit
+  to the console's memory recompiled the whole pass lane at each of about
+  80 steps (0.12 s a compile). Built sets are now kept by a digest of what
+  they depend on (`ra/cache/built/`), and the fit is found by halving: 3.4 s
+  when it has to run (the same bytes), nothing when nothing changed. Even
+  so, HeartGold's set didn't fit the console's 256 KB: 143 of its 166
+  achievements checked, none every frame. The checker's memory moved to
+  512 KB right below the in-game menu's window (`0x0CF08000`-`0x0CF88000`,
+  ROM cache before; its old 256 KB at `0x0CFA0000` is ROM cache again), so
+  HeartGold gets all 166, 63 of them every frame, the shadow check and a
+  256-sample ring (415 KB). An older nds-bootstrap refuses such a set
+  before reading past its header: one from this branch by its size check,
+  one from main (set version 4 at most) by its version; the in-game menu
+  says "set too big" or "set version?" until the update the launcher
+  offers is in. The same day, the ARM9 write-back
+  found Animal Crossing's `OS_Halt` in ITCM (`tools/find_idle.py --rom`
+  showed it there, in an autoload block): the ARM9 half now searches ITCM
+  itself when rpcprobe finds no copy in the static code, and the hellos
+  say how many copies were found (`a9s=`).
+
+- 2026-11-09: **The console checks everything, and learns what needs every
+  frame.** nds-bootstrap's frame rate code (`fpsa`) worked out its target
+  in floating point, which pulled about 3 KB of soft-float code into the
+  ARM7 binary; it's now the same rounding in integer math, and that space
+  went to the checker. The checker's skipping got cheaper: each memory value
+  has a list of the achievements that name it, and a change stamps them, so
+  an achievement whose values didn't move is skipped without scanning its
+  conditions, with the commonest AddSource / AddAddress chains on fast
+  paths. Programs went to version 3, a u16 group count (up to 32,767 groups
+  instead of 255), and the console now checks all 869 of the 869
+  achievements in the sets DSiRPC has built. `split_lanes()` now picks the
+  frame lane exactly: it compiles the lane with each candidate, so memory
+  values achievements share count once, as they do on the console, and
+  `FRAME_SAMPLE_CYCLES` went from 40,000 to 42,000. Which achievements
+  really need every frame is now learned, not just guessed from the
+  MemAddr (`timing()`): a shadow check runs them every frame and every 8th
+  frame from the same memory, and one that comes out differently is proof
+  (`ra/cache/frame_needs.json`, `core/frame_needs.py`). The PC does it with
+  its per-frame capture; the console shadows its own frame lane with a copy
+  of each 8th sample, only in time the frame lane doesn't need, and leaves
+  notes in `RPCUNLK.BIN` (IDs `0xFFFFFFFE` proven and `0xFFFFFFFD` clean)
+  that the launcher's sync brings over. Proven achievements go first in the
+  frame lane, ones found clean twice go after the untested ones. Sets went
+  to version 5 (the ring at byte 44; byte 40 is reserved): the frame lane's ring of samples takes whatever memory the set
+  leaves, from 8 up to 256 samples (about 4 seconds), and when a set doesn't
+  fit, the shadow copy goes first, then frame lane achievements move to the
+  pass lane, and only then are achievements left out (Animal Crossing: Wild World fits all 157
+  with an 8-sample ring and no shadow). `--clear-learning [CODE]` forgets
+  what was learned, on the PC and in the console's waiting notes, for
+  testing. On a DSi, Tetris DS hadn't dropped a frame in the logs before that day
+  (78 achievements every frame); the day's intermediate builds put 83 in
+  its frame lane with the old 8- or 16-sample ring, and those lost tens of
+  samples a minute in busy stretches, 279 in the worst minute; with the
+  256-sample ring it lost none again, every minute. Several T-spins that seemed missed turned out to be
+  T-spins that cleared no lines (the score went up 400 with the line count
+  unchanged), which no achievement counts; on the console's checker and on
+  rcheevos alike, the T-spin achievements need the flag on the frame the
+  line count goes up, and T-Spin Double then unlocked on the console. Only
+  Tetris DS and Pokémon Black have been played on these builds so far.
+  Later that day the unused shadow-pool code went (byte 40 of a set's
+  header is reserved now), DSiRPC's log and the launcher count the shadow
+  notes apart from unlocks, and nds-bootstrap's in-game menu got renders
+  drawn by its own code on the PC (`tools/render_igm.py`, the host in
+  `tests/c/igm`), in the README with a new section on offline achievements
+  and a longer write-up in `docs/OFFLINE_ACHIEVEMENTS.md`.
+
+  `main` against this branch, in numbers. The left column is `main` as it
+  was at the end of the day (`ef331b2`, 2026-11-09 00:13, the Mario Kart DS
+  merge and a README tweak); the right one is the In-Game-UI branch's
+  working tree that night (9 commits on top of `main`, plus the uncommitted
+  cleanup, renders and docs). Each side's numbers come from its own code:
+  "sets" are the eight games' sets on the development PC (869 achievements,
+  nothing learned yet) built by that side's `core/offline.py` and rcheevos
+  addition; "modelled" numbers come from the cost model fitted on
+  `tools/arm7_model`; "hardware" numbers come from DSiRPC's logs, `main`'s
+  from 2026-11-04 to 11-08 (builds whose checker is `main`'s: rpcprobe
+  didn't change after 11-03) and the branch's from the evening's builds
+  (nds-bootstrap AC739041, the same checking as the tree).
+
+  | | `main` | This branch |
+  |---|---|---|
+  | Achievements the console checks (sets) | 868 of 869 (Animal Crossing: Wild World: 156 of 157) | 869 of 869 |
+  | Checked every frame (sets) | 497 | 622 |
+  | Guessed to need every frame but in the pass lane (sets) | 341 | 220 |
+  | Set format / program format | version 4 / version 2 | version 5 / version 3 |
+  | Groups an achievement can have | 255 | 32,767 |
+  | Ring of frame lane samples | 8 (0.13 s) | 8 to 256, from the set's spare memory (up to 4.3 s): 256 for six games, 128 for one, 8 for Animal Crossing: Wild World |
+  | Frame lane sampling budget (modelled) | 40,000 cycles a VBlank | 42,000 |
+  | Busy-frame limit (modelled) | 7 x 110,000 cycles | the same |
+  | Tetris DS frames not sampled (hardware) | 0 in 126 minutes (57 of 83 achievements every frame: the unearned ones) | 0 in 12 minutes (83 of 102 every frame: the whole set, `--blank-ra`) |
+  | Tetris DS longest VBlank turn of checking (hardware) | 23 scanlines | 24 |
+  | Tetris DS VBlank tick, typical / most (hardware) | 51 / 117 scanlines | 47 / 97 |
+  | Which achievements need every frame | guessed from the MemAddr (`timing()`) | learned: the shadow check on the console and on the PC, `frame_needs.json`, `--clear-learning` |
+  | Unlock notes in `RPCUNLK.BIN` | unlocks and playtime | also the shadow check's notes, counted apart from unlocks by DSiRPC and the launcher |
+  | In-game menu | nds-bootstrap's own look, with DSiRPC's achievements | the launcher's look: diamonds, panels, icons, the time, the battery, a Wi-Fi sign for the link, a fade in |
+  | In-game menu renders | none | `tools/render_igm.py`, from the menu's own code (`tests/c/igm`) |
+  | ARM7 bytes free | 72 | 1,240 (3,104 after the `fpsa` fix, then spent on the checker) |
+  | In-game menu: room left before its stack | 5,348 bytes of a 39 KB window | 2,540 bytes of a 47 KB window |
+  | Tests | 318 | 342 |
+  | Size of the change | | 9 commits (41 files, +2,557 / -275), then uncommitted: 12 files (+338 / -217) and 14 new files (1,096 lines) |
+  | Both sides | Mario Kart DS's race view, the achievement LED, the in-game menu's achievement list | |
 - 2026-11-03: **Tetris DS, flaky hotspots and the lid.** Tetris DS gets
   its own overlay view (`overlay/tetris.py`): the board, the falling piece,
   the stored block and the numbers, read every 0.2 s from RetroAchievements'

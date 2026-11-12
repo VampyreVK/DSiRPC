@@ -35,6 +35,13 @@ someone browses the list on the console. Little-endian throughout:
                     first, each save once)
     op 5, done:     uploaded u16 | downloaded u16 | backed up u16 | failed u16
         answer:     "DRSK" | status u16
+    op 6, a batch:  saves u16 | bytes u32: a sync of that many saves begins,
+                    moving that many bytes (the uploads, and the downloads
+                    with the saves backed up before them), for one bar
+                    across them; saves 0: it's over. A launcher from before
+                    it doesn't send it, and takes a DSiRPC from before it
+                    turning it down (bad request) in its stride.
+        answer:     "DRSK" | status u16
 
 Times are seconds since 2000-01-01, local time, as the console counts. An
 uploaded save's copies here are dated by its time (the file and its record).
@@ -58,8 +65,10 @@ GET = struct.Struct("<4sHBBB")
 HIST = struct.Struct("<4sHB")
 HIST_ITEM = struct.Struct("<BIIIB")
 DONE = struct.Struct("<HHHH")
+BATCH = struct.Struct("<HI")
+CHUNK = 8 * 1024    # a save read and sent a piece at a time, for the progress
 
-OP_PLAN, OP_PUT, OP_GET, OP_HIST, OP_DONE = 1, 2, 3, 4, 5
+OP_PLAN, OP_PUT, OP_GET, OP_HIST, OP_DONE, OP_BATCH = 1, 2, 3, 4, 5, 6
 OK, NOT_FOUND, DAMAGED, CANT_STORE, BAD_REQUEST, OFF, OTHER_RELEASE = range(7)
 FLAG_BACKUP_ONLY = 1
 STATE_PRESENT, STATE_EXCLUDED = 1, 2
@@ -95,7 +104,8 @@ def handle(magic, read, send, store, on_event=None):
     _, version, flags, mac, model, op = HEADER.unpack(magic + rest)
     who = saves.console_label(model, mac)
     backup_only = bool(flags & FLAG_BACKUP_ONLY)
-    answers = {OP_PLAN: b"DRSP", OP_PUT: b"DRSK", OP_GET: b"DRSD", OP_HIST: b"DRSL", OP_DONE: b"DRSK"}
+    answers = {OP_PLAN: b"DRSP", OP_PUT: b"DRSK", OP_GET: b"DRSD", OP_HIST: b"DRSL", OP_DONE: b"DRSK",
+               OP_BATCH: b"DRSK"}
     tail = {OP_PLAN: b"\0\0", OP_GET: b"\0" * 8, OP_HIST: b"\0\0"}
 
     def refuse(status):
@@ -119,13 +129,18 @@ def handle(magic, read, send, store, on_event=None):
         send(data)
     try:
         if op == OP_PLAN:
-            _plan(read, answer, store, backup_only, who)
+            _plan(read, answer, store, backup_only, who, on_event)
         elif op == OP_PUT:
             _put(read, answer, store, who, on_event)
         elif op == OP_GET:
             _get(read, answer, store, who, on_event)
         elif op == OP_HIST:
             _history(read, answer, store)
+        elif op == OP_BATCH:
+            n, size = BATCH.unpack(read(BATCH.size))
+            answer(b"DRSK" + struct.pack("<H", OK))
+            if on_event:
+                on_event({"type": "save_batch", "console": who, "saves": n, "bytes": size})
         else:
             uploaded, downloaded, backed_up, failed = DONE.unpack(read(DONE.size))
             answer(b"DRSK" + struct.pack("<H", OK))
@@ -148,7 +163,11 @@ def handle(magic, read, send, store, on_event=None):
             refuse(CANT_STORE)
 
 
-def _plan(read, send, store, backup_only, who):
+# The plan's actions that move a save (the rest wait for a pick on the console, or need nothing)
+MOVES = (saves.UPLOAD, saves.DOWNLOAD, saves.DOWNLOAD_NEW, saves.BACKUP)
+
+
+def _plan(read, send, store, backup_only, who, on_event=None):
     (n,) = struct.unpack("<H", read(2))
     if n > MAX_ENTRIES:
         raise RequestError("too many saves")
@@ -170,6 +189,10 @@ def _plan(read, send, store, backup_only, who):
                                   rec.get("crc", 0), saves.to_console_time(rec["time"]) if rec else 0,
                                   min(255, i["versions"]), len(source)) + source)
     send(b"".join(out))
+    if on_event:
+        on_event({"type": "save_plan", "console": who, "saves": len(entries),
+                  "moves": sum(i["action"] in MOVES for i in items),
+                  "conflicts": sum(i["action"] == saves.CONFLICT for i in items)})
 
 
 def _put(read, send, store, who, on_event):
@@ -179,8 +202,9 @@ def _put(read, send, store, who, on_event):
                                                                          saves.PUT_SAFETY):
         raise RequestError("bad upload")
     code = _code(code)
-    data = read(size)
     key = saves.game_key(code, hcrc)
+    data = _read_save(read, size, on_event, {"type": "save_moving", "console": who, "name": name, "key": key,
+                                             "slot": slot, "up": True, "kind": kind})
     try:
         stored = store.put(key, slot, name, data, crc, kind, who, when=saves.from_console_time(when))
     except saves.SaveError as e:
@@ -211,11 +235,36 @@ def _get(read, send, store, who, on_event):
         logging.warning(f"Save sync to the {who}: {e}")
         send(b"DRSD" + struct.pack("<HII", NOT_FOUND, 0, 0))
         return
-    send(b"DRSD" + struct.pack("<HII", OK, len(data), rec["crc"]) + data)
+    g = store.data["games"].get(key) if isinstance(getattr(store, "data", None), dict) else None
+    name = (g or {}).get("name") or key
+    moving = {"type": "save_moving", "console": who, "name": name, "key": key, "slot": slot, "up": False}
+    send(b"DRSD" + struct.pack("<HII", OK, len(data), rec["crc"]))
+    for i in range(0, max(1, len(data)), CHUNK):
+        if on_event:
+            on_event(dict(moving, done=i, size=len(data)))
+        send(data[i:i + CHUNK])
+    if on_event:
+        on_event(dict(moving, done=len(data), size=len(data)))
     logging.info(f"Save sync: {key} slot {slot} " + (f"version {version} " if version else "") +
                  f"sent to the {who} ({len(data)} bytes)")
     if on_event:
-        on_event({"type": "save_downloaded", "console": who, "key": key, "slot": slot, "version": version})
+        on_event({"type": "save_downloaded", "console": who, "key": key, "slot": slot, "version": version,
+                  "name": name})
+
+
+def _read_save(read, size, on_event, moving):
+    """An upload's save, read a piece at a time: on_event hears each
+    (moving, with done and size)."""
+    if not on_event:
+        return read(size)
+    parts, got = [], 0
+    while True:
+        on_event(dict(moving, done=got, size=size))
+        if got >= size:
+            return b"".join(parts)
+        part = read(min(CHUNK, size - got))
+        parts.append(part)
+        got += len(part)
 
 
 def _history(read, send, store):

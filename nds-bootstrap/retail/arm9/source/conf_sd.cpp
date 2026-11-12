@@ -47,7 +47,7 @@
 #define REG_SCFG_EXT7 *(u32*)0x02FFFDF0
 
 #define ntrPageFileSize 0x400000
-#define twlPageFileSize 0x600000
+#define twlPageFileSize (INGAME_MENU_GAMERAM_PAGEFILE_OFFSET + INGAME_MENU_SIZE) // DSiRPC: upstream's 0x600000, then the in-game menu's two slots
 
 struct IgmText *igmText = (struct IgmText *)INGAME_MENU_LOCATION;
 
@@ -1812,6 +1812,7 @@ int loadFromSD(configuration* conf, const char *bootstrapPath) {
 		}
 
 		// Load in-game menu ce9 binary
+		toncset((u8*)igmText, 0, INGAME_MENU_SIZE); // DSiRPC: its bss starts out zeroed, all of its bigger window
 		rc = loadCardEngineBinary("nitro:/cardenginei_arm9_igm.lz77", (u8*)igmText);
 		if (rc == 0) {
 			getIgmStrings(conf, false);
@@ -1884,9 +1885,10 @@ int loadFromSD(configuration* conf, const char *bootstrapPath) {
 					igmPals[i] = VRAM_E[igmPals[i] % 0x8000];
 				}
 			}
-			fwrite((u8*)igmText, 1, 0xA000, cebin);
+			fseek(cebin, INGAME_MENU_PAGEFILE_OFFSET, SEEK_SET); // DSiRPC: its slot and size (locations.h)
+			fwrite((u8*)igmText, 1, INGAME_MENU_SIZE, cebin);
 			fclose(cebin);
-			toncset((u8*)igmText, 0, 0xA000);
+			toncset((u8*)igmText, 0, INGAME_MENU_SIZE);
 		}
 
 		// Load DS blowfish

@@ -46,6 +46,11 @@ void host_main_screens(const char *rom)
     show_step(STEP_SAVES, STEP_DONE, "2 to sync");
     host_shot("ready");
 
+    // The first-time setup, a new game on the SD card
+    top_note("Getting your games ready", "Once for each new game");
+    setup_card("Pokemon Platinum Version", 1, 3, 52);
+    host_shot("setup_games");
+
     restore_steps();
     draw_connecting();
     top_set(TOP_FAILED);

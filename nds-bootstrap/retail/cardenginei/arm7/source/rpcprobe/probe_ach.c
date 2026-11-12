@@ -74,7 +74,9 @@ extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_
 #define ACH_LINES_PER_FRAME 263
 #define ACH_HEADER_SIZE     64
 #define ACH_RAM_SIZE        0x400000
-#define ACH_RECENT          8
+#ifndef ACH_RECENT
+#define ACH_RECENT          8   // the latest unlocks kept for the reports (ProbeAch_RecentIds())
+#endif
 
 // RPCUNLK.BIN (DSiRPC's core/offline.py): 256 slots of 16 bytes, slot 0 the
 // header ("DRUL", u16 version 1, u16 slot size, u16 slot count)
@@ -87,8 +89,11 @@ extern u32 rpcClusters[3]; // RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (card_engine_
 #define ACH_SET_SPACE       (DSIRPC_ACH_SIZE - ACH_UNLOCK_FILE - DSIRPC_WATCH_RING_SIZE) // DSiRPC's offline.ACH_MEMORY
 #define ACH_PENDING         8          // unlocks waiting to be saved (a power of 2)
 #define ACH_VBLANKS_X1000   59826      // VBlanks in 1000 s (59.8261 Hz)
-#define ACH_FRAME_SLOTS     8          // the frame lane's ring of samples (a power of 2;
-                                       // DSiRPC's offline.FRAME_SLOTS)
+#ifndef ACH_FRAME_SLOTS
+#define ACH_FRAME_SLOTS     16         // the frame lane's ring of samples when the set doesn't say (a
+                                       // power of 2, at most 256: ringHead/ringTail are u8; DSiRPC's
+                                       // offline.FRAME_SLOTS)
+#endif
 #define ACH_PUSHED          8          // DSiRPC's unlocks waiting to be marked (a power of 2)
 
 enum { STAGE_OFF, STAGE_CHECKING, STAGE_RUNNING };
@@ -105,12 +110,38 @@ u16 probeAchWaiting = 0;
 static u8 stage = STAGE_OFF;
 static AchVm vm;                       // the pass lane
 static AchVm frameVm, sampleVm;        // the frame lane: checking, sampling
-static u32 *ring;                      // its samples: ACH_FRAME_SLOTS x frameMem values
+static u32 *ring;                      // its samples: frameSlots x frameMem values
+static u16 frameSlots = ACH_FRAME_SLOTS; // (what the set says: 8 to 256, as many as its memory holds)
 static u16 frameMem;                   // memory values in a sample (0: no frame lane)
 static volatile u8 ringHead, ringTail; // the VBlank adds at ringHead, the checking takes from ringTail
 static volatile u8 busy;               // the idle side is part way through a turn of checking
 static u16 idleLines;                  // scanlines the idle side used this frame
 static ProbeAchStats stats;
+
+// The shadow check (see "The shadow check" below): the frame lane again,
+// given only every SH_EVERY-th sample, as the pass lane sees memory
+#ifndef ACH_SHADOW
+#define ACH_SHADOW  1          // 0: no shadow check (the offline checker test compares)
+#endif
+#define SH_EVERY    8
+#define SH_WINDOW   3          // shadow passes a difference may take to even out
+#define SH_CLEAN    600        // samples of its memory changing with no difference: clean
+#define SH_NOTES    64         // notes a game, at most
+#define SH_ROOM     32         // RPCUNLK.BIN slots the notes leave for unlocks
+#define SH_QUEUE_ROOM 3        // save queue slots (of ACH_PENDING - 1) the notes leave for unlocks
+#define SH_PROVEN   0xFFFFFFFE // the notes' slot IDs (DSiRPC's offline.PROVEN_ID, CLEAN_ID)
+#define SH_CLEANED  0xFFFFFFFD
+typedef struct { s8 trig, reset; u8 done, pad; u16 since, act; } ShAch; // a frame lane achievement's
+static AchVm *shadowVm;               // in the set's memory, after the ring (0: no room)
+static ShAch *shAch;
+static u16 shSeq;                     // samples checked
+static u16 shRuns;                    // shadow passes done
+static u32 *shSample;                 // the sample the shadow checks (a copy: the ring's slot goes on)
+static u8 shPending;                  // 1: shSample's check isn't done
+static u8 shNotes;                     // queued
+static u8 shWritten;                   // written to RPCUNLK.BIN (they don't count in the unlocks' sequence numbers)
+static void frameReset(u32 id, void *ud);
+static void shadowReset(u32 id, void *ud);
 static u32 bodySize, crcPos, crc, crcWanted;   // body: the programs, then the list
 
 // The in-game menu's list and the anchor (dsirpc_ach_menu.h)
@@ -223,7 +254,7 @@ static void anchorStart(const void *ndsHeader, s16 status) {
 	a->newFrom = 0;
 	a->open = 0;
 	a->list = 0;
-	a->reserved = 0;
+	a->link = 0;
 	a->magic = DSIRPC_MENU_ANCHOR_MAGIC;
 }
 
@@ -260,6 +291,7 @@ static void loadUnlocks(u32 game) {
 		u32 id = slotId(s, game);
 		if (rd32(s) | rd32(s + 4) | rd32(s + 8) | rd32(s + 12)) next = i + 1;
 		if (id && (AchVm_SetUnlocked(&vm, id) | AchVm_SetUnlocked(&frameVm, id))) probeAchWaiting++;
+		if (id && shadowVm) AchVm_SetUnlocked(shadowVm, id);
 	}
 	unlockNext = next;
 }
@@ -320,14 +352,16 @@ void ProbeAch_Load(const void *ndsHeader) {
 
 	u8 *base = (u8 *)DSIRPC_ACH_LOCATION;
 	fileRead((char *)base, &file, 0, ACH_HEADER_SIZE);
+	u8 slots = base[44]; // version 5: the frame lane's ring, 2^3 to 2^8 samples (0: 16); read before
+	                     // the menu's anchor goes over bytes 40-63 (40-43 are reserved, 0)
 	anchorStart(ndsHeader, DSIRPC_MENU_CHECKING);
 
-	// "DRSE", version 2-4, header size 64, game code, RA game id, stamp,
+	// "DRSE", version 2-5, header size 64, game code, RA game id, stamp,
 	// achievements, flags, program size, state size, (3:) list size,
-	// (4:) frame lane program size
+	// (4:) frame lane program size, (5:) 4 reserved, the frame lane's ring
 	u16 version = base[4] | (base[5] << 8);
 	if (base[0] != 'D' || base[1] != 'R' || base[2] != 'S' || base[3] != 'E' ||
-	    version < 2 || version > 4 || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
+	    version < 2 || version > 5 || (base[6] | (base[7] << 8)) != ACH_HEADER_SIZE) {
 		loadFailed(PROBE_ACH_E_HEADER);
 		return;
 	}
@@ -344,6 +378,8 @@ void ProbeAch_Load(const void *ndsHeader) {
 	u32 frameSize = (version >= 4) ? rd32(base + 36) : 0;
 	const u8 *frameProgram = base + ACH_HEADER_SIZE + programSize;
 	listOffset = ACH_HEADER_SIZE + programSize + frameSize;
+	if (version < 5) slots = 0;
+	frameSlots = (slots >= 3 && slots <= 8) ? 1 << slots : ACH_FRAME_SLOTS;
 	bodySize = programSize + frameSize + listSize;
 	u32 stateOffset = (ACH_HEADER_SIZE + bodySize + 3) & ~3u;
 	if (programSize > ACH_SET_SPACE || frameSize > ACH_SET_SPACE || listSize > ACH_SET_SPACE ||
@@ -377,12 +413,23 @@ void ProbeAch_Load(const void *ndsHeader) {
 		}
 		AchVm_Load(&sampleVm, frameProgram, frameSize, base + at + need, need, ACH_RAM, ACH_RAM_SIZE);
 		u32 mem = frameVm.nPlain + frameVm.nMod;
-		if (ringAt + ACH_FRAME_SLOTS * 4 * mem > ACH_SET_SPACE) {
+		if (ringAt + frameSlots * 4 * mem > ACH_SET_SPACE) {
 			loadFailed(PROBE_ACH_E_SIZE);
 			return;
 		}
 		ring = (u32 *)(base + ringAt);
 		frameMem = (u16)mem;
+		// the shadow check's copy, when the set left room for it (DSiRPC's set_memory() does)
+		u32 vmSize = (sizeof(AchVm) + 7) & ~7u, shAt = (ringAt + frameSlots * 4 * mem + 7) & ~7u;
+		if (ACH_SHADOW && shAt + vmSize + need + sizeof(ShAch) * frameVm.nAch + 4 * mem <= ACH_SET_SPACE) {
+			shadowVm = (AchVm *)(base + shAt);
+			AchVm_Load(shadowVm, frameProgram, frameSize, base + shAt + vmSize, need, ACH_RAM, ACH_RAM_SIZE);
+			shAch = (ShAch *)(base + shAt + vmSize + need);
+			shSample = (u32 *)(shAch + frameVm.nAch);
+			for (u32 i = 0; i < frameVm.nAch * sizeof(ShAch) / 4; i++) ((u32 *)shAch)[i] = 0;
+			shadowVm->onReset = shadowReset;
+			frameVm.onReset = frameReset;
+		}
 	}
 	loadUnlocks(rd32(base + 8));
 
@@ -390,6 +437,17 @@ void ProbeAch_Load(const void *ndsHeader) {
 	crc = 0xFFFFFFFF;
 	crcPos = 0;
 	stage = STAGE_CHECKING;
+}
+
+// A slot for ProbeAch_SaveOne() to write: id, when (or a note's kind, its
+// achievement). 0 if there's nowhere to save it, or nothing has saved for a while.
+static int queueSave(u32 id, u32 when) {
+	u8 head = pendHead, next = (head + 1) & (ACH_PENDING - 1);
+	if (!unlockNext || next == pendTail) return 0;
+	pendId[head] = id;
+	pendWhen[head] = when;
+	pendHead = next;
+	return 1;
 }
 
 static void onTriggered(u32 id, void *ud) {
@@ -405,14 +463,7 @@ static void onTriggered(u32 id, void *ud) {
 	ACH_ANCHOR->unlocks = unlockSeq;
 
 	// Queued for ProbeAch_SaveOne(), with when it happened
-	u8 head = pendHead, next = (head + 1) & (ACH_PENDING - 1);
-	if (!unlockNext || next == pendTail) { // nowhere to save it, or nothing has saved for a while
-		probeAchLost++;
-		return;
-	}
-	pendId[head] = id;
-	pendWhen[head] = when;
-	pendHead = next;
+	if (!queueSave(id, when)) probeAchLost++;
 }
 
 // The VBlank budget: what's left of RPCPROBE_ACH_LINES_PER_VBLANK
@@ -454,8 +505,9 @@ void ProbeAch_SetTime(u32 secondsSince2000) {
 	clockKnown = secondsSince2000 != 0;
 }
 
-void ProbeAch_MenuOpened(void) {
+void ProbeAch_MenuOpened(u32 link) {
 	volatile DsirpcMenuAnchor *a = ACH_ANCHOR;
+	a->link = link; // for the menu's Wi-Fi sign
 	a->newFrom = menuSeen; // new to the menu: the unlocks since it last opened
 	menuSeen = unlockSeq;
 	a->open = 1;
@@ -471,7 +523,7 @@ void ProbeAch_MenuClosed(void) {
 void ProbeAch_Sample(void) {
 	if (stage != STAGE_RUNNING || !frameMem) return;
 	u16 start = ACH_REG_VCOUNT & 0x1FF;
-	u8 head = ringHead, next = (head + 1) & (ACH_FRAME_SLOTS - 1);
+	u8 head = ringHead, next = (head + 1) & (frameSlots - 1);
 	if (next == ringTail) { // the checking is that far behind: a gap
 		stats.dropped++;
 		return;
@@ -502,6 +554,7 @@ static void takePushes(void) {
 		u32 id = pushId[tail];
 		AchVm_SetUnlocked(&vm, id);
 		AchVm_SetUnlocked(&frameVm, id);
+		if (shadowVm) AchVm_SetUnlocked(shadowVm, id);
 		DsirpcListEntry *e = listFind(id);
 		if (e && !(e->flags & (DSIRPC_LIST_EARNED | DSIRPC_LIST_ON_CONSOLE))) {
 			listMark(id, pushWhen[tail], ++unlockSeq, DSIRPC_LIST_EARNED);
@@ -509,6 +562,61 @@ static void takePushes(void) {
 		}
 		__asm__ volatile ("" ::: "memory"); // (done with the slot before the VBlank may reuse it)
 		pushTail = (tail + 1) & (ACH_PUSHED - 1);
+	}
+}
+
+// The shadow check. Which frame lane achievements need checking every
+// frame? The frame lane's are checked every frame; shadowVm checks them
+// again from every SH_EVERY-th sample, the way the pass lane would. Each
+// unlock and each reset (a ResetIf clearing hits) the frame lane sees counts
+// +1 for its achievement, the shadow's -1: one that's left uneven for more
+// than SH_WINDOW shadow passes is proof it needs the frame lane, and one whose
+// memory has changed for SH_CLEAN samples with nothing uneven is clean so
+// far. Either way a note goes to RPCUNLK.BIN (SH_PROVEN or SH_CLEANED, the
+// achievement in place of when) for DSiRPC's frame_needs.json, and the
+// achievement isn't judged again this game. (The callbacks run inside a
+// check, so the VM's nextIndex is the achievement.) The frame lane never
+// waits for it: the shadow gets a copy of its sample (shSample), and checks
+// it only while there's no sample waiting, stopping for any new one; a due
+// sample is left out if the shadow is still on the last one.
+// The counts stop at their ends (a long busy stretch can bring more than
+// 127 between two judgements; wrapped, a difference could read as none)
+static void shUp(s8 *c) { if (*c < 127) (*c)++; }
+static void shDown(s8 *c) { if (*c > -127) (*c)--; }
+static void frameTriggered(u32 id, void *ud) {
+	if (shadowVm) shUp(&shAch[frameVm.nextIndex].trig);
+	onTriggered(id, ud);
+}
+static void frameReset(u32 id, void *ud) { (void)id; (void)ud; shUp(&shAch[frameVm.nextIndex].reset); }
+static void shadowTriggered(u32 id, void *ud) { (void)id; (void)ud; shDown(&shAch[shadowVm->nextIndex].trig); }
+static void shadowReset(u32 id, void *ud) { (void)id; (void)ud; shDown(&shAch[shadowVm->nextIndex].reset); }
+
+static void shadowJudge(void) {
+	for (u16 i = 0; i < frameVm.nAch; i++) {
+		ShAch *s = &shAch[i];
+		u32 kind = 0;
+		if (s->done) continue;
+		if (frameVm.achChange[i] + SH_EVERY >= frameVm.updates) s->act += SH_EVERY; // its memory moved lately
+		if (s->trig || s->reset) {
+			if (!s->since) s->since = shRuns | 1;
+			else if ((u16)(shRuns - s->since) > SH_WINDOW) kind = SH_PROVEN;
+		} else {
+			s->since = 0;
+			if (s->act >= SH_CLEAN) kind = SH_CLEANED;
+		}
+		if (!kind) continue;
+		// No room for notes in RPCUNLK.BIN (SH_ROOM is for unlocks): given up.
+		// Else only while the save queue keeps SH_QUEUE_ROOM free for unlocks
+		// (one judge can find dozens at once); one that waits is noted at a
+		// later judge
+		if (!unlockNext || shNotes >= SH_NOTES || unlockNext + SH_ROOM >= ACH_UNLOCK_SLOTS) {
+			s->done = 1;
+			continue;
+		}
+		if (((pendTail - pendHead - 1) & (ACH_PENDING - 1)) <= SH_QUEUE_ROOM) continue;
+		queueSave(kind, AchVm_AchievementId(&frameVm, i));
+		s->done = 1;
+		shNotes++;
 	}
 }
 
@@ -526,9 +634,24 @@ static void checkTurn(int (*more)(void *ud), void *ud) {
 	do {
 		u8 tail = ringTail;
 		if (tail != ringHead) {
-			AchVm_RunSampled(&frameVm, ring + tail * frameMem, onTriggered, 0);
-			ringTail = (tail + 1) & (ACH_FRAME_SLOTS - 1);
+			// A sample a part at a time, in the turn's budget: its slot stays
+			// taken (ProbeAch_Sample() won't write it) until it's done
+			const u32 *sample = ring + tail * frameMem;
+			if (!AchVm_RunFed(&frameVm, sample, more, frameTriggered, ud)) return;
+			// every SH_EVERY-th, a copy for the shadow check (unless it's still on the last)
+			if (shadowVm && !(shSeq % SH_EVERY) && !shPending) {
+				for (u16 i = 0; i < frameMem; i++) shSample[i] = sample[i];
+				shPending = 1;
+			}
+			shSeq++;
+			ringTail = (tail + 1) & (frameSlots - 1);
 			stats.frames++;
+		} else if (shPending) { // (no sample waiting: passMore stops it for one)
+			if (AchVm_RunFed(shadowVm, shSample, passMore, shadowTriggered, ud)) {
+				shPending = 0;
+				shRuns++;
+				shadowJudge();
+			}
 		} else if (!vm.nAch) {
 			return;
 		} else if (AchVm_Run(&vm, passMore, onTriggered, ud)) {
@@ -621,16 +744,18 @@ void ProbeAch_SaveOne(void) {
 	if (!unlockNext || unlockNext >= ACH_UNLOCK_SLOTS) {
 		probeAchSaveFailed++; // RPCUNLK.BIN is full until the launcher hands it to DSiRPC
 	} else {
-		// id, game code (from the set's header), when, sequence number, check
-		u32 slot[4];
+		// id, game code (from the set's header), when, sequence number (the
+		// slot's, less this start's shadow notes; a note's: 0), check
+		u32 slot[4], note = pendId[tail] >= SH_CLEANED;
 		slot[0] = pendId[tail];
 		slot[1] = rd32((const u8 *)DSIRPC_ACH_LOCATION + 8);
 		slot[2] = pendWhen[tail];
-		slot[3] = unlockNext;
+		slot[3] = note ? 0 : unlockNext - shWritten;
 		slot[3] |= (u32)slotCheck((const u8 *)slot) << 16;
 		if (fileWrite((const char *)slot, &unlockFile, unlockNext * ACH_UNLOCK_SLOT,
 		              ACH_UNLOCK_SLOT) == ACH_UNLOCK_SLOT) {
-			probeAchSaved++;
+			if (note) shWritten++;
+			else probeAchSaved++;
 		} else {
 			probeAchSaveFailed++;
 		}

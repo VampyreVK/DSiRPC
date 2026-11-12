@@ -58,7 +58,10 @@ Its settings, log, achievement sets and save backups are in
 2. **Console:** open the `DSiRPC` folder in `roms/nds` from TWiLight Menu++
    and start `dsirpc-launcher.nds`. It connects to Wi-Fi, ticking off each step on the bottom screen (the DSi on
    the top screen turns its Wi-Fi sign green), and finds DSiRPC. (Away from
-   your PC? Press **B** to [play offline](#playing-offline).)
+   your PC? Press **B** to [play offline](#playing-offline).) While you're
+   in the launcher, Discord shows **Playing DSiRPC** with the Pixel logo
+   ("DSiRPC on 3DS" or "DSiRPC on DSi" when you hover it) and what the
+   launcher is doing, like syncing your saves.
 3. Open **Games** (or press **START** to start the game you played last) and
    pick your game ([the game list](#the-game-list)). The launcher starts
    it, still connected.
@@ -81,7 +84,9 @@ when you last played it.
 - **A** starts the game, **B** goes back, and **START** starts the game you
   last started from the launcher.
 - **L** / **R** change the order: the games you played last first, A to Z,
-  or your favorites first. The launcher remembers the one you picked.
+  your favorites first, or Unlocked (the most achievements unlocked first,
+  then the games DSiRPC hasn't checked yet, then the ones with no set). The
+  launcher remembers the one you picked.
 - **Y** makes a game a favorite (a star), or not.
 - **X** lists its achievements, with their points, and what each one asks
   for on the top screen. A green check is earned, an amber one was unlocked
@@ -108,12 +113,13 @@ Right-click it (on a Mac, click it in the menu bar) for the menu:
 
 | Item | What |
 |---|---|
-| The first lines | What's running, what Discord shows, and your RetroAchievements progress |
+| The first lines | What's running, what Discord shows, and your RetroAchievements progress (and, while the launcher syncs, what it's doing: "Launcher: Syncing saves (2 of 5)") |
 | **Discord presence** | Show the game on Discord, or not |
 | **Console icon** | The picture Discord shows for games without their own presence |
 | **Overlay window** | The [stream overlay](#stream-overlay-window) (a left click on the icon toggles it too) |
 | **Ambient music** | The launcher's menu music while the overlay window is open: **Off** (at first), **Bright** or **Subtle** |
 | **Console updates** | Let the launcher [update its files](#updating-and-removing) from this DSiRPC |
+| **Activity popup** | A card at the top of the [overlay window](#stream-overlay-window), with one progress bar for the whole job (all the saves of a sync, both files of an update), while the launcher syncs saves or achievements, or updates itself, from here (only for the ones that take more than a second) |
 | **Start with Windows** | Start DSiRPC when you sign in (**Open at Login** on a Mac) |
 | **Check for updates...** | Look for a new release now. Once there is one, it says **Update to v...**: [updating](#updating-and-removing) |
 | **Setup...** | Run setup again, to change an answer |

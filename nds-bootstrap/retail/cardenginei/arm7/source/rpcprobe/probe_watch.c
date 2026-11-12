@@ -202,8 +202,13 @@ void ProbeWatch_Tick(void) {
 	probeWatchArm9 = (u8)(1 + (hooked < DSIRPC_IDLE_SITES ? hooked : DSIRPC_IDLE_SITES));
 
 	// Every copy of OS_Halt found and not patched yet (or not any more,
-	// after a reset): hand them over and ring, now and then again
-	if (scanStage != SCAN_DONE || hooked >= sites) return;
+	// after a reset): hand them over and ring, now and then again. None
+	// found: ask with none listed, and the ARM9 looks in ITCM, until it
+	// says it has and what it found there is patched.
+	if (scanStage != SCAN_DONE) return;
+	u32 want = sites, f = b->found;
+	if (!sites) want = (f & DSIRPC_FOUND_LOOKED) ? (u8)f : 1;
+	if (hooked >= want) return;
 	if (askIn) {
 		askIn--;
 		return;
@@ -212,6 +217,13 @@ void ProbeWatch_Tick(void) {
 	for (int i = 0; i < DSIRPC_IDLE_SITES; i++) b->haltAt[i] = i < sites ? siteAt[i] : 0;
 	b->ask = (u16)(b->ask + 1);
 	ringArm9();
+}
+
+u8 ProbeWatch_Sites(void) {
+	if (scanStage != SCAN_DONE) return 9;
+	if (sites || !arm9Block) return sites;
+	u32 f = arm9Block->found; // none in the static code: what the ARM9 found in ITCM
+	return (f & DSIRPC_FOUND_LOOKED) ? (u8)f : 9;
 }
 
 int ProbeWatch_Fresh(void) {

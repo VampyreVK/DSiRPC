@@ -14,7 +14,7 @@ Right-click the icon for the menu:
     Overlay window                     on/off (a left click on the icon does this too)
     Ambient music  >                   Off, Bright or Subtle: the launcher's menu music while it's open
     Console updates                    on/off: the launcher may update its files from here
-    Activity popup                     on/off: a little window while the launcher syncs (app/activity_popup.py)
+    Activity popup                     on/off: the overlay window's card while the launcher syncs (overlay/activity_card.py)
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
     Check for updates...               looks for a new release ("Update to v1.1.0..." once there's one)
@@ -223,7 +223,7 @@ def run_tray(cfg, **engine_args):
     engine.persist = True
     lock = threading.Lock()
     shown = {'status': None}
-    activity = {'line': None}     # what the launcher is doing (the popup's watcher says), for the menu
+    activity = {'line': None}     # what the launcher is doing (its watcher says), for the menu
 
     def status():
         d = engine.discord.status
@@ -367,9 +367,8 @@ def run_tray(cfg, **engine_args):
         if title != activity.get('title') or now - activity.get('at', 0.0) >= 1.0:
             activity['title'], activity['at'] = title, now
             on_main(refresh)
-    from .activity_popup import ActivityPopup
-    popup = ActivityPopup(engine.activity, enabled=lambda: engine.cfg.activity_popup, on_line=activity_line,
-                          log_file=os.path.join(DATA, "logs", "activity_popup.log"))
+    from core.launcher_activity import ActivityWatcher
+    watcher = ActivityWatcher(engine.activity, activity_line)
 
     def show():
         icon.visible = True
@@ -386,7 +385,7 @@ def run_tray(cfg, **engine_args):
             if cfg.overlay:
                 engine.set_overlay(True, on_closed=overlay_closed)
             updater.start()
-            popup.start()
+            watcher.start()
             on_main(refresh)
         except Exception:
             logging.exception("Tray setup failed")
@@ -396,7 +395,7 @@ def run_tray(cfg, **engine_args):
         icon.run(setup=setup)
     finally:
         updater.stop()
-        popup.stop()
+        watcher.stop()
         engine.stop()
         logging.info("DSiRPC stopped")
     return 0

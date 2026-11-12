@@ -30,6 +30,7 @@ void host_update_screens(void);
 void host_settings_screens(void);
 void host_picker_screens(const char *sd);
 void host_save_screens(void);
+void host_save_batch(void);
 
 // The demo's screens (ui_host.c's demo command): one state each, drawn
 void host_demo_connecting(int done);

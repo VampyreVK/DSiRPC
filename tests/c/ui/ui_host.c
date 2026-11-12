@@ -246,6 +246,10 @@ int main(void)
         {
             host_unlocks(f[0], atoi(f[1]) != 0);
         }
+        else if (strcmp(line, "batch") == 0)
+        {
+            host_save_batch();
+        }
         else if (strcmp(line, "text") == 0 && nf == 2)
         {
             printf("text %d|%d|%d\n", ui_text_width(f[0]), ui_text_width(f[1]),

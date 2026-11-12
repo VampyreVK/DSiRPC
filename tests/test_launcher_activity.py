@@ -3,8 +3,10 @@ tracker itself; the offline sync, the save sync and the console updates
 telling it as they go (core/console_sync.py, core/save_session.py through
 app/engine.py, core/console_update.py); Discord while the console is in the
 launcher (rpc/generic_presence.py's launcher_presence(), through
-rpc/presence_connector.py); and the popup (app/activity_popup.py): when it
-shows, and that it draws."""
+rpc/presence_connector.py); the overlay window's activity card
+(overlay/activity_card.py): when it shows, that it slides down and away,
+that its bar moves (one bar across a whole update or save sync), and that
+the window draws it, under a toast; and the tray's watcher."""
 
 import socket
 import time
@@ -125,71 +127,166 @@ def test_the_console_update_tells_it_how_much_has_gone():
     heard = []
     data = b"x" * (cu.CHUNK * 2 + 10)
     files = SimpleNamespace(read=lambda f: (data, 1234))
-    req = cu.request(cu.OP_GET, cu.LAUNCHER, model=3)
-    rest = req[4:]
-    out = []
 
-    def read(n):
-        nonlocal rest
-        chunk, rest = rest[:n], rest[n:]
-        return chunk
-    cu.handle(req[:4], read, out.append, files, progress=lambda *a: heard.append(a))
-    assert heard[0] == ("the launcher", 0, len(data), "3DS")
+    def ask(req):
+        rest = req[4:]
+
+        def read(n):
+            nonlocal rest
+            chunk, rest = rest[:n], rest[n:]
+            return chunk
+        cu.handle(req[:4], read, lambda b: None, files, progress=lambda *a: heard.append(a))
+    ask(cu.request(cu.OP_GET, cu.LAUNCHER, model=3))
+    assert heard[0] == ("the launcher", 0, len(data), "3DS", 0)          # (a launcher that doesn't say the total)
     assert [h[1] for h in heard] == [0, cu.CHUNK, cu.CHUNK * 2, len(data)]
 
-    # through ConsoleSync's, a file at a time
+    # From a launcher that doesn't say: each file one of its own, done once it's gone
     act = LauncherActivity()
     sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host=HOST, activity=act)
-    for what, sent, total, console in heard:
-        sync._update_progress(what, sent, total, console)
+    for h in heard:
+        sync._update_progress(*h)
     v = act.current()
     assert (v['kind'], v['detail'], v['summary'], v['console'], v['finished'] is not None) == \
         ("update", "Sending the launcher", "Sent the launcher", "3DS", True)
 
+    # One that says (both files' bytes): one bar across both, done after the second
+    heard.clear()
+    ask(cu.request(cu.OP_GET, cu.LAUNCHER, model=3, update=len(data) * 2))
+    ask(cu.request(cu.OP_GET, cu.BOOTSTRAP, model=3, update=len(data) * 2))
+    assert {h[4] for h in heard} == {len(data) * 2}
+    act = LauncherActivity()
+    sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host=HOST, activity=act)
+    dones, gens = [], set()
+    for h in heard:
+        sync._update_progress(*h)
+        v = act.current()
+        dones.append(v['done'])
+        gens.add(v['generation'])
+        if h[0] == "the launcher":
+            assert v['finished'] is None and v['detail'] == "Sending the launcher"
+    assert dones == sorted(dones) and dones[-1] == len(data) * 2 and len(gens) == 1
+    v = act.current()
+    assert (v['detail'], v['summary'], v['finished'] is not None, v['total']) == \
+        ("Sending nds-bootstrap", "Sent the launcher and nds-bootstrap", True, len(data) * 2)
+
+
+def _engine(act):
+    from app.engine import Engine
+    engine = Engine.__new__(Engine)
+    engine.activity = act
+    engine._save_batch, engine._save_moves = None, 0
+    return engine
+
+
+def _moving(name, key, up, done, size, kind=None):
+    return {"type": "save_moving", "console": "3DS 3F21", "name": name, "key": key, "slot": 0, "up": up,
+            "kind": kind, "done": done, "size": size}
+
 
 def test_the_save_sync_tells_it(tmp_path):
     """core/save_session.py's events, through the engine's _save_activity():
-    the plan says how many saves move, each upload or download counts one
-    (not the copy kept before a download), the summary at the end"""
-    from app.engine import Engine
+    the plan alone shows nothing (the connecting screen asks for it too);
+    the launcher's batch starts it, by its bytes, each piece of a save moves
+    the bar, the batch's end says how it went"""
     act = LauncherActivity()
-    engine = SimpleNamespace(activity=act)
+    engine = _engine(act)
     store = saves.SaveStore(str(tmp_path / "saves"), keep=5)
     events = []
 
     def on_saves(e):
         events.append(e)
-        Engine._save_activity(engine, e)
+        engine._save_activity(e)
     sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host=HOST, saves=lambda: store, on_saves=on_saves)
     sync.start()
     try:
         from test_save_session import entry, plan, put, talk, MAC
         port = sync.port
-        v1 = b"\x01" * 512
+        v1 = b"\x01" * (ss.CHUNK * 2 + 100)
         plan(port, [entry(v1)])
+        assert _wait(lambda: any(e["type"] == "save_plan" for e in events))
+        assert events[0]["moves"] == 1 and act.current() is None            # (not a sync: nothing shows)
+
+        batch = lambda n, size: talk(port, ss.request(ss.OP_BATCH, ss.BATCH.pack(n, size), MAC), lambda read: read(6))
+        assert batch(1, len(v1))[4:6] == b"\0\0"
         assert _wait(lambda: act.active("saves"))
-        assert act.current()['total'] == 1 and act.current()['detail'] == "1 save to move"
+        assert (act.current()['total'], act.current()['unit'], act.current()['items']) == (len(v1), "bytes", 1)
         put(port, v1, saves.PUT_SYNC)
-        assert _wait(lambda: act.current()['done'] == 1)
-        assert act.current()['detail'] == "Uploaded Pokemon Black"
-        put(port, v1, saves.PUT_SAFETY)                       # (not counted)
-        talk(port, ss.request(ss.OP_DONE, ss.DONE.pack(1, 0, 0, 0), MAC), lambda read: read(6))
+        assert _wait(lambda: act.current()['done'] == len(v1))
+        moving = [e["done"] for e in events if e["type"] == "save_moving"]
+        assert moving == [0, ss.CHUNK, ss.CHUNK * 2, len(v1)]                # (a piece at a time)
+        v = act.current()
+        assert (v['item'], v['detail'], la.describe(v)) == (1, "Uploading Pokemon Black", "Syncing saves (1 of 1)")
+        batch(0, 0)
         assert _wait(lambda: act.current()['finished'] is not None)
         v = act.current()
-        assert (v['done'], v['total'], v['summary'], v['ok'], v['console']) == (1, 1, "1 uploaded", True, "DSi")
-        assert events[0]["type"] == "save_plan" and events[0]["moves"] == 1
+        assert (v['summary'], v['ok'], v['console']) == ("1 uploaded", True, "DSi")
+        # (the launcher's done, when it leaves the Saves screen, changes nothing)
+        talk(port, ss.request(ss.OP_DONE, ss.DONE.pack(1, 0, 0, 0), MAC), lambda read: read(6))
+        assert act.current()['summary'] == "1 uploaded"
     finally:
         sync.stop()
 
 
+def test_one_bar_across_every_save_of_a_sync():
+    act = LauncherActivity()
+    engine = _engine(act)
+    e = engine._save_activity
+    e({"type": "save_batch", "console": "3DS 3F21", "saves": 2, "bytes": 512 + 256 + 1024})
+    seen = []
+
+    def step(*a, **k):
+        e(_moving(*a, **k))
+        v = act.current()
+        seen.append((v['done'], v['item'], v['detail']))
+    for d in (0, 256, 512):
+        step("Pokemon Black", "IRBO", True, d, 512, saves.PUT_SYNC)
+    e({"type": "save_uploaded", "console": "3DS 3F21", "name": "Pokemon Black", "kind": saves.PUT_SYNC})
+    # The next: its copy kept first, then the PC's taken, cut off once and tried again
+    for d in (0, 256):
+        step("Platinum", "CPUE", True, d, 256, saves.PUT_SAFETY)
+    e({"type": "save_uploaded", "console": "3DS 3F21", "name": "Platinum", "kind": saves.PUT_SAFETY})
+    for d in (0, 512):
+        step("Platinum", "CPUE", False, d, 1024)
+    for d in (0, 512, 1024):
+        step("Platinum", "CPUE", False, d, 1024)
+    e({"type": "save_downloaded", "console": "3DS 3F21", "name": "Platinum"})
+    assert [s[0] for s in seen] == [0, 256, 512, 512, 768, 768, 1280, 768, 1280, 1792]
+    assert [s[1] for s in seen] == [1, 1, 1, 2, 2, 2, 2, 2, 2, 2]
+    assert seen[3][2] == "Backing up Platinum first" and seen[-1][2] == "Downloading Platinum"
+    assert act.current()['finished'] is None and la.fraction(act.current()) == 1.0
+    e({"type": "save_batch", "console": "3DS 3F21", "saves": 0, "bytes": 0})
+    v = act.current()
+    assert (v['summary'], v['ok']) == ("1 uploaded, 1 downloaded", True)
+
+    # A save that didn't make it: failed
+    e({"type": "save_batch", "console": "DSi 3F21", "saves": 1, "bytes": 512})
+    e(_moving("Tetris DS", "ATRE", True, 0, 512, saves.PUT_SYNC))
+    e({"type": "save_batch", "console": "DSi 3F21", "saves": 0, "bytes": 0})
+    v = act.current()
+    assert (v['summary'], v['ok']) == ("1 failed", False)
+
+
+def test_a_launcher_from_before_batches():
+    """Each save moved is one more of the plan's (as long as one moves)"""
+    act = LauncherActivity()
+    engine = _engine(act)
+    e = engine._save_activity
+    e({"type": "save_plan", "console": "DSi 3F21", "saves": 4, "moves": 2, "conflicts": 0})
+    assert act.current() is None
+    e(_moving("Pokemon Black", "IRBO", True, 0, 512, saves.PUT_SYNC))
+    assert act.current()['total'] == 2 and act.current()['detail'] == "Uploading Pokemon Black"
+    e({"type": "save_uploaded", "console": "DSi 3F21", "name": "Pokemon Black", "kind": saves.PUT_SYNC})
+    assert act.current()['done'] == 1
+    e({"type": "saves_synced", "console": "DSi 3F21", "uploaded": 1, "downloaded": 0, "backed_up": 0, "failed": 0})
+    assert act.current()['summary'] == "1 uploaded"
+
+
 def test_a_save_sync_with_nothing_to_move_shows_nothing():
     act = LauncherActivity()
-    from app.engine import Engine
-    engine = SimpleNamespace(activity=act)
-    Engine._save_activity(engine, {"type": "save_plan", "console": "DSi 3F21", "saves": 4, "moves": 0,
-                                   "conflicts": 0})
-    Engine._save_activity(engine, {"type": "saves_synced", "console": "DSi 3F21", "uploaded": 0,
-                                   "downloaded": 0, "backed_up": 0, "failed": 0})
+    engine = _engine(act)
+    engine._save_activity({"type": "save_plan", "console": "DSi 3F21", "saves": 4, "moves": 3, "conflicts": 0})
+    engine._save_activity({"type": "saves_synced", "console": "DSi 3F21", "uploaded": 0,
+                           "downloaded": 0, "backed_up": 0, "failed": 0})
     assert act.current() is None
 
 
@@ -198,11 +295,11 @@ def test_a_save_sync_with_nothing_to_move_shows_nothing():
 def test_the_launchers_presence():
     from rpc import generic_presence as gp
     p = gp.launcher_presence({'console': "3DS", 'game': None, 'ip': "10.0.0.5"}, None, start=1234)
-    assert p["name"] == "DSiRPC" and p["details"] == "In the launcher" and p["state"] == "Ready to play"
-    assert p["large_text"] == "3DS on DSiRPC" and p["large_image"].endswith("/Pixel.gif")
+    assert p["name"] == "DSiRPC" and p["details"] == "In the launcher" and "state" not in p   # (idle: no second line)
+    assert p["large_text"] == "DSiRPC on 3DS" and p["large_image"].endswith("/Pixel.gif")
     assert "small_image" not in p and "small_text" not in p and p["start"] == 1234
     p = gp.launcher_presence({'console': "DSi", 'game': "CPUE", 'title': "Pokémon Platinum"}, "Syncing saves (2 of 5)")
-    assert p["large_text"] == "DSi on DSiRPC"
+    assert p["large_text"] == "DSiRPC on DSi"
     assert (p["details"], p["state"]) == ("Starting Pokémon Platinum", "Syncing saves (2 of 5)")
 
 
@@ -215,7 +312,7 @@ def test_discord_shows_the_launcher_until_the_game_says_hello():
     launcher = {'ip': "10.0.0.5", 'game': None, 'title': '', 'console': "3DS", 'at': time.time(), 'here': True}
     d.on_update(Snapshot(None, False, 0, "3DS at 10.0.0.5: in the launcher", launcher), [])
     assert d.last_sent["details"] == "In the launcher" and d.last_sent["state"] == "Syncing saves (0 of 2)"
-    assert d.last_sent["large_text"] == "3DS on DSiRPC" and d.status == "would show DSiRPC"
+    assert d.last_sent["large_text"] == "DSiRPC on 3DS" and d.status == "would show DSiRPC"
     started = d.start
     d.last_time = 0     # (past Discord's gap)
     d.on_update(Snapshot(None, False, 0, "", dict(launcher, game="CPUE", title="Pokémon Platinum")), [])
@@ -224,74 +321,162 @@ def test_discord_shows_the_launcher_until_the_game_says_hello():
     assert d.last_sent is None and d.status == "waiting for the game"                   # gone: cleared
 
 
-# -- the popup ------------------------------------------------------------------------
+# -- the overlay window's card ---------------------------------------------------------
 
 def _view(**k):
     v = {'kind': "saves", 'title': "Syncing saves", 'detail': "", 'done': 0, 'total': 0, 'unit': "",
-         'console': "DSi", 'started': 100.0, 'changed': 100.0, 'finished': None, 'summary': "", 'ok': True,
-         'generation': 3}
+         'item': 0, 'items': 0, 'console': "DSi", 'started': 100.0, 'changed': 100.0, 'finished': None,
+         'summary': "", 'ok': True, 'generation': 3}
     v.update(k)
     return v
 
 
-def test_when_the_popup_shows():
-    from app.activity_popup import SHOW_AFTER, should_show
-    assert not should_show(None, 100.0, 0, 0)
-    assert not should_show(_view(), 100.0 + SHOW_AFTER / 2, 0, 0)             # a quick one never shows
-    assert should_show(_view(), 100.0 + SHOW_AFTER, 0, 0)                      # a slow one does
-    assert not should_show(_view(finished=100.2), 100.3, 0, 0)                 # done before it showed: not now
-    assert should_show(_view(finished=105.0), 105.1, 3, 0)                     # done after: it says so
-    assert not should_show(_view(), 110.0, 3, 3)                               # clicked away
-    assert should_show(_view(generation=4), 110.0, 3, 3)                       # till the next one
+def test_when_the_card_shows():
+    from overlay.activity_card import SHOW_AFTER, count_text, should_show
+    assert not should_show(None, 100.0, 0)
+    assert not should_show(_view(), 100.0 + SHOW_AFTER / 2, 0)              # a quick one never shows
+    assert should_show(_view(), 100.0 + SHOW_AFTER, 0)                       # a slow one does
+    assert not should_show(_view(finished=100.2), 100.3, 0)                  # done before it showed: not now
+    assert should_show(_view(finished=105.0), 105.1, 3)                      # done after: it says so
+    assert count_text(_view(total=5, done=2)) == "2 of 5"
+    assert count_text(_view(total=100, done=40, unit="bytes")) == "40%"
+    assert count_text(_view(total=100, done=40, unit="bytes", item=2, items=5)) == "2 of 5"   # (its saves)
+    assert count_text(_view(finished=1.0, total=5)) == ""
 
 
-def test_the_popup_draws(monkeypatch):
+@pytest.fixture
+def overlay_canvas(monkeypatch):
     monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+    monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
     pygame = pytest.importorskip("pygame")
-    from app import activity_popup as ap
+    pygame.init()
+    pygame.display.set_mode((1, 1))     # (for the views' sprites)
+    yield pygame.Surface((256, 192))
+    pygame.quit()
+
+
+def _colors(surf, rect):
+    x0, y0, w, h = rect
+    return {tuple(surf.get_at((x, y)))[:3] for x in range(x0, x0 + w) for y in range(y0, y0 + h)}
+
+
+def _bar_row(top=None):
+    from overlay import activity_card as ac
+    return (ac.TOP if top is None else top) + ac.CARD_H - 7
+
+
+def _bar_fill(canvas, color="ach", top=None):
+    """How many pixels of the card's bar are filled (gold going, green done)."""
     from overlay import ui
-    pygame.display.init()
-    try:
-        painter = ap.Painter()
-        canvas = pygame.Surface((ap.W, ap.H))
-        drawn = {}
-        for name, view in (("spinner", _view()), ("count", _view(total=5, done=2, detail="Uploaded Pokemon Black")),
-                           ("bytes", _view(total=100, done=40, unit="bytes")),
-                           ("done", _view(finished=101.0, summary="2 uploaded")),
-                           ("failed", _view(finished=101.0, ok=False, summary="Lost the console"))):
-            painter.draw(canvas, view, 1234)
-            drawn[name] = {tuple(canvas.get_at((x, y)))[:3] for x in range(ap.W) for y in range(ap.H)}
-            assert len(drawn[name]) > 6, name
-        assert ui.THEME['hp_yellow'] in drawn["spinner"]                   # no count: the block going back and forth
-        assert ui.THEME['hp_green'] in drawn["count"] and ui.THEME['hp_green'] in drawn["done"]
-        assert ui.THEME['hp_red'] in drawn["failed"] and ui.THEME['hp_red'] not in drawn["done"]
-        assert ap.count_text(_view(total=5, done=2)) == "2 of 5"
-        assert ap.count_text(_view(total=100, done=40, unit="bytes")) == "40%"
-        assert ap.count_text(_view(finished=1.0, total=5)) == ""
-    finally:
-        pygame.display.quit()
+    return sum(tuple(canvas.get_at((x, _bar_row(top))))[:3] == ui.THEME[color] for x in range(256))
 
 
-def test_the_popup_watcher_sends_only_changes():
-    from app import activity_popup as ap
+def test_the_card_slides_down_its_bar_moves_and_it_slides_away(overlay_canvas):
+    from overlay import activity_card as ac, ui
+    from overlay.font import PixelFont
+    canvas = overlay_canvas
+    card = ac.ActivityCard(PixelFont(), PixelFont(mini=True))
+    card_rect = (ac.CARD_X, ac.TOP, ac.CARD_W, ac.CARD_H)
+
+    def frame(view, t_ms, now):
+        canvas.fill((0, 0, 0))
+        card.draw(canvas, view, t_ms, now)
+        return _colors(canvas, card_rect)
+
+    v0 = _view(total=4, done=0, detail="Uploading Pokemon Black")
+    assert frame(v0, 0, 100.5) == {(0, 0, 0)}                             # not yet: under a second
+    frame(v0, 100, 101.5)                                                 # comes down...
+    frame(v0, 100 + ac.SLIDE_MS // 2, 101.6)
+    assert _colors(canvas, (0, 0, 256, ac.TOP + 2)) != {(0, 0, 0)}        # (from the top)
+    up = frame(v0, 100 + ac.SLIDE_MS, 101.8)                              # ...and is there
+    v = dict(v0, done=1)
+    assert ui.THEME['lead_fill'] in up and ui.THEME['lead_border'] in up and len(up) > 6
+    assert _colors(canvas, (0, 60, 256, 132)) == {(0, 0, 0)}              # (nothing lower down)
+    fills = []
+    for i in range(20):                                                   # the bar glides to 1 of 4
+        frame(v, 360 + i * 16, 102.0)
+        fills.append(_bar_fill(canvas))
+    width = ac.CARD_W - 16
+    assert 0 < fills[0] < fills[3] < fills[-1] and abs(fills[-1] - width // 4) <= 2
+    assert fills[5] > width // 4 * 0.6                                   # (quickly: it keeps up)
+    for i in range(20):
+        frame(dict(v, done=3), 700 + i * 16, 103.0)
+    assert abs(_bar_fill(canvas) - width * 3 // 4) <= 2                  # and on to 3 of 4
+
+    # Without a count, the block going back and forth moves
+    spin = _view(generation=4, started=90.0)
+    frame(spin, 3000, 104.0)
+    a = [tuple(canvas.get_at((x, _bar_row())))[:3] for x in range(256)]
+    frame(spin, 3300, 104.0)
+    b = [tuple(canvas.get_at((x, _bar_row())))[:3] for x in range(256)]
+    assert a != b and ui.THEME['ach'] in a
+
+    # Done: green and full, then away once it's over
+    frame(_view(generation=4, started=90.0, finished=105.0, summary="2 uploaded"), 4000, 105.1)
+    assert _bar_fill(canvas, "hp_green") == width
+    frame(None, 5000, 110.0)
+    assert frame(None, 5000 + ac.SLIDE_MS + 1, 110.0) == {(0, 0, 0)}
+
+
+def test_the_card_on_failure(overlay_canvas):
+    from overlay import activity_card as ac, ui
+    from overlay.font import PixelFont
+    card = ac.ActivityCard(PixelFont(), PixelFont(mini=True))
+    v = _view(total=4, done=2)
+    for i in range(30):
+        card.draw(overlay_canvas, v, i * 16, 102.0)
+    card.draw(overlay_canvas, dict(v, finished=103.0, ok=False, summary="Lost the console"), 600, 103.1)
+    colors = _colors(overlay_canvas, (0, 0, 256, 40))
+    assert ui.THEME['hp_red'] in colors and ui.THEME['hp_green'] not in colors
+
+
+def test_the_overlay_draws_the_card_over_any_view_under_a_toast(overlay_canvas):
+    """Overlay.draw() draws it last, from its activity() each frame, and
+    under a toast while one is up"""
+    from core.hub import Snapshot
+    from overlay.scenes import Overlay
+    from overlay.sprites import SpriteBank
+    from core.paths import DATA
+    import os
+    from overlay import activity_card as ac, ui
+    overlay = Overlay(SpriteBank(os.path.join(DATA, "Assets")))
+    view = _view(total=2, done=1, started=time.time() - 5)
+    overlay.activity = lambda: view
+    for t in (0, 50, 400):
+        overlay.draw(overlay_canvas, Snapshot(), t, 16)
+    assert _bar_fill(overlay_canvas) > 0
+
+    overlay.toast("Achievement: Test")
+    for t in range(500, 1400, 16):
+        overlay.draw(overlay_canvas, Snapshot(), t, 16)
+    assert overlay.toast_bottom > ac.TOP
+    below = overlay.toast_bottom + 3
+    assert _bar_fill(overlay_canvas, top=below) > 0 and _bar_fill(overlay_canvas) == 0
+    for t in range(1400, 1400 + scenes_toast_ms() + 600, 16):           # the toast's gone: back up
+        overlay.draw(overlay_canvas, Snapshot(), t, 16)
+    assert _bar_fill(overlay_canvas) > 0
+
+
+def scenes_toast_ms():
+    from overlay.scenes import TOAST_MS
+    return TOAST_MS
+
+
+def test_the_trays_watcher_hears_each_new_line():
+    from core.launcher_activity import ActivityWatcher
     clock = Clock(100.0)
     act = LauncherActivity(clock)
-    lines, sent = [], []
-    popup = ap.ActivityPopup(act, on_line=lines.append)
-    popup._send = sent.append
-    popup.tick(now=100.0)
-    assert sent == [] and lines == []                           # nothing going on
+    lines = []
+    w = ActivityWatcher(act, lines.append)
+    w.tick()
+    assert lines == []                                          # nothing going on
     act.start("saves", "Syncing saves", total=2)
-    popup.tick(now=clock.t)
-    popup.tick(now=clock.t + 0.5)
-    assert lines == ["Syncing saves (0 of 2)"] and sent == []          # not shown yet
-    clock.t += 1.5
-    popup.tick(now=clock.t)
-    popup.tick(now=clock.t)
-    assert len(sent) == 1 and sent[-1][1]['title'] == "Syncing saves"  # shown, once
+    w.tick()
+    w.tick()
+    act.progress(1)
+    w.tick()
     act.finish("2 uploaded")
-    popup.tick(now=clock.t)
-    assert sent[-1][1]['finished'] is not None and lines[-1] == "Syncing saves: done"
+    w.tick()
     clock.t += la.DONE_S + 1
-    popup.tick(now=clock.t)
-    assert sent[-1] == ('view', None) and lines[-1] is None
+    w.tick()
+    assert lines == ["Syncing saves (0 of 2)", "Syncing saves (1 of 2)", "Syncing saves: done", None]

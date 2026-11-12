@@ -60,7 +60,7 @@ Its settings, log, achievement sets and save backups are in
    the top screen turns its Wi-Fi sign green), and finds DSiRPC. (Away from
    your PC? Press **B** to [play offline](#playing-offline).) While you're
    in the launcher, Discord shows **Playing DSiRPC** with the Pixel logo
-   ("3DS on DSiRPC" or "DSi on DSiRPC" when you hover it) and what the
+   ("DSiRPC on 3DS" or "DSiRPC on DSi" when you hover it) and what the
    launcher is doing, like syncing your saves.
 3. Open **Games** (or press **START** to start the game you played last) and
    pick your game ([the game list](#the-game-list)). The launcher starts
@@ -119,7 +119,7 @@ Right-click it (on a Mac, click it in the menu bar) for the menu:
 | **Overlay window** | The [stream overlay](#stream-overlay-window) (a left click on the icon toggles it too) |
 | **Ambient music** | The launcher's menu music while the overlay window is open: **Off** (at first), **Bright** or **Subtle** |
 | **Console updates** | Let the launcher [update its files](#updating-and-removing) from this DSiRPC |
-| **Activity popup** | A little window in the corner of the screen while the launcher syncs saves or achievements, or updates itself, from here, with how far it got (only for the ones that take more than a second; a click hides it) |
+| **Activity popup** | A card at the top of the [overlay window](#stream-overlay-window), with one progress bar for the whole job (all the saves of a sync, both files of an update), while the launcher syncs saves or achievements, or updates itself, from here (only for the ones that take more than a second) |
 | **Start with Windows** | Start DSiRPC when you sign in (**Open at Login** on a Mac) |
 | **Check for updates...** | Look for a new release now. Once there is one, it says **Update to v...**: [updating](#updating-and-removing) |
 | **Setup...** | Run setup again, to change an answer |

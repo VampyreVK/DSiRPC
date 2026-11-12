@@ -37,12 +37,15 @@ checked on hardware for your side so far.
 """
 
 import math
+import time
 
 import pygame
 
 from core import bw_data
 from core import platinum_data as pdata
 from . import markers, ui
+from . import activity_card
+from .activity_card import ActivityCard
 from .party_screen import CARD_GAP, CARD_POS, CARD_TOP, CARD_TRAY, CARD_W, draw_tray, live_party
 from .backdrop import Backdrop, period, terrain, weather_kind
 from .effects import Effect
@@ -137,6 +140,11 @@ class Overlay:
         self.unova = UnovaScreen(self, UnovaArt(sprites.assets))
         self.hp_shown = {}         # key -> displayed HP (float), slides toward the real value
         self.toasts = []           # [text, started_ms or None, sparkly]
+        # What the launcher is doing (overlay/activity_card.py): activity()
+        # gives core/launcher_activity.py's view, or None (app.py sets it)
+        self.activity = None
+        self.activity_card = ActivityCard(self.font, self.mini)
+        self.toast_bottom = 0      # where the toast that's up ends (draw_toasts())
         # Which screen: the main view ('auto': the battle view in a battle,
         # else the party, Unova or game card view) or the party screen
         # (V in the window: party_pinned). A battle starting or ending
@@ -300,6 +308,8 @@ class Overlay:
             self.draw_reconnecting(top, t_ms)
         if wipe is not None:
             ui.wipe(top, wipe)
+        self.activity_card.draw(top, self.activity() if self.activity else None, t_ms, time.time(),
+                                top=max(activity_card.TOP, self.toast_bottom + 3))
 
     # -- which screen ------------------------------------------------------------
 
@@ -1247,6 +1257,7 @@ class Overlay:
     # -- toasts ----------------------------------------------------------------
 
     def draw_toasts(self, canvas, t_ms):
+        self.toast_bottom = 0       # (the activity card goes under a toast that's up)
         if not self.toasts:
             return
         toast = self.toasts[0]
@@ -1263,6 +1274,7 @@ class Overlay:
         x = (W - w) // 2
         t = ui.THEME
         ui.panel(canvas, (x, y, w, 20), fill=t['lead_fill'], lo=t['lead_lo'], border=t['lead_border'])
+        self.toast_bottom = max(0, y + 20)
         self.font.draw(canvas, text, (x + (16 if sparkly else 8), y + 6), t['text'], t['text_shadow'])
         if sparkly:
             ui.sparkle(canvas, x + 8, y + 10, t_ms)

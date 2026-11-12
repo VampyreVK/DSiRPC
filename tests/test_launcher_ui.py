@@ -124,6 +124,35 @@ def test_names_come_from_the_banners(host, sd):
     assert [r[1].lower() for r in rows] == sorted(r[1].lower() for r in rows)      # A-Z
 
 
+def test_banner_trademark_and_copyright_signs_are_left_out(host, sd):
+    """The font has no TM, (R) or (C): MySims Kingdom's banner showed as
+    "MySims? Kingdom" by "?2008 Electronic Arts". A name games.idx kept that
+    way (from an older launcher) is read again from the banner."""
+    path = game_path(sd, "MySims Kingdom.nds")
+    lui.write(path, lui.rom("YMKE", "MySims\u2122 Kingdom\n\u00a92008 Electronic Arts"))
+    lui.write(game_path(sd, "Quiz.nds"), lui.rom("QUZE", "Who Wants Quiz?\n\u00a9 2009 Quizco\u00ae"))
+    by_code = {r[0]: r for r in games(host, sd)}
+    assert by_code["YMKE"][1:3] == ["MySims Kingdom", "2008 Electronic Arts"]
+    assert by_code["QUZE"][1:3] == ["Who Wants Quiz?", "2009 Quizco"]     # (a real '?' stays)
+
+    index = os.path.join(sd, "DSiRPC", "games.idx")
+    with open(index, encoding="ascii") as f:
+        text = f.read()
+    with open(index, "w", encoding="ascii", newline="") as f:
+        f.write(text.replace("\tMySims Kingdom\t2008", "\tMySims? Kingdom\t?2008"))
+    assert {r[0]: r[1:3] for r in games(host, sd)}["YMKE"] == ["MySims Kingdom", "2008 Electronic Arts"]
+    with open(index, encoding="ascii") as f:
+        assert "MySims Kingdom.nds\tMySims Kingdom\t2008 Electronic Arts" in f.read()
+
+
+def test_one_bar_across_the_saves_of_a_sync(host):
+    """saveui.c's batch: an upload, then a save backed up and the PC's taken
+    (cut off once, a retry's wait, and again): each step's bytes add up on
+    one bar, a retry starting its step again"""
+    out = lui.run(host, "batch x")
+    assert out[-1] == "batch 0,256,512,512,768,768,1280,768,768,1280,1792"
+
+
 def test_the_launchers_own_folder_isnt_games(host, sd):
     """The DSiRPC folder goes in roms/nds, with the games: the launcher and
     our nds-bootstrap in it aren't on the list, games in other folders are"""

@@ -339,10 +339,14 @@ Discord's small image; section 6), **Overlay window** (also a left click on
 the icon), **Ambient music** (Off, Bright or Subtle: the launcher's menu
 songs while the overlay window is open; below), **Console updates** (whether
 the launcher may update its files from here; section 7), **Activity popup**
-(`app/activity_popup.py`: a small always-on-top window, in a process of its
-own, while the launcher's offline sync, save sync or update download takes
-more than a second, fed by `core/launcher_activity.py`; `activity_popup` in
-`dsirpc.cfg`) and **Start with Windows** (`app/startup.py`: a
+(`overlay/activity_card.py`: a card in the toasts' cream that slides down
+from the top of the overlay window, under a toast that's up, with one
+progress bar for the whole job (every save of a save sync, both files of an
+update, by their bytes), while the launcher's offline sync, save sync or
+update download takes more than a second, fed by `core/launcher_activity.py`;
+asking for the save plan alone, as the launcher's connecting screen does, is
+no sync;
+`activity_popup` in `dsirpc.cfg`) and **Start with Windows** (`app/startup.py`: a
 `DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
 then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC
@@ -1593,6 +1597,7 @@ nothing waits while the list is on the console's screen:
 | download | The live save, or a backup (newest first); optionally made the live save too (a restore in sync mode, still marked as whose it was) |
 | history | The versions kept: the live save, then the backups of every console, newest first, each save once, with whose each is |
 | done | What the sync did, for the tray's notification |
+| batch | A sync of so many saves begins, moving so many bytes (or with 0 saves, it's over): DSiRPC's activity card is one bar across them. A DSiRPC from before it turns it down, and the launcher carries on |
 
 Each request starts with the exchange's version (2; a launcher from another
 release is told so), the console's MAC, its model and the save mode (back up
@@ -1660,7 +1665,8 @@ bytes, as long as the offline sync's, so a DSiRPC from before updates reads
 all of it, sees it isn't a sync request and turns it down at once:
 
 ```
-"DRUP" | version u16 (1) | MAC[6] | console model u8 | op u8 | file u8 | 5 bytes 0
+"DRUP" | version u16 (1) | MAC[6] | console model u8 | op u8 | file u8 |
+         the update's bytes u32 (op 2: every file it takes, for one bar on the PC) | 1 byte 0
 op 1, the list:  "DRUA" | status u16 | n u8 | n x ( file u8 | size u32 | CRC32 u32 )
                  | label length u8 | label (DSiRPC's version, for the screen)
 op 2, a file:    "DRUF" | status u16 | size u32 | CRC32 u32 | the file

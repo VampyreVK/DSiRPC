@@ -75,8 +75,8 @@ class Config:
         # Offer the launcher the console's files that came with this DSiRPC
         # when its own differ (core/console_update.py)
         self.console_updates = True
-        # A little window in the corner while the launcher syncs something
-        # that takes a while (app/activity_popup.py)
+        # A card in the overlay window while the launcher syncs something
+        # that takes a while (overlay/activity_card.py)
         self.activity_popup = True
         # The launcher's menu song the overlay window plays while it's open
         # (MUSIC_CHOICES); off at first, as the window may be on a stream
@@ -232,9 +232,9 @@ console_icon: {self.console_icon}
 # differ from the ones that came with this DSiRPC, the launcher offers to
 # update them from here (the tray menu's "Console updates")
 console_updates: {yn(self.console_updates)}
-# A little window in the corner of the screen while the launcher syncs saves
-# or achievements, or updates itself, from here (the tray menu's "Activity
-# popup")
+# A card in the overlay window, with a progress bar, while the launcher syncs
+# saves or achievements, or updates itself, from here (the tray menu's
+# "Activity popup")
 activity_popup: {yn(self.activity_popup)}
 # Music while the overlay window is open: the launcher's menu songs, off,
 # bright or subtle (the tray menu's "Ambient music")

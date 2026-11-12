@@ -9,7 +9,7 @@ engine.py - what runs while DSiRPC runs, whichever way it's started
                                      core/ra_game.py, run by the hub's source
   what the launcher is doing         core/launcher_activity.py (activity),
                                      fed by its syncs, for the tray, Discord
-                                     and the tray's activity popup
+                                     and the overlay window's activity card
 
 The hub reads every 5 s while only Discord needs the data (Discord takes an
 update about every 5 s anyway), and every 2 s with the battlers a few times a
@@ -173,6 +173,8 @@ class Engine:
         # What the launcher is doing with DSiRPC right now (its syncs say)
         from core.launcher_activity import LauncherActivity
         self.activity = LauncherActivity()
+        self._save_batch = None      # the launcher's save sync going on (_save_activity())
+        self._save_moves = 0         # what its last plan had to move (a launcher from before batches)
         self.discord.activity = self.activity
 
         # Offline play: the launcher hands over what was unlocked without
@@ -710,18 +712,53 @@ class Engine:
         return self._saves
 
     def _save_activity(self, e):
-        """The save sync's event, for self.activity: the plan says how many
-        saves will move, then each upload or download is one more."""
+        """The save sync's event, for self.activity. The launcher says when a
+        sync of its saves begins, with their bytes ('save_batch'), so the bar
+        moves with each piece of each save ('save_moving') across all of
+        them, and when it's over. Asking for the plan alone (the launcher's
+        connecting screen, the Saves list opening) isn't a sync. A launcher
+        from before 'save_batch': each save moved is one more of the plan's."""
         from core import saves
         act, kind = self.activity, e['type']
         console = (e.get('console') or "DSi").split()[0]
+        b = self._save_batch
+        batch = b is not None and act.active("saves") and (act.current() or {}).get('generation') == b['generation']
         if kind == 'save_plan':
-            if e['moves']:
-                act.start("saves", "Syncing saves", console=console, total=e['moves'],
-                          detail=f"{e['moves']} save{'s' if e['moves'] != 1 else ''} to move")
+            self._save_moves = e['moves']
+            return
+        if kind == 'save_batch':
+            if e['saves'] and e['bytes']:
+                act.start("saves", "Syncing saves", console=console, total=e['bytes'], unit="bytes",
+                          items=e['saves'])
+                self._save_batch = {'generation': act.current()['generation'], 'base': 0, 'step': None,
+                                    'done': 0, 'size': 0, 'saves': set(), 'up': 0, 'down': 0, 'backed': 0}
+            elif batch:
+                self._finish_batch(b)
+            return
+        if kind == 'save_moving':
+            if not batch:
+                if not act.active("saves"):     # (a launcher from before batches)
+                    act.start("saves", "Syncing saves", console=console, total=self._save_moves)
+                act.progress(detail=self._moving_text(e))
+                return
+            step = (e['key'], e['slot'], e['up'], e.get('kind'))
+            if step != b['step'] or e['done'] < b['done']:
+                if b['step'] is not None and b['size'] and b['done'] >= b['size']:
+                    b['base'] += b['size']      # (the last step got to its end: a retry starts it again)
+                b['step'] = step
+                b['saves'].add((e['key'], e['slot']))
+                act.progress(detail=self._moving_text(e), item=len(b['saves']))
+            b['done'], b['size'] = e['done'], e['size']
+            act.progress(b['base'] + e['done'])
             return
         if kind in ('save_uploaded', 'save_downloaded'):
-            if kind == 'save_uploaded' and e.get('kind') == saves.PUT_SAFETY:
+            safety = kind == 'save_uploaded' and e.get('kind') == saves.PUT_SAFETY
+            if batch:
+                if not safety:
+                    k = 'down' if kind == 'save_downloaded' else 'backed' if e.get('kind') == saves.PUT_BACKUP else 'up'
+                    b[k] += 1
+                return
+            if safety:
                 return    # (a copy kept before a download replaces it: the download counts)
             if not act.active("saves"):     # (a save picked on the console, outside a sync)
                 act.start("saves", "Syncing saves", console=console)
@@ -733,6 +770,27 @@ class Engine:
             parts = [f"{e[k]} {what}" for k, what in (('uploaded', "uploaded"), ('backed_up', "backed up"),
                                                      ('downloaded', "downloaded"), ('failed', "failed")) if e[k]]
             act.finish(", ".join(parts) or "Everything was in sync", ok=not e['failed'])
+
+    def _finish_batch(self, b):
+        """The launcher says its sync is over: how it went, as DSiRPC saw it
+        (a save that didn't make it all the way: failed)."""
+        self._save_batch = None
+        parts = [f"{b[k]} {what}" for k, what in (('up', "uploaded"), ('backed', "backed up"), ('down', "downloaded"))
+                 if b[k]]
+        failed = len(b['saves']) - (b['up'] + b['backed'] + b['down'])
+        if failed > 0:
+            parts.append(f"{failed} failed")
+        self.activity.finish(", ".join(parts) or "Everything was in sync", ok=failed <= 0)
+
+    @staticmethod
+    def _moving_text(e):
+        """What a save on the move is doing, for the card's detail line."""
+        from core import saves
+        name = e.get('name') or "a save"
+        if not e['up']:
+            return f"Downloading {name}"
+        return {saves.PUT_SAFETY: f"Backing up {name} first", saves.PUT_BACKUP: f"Backing up {name}"}.get(
+            e.get('kind'), f"Uploading {name}")
 
     def _console_files(self):
         """The console's files as they came with this DSiRPC, for the
@@ -887,6 +945,11 @@ class Engine:
         if hasattr(self.source, 'parse_interval'):
             self.source.parse_interval = self.hub.interval
 
+    def _activity_view(self):
+        """What the launcher is doing, for the overlay window's activity card
+        (None while the tray menu's "Activity popup" is off)."""
+        return self.activity.current() if getattr(self.cfg, 'activity_popup', True) else None
+
     def _make_window(self, remote=False):
         """The overlay window; `remote`: in a process of its own (macOS's
         menu bar, see overlay/remote.py), else on the calling thread."""
@@ -901,14 +964,15 @@ class Engine:
             from overlay.remote import RemoteOverlay
             os.makedirs(LOG_DIR, exist_ok=True)
             return RemoteOverlay(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
-                                 log_file=os.path.join(LOG_DIR, "overlay.log"), music=self.cfg.ambient_music)
+                                 log_file=os.path.join(LOG_DIR, "overlay.log"), music=self.cfg.ambient_music,
+                                 activity=self._activity_view)
         try:
             window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
-                                   music=self.cfg.ambient_music)
+                                   music=self.cfg.ambient_music, activity=self._activity_view)
         except ValueError as e:
             logging.warning(f"chroma in {os.path.basename(self.cfg.path)}: {e}; ignoring it")
             window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, on_scale=save_scale,
-                                   music=self.cfg.ambient_music)
+                                   music=self.cfg.ambient_music, activity=self._activity_view)
         return window
 
     def run_overlay_here(self):

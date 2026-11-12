@@ -279,6 +279,33 @@ def test_the_console_updates_both_files(setup):
     assert result(out, "check")[:2] == ["1", "1"] and planned(out)[cu.BOOTSTRAP][4] == "1"
 
 
+def test_the_pc_shows_one_bar_across_both_files(setup):
+    """The launcher says the whole update's bytes with each file it asks for,
+    so DSiRPC's activity (the overlay window's card) is one bar across both,
+    done once both have gone"""
+    from core.launcher_activity import LauncherActivity
+    act = LauncherActivity()
+    setup.sync.activity = act
+    seen = []
+    progress = act.progress
+
+    def spy(*a, **k):
+        progress(*a, **k)
+        v = act.current()
+        seen.append((v['generation'], v['done'], v['total'], v['finished'] is not None))
+    act.progress = spy
+    setup.pc_file("dsirpc-launcher.nds", nds("new launcher", 6000))
+    setup.pc_file("nds-bootstrap-dsirpc.nds", nds("new bootstrap", 9000))
+    write(setup.sd_path("dsirpc-launcher.nds"), nds("old launcher", 5000))
+    out = setup.run(CHECK, "download")
+    assert result(out, "download")[0] == "1"
+    assert len({g for g, *_ in seen}) == 1 and {t for _, _, t, _ in seen} == {15000}
+    assert [d for _, d, _, _ in seen] == sorted(d for _, d, _, _ in seen) and seen[-1][1] == 15000
+    assert not any(f for *_, f in seen)
+    v = act.current()
+    assert v['finished'] is not None and v['summary'] == "Sent the launcher and nds-bootstrap"
+
+
 def test_only_what_changed_and_a_missing_bootstrap(setup):
     setup.pc_file("dsirpc-launcher.nds", nds("launcher"))
     setup.pc_file("nds-bootstrap-dsirpc.nds", nds("bootstrap", 9000))

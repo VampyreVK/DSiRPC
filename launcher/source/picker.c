@@ -260,6 +260,8 @@ static bool read_rom(const char *path, char code[5], uint8_t *version, UiBanner 
             }
             continue;
         }
+        if (ch == 0x2122 || ch == 0xAE || ch == 0xA9 || (ch == ' ' && len == 0))
+            continue;    // (the font has no TM, (R) or (C): left out, not shown as '?')
         if (len < TITLE_LEN - 1)
             lines[n_lines][len++] = ui_ascii(ch);
     }
@@ -575,6 +577,20 @@ static bool is_pending(uint32_t id)
     return false;
 }
 
+// A name games.idx kept with a '?' in it, from a launcher that showed the
+// banner's TM, (R) and (C) that way ("MySims? Kingdom", "?2008 Electronic
+// Arts"): its banner's name and publisher read again. true if they changed.
+static bool reread_names(Game *g)
+{
+    char title[TITLE_LEN], publisher[PUBLISHER_LEN];
+    if (!read_rom(g->path, NULL, NULL, NULL, title, sizeof(title), publisher, sizeof(publisher)) || title[0] == '\0' ||
+        (strcmp(title, g->title) == 0 && strcmp(publisher, g->publisher) == 0))
+        return false;
+    memcpy(g->title, title, sizeof(g->title));
+    memcpy(g->publisher, publisher, sizeof(g->publisher));
+    return true;
+}
+
 // Loads the games: the folder, then games.idx for what's known, the banners
 // of the rest, and the PC's playtimes
 static bool load_games(const PickerUi *ui)
@@ -584,6 +600,7 @@ static bool load_games(const PickerUi *ui)
     int count;
     Game *index = load_index(ui->index_dir, &count);
     int to_read = 0;
+    bool renamed = false;
     for (int i = 0; i < n_games; i++)
     {
         Game *g = &games[i];
@@ -605,6 +622,8 @@ static bool load_games(const PickerUi *ui)
             g->hashed = e->hashed;
             g->ra = e->ra;
             g->read = true;
+            if (strchr(g->title, '?') != NULL || strchr(g->publisher, '?') != NULL)
+                renamed |= reread_names(g);
         }
         else
         {
@@ -613,7 +632,7 @@ static bool load_games(const PickerUi *ui)
     }
     free(index);
 
-    bool changed = to_read > 0 || count != n_games || index_unchecked;
+    bool changed = to_read > 0 || count != n_games || index_unchecked || renamed;
     int done = 0;
     for (int i = 0; i < n_games; i++)
     {

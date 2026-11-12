@@ -77,6 +77,7 @@ class ConsoleSync:
         self.updates = updates
         self.stats = stats
         self.activity = activity
+        self._update_sent, self._update_files = None, []    # an update's files sent so far (_update_progress())
         self.port = port
         self.host = host
         self.udp = None
@@ -270,16 +271,34 @@ class ConsoleSync:
                      + (f", {notes} shadow note(s)" if notes else "") + " taken, "
                      f"{len(sets)} set(s) sent" + (f" ({', '.join(_set_name(c, d) for c, d in sets)})" if sets else ""))
 
-    def _update_progress(self, what, sent, total, console):
+    def _update_progress(self, what, sent, total, console, update=0):
         """console_update.handle()'s, as it sends the console one of its
-        files: the activity hears it (a new one for each file)."""
+        files. update: the bytes of all the files the console takes (0 from
+        a launcher that doesn't say): one bar across them, done once the
+        last one has gone. Without it, each file is one of its own."""
         act = self.activity
-        if sent == 0 or not act.active("update"):
-            act.start("update", "Updating the console", console=console, detail=f"Sending {what}", total=total,
-                      unit="bytes")
-        act.progress(sent, total)
+        if not update:
+            if sent == 0 or not act.active("update"):
+                act.start("update", "Updating the console", console=console, detail=f"Sending {what}", total=total,
+                          unit="bytes")
+            act.progress(sent, total)
+            if sent >= total:
+                act.finish(f"Sent {what}")
+            return
+        v = act.current()
+        if (not act.active("update") or v['total'] != update or v['console'] != console
+                or self._update_sent is None):
+            act.start("update", "Updating the console", console=console, total=update, unit="bytes")
+            self._update_sent, self._update_files = 0, []     # (the files sent whole so far)
+        if sent == 0:
+            act.progress(detail=f"Sending {what}")
+        act.progress(self._update_sent + sent)
         if sent >= total:
-            act.finish(f"Sent {what}")
+            self._update_sent += total
+            self._update_files.append(what)
+            if self._update_sent >= update:
+                self._update_sent = None
+                act.finish("Sent " + " and ".join(self._update_files))
 
     @staticmethod
     def _await_hangup(conn):

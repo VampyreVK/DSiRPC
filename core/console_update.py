@@ -19,7 +19,9 @@ launcher that can update can update from any later DSiRPC, whatever else
 changed between them; something new gets a new op. Little-endian:
 
     every request:  "DRUP" | version u16 (1) | MAC[6] | console model u8 | op u8 |
-                    file u8 (op 2, else 0) | 5 bytes 0
+                    file u8 (op 2, else 0) | the update's bytes u32 (op 2:
+                    all the files it takes, for one bar across them; 0 from
+                    a launcher before that, else 0) | 1 byte 0
                     (20 bytes, as long as the offline sync's request, so a
                     DSiRPC from before updates turns it down at once instead
                     of waiting for more)
@@ -48,7 +50,7 @@ from .paths import ROOT
 
 MAGIC = b"DRUP"
 VERSION = 1
-HEADER = struct.Struct("<4sH6sBBB5x")
+HEADER = struct.Struct("<4sH6sBBBIx")
 FILE_ENTRY = struct.Struct("<BII")
 
 OP_LIST, OP_GET = 1, 2
@@ -167,10 +169,11 @@ class ConsoleFiles:
 def handle(magic, read, send, files, progress=None):
     """Answers one request: magic is the 4 bytes already read, read(n) and
     send(bytes) talk to the console, files is the ConsoleFiles (None while
-    console updates are off). progress(what, sent, of, console), if given,
-    hears how much of a file has gone (console "DSi" or "3DS")."""
+    console updates are off). progress(what, sent, of, console, update), if
+    given, hears how much of a file has gone (console "DSi" or "3DS"; update:
+    the bytes of every file the console takes, 0 if it doesn't say)."""
     rest = read(HEADER.size - 4)
-    _, version, mac, model, op, file = HEADER.unpack(magic + rest)
+    _, version, mac, model, op, file, update = HEADER.unpack(magic + rest)
     who = saves.console_label(model, mac)
 
     if op == OP_GET:
@@ -182,11 +185,11 @@ def handle(magic, read, send, files, progress=None):
         send(b"DRUF" + struct.pack("<HII", OK, len(data), crc))
         kind = "3DS" if model in (2, 3) else "DSi"
         if progress:
-            progress(WHAT[file], 0, len(data), kind)
+            progress(WHAT[file], 0, len(data), kind, update)
         for i in range(0, len(data), CHUNK):
             send(data[i:i + CHUNK])
             if progress:
-                progress(WHAT[file], min(i + CHUNK, len(data)), len(data), kind)
+                progress(WHAT[file], min(i + CHUNK, len(data)), len(data), kind, update)
         logging.info(f"Console update: sent {WHAT[file]} ({len(data) // 1024} KB) to the {who}")
         return
 
@@ -205,5 +208,5 @@ def handle(magic, read, send, files, progress=None):
 
 # -- a console, for tests ------------------------------------------------------
 
-def request(op, file=0, mac=b"\0\x09\xbf\x12\x3f\x21", model=0):
-    return HEADER.pack(MAGIC, VERSION, mac, model, op, file)
+def request(op, file=0, mac=b"\0\x09\xbf\x12\x3f\x21", model=0, update=0):
+    return HEADER.pack(MAGIC, VERSION, mac, model, op, file, update)

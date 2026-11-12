@@ -347,6 +347,8 @@ static int download_one(const SyncJob *job, const uint8_t mac[6], int model, con
 
     uint8_t req[REQUEST_SIZE];
     request(req, mac, model, OP_GET, f->id);
+    for (int i = 0; i < 4; i++)
+        req[15 + i] = (uint8_t)(plan->total >> (8 * i));   // (the whole update's bytes: one bar on the PC too)
     int sock;
     int r = sync_open(job, server, &sock, msg, msgsz);
     uint8_t head[14];

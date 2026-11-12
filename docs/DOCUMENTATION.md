@@ -338,7 +338,11 @@ icon** (a submenu with every picture in `Assets/Consoles`, plus "None", for
 Discord's small image; section 6), **Overlay window** (also a left click on
 the icon), **Ambient music** (Off, Bright or Subtle: the launcher's menu
 songs while the overlay window is open; below), **Console updates** (whether
-the launcher may update its files from here; section 7) and **Start with Windows** (`app/startup.py`: a
+the launcher may update its files from here; section 7), **Activity popup**
+(`app/activity_popup.py`: a small always-on-top window, in a process of its
+own, while the launcher's offline sync, save sync or update download takes
+more than a second, fed by `core/launcher_activity.py`; `activity_popup` in
+`dsirpc.cfg`) and **Start with Windows** (`app/startup.py`: a
 `DSiRPC` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 that runs `pythonw dsirpc.py tray`; it shows in Task Manager's Startup apps),
 then **Setup...** (opens setup in a console), **Open log**, **Open DSiRPC

@@ -119,7 +119,7 @@ def handle(magic, read, send, store, on_event=None):
         send(data)
     try:
         if op == OP_PLAN:
-            _plan(read, answer, store, backup_only, who)
+            _plan(read, answer, store, backup_only, who, on_event)
         elif op == OP_PUT:
             _put(read, answer, store, who, on_event)
         elif op == OP_GET:
@@ -148,7 +148,11 @@ def handle(magic, read, send, store, on_event=None):
             refuse(CANT_STORE)
 
 
-def _plan(read, send, store, backup_only, who):
+# The plan's actions that move a save (the rest wait for a pick on the console, or need nothing)
+MOVES = (saves.UPLOAD, saves.DOWNLOAD, saves.DOWNLOAD_NEW, saves.BACKUP)
+
+
+def _plan(read, send, store, backup_only, who, on_event=None):
     (n,) = struct.unpack("<H", read(2))
     if n > MAX_ENTRIES:
         raise RequestError("too many saves")
@@ -170,6 +174,10 @@ def _plan(read, send, store, backup_only, who):
                                   rec.get("crc", 0), saves.to_console_time(rec["time"]) if rec else 0,
                                   min(255, i["versions"]), len(source)) + source)
     send(b"".join(out))
+    if on_event:
+        on_event({"type": "save_plan", "console": who, "saves": len(entries),
+                  "moves": sum(i["action"] in MOVES for i in items),
+                  "conflicts": sum(i["action"] == saves.CONFLICT for i in items)})
 
 
 def _put(read, send, store, who, on_event):
@@ -215,7 +223,9 @@ def _get(read, send, store, who, on_event):
     logging.info(f"Save sync: {key} slot {slot} " + (f"version {version} " if version else "") +
                  f"sent to the {who} ({len(data)} bytes)")
     if on_event:
-        on_event({"type": "save_downloaded", "console": who, "key": key, "slot": slot, "version": version})
+        g = store.data["games"].get(key) if isinstance(getattr(store, "data", None), dict) else None
+        on_event({"type": "save_downloaded", "console": who, "key": key, "slot": slot, "version": version,
+                  "name": (g or {}).get("name") or key})
 
 
 def _history(read, send, store):

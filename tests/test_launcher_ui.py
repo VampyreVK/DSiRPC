@@ -39,7 +39,8 @@ def game_path(sd, name):
 
 
 def games(host, sd, sort=1):
-    """The game list, in this order (0 recent, 1 A-Z, 2 favorites first):
+    """The game list, in this order (0 recent, 1 A-Z, 2 favorites first, 3
+    the most unlocked first):
     [code, name, publisher, version, favorite, last played, earned/total]"""
     out = lui.run(host, f"games {sd}|{sort}")
     assert out[-1] == f"games {sum(ln.startswith('game ') for ln in out)}"
@@ -174,6 +175,37 @@ def test_the_orders(host, sd):
     rows = games(host, sd, sort=2)
     assert rows[0][0] == "AZEE" and rows[0][4] == "1" and rows[1][4] == "0"
     assert {r[0]: r[4] for r in games(host, sd, sort=1)}["AZEE"] == "1"
+
+
+def test_the_unlocked_order(host, sd):
+    """Unlocked: the games with a count, the most unlocked first (Platinum's
+    three, with the one waiting in RPCUNLK.BIN, then Mario Kart's one, then
+    Tetris's none), then the "new" ones, then "no set" last, each group A-Z"""
+    now = lui.console_now()
+    sets = os.path.join(sd, "DSiRPC", "sets")
+    lui.write(os.path.join(sets, "AMCE.DRS"), lui.set_file("AMCE", [(2001, "Win", "Win a cup", 10, True),
+                                                                    (2002, "Star", "Get a star", 10, False)], now))
+    lui.write(os.path.join(sets, "ATRE.DRS"), lui.set_file("ATRE", [(3001, "Lines", "Clear a line", 5, False)], now))
+    games(host, sd)
+    # Zelda: RetroAchievements has no set for it (what DSiRPC said at a sync, kept in games.idx)
+    index = os.path.join(sd, "DSiRPC", "games.idx")
+    with open(index, encoding="ascii") as f:
+        lines = f.read().splitlines()
+    for i, ln in enumerate(lines):
+        if "\tThe Legend of Zelda" in ln:
+            fields = ln.split(" ")
+            fields[6:8] = ["0" * 32, "3"]
+            lines[i] = " ".join(fields)
+    with open(index, "w", encoding="ascii", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+
+    rows = games(host, sd, sort=3)
+    assert [(r[0], r[6]) for r in rows[:3]] == [("CPUE", "3/6"), ("AMCE", "1/2"), ("ATRE", "0/1")]
+    assert [r[7] for r in rows[:3]] == ["count"] * 3
+    new = [r for r in rows[3:] if r[7] == "new"]
+    assert rows[3:3 + len(new)] == new and len(new) == len(lui.GAMES) - 4         # "new" next, A-Z
+    assert [r[1].lower() for r in new] == sorted(r[1].lower() for r in new)
+    assert rows[-1][0] == "AZEE" and rows[-1][7] == "no set"                       # "no set" last
 
 
 def test_a_game_started_before_the_list_was_ever_opened(host, sd):

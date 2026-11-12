@@ -27,6 +27,10 @@ its update check: "DRUP" goes to core/console_update.py, with the
 ConsoleFiles updates() returns (None: console updates are off). And its
 playtimes: "DRGS" goes to core/playtime.py, with the (Playtime, info) that
 stats() returns.
+
+activity, if given, is a core/launcher_activity.py LauncherActivity: the
+offline sync and the update downloads tell it how far they got, for the PC
+to show (the save sync tells it through the engine, from on_saves' events).
 """
 
 import logging
@@ -40,6 +44,11 @@ from . import console_update, offline, playtime, save_session
 
 ACCEPT_TIMEOUT = 15.0
 HANGUP_TIMEOUT = 5.0
+SEND_CHUNK = 16 * 1024     # the answer's sets go a piece at a time, so the activity can count them
+
+# What the offline sync's "still working" frames say it's on (offline.PROGRESS_*)
+PROGRESS_TEXT = {offline.PROGRESS_CHECKING: "Checking games with RetroAchievements",
+                 offline.PROGRESS_SETS: "Getting the achievement sets ready"}
 
 
 def _set_name(code, data):
@@ -52,7 +61,7 @@ def _set_name(code, data):
 
 class ConsoleSync:
     def __init__(self, sets_for, on_unlocks, on_console=None, port=offline.SYNC_PORT, host="", on_notes=None,
-                 saves=None, on_saves=None, on_here=None, updates=None, stats=None, on_roms=None):
+                 saves=None, on_saves=None, on_here=None, updates=None, stats=None, on_roms=None, activity=None):
         self.sets_for = sets_for
         # ([(code, md5, started, name)], hashed, ms, progress) -> {md5:
         # offline.RA_*}: the launcher's hashes (sync version 2), before the
@@ -67,6 +76,7 @@ class ConsoleSync:
         self.on_saves = on_saves
         self.updates = updates
         self.stats = stats
+        self.activity = activity
         self.port = port
         self.host = host
         self.udp = None
@@ -167,7 +177,8 @@ class ConsoleSync:
             return
         if magic == console_update.MAGIC:
             files = self.updates() if self.updates else None
-            console_update.handle(magic, read, conn.sendall, files)
+            console_update.handle(magic, read, conn.sendall, files,
+                                  progress=self._update_progress if self.activity else None)
             self._await_hangup(conn)
             return
         if magic == playtime.MAGIC:
@@ -192,10 +203,27 @@ class ConsoleSync:
                 self.on_console(addr[0], game, console)
             except Exception:
                 logging.exception("Offline sync: on_console failed")
+        act = self.activity
+        if act:
+            act.start("achievements", "Syncing achievements", console=console,
+                      detail=f"{len(unlocks)} unlock{'s' if len(unlocks) != 1 else ''} from the console"
+                      if unlocks else "")
+        try:
+            self._answer_sync(conn, addr, request, game, stamps, unlock_bytes, unlocks, notes)
+        except Exception:
+            if act:
+                act.finish("Lost the console", ok=False)
+            raise
+
+    def _answer_sync(self, conn, addr, request, game, stamps, unlock_bytes, unlocks, notes):
+        """The offline sync's answer (after _exchange() read the request)."""
+        act = self.activity
         statuses, progress = {}, None
         if request['version'] >= 2:  # (before the sets: a game RetroAchievements has no set for gets none)
             def progress(done, total, what):
                 conn.sendall(offline.build_progress(done, total, what))
+                if act:
+                    act.progress(done, total, detail=PROGRESS_TEXT.get(what, ""), unit="")
             statuses = {r[1]: offline.RA_UNKNOWN for r in request['roms']}
             if self.on_roms:
                 try:
@@ -221,7 +249,19 @@ class ConsoleSync:
         # 0 leaves them there.
         taken = 0 if keep else offline.count_slots(unlock_bytes)
         notes = taken - offline.count_unlocks(unlock_bytes) if taken else 0   # (the shadow check's)
-        conn.sendall(offline.build_answer(0, taken, sets, request['version'], statuses))
+        answer = offline.build_answer(0, taken, sets, request['version'], statuses)
+        if act and sets:
+            act.progress(0, len(answer), detail=f"Sending {len(sets)} achievement set{'s' if len(sets) != 1 else ''}",
+                         unit="bytes")
+        for i in range(0, len(answer), SEND_CHUNK):
+            conn.sendall(answer[i:i + SEND_CHUNK])
+            if act and sets:
+                act.progress(min(i + SEND_CHUNK, len(answer)))
+        if act:
+            got = len(unlocks) if taken else 0
+            parts = ([f"{got} unlock{'s' if got != 1 else ''} taken"] if got else []) + \
+                    ([f"{len(sets)} set{'s' if len(sets) != 1 else ''} sent"] if sets else [])
+            act.finish(", ".join(parts) or "Everything was up to date")
         self._await_hangup(conn)
         self.last = {'from': addr[0], 'game': game, 'unlocks': unlocks, 'taken': taken,
                      'sets': [code for code, _ in sets], 'version': request['version'], 'statuses': statuses}
@@ -229,6 +269,17 @@ class ConsoleSync:
                      + (f" (starting {game})" if game else "") + f": {taken - notes} unlock(s)"
                      + (f", {notes} shadow note(s)" if notes else "") + " taken, "
                      f"{len(sets)} set(s) sent" + (f" ({', '.join(_set_name(c, d) for c, d in sets)})" if sets else ""))
+
+    def _update_progress(self, what, sent, total, console):
+        """console_update.handle()'s, as it sends the console one of its
+        files: the activity hears it (a new one for each file)."""
+        act = self.activity
+        if sent == 0 or not act.active("update"):
+            act.start("update", "Updating the console", console=console, detail=f"Sending {what}", total=total,
+                      unit="bytes")
+        act.progress(sent, total)
+        if sent >= total:
+            act.finish(f"Sent {what}")
 
     @staticmethod
     def _await_hangup(conn):

@@ -5,6 +5,7 @@ bar icon in the macOS app (packaging/macos/).
 Right-click the icon for the menu:
 
     Playing Mario Kart DS              what's running (or what it waits for)
+    Launcher: Syncing saves (2 of 5)   what the launcher is doing, while it does
     Discord: showing Mario Kart DS     what Discord shows
     RetroAchievements: 12 of 132 ...   achievements (signed in, or not)
     ---
@@ -13,6 +14,7 @@ Right-click the icon for the menu:
     Overlay window                     on/off (a left click on the icon does this too)
     Ambient music  >                   Off, Bright or Subtle: the launcher's menu music while it's open
     Console updates                    on/off: the launcher may update its files from here
+    Activity popup                     on/off: a little window while the launcher syncs (app/activity_popup.py)
     Start with Windows                 on/off ("Open at Login" on a Mac)
     ---
     Check for updates...               looks for a new release ("Update to v1.1.0..." once there's one)
@@ -45,6 +47,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 
 from core.paths import DATA
@@ -220,6 +223,7 @@ def run_tray(cfg, **engine_args):
     engine.persist = True
     lock = threading.Lock()
     shown = {'status': None}
+    activity = {'line': None}     # what the launcher is doing (the popup's watcher says), for the menu
 
     def status():
         d = engine.discord.status
@@ -239,7 +243,7 @@ def run_tray(cfg, **engine_args):
             if s != shown['status']:
                 icon.icon = make_icon(s)
                 shown['status'] = s
-            icon.title = f"DSiRPC: {engine.headline()}"[:127]
+            icon.title = f"DSiRPC: {activity['line'] or engine.headline()}"[:127]
             icon.update_menu()
             for e in events:
                 if e['type'] == 'online':
@@ -289,6 +293,10 @@ def run_tray(cfg, **engine_args):
         engine.cfg.console_updates = not engine.cfg.console_updates
         engine.save_config()
 
+    def toggle_activity_popup(icon_, item):
+        engine.cfg.activity_popup = not engine.cfg.activity_popup
+        engine.save_config()
+
     def console_item(key, label):
         def pick(icon_, item):
             engine.set_console_icon(key)
@@ -329,12 +337,14 @@ def run_tray(cfg, **engine_args):
         Item(lambda i: engine.headline(), None, enabled=False),
         Item(lambda i: f"Discord: {engine.discord.status}", None, enabled=False),
         Item(lambda i: engine.ra_status(), None, enabled=False),
+        Item(lambda i: f"Launcher: {activity['line']}", None, enabled=False, visible=lambda i: bool(activity['line'])),
         Menu.SEPARATOR,
         Item("Discord presence", toggle_discord, checked=lambda i: engine.discord.enabled),
         Item("Console icon", console_menu()),
         Item("Overlay window", toggle_overlay, checked=lambda i: engine.overlay_on, default=True),
         Item("Ambient music", Menu(*(music_item(key) for key in MUSIC_CHOICES))),
         Item("Console updates", toggle_console_updates, checked=lambda i: engine.cfg.console_updates),
+        Item("Activity popup", toggle_activity_popup, checked=lambda i: engine.cfg.activity_popup),
         Item(startup.label(), toggle_startup, checked=lambda i: startup.is_enabled(),
              visible=startup.supported()),
         Menu.SEPARATOR,
@@ -348,6 +358,18 @@ def run_tray(cfg, **engine_args):
     )
     icon = pystray.Icon("DSiRPC", make_icon('waiting'), "DSiRPC: starting", menu)
     engine.on_change = lambda events: on_main(lambda: refresh(events))
+
+    def activity_line(line):
+        # (the tooltip and the menu at most about once a second while the count goes up)
+        now = time.monotonic()
+        title = line.split(" (")[0] if line else None
+        activity['line'] = line
+        if title != activity.get('title') or now - activity.get('at', 0.0) >= 1.0:
+            activity['title'], activity['at'] = title, now
+            on_main(refresh)
+    from .activity_popup import ActivityPopup
+    popup = ActivityPopup(engine.activity, enabled=lambda: engine.cfg.activity_popup, on_line=activity_line,
+                          log_file=os.path.join(DATA, "logs", "activity_popup.log"))
 
     def show():
         icon.visible = True
@@ -364,6 +386,7 @@ def run_tray(cfg, **engine_args):
             if cfg.overlay:
                 engine.set_overlay(True, on_closed=overlay_closed)
             updater.start()
+            popup.start()
             on_main(refresh)
         except Exception:
             logging.exception("Tray setup failed")
@@ -373,6 +396,7 @@ def run_tray(cfg, **engine_args):
         icon.run(setup=setup)
     finally:
         updater.stop()
+        popup.stop()
         engine.stop()
         logging.info("DSiRPC stopped")
     return 0

@@ -45,7 +45,8 @@ console and your PC.
   keeps the last 10 versions from each console, and carries your progress
   between your DSi and 3DS.
 - **A launcher that looks the part:** your games with their own icons,
-  sorted by when you last played them or with your favorites first, each
+  sorted by when you last played them, with your favorites first or by the
+  achievements you've unlocked, each
   game's achievements and DSiRPC playtime (offline play counts too), the
   battery, soft menu sounds, menu music (Bright or Subtle) and the touch
   screen. The original text screens are one setting away.
@@ -111,7 +112,7 @@ shortcuts worth knowing:
 | Main screen | **L + R** | Open the settings (the **Settings** tile) |
 | Main screen | **SELECT** | Leave the launcher (**X** leaves it still connected) |
 | Game list | **X** / **Y** | See the game's achievements / make it a favorite |
-| Game list | **L** / **R** | Sort by last played, A to Z, or favorites first |
+| Game list | **L** / **R** | Sort by last played, A to Z, favorites first, or most unlocked first |
 
 In the classic look, **START** opens a file browser instead, where
 **START** starts the last game.

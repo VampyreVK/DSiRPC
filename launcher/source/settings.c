@@ -12,7 +12,7 @@
 //   LOOK = modern                 (or classic: the text screens)
 //   SOUNDS = on                   (or off: the modern look's menu sounds)
 //   MUSIC = bright                (or subtle, off: the modern look's menu music)
-//   GAME_SORT = recent            (or name, favorites: the modern game picker)
+//   GAME_SORT = recent            (or name, favorites, unlocked: the modern game picker)
 //   LAST_GAME = sd:/roms/nds/Pokemon Black.nds   (START in the game picker)
 
 #include <stdio.h>
@@ -26,7 +26,7 @@
 #define SECTION "LAUNCHER"
 
 // GAME_SORT's words, in picker.h's order
-static const char *const SORTS[] = { "recent", "name", "favorites" };
+static const char *const SORTS[] = { "recent", "name", "favorites", "unlocked" };
 #define N_SORTS (sizeof(SORTS) / sizeof(SORTS[0]))
 
 // MUSIC's words, in music.h's order
@@ -127,7 +127,7 @@ bool settings_save(const char *path, const LauncherSettings *s)
                "SOUNDS = %s\r\n"
                "; The modern look's menu music: bright, subtle or off\r\n"
                "MUSIC = %s\r\n"
-               "; The modern game picker's order: recent, name or favorites (first)\r\n"
+               "; The modern game picker's order: recent, name, favorites (first) or unlocked (most first)\r\n"
                "GAME_SORT = %s\r\n"
                "; The game last started from the launcher (START in the game picker)\r\n"
                "LAST_GAME = %s\r\n",

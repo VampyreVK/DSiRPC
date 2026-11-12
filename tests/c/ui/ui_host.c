@@ -12,7 +12,8 @@
 //                                then pattern RRGGBB RRGGBB RRGGBB (the
 //                                diamonds' backdrop, tile and dot)
 //   games sd|sort[|folder]       the game list (sort: 0 recent, 1 A-Z, 2
-//                                favorites first; the launcher in sd's
+//                                favorites first, 3 the most unlocked
+//                                first; the launcher in sd's
 //                                folder, "DSiRPC" if not given): game lines
 //                                code|name|publisher|version|favorite|last
 //                                played|earned/total, then games N

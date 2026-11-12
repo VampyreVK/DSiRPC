@@ -2,9 +2,10 @@
 //
 // The modern look's game picker (the classic look's is browser.c): every
 // game in the games folder (subfolders too) with its banner icon and name,
-// in the order Y and L/R pick (the games last started first, by name, or the
-// favorites first), its achievements (X: the list, from its set on the SD
-// card) and, on the top screen, its details and playtime.
+// in the order Y and L/R pick (the games last started first, by name, the
+// favorites first, or the most achievements unlocked first), its achievements
+// (X: the list, from its set on the SD card) and, on the top screen, its
+// details and playtime.
 //
 // games.idx (in the launcher's folder) keeps each game's name, publisher and
 // code as read from its banner, by the file's size and time, so only new or
@@ -29,6 +30,7 @@ enum
     SORT_RECENT,
     SORT_NAME,
     SORT_FAVORITES,
+    SORT_UNLOCKED,      // the most achievements unlocked first; "new", then "no set" games last
     SORTS,
 };
 

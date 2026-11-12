@@ -164,10 +164,11 @@ class ConsoleFiles:
         return data, zlib.crc32(data)
 
 
-def handle(magic, read, send, files):
+def handle(magic, read, send, files, progress=None):
     """Answers one request: magic is the 4 bytes already read, read(n) and
     send(bytes) talk to the console, files is the ConsoleFiles (None while
-    console updates are off)."""
+    console updates are off). progress(what, sent, of, console), if given,
+    hears how much of a file has gone (console "DSi" or "3DS")."""
     rest = read(HEADER.size - 4)
     _, version, mac, model, op, file = HEADER.unpack(magic + rest)
     who = saves.console_label(model, mac)
@@ -179,8 +180,13 @@ def handle(magic, read, send, files):
             return
         data, crc = got
         send(b"DRUF" + struct.pack("<HII", OK, len(data), crc))
+        kind = "3DS" if model in (2, 3) else "DSi"
+        if progress:
+            progress(WHAT[file], 0, len(data), kind)
         for i in range(0, len(data), CHUNK):
             send(data[i:i + CHUNK])
+            if progress:
+                progress(WHAT[file], min(i + CHUNK, len(data)), len(data), kind)
         logging.info(f"Console update: sent {WHAT[file]} ({len(data) // 1024} KB) to the {who}")
         return
 

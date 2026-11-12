@@ -201,6 +201,36 @@ def build_presence(game, ra_set=None, rich_presence=None, start=None, check_imag
     return presence
 
 
+LAUNCHER_ICON = "pixel"     # Assets/Consoles' picture for the launcher's presence (Pixel.gif)
+
+
+def launcher_presence(launcher, activity=None, start=None):
+    """The presence while the console is in the DSiRPC launcher (core/hub.py's
+    launcher_state: {'console', 'game', 'title', ...}): "Playing DSiRPC", the
+    Pixel logo as the big image ("3DS on DSiRPC" or "DSi on DSiRPC" when you
+    hover it) and no small one. The first line says it's in the launcher (or
+    starting the game picked there), the second what the launcher is doing
+    with DSiRPC (activity: core/launcher_activity.py's line(), e.g. "Syncing
+    saves (2 of 5)"), else that it's ready to play."""
+    console = launcher.get('console') or "DSi"
+    icon = console_icon(LAUNCHER_ICON)
+    if launcher.get('game'):
+        details = _clip(f"Starting {launcher.get('title') or launcher['game']}")
+    else:
+        details = "In the launcher"
+    presence = {
+        "activity_type": ActivityType.PLAYING,
+        "name": "DSiRPC",
+        "details": details,
+        "state": _clip(activity) if activity else ("Loading the game" if launcher.get('game') else "Ready to play"),
+        "large_image": icon[1] if icon else f"{CONSOLES_URL}/Pixel.gif",
+        "large_text": f"{console} on DSiRPC",
+    }
+    if start:
+        presence["start"] = int(start)
+    return presence
+
+
 def shown(presence):
     """The presence as printed in the log."""
     return {k: (v.name if isinstance(v, ActivityType) else v) for k, v in presence.items() if k != "start"}

@@ -5,7 +5,8 @@
 // its achievements; the top screen has the picked one's details.
 //
 //   Up/Down: move   Left/Right: a page   A: start it   B or SELECT: back
-//   X: its achievements   Y: a favorite (or not)   L/R: the order
+//   X: its achievements   Y: a favorite (or not)   L/R: the order (Recent,
+//   A-Z, Favorites, Unlocked)
 //   START: the game last started   a tap: pick a game (a second one: start it)
 //
 // The achievement list (X) is the game's set on the SD card (sets/CODE.DRS,
@@ -123,7 +124,7 @@ static uint32_t *pending;       // achievement IDs waiting in RPCUNLK.BIN
 static int n_pending;
 static int bank;                // which half of the banner palette slots is shown
 
-static const char *const SORT_NAMES[SORTS] = { "Recent", "A-Z", "Favorites" };
+static const char *const SORT_NAMES[SORTS] = { "Recent", "A-Z", "Favorites", "Unlocked" };
 static const char *const STAR[7] = {
     "...1...", "...1...", "1111111", ".11111.", "..111..", ".11.11.", ".1...1.",
 };
@@ -675,25 +676,6 @@ static void free_games(void)
     n_pending = 0;
 }
 
-static int cmp_order(const void *a, const void *b)
-{
-    const Game *x = &games[*(const int *)a], *y = &games[*(const int *)b];
-    if (sort_mode == SORT_FAVORITES && x->favorite != y->favorite)
-        return x->favorite ? -1 : 1;
-    if (sort_mode == SORT_RECENT && x->played != y->played)
-        return x->played > y->played ? -1 : 1;
-    int c = strcasecmp(x->title, y->title);
-    return c != 0 ? c : strcasecmp(x->path, y->path);
-}
-
-static void sort_games(void)
-{
-    for (int i = 0; i < n_games; i++)
-        order[i] = i;
-    if (n_games > 1)
-        qsort(order, n_games, sizeof(int), cmp_order);
-}
-
 // ---------------------------------------------------------------------------
 // A game's achievements
 
@@ -868,6 +850,53 @@ static void count_achievements(Game *g, const char *sets_dir)
     for (int i = 0; i < l.count; i++)
         g->earned += cheevo_state(l.entries + i * 16) != 0;
     free(l.data);
+}
+
+// ---------------------------------------------------------------------------
+// The order
+
+// The Unlocked order's groups, as the list's badges show them: the games
+// with a count first, then "new" (DSiRPC has something to tell or bring),
+// then "no set"
+static int unlocked_group(const Game *g)
+{
+    RaState s = ra_state(g);
+    if (s == RA_LISTED)
+        return 0;
+    return s == RA_NEW || s == RA_COMING ? 1 : 2;
+}
+
+static int cmp_order(const void *a, const void *b)
+{
+    const Game *x = &games[*(const int *)a], *y = &games[*(const int *)b];
+    if (sort_mode == SORT_FAVORITES && x->favorite != y->favorite)
+        return x->favorite ? -1 : 1;
+    if (sort_mode == SORT_RECENT && x->played != y->played)
+        return x->played > y->played ? -1 : 1;
+    if (sort_mode == SORT_UNLOCKED)
+    {
+        int gx = unlocked_group(x), gy = unlocked_group(y);
+        if (gx != gy)
+            return gx < gy ? -1 : 1;
+        if (gx == 0 && x->earned != y->earned)
+            return x->earned > y->earned ? -1 : 1;
+    }
+    int c = strcasecmp(x->title, y->title);
+    return c != 0 ? c : strcasecmp(x->path, y->path);
+}
+
+// The list in sort_mode's order. The Unlocked order needs every game's
+// achievements counted first (the others count them as they're shown).
+static void sort_games(const char *sets_dir)
+{
+    for (int i = 0; i < n_games; i++)
+    {
+        order[i] = i;
+        if (sort_mode == SORT_UNLOCKED && games[i].total < 0)
+            count_achievements(&games[i], sets_dir);
+    }
+    if (n_games > 1)
+        qsort(order, n_games, sizeof(int), cmp_order);
 }
 
 // "41h 12m", "12m", or "" for nothing
@@ -1163,7 +1192,7 @@ bool pick_game(const PickerUi *ui, char *out, size_t outsz)
         free_games();
         return false;
     }
-    sort_games();
+    sort_games(ui->sets_dir);
 
     int sel = 0, top = 0;
     bool picked = false, favorites_changed = false, redraw = true;
@@ -1247,7 +1276,7 @@ bool pick_game(const PickerUi *ui, char *out, size_t outsz)
             // The new order, keeping the same game picked
             int keep = order[sel];
             sort_mode = (sort_mode + ((k & KEY_R) ? 1 : SORTS - 1)) % SORTS;
-            sort_games();
+            sort_games(ui->sets_dir);
             for (int i = 0; i < n_games; i++)
             {
                 if (order[i] == keep)

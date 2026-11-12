@@ -32,7 +32,7 @@ static bool load(const PickerUi *ui, int sort)
     if (!load_games(ui) || (order = malloc(sizeof(int) * (n_games ? n_games : 1))) == NULL)
         return false;
     sort_mode = sort;
-    sort_games();
+    sort_games(ui->sets_dir);
     return true;
 }
 

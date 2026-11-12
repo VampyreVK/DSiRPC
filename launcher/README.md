@@ -127,8 +127,9 @@ L+R opens them; they're kept in `launcher.ini` next to the launcher:
   has none, so it has no Sounds row either).
 - `MUSIC`: `bright` (the default), `subtle` or `off`, the modern look's menu
   music ([below](#the-menu-music)); no row in the classic look either.
-- `GAME_SORT`: `recent`, `name` or `favorites`, the modern game list's order
-  (L/R there, not on the settings screen).
+- `GAME_SORT`: `recent`, `name`, `favorites` or `unlocked` (the most
+  achievements unlocked first), the modern game list's order (L/R there, not
+  on the settings screen).
 - `LAST_GAME`: the game last started from the launcher, for **START** on the
   main screen and in the game browser (not on the settings screen).
 

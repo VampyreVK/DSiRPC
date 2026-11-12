@@ -7,6 +7,9 @@ engine.py - what runs while DSiRPC runs, whichever way it's started
   the overlay window (optional)      overlay/app.py, drawn from the hub
   RetroAchievements                  core/ra_link.py (signed in) and
                                      core/ra_game.py, run by the hub's source
+  what the launcher is doing         core/launcher_activity.py (activity),
+                                     fed by its syncs, for the tray, Discord
+                                     and the tray's activity popup
 
 The hub reads every 5 s while only Discord needs the data (Discord takes an
 update about every 5 s anyway), and every 2 s with the battlers a few times a
@@ -167,6 +170,11 @@ class Engine:
         self._started = False
         self._apply_overlay(False)
 
+        # What the launcher is doing with DSiRPC right now (its syncs say)
+        from core.launcher_activity import LauncherActivity
+        self.activity = LauncherActivity()
+        self.discord.activity = self.activity
+
         # Offline play: the launcher hands over what was unlocked without
         # DSiRPC and takes the sets it doesn't have (core/console_sync.py).
         # Only when reading a real DSi.
@@ -177,7 +185,7 @@ class Engine:
                                             saves=self._save_store, on_saves=self._on_saves,
                                             on_here=self._launcher_here, updates=self._console_files,
                                             stats=self._console_stats, on_notes=self._shadow_notes,
-                                            on_roms=self._console_roms)
+                                            on_roms=self._console_roms, activity=self.activity)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
         self._console_update = None    # the console's files for its updates (core/console_update.py)
 
@@ -701,6 +709,31 @@ class Engine:
             self._saves = SaveStore(path, keep)
         return self._saves
 
+    def _save_activity(self, e):
+        """The save sync's event, for self.activity: the plan says how many
+        saves will move, then each upload or download is one more."""
+        from core import saves
+        act, kind = self.activity, e['type']
+        console = (e.get('console') or "DSi").split()[0]
+        if kind == 'save_plan':
+            if e['moves']:
+                act.start("saves", "Syncing saves", console=console, total=e['moves'],
+                          detail=f"{e['moves']} save{'s' if e['moves'] != 1 else ''} to move")
+            return
+        if kind in ('save_uploaded', 'save_downloaded'):
+            if kind == 'save_uploaded' and e.get('kind') == saves.PUT_SAFETY:
+                return    # (a copy kept before a download replaces it: the download counts)
+            if not act.active("saves"):     # (a save picked on the console, outside a sync)
+                act.start("saves", "Syncing saves", console=console)
+            v = act.current() or {'done': 0}
+            name = e.get('name') or "a save"
+            act.progress(v['done'] + 1, detail=f"{'Uploaded' if kind == 'save_uploaded' else 'Downloaded'} {name}")
+            return
+        if kind == 'saves_synced' and act.active("saves"):
+            parts = [f"{e[k]} {what}" for k, what in (('uploaded', "uploaded"), ('backed_up', "backed up"),
+                                                     ('downloaded', "downloaded"), ('failed', "failed")) if e[k]]
+            act.finish(", ".join(parts) or "Everything was in sync", ok=not e['failed'])
+
     def _console_files(self):
         """The console's files as they came with this DSiRPC, for the
         launcher's update check, or None while the tray's "Console updates"
@@ -721,7 +754,12 @@ class Engine:
         return self.playtime, {'pc': pc_name(), 'ra': ra, 'discord': discord}
 
     def _on_saves(self, event):
-        """The save sync's events: the tray hears the summary at the end."""
+        """The save sync's events: the activity hears each save as it goes,
+        the tray the summary at the end."""
+        try:
+            self._save_activity(event)
+        except Exception:
+            logging.exception("Save sync: the activity failed")
         if event['type'] != 'saves_synced' or not self.on_change:
             return
         try:
@@ -798,7 +836,7 @@ class Engine:
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
                           saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates,
-                          stats=old.stats, on_notes=old.on_notes, on_roms=old.on_roms)
+                          stats=old.stats, on_notes=old.on_notes, on_roms=old.on_roms, activity=old.activity)
         try:
             new.start()
         except OSError as e:

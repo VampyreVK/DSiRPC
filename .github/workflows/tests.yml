@@ -96,6 +96,7 @@ jobs:
             Assets/MarioKartDS
             third_party/rcheevos
             nds-bootstrap/retail/common/include
+            nds-bootstrap/retail/bootloaderi/source/arm7
             nds-bootstrap/retail/cardenginei/arm7/source/rpcprobe
             nds-bootstrap/retail/cardenginei/arm9/source
             nds-bootstrap/retail/cardenginei/arm9_igm/source

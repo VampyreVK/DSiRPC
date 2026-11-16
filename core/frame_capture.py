@@ -20,6 +20,11 @@ check every frame) and checks the rest the usual way.
 
 An achievement only fits if every address it reads is fixed: one with
 AddAddress (I:) reads where a pointer in memory says, so it's left out.
+
+The same frames also go to a shadow check (core/frame_needs.py's Shadow):
+the captured achievements checked every frame and every SHADOW_EVERY
+frames, as the console's pass lane would. One that comes out differently is
+proof it needs the frame lane; take_proofs() hands those over.
 """
 
 import logging
@@ -70,6 +75,9 @@ def windows(reads):
     return out
 
 
+SHADOW_EVERY = 8   # frames between the shadow's sparse checks: about the console's pass lane (several passes a second)
+
+
 class FrameCapture:
     FETCH_EVERY = 0.25      # seconds between drains (the ring holds about a second at worst)
     MAX_FETCHES = 8         # requests per drain
@@ -85,6 +93,8 @@ class FrameCapture:
         self.lost = 0           # records the ring lost before they were fetched
         self.failed = 0         # drains that got no reply
         self.resent = 0         # times the console held another watch list's records
+        self.shadow = None      # frame_needs.Shadow of the captured achievements
+        self._told = set()      # proofs take_proofs() has handed over
         self._map = []          # [(address, offset in a record)] per byte
 
     @property
@@ -127,6 +137,8 @@ class FrameCapture:
             rt.close()
             return []
         self.runtime, self.ids, self.watches = rt, ids, wins
+        from .frame_needs import Shadow
+        self.shadow = Shadow(chosen, every=SHADOW_EVERY)
         self._map, off = [], 0
         for a, n in wins:
             self._map += [(a + k, off + k) for k in range(n)]
@@ -168,6 +180,8 @@ class FrameCapture:
 
                 def peek(address, n, mem=mem):
                     return int.from_bytes(bytes(mem.get(address + k, 0) for k in range(n)), "little")
+                if self.shadow:
+                    self.shadow.frame(peek)
                 for name, aid, _ in self.runtime.frame(peek):
                     if name == "achievement_triggered":
                         triggered.append(aid)
@@ -195,7 +209,20 @@ class FrameCapture:
         except (TimeoutError, RuntimeError):
             pass
 
+    def take_proofs(self):
+        """{id: (memaddr, why)} of the achievements the shadow check has
+        newly found to need checking every frame."""
+        if not self.shadow:
+            return {}
+        new = {aid: (self.shadow.memaddr[aid], why) for aid, why in self.shadow.proofs.items()
+               if aid not in self._told}
+        self._told |= set(new)
+        return new
+
     def stop(self, send=True):
+        if self.shadow:
+            self.shadow.close()
+            self.shadow = None
         if self.runtime:
             self.runtime.close()
             self.runtime = None

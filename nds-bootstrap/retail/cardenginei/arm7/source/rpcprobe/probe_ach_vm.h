@@ -17,11 +17,11 @@
 
 #include <stdint.h>
 
-#define ACHVM_PROGRAM_VERSION 2
+#define ACHVM_PROGRAM_VERSION 3
 
 // What AchVm_Load() can say
 #define ACHVM_OK            0
-#define ACHVM_E_FORMAT     -1   // not a version 2 program, or it doesn't add up
+#define ACHVM_E_FORMAT     -1   // not a version 3 program, or it doesn't add up
 #define ACHVM_E_SPACE      -2   // the state doesn't fit in the space given
 
 // Achievement states (rcheevos' WAITING, ACTIVE/PRIMED/PAUSED, TRIGGERED)
@@ -37,6 +37,8 @@ typedef struct {
 
 // Where AchVm_Run() is inside an achievement, so it can stop after any
 // condition and carry on next time
+typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
+
 typedef struct {
 	AchVm_Eval ev;
 	const uint8_t *cs;          // the condset being checked
@@ -45,7 +47,7 @@ typedef struct {
 	                            // conditions start (in conditions), and its total
 	uint16_t i;                 // the next condition in the current one of those
 	uint8_t phase;              // which one (5: the condset is done)
-	uint8_t set;                // the condset's number in the achievement
+	uint16_t set;               // the condset's number in the achievement
 	uint8_t ret, sub;           // the core's result; any alt's
 	uint8_t setResult;          // the condset's, once it's done
 	uint8_t inAchievement;      // part way through one
@@ -62,10 +64,21 @@ typedef struct {
 	// The state (zeroed by AchVm_Load)
 	uint32_t *memValue;         // per memref: current value
 	uint32_t *memPrior;         //   the value before the last change
-	uint8_t  *memChanged;       //   1 if it changed in the last update
+	uint8_t  *memChanged;       //   bit 0: it changed in the last update; bits 4-5: its value type
 	uint32_t *hits;             // per condition: current hit count
 	uint32_t *achSig;           // per achievement: its hits after its last check, hashed
 	uint8_t  *achState;         // per achievement: ACHVM_* | 0x80 = had hits | 0x40 = settled
+	// Which achievements to look at again (AchVm_Load builds the map from
+	// the program): per memref, the achievements whose conditions name it
+	// (mapList[mapStart[i]] up to mapList[mapStart[i + 1]], each once), and
+	// per achievement the update in which one of those last changed (0:
+	// no achievements).
+	uint16_t *mapStart;
+	uint16_t *mapList;
+	uint32_t *achChange;
+	uint32_t updates;           // memref updates so far, plus 2
+	AchVm_Triggered onReset;    // called when a ResetIf resets an achievement that had hits
+	                            // (rcheevos' RESET event), or 0; set after AchVm_Load()
 
 	// Main RAM as RetroAchievements addresses it (0 = 0x02000000 on the DS);
 	// reads at ramSize or past it are 0, like DSiRPC's own reads.
@@ -74,7 +87,7 @@ typedef struct {
 
 	// Where AchVm_Run() carries on
 	const uint32_t *feed;       // memory values to use at the start of a pass instead of
-	                            // reading memory (AchVm_RunSampled()), or 0
+	                            // reading memory (AchVm_RunFed()), or 0
 	const uint8_t *nextAch;
 	uint32_t nextHit;
 	uint16_t nextIndex;
@@ -96,8 +109,7 @@ int AchVm_Load(AchVm *vm, const void *program, uint32_t size, void *state, uint3
 // no achievements).
 uint32_t AchVm_StateSize(const void *program, uint32_t size);
 
-// Called for each achievement that triggers.
-typedef void (*AchVm_Triggered)(uint32_t id, void *ud);
+// AchVm_Triggered: called for each achievement that triggers (above).
 
 // Runs a pass: reads every memory value (rcheevos' memref update), then
 // checks achievements in order. Asks keepGoing(ud) every 8 values or
@@ -117,6 +129,13 @@ int AchVm_Run(AchVm *vm, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered
 // on the values one after another).
 void AchVm_Sample(AchVm *vm, uint32_t *out);
 void AchVm_RunSampled(AchVm *vm, const uint32_t *in, AchVm_Triggered onTriggered, void *ud);
+
+// AchVm_RunSampled() a part at a time, like AchVm_Run(): stops when
+// keepGoing(ud) says 0 (NULL: never) and carries on from there at the next
+// call, which has to pass the same values. Returns 1 when the pass over
+// those values is done.
+int AchVm_RunFed(AchVm *vm, const uint32_t *in, int (*keepGoing)(void *ud), AchVm_Triggered onTriggered,
+                 void *ud);
 
 // The id and state of achievement i (for tests and status).
 uint32_t AchVm_AchievementId(const AchVm *vm, uint16_t i);

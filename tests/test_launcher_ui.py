@@ -13,9 +13,9 @@ import pytest
 
 from helpers import launcher_ui as lui
 
-SCREENS = ["connecting", "syncing", "ready", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
+SCREENS = ["connecting", "syncing", "ready", "setup_games", "no_wifi", "home", "home_settings", "home_offline", "starting", "update",
            "update_progress", "update_done", "settings", "settings_address", "settings_music", "settings_lid", "games",
-           "achievements", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
+           "achievements", "achievements_unsupported", "achievements_no_game", "achievements_new", "achievements_coming", "achievements_no_code", "saves", "saves_conflict", "saves_versions", "saves_progress", "saves_done"]
 
 # Palette colors as the DS shows them (5 bits a channel)
 GREEN, AMBER, RED, CYAN = (88, 208, 128), (240, 192, 48), (232, 72, 56), (72, 200, 232)
@@ -39,7 +39,8 @@ def game_path(sd, name):
 
 
 def games(host, sd, sort=1):
-    """The game list, in this order (0 recent, 1 A-Z, 2 favorites first):
+    """The game list, in this order (0 recent, 1 A-Z, 2 favorites first, 3
+    the most unlocked first):
     [code, name, publisher, version, favorite, last played, earned/total]"""
     out = lui.run(host, f"games {sd}|{sort}")
     assert out[-1] == f"games {sum(ln.startswith('game ') for ln in out)}"
@@ -123,6 +124,35 @@ def test_names_come_from_the_banners(host, sd):
     assert [r[1].lower() for r in rows] == sorted(r[1].lower() for r in rows)      # A-Z
 
 
+def test_banner_trademark_and_copyright_signs_are_left_out(host, sd):
+    """The font has no TM, (R) or (C): MySims Kingdom's banner showed as
+    "MySims? Kingdom" by "?2008 Electronic Arts". A name games.idx kept that
+    way (from an older launcher) is read again from the banner."""
+    path = game_path(sd, "MySims Kingdom.nds")
+    lui.write(path, lui.rom("YMKE", "MySims\u2122 Kingdom\n\u00a92008 Electronic Arts"))
+    lui.write(game_path(sd, "Quiz.nds"), lui.rom("QUZE", "Who Wants Quiz?\n\u00a9 2009 Quizco\u00ae"))
+    by_code = {r[0]: r for r in games(host, sd)}
+    assert by_code["YMKE"][1:3] == ["MySims Kingdom", "2008 Electronic Arts"]
+    assert by_code["QUZE"][1:3] == ["Who Wants Quiz?", "2009 Quizco"]     # (a real '?' stays)
+
+    index = os.path.join(sd, "DSiRPC", "games.idx")
+    with open(index, encoding="ascii") as f:
+        text = f.read()
+    with open(index, "w", encoding="ascii", newline="") as f:
+        f.write(text.replace("\tMySims Kingdom\t2008", "\tMySims? Kingdom\t?2008"))
+    assert {r[0]: r[1:3] for r in games(host, sd)}["YMKE"] == ["MySims Kingdom", "2008 Electronic Arts"]
+    with open(index, encoding="ascii") as f:
+        assert "MySims Kingdom.nds\tMySims Kingdom\t2008 Electronic Arts" in f.read()
+
+
+def test_one_bar_across_the_saves_of_a_sync(host):
+    """saveui.c's batch: an upload, then a save backed up and the PC's taken
+    (cut off once, a retry's wait, and again): each step's bytes add up on
+    one bar, a retry starting its step again"""
+    out = lui.run(host, "batch x")
+    assert out[-1] == "batch 0,256,512,512,768,768,1280,768,768,1280,1792"
+
+
 def test_the_launchers_own_folder_isnt_games(host, sd):
     """The DSiRPC folder goes in roms/nds, with the games: the launcher and
     our nds-bootstrap in it aren't on the list, games in other folders are"""
@@ -142,7 +172,9 @@ def test_games_idx_keeps_what_was_read(host, sd):
     games(host, sd)
     with open(os.path.join(sd, "DSiRPC", "games.idx"), encoding="ascii") as f:
         lines = f.read().splitlines()
-    assert lines[0] == "DSiRPC games 1" and len(lines) == len(lui.GAMES) + 1
+    assert lines[0] == "DSiRPC games 3" and len(lines) == len(lui.GAMES) + 1
+    # (the picker doesn't hash: the boot's first-time setup does, tests/test_rom_hash.py)
+    assert all(ln.split(" ")[6:8] == ["-", "0"] for ln in lines[1:])
     assert any(ln.endswith("Tetris DS.nds\tTetris DS\tNintendo") for ln in lines)
 
     # A banner changed behind games.idx's back (same size and time): the
@@ -172,6 +204,37 @@ def test_the_orders(host, sd):
     rows = games(host, sd, sort=2)
     assert rows[0][0] == "AZEE" and rows[0][4] == "1" and rows[1][4] == "0"
     assert {r[0]: r[4] for r in games(host, sd, sort=1)}["AZEE"] == "1"
+
+
+def test_the_unlocked_order(host, sd):
+    """Unlocked: the games with a count, the most unlocked first (Platinum's
+    three, with the one waiting in RPCUNLK.BIN, then Mario Kart's one, then
+    Tetris's none), then the "new" ones, then "no set" last, each group A-Z"""
+    now = lui.console_now()
+    sets = os.path.join(sd, "DSiRPC", "sets")
+    lui.write(os.path.join(sets, "AMCE.DRS"), lui.set_file("AMCE", [(2001, "Win", "Win a cup", 10, True),
+                                                                    (2002, "Star", "Get a star", 10, False)], now))
+    lui.write(os.path.join(sets, "ATRE.DRS"), lui.set_file("ATRE", [(3001, "Lines", "Clear a line", 5, False)], now))
+    games(host, sd)
+    # Zelda: RetroAchievements has no set for it (what DSiRPC said at a sync, kept in games.idx)
+    index = os.path.join(sd, "DSiRPC", "games.idx")
+    with open(index, encoding="ascii") as f:
+        lines = f.read().splitlines()
+    for i, ln in enumerate(lines):
+        if "\tThe Legend of Zelda" in ln:
+            fields = ln.split(" ")
+            fields[6:8] = ["0" * 32, "3"]
+            lines[i] = " ".join(fields)
+    with open(index, "w", encoding="ascii", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+
+    rows = games(host, sd, sort=3)
+    assert [(r[0], r[6]) for r in rows[:3]] == [("CPUE", "3/6"), ("AMCE", "1/2"), ("ATRE", "0/1")]
+    assert [r[7] for r in rows[:3]] == ["count"] * 3
+    new = [r for r in rows[3:] if r[7] == "new"]
+    assert rows[3:3 + len(new)] == new and len(new) == len(lui.GAMES) - 4         # "new" next, A-Z
+    assert [r[1].lower() for r in new] == sorted(r[1].lower() for r in new)
+    assert rows[-1][0] == "AZEE" and rows[-1][7] == "no set"                       # "no set" last
 
 
 def test_a_game_started_before_the_list_was_ever_opened(host, sd):

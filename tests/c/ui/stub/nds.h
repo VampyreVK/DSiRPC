@@ -20,6 +20,11 @@ typedef int16_t s16;
 typedef int32_t s32;
 
 #define BIT(n) (1u << (n))
+
+// The hardware timers (main.c times the first-time setup): ticks of BUS_CLOCK
+#define BUS_CLOCK 33513982
+static inline void cpuStartTiming(int timer) { (void)timer; }
+static inline uint32_t cpuEndTiming(void) { return 0; }
 #define RGB15(r, g, b) ((r) | ((g) << 5) | ((b) << 10))
 
 extern uint16_t BG_PALETTE[256], BG_PALETTE_SUB[256];

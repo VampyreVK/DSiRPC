@@ -26,7 +26,11 @@
 // in haltAt. Then it rings the ARM9 (IPC sync 3, nds-bootstrap's do-nothing
 // doorbell) after raising ask; the ARM9 checks that each address still holds
 // OS_Halt and makes it jump to its write-back routine instead, which then
-// does what OS_Halt does.
+// does what OS_Halt does. Some games' SDK puts OS_Halt in ITCM instead (an
+// autoload block the game copies there as it starts), which the ARM7 can't
+// read: when rpcprobe's search finds none, it asks with an empty haltAt, and
+// the ARM9 looks in ITCM itself, patches what it finds the same way, and
+// says what it found in `found`.
 //
 // The block lives in the ARM9 cardengine's .data. rpcprobe finds it by
 // scanning that cardengine's region for the two magic words and the version
@@ -44,7 +48,7 @@
 
 #define DSIRPC_WATCH_MAGIC0  0x43505244u // "DRPC"
 #define DSIRPC_WATCH_MAGIC1  0x39435457u // "WTC9"
-#define DSIRPC_WATCH_VERSION 4
+#define DSIRPC_WATCH_VERSION 5
 #define DSIRPC_IDLE_SITES    4           // copies of OS_Halt rpcprobe can list
 
 // The SDK's OS_Halt (ARM code): mov r0, #0 / mcr p15, 0, r0, c7, c0, 4 / bx lr
@@ -63,10 +67,12 @@ typedef struct {
 	// Written by the ARM9 only.
 	u32 cleaned;                      // 0x20  write-backs done in the game's idle time (counts up)
 	u32 hooked;                       // 0x24  copies of OS_Halt patched (0 again after a reset)
-	u32 pad2[6];                      // 0x28
+	u32 found;                        // 0x28  DSIRPC_FOUND_LOOKED once the ARM9 has looked in ITCM, | the copies it found there (0 again after a reset)
+	u32 pad2[5];                      // 0x2C
 } DsirpcWatchBlock;                   // 0x40
 
 #define DSIRPC_WATCH_HOLD 0x444C4F48u // "HOLD"
+#define DSIRPC_FOUND_LOOKED 0x100u     // in `found`: the ARM9 has looked in ITCM
 
 // For dsirpc_watch.c's assembly
 #define DSIRPC_BLOCK_CLEANED 0x20

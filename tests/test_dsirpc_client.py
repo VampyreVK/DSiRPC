@@ -191,3 +191,34 @@ def test_dropouts_are_logged(monkeypatch, caplog):
         client._handle_other(*hello(0))                           # a new game: not a dropout
         assert not caplog.records
     client.sock.close()
+
+
+@pytest.mark.parametrize("fields,says", [
+    ({}, None),                                               # a build before the ARM9 half
+    ({"a9": "0"}, "no ARM9 half"),
+    ({"a9": "1"}, "no idle call patched"),                    # a build before a9s=
+    ({"a9": "1", "a9s": "0"}, "0 copies of the game's OS_Halt found"),
+    ({"a9": "1", "a9s": "9"}, "still looking"),
+    ({"a9": "2", "a9s": "1"}, "1 idle call(s) patched (write-backs in the game's idle time), 1 copy"),
+    ({"a9": "3", "a9s": "2"}, "2 idle call(s) patched"),
+])
+def test_arm9_status(fields, says):
+    status = dc.arm9_status(fields)
+    assert status is None if says is None else says in status
+
+
+def test_arm9_status_is_logged_when_it_changes(caplog):
+    """Once as the game starts, again when the search for OS_Halt is done,
+    and not for every hello"""
+    client = dc.DSiClient(port=free_port())
+    hello = lambda n, extra: (f"DSiRPC hello #{n} gc=ADME rep=0 {extra} vb=3".encode(), ("127.0.0.2", 4244))
+    with caplog.at_level("INFO"):
+        client._handle_other(*hello(0, "a9=1 a9s=9"))
+        client._handle_other(*hello(1, "a9=1 a9s=9"))
+        client._handle_other(*hello(2, "a9=1 a9s=0"))
+        client._handle_other(*hello(3, "a9=1 a9s=0"))
+    said = [r.message for r in caplog.records if "ARM9 half" in r.message]
+    assert len(said) == 2
+    assert "ADME" in said[0] and "still looking" in said[0]
+    assert "no idle call patched" in said[1] and "a9=1 a9s=0" in said[1]
+    client.sock.close()

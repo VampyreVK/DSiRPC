@@ -48,11 +48,14 @@ def parse_color(text):
 
 
 class OverlayWindow:
-    def __init__(self, hub, scale=3, chroma=None, fps=60, on_scale=None, music="off"):
+    def __init__(self, hub, scale=3, chroma=None, fps=60, on_scale=None, music="off", activity=None):
         """hub: a StateHub (it may already be running). chroma: 'RRGGBB' to
         fill the background with, for a chroma key. on_scale(n) is called
         when the window size is changed with the 1-6 keys. music: the song
-        to play while it's open (utils.config.MUSIC_CHOICES)."""
+        to play while it's open (utils.config.MUSIC_CHOICES). activity(),
+        if given, is what the launcher is doing (core/launcher_activity.py's
+        view, or None), asked every frame for the activity card
+        (overlay/activity_card.py)."""
         self.hub = hub
         self.scale = max(1, min(6, int(scale)))
         self.fps = fps
@@ -61,6 +64,7 @@ class OverlayWindow:
         ui.THEME['chroma'] = parse_color(chroma) if chroma else None  # ValueError if it isn't RRGGBB
         self._events = queue.Queue()
         self.music = Music(music)
+        self.activity = activity
 
     def _on_update(self, snap, events):
         for e in events:
@@ -156,6 +160,7 @@ class OverlayWindow:
             canvas = pygame.Surface((W, H), 0, 32)
             overlay = Overlay(SpriteBank(os.path.join(DATA, "Assets")))
             overlay.hires_ok = True  # present() draws its sprites at the window's resolution
+            overlay.activity = self.activity
             clock = pygame.time.Clock()
             dt = 0
             while not self.stop_event.is_set():

@@ -31,7 +31,9 @@ typedef struct {
 	u16 newFrom;  // entries with a seq above this one are new to the menu
 	u16 open;     // 1 while the in-game menu is open (stale anchors don't count)
 	u32 list;     // the list's offset from DSIRPC_ACH_LOCATION, 0 = none
-	u32 reserved;
+	u32 link;     // when the menu opened: rpcprobe's status byte (probe_hook.c's
+	              // probeStatusByte) in bits 0-7, and in bits 16-31 the hellos
+	              // (~1 a second) since DSiRPC last asked for anything
 } DsirpcMenuAnchor; // 24 bytes
 
 typedef struct {

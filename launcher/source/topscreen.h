@@ -44,6 +44,7 @@ typedef struct
     const char *code;           // "CPUE", or ""
     int version;                // the ROM's revision
     int earned, total;          // achievements (total 0: no set on the SD card)
+    const char *no_list;        // what to say then (NULL: "No set yet")
     uint32_t playtime;          // seconds DSiRPC saw it played (0: none)
     uint32_t last_played;       // seconds since 2000 (0: never)
     uint32_t now;               // the console's clock, seconds since 2000

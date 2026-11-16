@@ -58,18 +58,23 @@ class RcheevosMissing(RcheevosError):
 _lib = None
 
 
-def library():
-    """Loads the rcheevos library once. Raises RcheevosMissing if it isn't there."""
-    global _lib
-    if _lib is not None:
-        return _lib
+def library_path():
+    """Where the rcheevos library is for this system (there or not)."""
     if sys.platform == "win32":
         name = "rcheevos.dll"
     elif sys.platform == "darwin":
         name = "librcheevos.dylib"
     else:
         name = "librcheevos.so"
-    path = os.path.join(LIB_DIR, name)
+    return os.path.join(LIB_DIR, name)
+
+
+def library():
+    """Loads the rcheevos library once. Raises RcheevosMissing if it isn't there."""
+    global _lib
+    if _lib is not None:
+        return _lib
+    path = library_path()
     if not os.path.exists(path):
         raise RcheevosMissing(f"rcheevos library not found: {path} (see third_party/rcheevos/README.md)")
     try:
@@ -208,7 +213,7 @@ def compile_offline(achievements):
     library (third_party/rcheevos/dsirpc_offline.c) writes out what it
     parsed. Returns (program bytes, [ids left out]): the ones rcheevos can't
     parse, and the ones the console can't run (floating point, or more than
-    255 groups). Raises RcheevosMissing if the library doesn't have the
+    32767 groups). Raises RcheevosMissing if the library doesn't have the
     compiler."""
     lib = library()
     if not hasattr(lib, "dsirpc_offline_compile"):

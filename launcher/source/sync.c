@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -41,7 +42,14 @@
 #define SYNC_DISCOVER_ADDR INADDR_BROADCAST
 #endif
 
-#define SYNC_VERSION      1
+// The sync's version: this launcher asks for the newest it speaks and uses the
+// one DSiRPC answers with (sync_version). 1: as before; 2: the games' hashes
+// go with the request and what RetroAchievements has for them comes back.
+#ifndef SYNC_VERSION                         // (tests/c/sync builds a version 1 launcher too)
+#define SYNC_VERSION      2
+#endif
+#define UNLOCK_VERSION    1                  // RPCUNLK.BIN's header
+#define MAX_STATUS        1024               // hashes DSiRPC answers for, at most
 
 #define UNLOCK_SLOT       16
 #define UNLOCK_SLOTS      256
@@ -69,6 +77,7 @@ static const char HERE[11]     = "DSiRPC here";    // + u8 console model: still 
 static const char BYE[10]      = "DSiRPC bye";     // leaving it
 
 static uint8_t unlock_buf[UNLOCK_FILE_SIZE];
+static uint8_t sync_version = 1;             // the sync's version, as DSiRPC answered
 static uint8_t stamp_buf[MAX_SETS * 8];
 static uint8_t chunk_buf[CHUNK];
 
@@ -174,14 +183,17 @@ static bool copy_file(const char *from, const char *to)
 
 static bool unlock_header_ok(const uint8_t *buf, size_t n)
 {
-    return n >= UNLOCK_SLOT && memcmp(buf, "DRUL", 4) == 0 && get16(buf + 4) == SYNC_VERSION &&
+    return n >= UNLOCK_SLOT && memcmp(buf, "DRUL", 4) == 0 && get16(buf + 4) == UNLOCK_VERSION &&
            get16(buf + 6) == UNLOCK_SLOT && get16(buf + 8) == UNLOCK_SLOTS;
 }
 
 // The slots DSiRPC will take: an ID, a valid code and a matching check
-// (core/offline.py counts them the same way).
-static int count_unlocks(const uint8_t *buf, size_t n)
+// (core/offline.py's count_slots() counts them the same way). *notes: how
+// many of them are the checker's shadow notes (IDs from 0xFFFFFF00), not
+// unlocks.
+static int count_slots(const uint8_t *buf, size_t n, int *notes)
 {
+    *notes = 0;
     if (!unlock_header_ok(buf, n))
         return 0;
     size_t slots = n / UNLOCK_SLOT;
@@ -196,9 +208,20 @@ static int count_unlocks(const uint8_t *buf, size_t n)
         for (int w = 0; w < 7; w++)
             sum += get16(s + w * 2);
         if (get32(s) != 0 && get32(s) != PLAYTIME_ID && valid_code(s + 4) && (sum & 0xFFFF) == get16(s + 14))
+        {
             count++;
+            if (get32(s) >= 0xFFFFFF00)
+                (*notes)++;
+        }
     }
     return count;
+}
+
+// The unlocks waiting (the shadow notes left out)
+static int count_unlocks(const uint8_t *buf, size_t n)
+{
+    int notes;
+    return count_slots(buf, n, &notes) - notes;
 }
 
 int unlocks_used(void)
@@ -234,7 +257,7 @@ int unlocks_prepare(const char *path)
     else
         memset(unlock_buf, 0, sizeof(unlock_buf));
     memcpy(unlock_buf, "DRUL", 4);
-    put16(unlock_buf + 4, SYNC_VERSION);
+    put16(unlock_buf + 4, UNLOCK_VERSION);
     put16(unlock_buf + 6, UNLOCK_SLOT);
     put16(unlock_buf + 8, UNLOCK_SLOTS);
 
@@ -468,7 +491,9 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
                 here_port = ntohs(from.sin_port);
                 here_model = (uint8_t)job->console_model;
                 here_countdown = 1;
-                if (got[sizeof(ANSWER)] != SYNC_VERSION)
+                // DSiRPC answers with the version asked for or its own,
+                // whichever is older (one before version 2 always says 1)
+                if (got[sizeof(ANSWER)] < 1 || got[sizeof(ANSWER)] > SYNC_VERSION)
                 {
                     snprintf(msg, msgsz, "DSiRPC and this launcher\nare from different releases\n(sync version %d, not %d)",
                              got[sizeof(ANSWER)], SYNC_VERSION);
@@ -476,6 +501,7 @@ static int discover(const SyncJob *job, struct sockaddr_in *server, char *msg, s
                 }
                 else
                 {
+                    sync_version = got[sizeof(ANSWER)];
                     msg[0] = '\0';
                     result = 1;
                 }
@@ -707,7 +733,8 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     size_t unlock_len = read_file(job->unlocks_path, unlock_buf, sizeof(unlock_buf), &longer);
     if (!unlock_header_ok(unlock_buf, unlock_len))
         unlock_len = 0;
-    int waiting = count_unlocks(unlock_buf, unlock_len);
+    int notes;
+    int waiting = count_slots(unlock_buf, unlock_len, &notes);
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
@@ -723,7 +750,7 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
 
     uint8_t head[REQUEST_SIZE];
     memcpy(head, "DRSQ", 4);
-    put16(head + 4, SYNC_VERSION);
+    put16(head + 4, sync_version);
     put16(head + 6, n_cached);
     memset(head + 8, 0, 4);
     if (valid_code(job->game))
@@ -735,11 +762,39 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
         (r = send_all(job, sock, stamp_buf, n_cached * 8, msg, msgsz)) <= 0 ||
         (r = send_all(job, sock, unlock_buf, unlock_len, msg, msgsz)) <= 0)
         goto done;
+    if (sync_version >= 2)
+    {
+        // The games' hashes (and how long hashing the new ones took, for
+        // DSiRPC's log)
+        uint8_t roms[8];
+        int n_roms = job->roms != NULL ? job->n_roms : 0;
+        put16(roms, (uint16_t)n_roms);
+        put16(roms + 2, job->hashed);
+        put32(roms + 4, job->hash_ms);
+        if ((r = send_all(job, sock, roms, sizeof(roms), msg, msgsz)) <= 0 ||
+            (n_roms > 0 && (r = send_all(job, sock, job->roms, job->roms_size, msg, msgsz)) <= 0))
+            goto done;
+    }
 
+    // Version 2: while DSiRPC asks RetroAchievements about the games and gets
+    // their sets, it says how far it got ("DRSP"), which also keeps this
+    // waiting; then the answer
     uint8_t answer[ANSWER_SIZE];
-    if ((r = recv_all(job, sock, answer, sizeof(answer), msg, msgsz)) <= 0)
+    for (;;)
+    {
+        if ((r = recv_all(job, sock, answer, 4, msg, msgsz)) <= 0)
+            goto done;
+        if (sync_version < 2 || memcmp(answer, "DRSP", 4) != 0)
+            break;
+        uint8_t p[8];
+        if ((r = recv_all(job, sock, p, sizeof(p), msg, msgsz)) <= 0)
+            goto done;
+        snprintf(text, sizeof(text), "%s %d/%d", p[4] == 2 ? "Getting sets" : "Checking games", get16(p), get16(p + 2));
+        say(job, text);
+    }
+    if ((r = recv_all(job, sock, answer + 4, sizeof(answer) - 4, msg, msgsz)) <= 0)
         goto done;
-    if (memcmp(answer, "DRSA", 4) != 0 || get16(answer + 4) != SYNC_VERSION)
+    if (memcmp(answer, "DRSA", 4) != 0 || get16(answer + 4) != sync_version)
     {
         snprintf(msg, msgsz, "DSiRPC's answer is garbled");
         r = -1;
@@ -759,7 +814,7 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
     if (waiting > 0 && taken == waiting)
     {
         if (clear_unlocks(job->unlocks_path))
-            result->unlocks_sent = taken;
+            result->unlocks_sent = taken - notes; // (the notes went too, but aren't unlocks)
         else
             snprintf(msg, msgsz, "Can't clear RPCUNLK.BIN;\nDSiRPC gets them again next\ntime (no harm done)");
     }
@@ -790,6 +845,31 @@ int sync_with_dsirpc(const SyncJob *job, SyncResult *result, char *msg, size_t m
         if (saved)
             result->sets_received++;
     }
+    if (sync_version >= 2)
+    {
+        // What RetroAchievements has for each hash
+        uint8_t count[2];
+        if ((r = recv_all(job, sock, count, sizeof(count), msg, msgsz)) <= 0)
+            goto done;
+        int n = get16(count);
+        if (n > MAX_STATUS)
+        {
+            snprintf(msg, msgsz, "DSiRPC's answer is garbled");
+            r = -1;
+            goto done;
+        }
+        if (n > 0 && (result->rom_status = malloc((size_t)n * SYNC_STATUS_RECORD)) != NULL)
+        {
+            if ((r = recv_all(job, sock, result->rom_status, (size_t)n * SYNC_STATUS_RECORD, msg, msgsz)) <= 0)
+            {
+                free(result->rom_status);
+                result->rom_status = NULL;
+                goto done;
+            }
+            result->n_status = n;
+        }
+    }
+    result->version = sync_version;
     r = 1;
 
 done:

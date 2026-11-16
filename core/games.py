@@ -55,8 +55,26 @@ def bw_version(game):
 
 
 def name(game):
-    """'Pokemon Black (IRBO)', or 'an unknown game' for older builds."""
+    """'Pokemon Black (IRBO)', or 'an unknown game' for older builds. A file
+    RetroAchievements has no set for (a ROM hack keeps the original's code)
+    goes by its file's name (file_name())."""
     if not game:
         return "an unknown game"
     code = game.get("code", "????")
+    own = file_name(code)
+    if own:
+        return f"{own} ({code})"
     return f"{NAMES[code]} ({code})" if code in NAMES else code
+
+
+def file_name(code):
+    """The started file's own name when RetroAchievements has no set for it
+    (core/rom_hashes.py's file_name()), else None: such a file may be a ROM
+    hack, which shouldn't be called by the game it's based on."""
+    if not code:
+        return None
+    try:
+        from . import rom_hashes
+        return rom_hashes.file_name(code)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None

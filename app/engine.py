@@ -7,6 +7,9 @@ engine.py - what runs while DSiRPC runs, whichever way it's started
   the overlay window (optional)      overlay/app.py, drawn from the hub
   RetroAchievements                  core/ra_link.py (signed in) and
                                      core/ra_game.py, run by the hub's source
+  what the launcher is doing         core/launcher_activity.py (activity),
+                                     fed by its syncs, for the tray, Discord
+                                     and the overlay window's activity card
 
 The hub reads every 5 s while only Discord needs the data (Discord takes an
 update about every 5 s anyway), and every 2 s with the battlers a few times a
@@ -59,6 +62,29 @@ class PortInUse(Exception):
     """UDP port 4244 is taken: DSiRPC (or one of its tools) is already running."""
 
 
+HASH_LOOKUP_THREADS = 8  # RetroAchievements lookups of the launcher's hashes at a time
+SET_FETCH_THREADS = 4    # sets downloaded at a time for the console
+BUILD_TICK = 5.0         # seconds between "still working" frames while a set is built (the launcher waits 30)
+
+
+def _game_name(code):
+    """A game's name for the log: core/games.py's, its set's, or its code"""
+    from core import games, ra_set
+    if code in games.NAMES:
+        return games.NAMES[code]
+    try:
+        s = ra_set.for_game(code, ra_set.RA_DIR)
+    except (ra_set.SetFileError, OSError):
+        s = None
+    return s.title if s is not None and s.title else code
+
+
+def _relearning(engine, code=None):
+    """--clear-learning's first sync, for this game (code) or any."""
+    cl = getattr(engine, "clear_learning", None)
+    return bool(cl) and not getattr(engine, "_relearned", True) and (code is None or cl in ("all", code))
+
+
 class Engine:
     DISCORD_INTERVAL = 5.0
     OVERLAY_INTERVAL = 2.0
@@ -66,7 +92,7 @@ class Engine:
 
     def __init__(self, cfg, file=None, game=None, demo=False, demo_name=None, dsi_ip=None, port=4244,
                  interval=None, client_id=None, dry_run=False, discord=True, check_images=True, ra=True,
-                 blank_ra=False, clear_ra=False):
+                 blank_ra=False, clear_ra=False, clear_learning=None):
         from core.charmap import parse_charmap_txt
         from core.hub import DsiSource, FileSource, StateHub
         from core.ra_game import RaSettings
@@ -84,6 +110,14 @@ class Engine:
         self.clear_ra = clear_ra
         self._cleared = False      # --clear-ra's sync has happened
         self._clearing = False     # this sync is it
+        # --clear-learning ("all" or a game code): what the shadow check learned
+        # is wiped here, and at the console's first sync its notes are thrown
+        # away and those sets sent again
+        self.clear_learning = clear_learning
+        self._relearned = False    # that sync has happened
+        self._ignored_notes = 0
+        if clear_learning:
+            self._wipe_learning()
         # Every unlock DSiRPC has seen, on the console or here, sent to
         # RetroAchievements or not (core/unlocks.py)
         from core.unlocks import UnlockLedger
@@ -136,6 +170,13 @@ class Engine:
         self._started = False
         self._apply_overlay(False)
 
+        # What the launcher is doing with DSiRPC right now (its syncs say)
+        from core.launcher_activity import LauncherActivity
+        self.activity = LauncherActivity()
+        self._save_batch = None      # the launcher's save sync going on (_save_activity())
+        self._save_moves = 0         # what its last plan had to move (a launcher from before batches)
+        self.discord.activity = self.activity
+
         # Offline play: the launcher hands over what was unlocked without
         # DSiRPC and takes the sets it doesn't have (core/console_sync.py).
         # Only when reading a real DSi.
@@ -145,7 +186,8 @@ class Engine:
             self.console_sync = ConsoleSync(self._offline_sets, self._offline_unlocks, self._console_seen,
                                             saves=self._save_store, on_saves=self._on_saves,
                                             on_here=self._launcher_here, updates=self._console_files,
-                                            stats=self._console_stats)
+                                            stats=self._console_stats, on_notes=self._shadow_notes,
+                                            on_roms=self._console_roms, activity=self.activity)
         self._saves = None             # the launcher's save sync (core/saves.py), made when first asked
         self._console_update = None    # the console's files for its updates (core/console_update.py)
 
@@ -303,7 +345,7 @@ class Engine:
         self.source.launcher = {'ip': ip, 'game': None, 'title': '', 'at': time.time(), 'here': True,
                                 'console': seen.get('console', console) if same else console}
 
-    def _offline_sets(self, game, stamps, unlocks=()):
+    def _offline_sets(self, game, stamps, unlocks=(), progress=None):
         """[(code, .DRS bytes)] for the console: the game it's starting
         (downloaded now if needed), then every other set in ra/, each only
         if the console's copy is missing or older. What's known to be
@@ -314,17 +356,64 @@ class Engine:
         started is checked with RetroAchievements first (_reconcile()).
         --clear-ra's sync sends every set. rcheevos builds them
         (core/offline.py's build_set())."""
-        from core import offline, ra_set
+        from core import frame_needs, offline, ra_set
         from core.rcheevos import RcheevosError, RcheevosMissing
         # Each exchange calls this first, then _offline_unlocks()
         self._clearing = self.clear_ra and not self._cleared
         self._cleared = self._cleared or self._clearing
         link = self.ra_link if self.ra_enabled else None
-        codes = ([game] if game else []) + [c for c in ra_set.codes() if c != game]
+        from core import rom_hashes
+        hashes = rom_hashes.load()
+        by_hash = rom_hashes.set_codes(hashes)   # every game on the SD card RetroAchievements has a set for
+        codes = ([game] if game else []) + sorted((set(ra_set.codes()) | set(by_hash)) - {game})
+        # Their sets fetched now if they aren't here yet (or are another game's): once, then kept in ra/
+        fetch = []
+        if link is not None:
+            for code in by_hash:
+                if code == game:
+                    continue
+                try:
+                    local = ra_set.for_game(code)
+                except ra_set.SetFileError:
+                    local = None
+                if local is None or local.id != by_hash[code]:
+                    fetch.append(code)
+        fetched = {}
+        if fetch:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            if progress:
+                progress(0, len(fetch), offline.PROGRESS_SETS)
+            with ThreadPoolExecutor(SET_FETCH_THREADS) as pool:
+                jobs = {pool.submit(link.set_for_code, code): code for code in fetch}
+                for n, job in enumerate(as_completed(jobs), 1):
+                    try:
+                        fetched[jobs[job]] = job.result()
+                    except Exception:
+                        logging.exception(f"Offline sync: {jobs[job]}: couldn't get its set")
+                    if progress:
+                        progress(n, len(fetch), offline.PROGRESS_SETS)
         out = []
-        for code in codes:
+        built = os.path.join(ra_set.RA_DIR, "cache", "built")   # (an unchanged set isn't built again)
+        said = [time.monotonic()]
+        for i, code in enumerate(codes):
+            if progress:
+                progress(i, len(codes), offline.PROGRESS_SETS)   # (building them takes a while too)
+                said[0] = time.monotonic()
+
+            def tick(i=i):
+                # a long build: said again now and then, so the launcher keeps waiting
+                if progress and time.monotonic() - said[0] >= BUILD_TICK:
+                    progress(i, len(codes), offline.PROGRESS_SETS)
+                    said[0] = time.monotonic()
+            if not rom_hashes.may_send(hashes, code):
+                continue    # no set for the versions on the console, or not answered yet (_console_roms())
             try:
-                s = link.set_for_code(code) if (link and code == game) else ra_set.for_game(code)
+                if code in fetched:
+                    s = fetched[code]
+                elif link and code == game:
+                    s = link.set_for_code(code)
+                else:
+                    s = ra_set.for_game(code)
             except ra_set.SetFileError as e:
                 logging.info(f"Offline sync: {code}: {e}")
                 continue
@@ -343,20 +432,113 @@ class Engine:
                     for u in unlocks:
                         if u['code'] == code and not earned.get(u['id']):
                             earned[u['id']] = u['when']
+            # the achievements found to need checking every frame go in the frame lane first
+            needs = frame_needs.load()
+            if frame_needs.prune(needs, code, s.achievements):  # (RetroAchievements changed some since)
+                try:
+                    frame_needs.save(needs)
+                except OSError:
+                    pass
+            proven = frame_needs.proven(needs, code, s.playable_achievements)
+            clean = frame_needs.clean_counts(needs, code, s.playable_achievements)
             try:
-                data = offline.build_set(s, code, set(earned), earned)
+                data = offline.build_set(s, code, set(earned), earned, proven, clean, cache_dir=built, tick=tick)
             except RcheevosMissing as e:
                 logging.warning(f"Offline sync: no achievement sets for the console: {e}")
                 return out
             except (RcheevosError, offline.FormatError) as e:
                 logging.warning(f"Offline sync: {code}: couldn't build its set: {e}")
                 continue
-            offline.remember_set(data)  # which achievements the console checks every frame
-            if self._clearing or stamps.get(code) != offline.set_stamp(data):
+            # which achievements the console checks every frame, and their logic
+            offline.remember_set(data, memaddr={a['id']: a['memaddr'] for a in s.achievements})
+            if self._clearing or _relearning(self, code) or stamps.get(code) != offline.set_stamp(data):
                 out.append((code, data))
         if self._clearing:
             logging.info(f"Offline sync: --clear-ra: sending all {len(out)} set(s) again")
+        if _relearning(self):
+            resent = [c for c, _ in out if _relearning(self, c)]
+            logging.info(f"Offline sync: --clear-learning: ignored {self._ignored_notes} shadow note(s) from the "
+                         f"console, re-sent {len(resent)} set(s)" + (f" ({', '.join(resent)})" if resent else ""))
+            self._relearned = True
         return out
+
+    def _console_roms(self, roms, hashed, hash_ms, progress=None):
+        """The launcher's games by their RetroAchievements hash (sync version
+        2, core/rom_hashes.py): kept, every hash not asked yet asked of
+        RetroAchievements (HASH_LOOKUP_THREADS at a time, the game being
+        started first; progress(done, of, what) keeps the launcher waiting),
+        a hash it doesn't know told apart by the game's title (it has the
+        game, or not: the title never links a set), and a set linked to a game
+        by its title dropped where the hashes say RetroAchievements has none
+        for the versions on the console. Returns {md5: offline.RA_*}."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from core import offline, rom_hashes
+        if hashed:
+            logging.info(f"Offline sync: the launcher hashed {hashed} game(s) in {hash_ms / 1000:.1f} s")
+        store = rom_hashes.load()
+        rom_hashes.record(store, roms)
+        link = self.ra_link if self.ra_enabled else None
+        names = {r[1]: (r[3] if len(r) > 3 and r[3] else r[0] or r[1]) for r in roms}
+        codes = {r[1]: r[0] for r in roms}
+        todo = list(dict.fromkeys(r[1] for r in sorted(roms, key=lambda r: not r[2])
+                                  if rom_hashes.due(store, r[1])))
+        new = []
+        if link is not None and todo:
+            if progress:
+                progress(0, len(todo), offline.PROGRESS_CHECKING)
+            with ThreadPoolExecutor(HASH_LOOKUP_THREADS) as pool:
+                jobs = {pool.submit(link.lookup_hash, md5): md5 for md5 in todo}
+                done, reachable = 0, True
+                for job in as_completed(jobs):
+                    if job.cancelled() or not reachable:
+                        continue
+                    try:
+                        gid = job.result()
+                    except Exception:
+                        logging.exception(f"Offline sync: couldn't look {jobs[job]} up")
+                        gid = None
+                    done += 1
+                    if gid is None:     # out of reach: the rest stay unknown ("new") till the next sync
+                        reachable = False
+                        for other in jobs:
+                            other.cancel()
+                    else:
+                        rom_hashes.remember(store, jobs[job], gid)
+                        new.append(jobs[job])
+                    if progress:
+                        progress(done, len(todo), offline.PROGRESS_CHECKING)
+        # A hash RetroAchievements doesn't know: does it have the game at all?
+        # (a file without a game code, homebrew often, has no title to look up: no)
+        titled = {"": False}
+        for md5 in [m for m in codes if rom_hashes.answer(store, m) == 0 and "game" not in store["games"][m]]:
+            code = codes[md5]
+            if code not in titled:
+                titled[code] = link.title_has_game(code) if link is not None else None
+            if titled[code] is not None:
+                rom_hashes.remember(store, md5, 0, titled[code])
+        for md5 in new:
+            st = rom_hashes.status(store, md5)
+            which = f"{names[md5]} ({codes[md5] or 'no game code'}, hash {md5})"
+            if st in (rom_hashes.NOT_THIS_ROM, rom_hashes.NO_GAME):
+                logging.info(f"RetroAchievements has no set for {which}: "
+                             + ("it has the game, but not this ROM" if st == rom_hashes.NOT_THIS_ROM
+                                else "it doesn't have the game"))
+            elif st == rom_hashes.HAS_SET and not codes[md5]:
+                logging.info(f"RetroAchievements has a set for {which}, but without a game code the console "
+                             "can't be given it")
+        try:
+            rom_hashes.save(store)
+        except OSError as e:
+            logging.warning(f"Offline sync: couldn't save {rom_hashes.path()}: {e}")
+        for code in sorted(set(codes.values()) - {""}):
+            if rom_hashes.unsupported(store, code):
+                s = rom_hashes.drop_title_link(code)
+                if s is not None:
+                    logging.warning(f"RetroAchievements: {code}: the set it was linked to by its title ({s.title}, "
+                                    f"game {s.id}) isn't for the version on the console, so it won't be used or sent "
+                                    "to the console any more (kept in ra/cache/unsupported/; unlocks already earned "
+                                    "stay)")
+        return {md5: rom_hashes.status(store, md5) for md5 in codes}
 
     def _reconcile(self, link, s):
         """Before the console gets the game it's starting: RetroAchievements'
@@ -380,6 +562,78 @@ class Engine:
             link.award_offline(aid, when or int(time.time()), s.title, s.id)
         if missing:
             logging.info(f"RetroAchievements: sending {len(missing)} unlock(s) of {s.title} it didn't have yet")
+
+    def _wipe_learning(self):
+        """--clear-learning: ra/cache/frame_needs.json forgets the game's (or
+        every game's) proofs and clean counts, after a backup."""
+        import shutil
+        from core import frame_needs
+        which = "every game's" if self.clear_learning == "all" else f"{self.clear_learning}'s"
+        path = frame_needs.path()
+        if not os.path.exists(path):
+            logging.info(f"--clear-learning: no learned frame needs to wipe ({path} isn't there)")
+            return
+        try:
+            shutil.copyfile(path, path + ".bak")
+            needs = frame_needs.load()
+            gone = frame_needs.wipe(needs, None if self.clear_learning == "all" else self.clear_learning)
+            frame_needs.save(needs)
+            logging.info(f"--clear-learning: wiped {which} learned frame needs ({gone} entr{'y' if gone == 1 else 'ies'}; "
+                         f"backup {path}.bak)")
+        except OSError as e:
+            logging.warning(f"--clear-learning: couldn't wipe {path}: {e}")
+
+    def _shadow_notes(self, notes, stamps=None):
+        """The console's shadow check's notes ([{'code', 'id', 'proven'}],
+        core/offline.py's read_shadow_notes()): which frame lane achievements
+        came out differently checked every frame and every few frames (they
+        need the frame lane), and which didn't in a while of their memory
+        changing. Kept in ra/cache/frame_needs.json for the next sets. A
+        note about logic RetroAchievements has changed since the console's
+        set was built (stamps: the console's sets, {code: stamp}) is left
+        out, and so is a game whose set file can't be read: the rest are
+        still kept. (Either way they count as taken, so the launcher clears
+        RPCUNLK.BIN: kept there, they'd come back at every sync, and the
+        file would fill up.)"""
+        from core import frame_needs, offline, ra_set
+        if _relearning(self):  # --clear-learning: not these
+            drop = [n for n in notes if _relearning(self, n['code'])]
+            self._ignored_notes += len(drop)
+            notes = [n for n in notes if n not in drop]
+        needs = frame_needs.load()
+        changed = False
+        for code in sorted({n['code'] for n in notes}):
+            mine = [n for n in notes if n['code'] == code]
+            try:
+                s = ra_set.for_game(code)
+            except ra_set.SetFileError as e:
+                logging.warning(f"Offline sync: {code}: {len(mine)} shadow note(s) left out: its set file ({e})")
+                continue
+            memaddr = {a['id']: a['memaddr'] for a in s.achievements} if s else {}
+            # The logic the console checked: the set it has (by its stamp), as built
+            known = offline.known_set(stamps[code]) if stamps and code in stamps else None
+            ran = known['mem'] if known and known['code'] == code else None
+            if ran is not None:
+                stale = [n for n in mine if n['id'] in memaddr and ran.get(n['id']) is not None
+                         and ran[n['id']] != frame_needs.memaddr_hash(memaddr[n['id']])]
+                if stale:
+                    logging.info(f"Offline sync: {code}: {len(stale)} shadow note(s) left out: RetroAchievements "
+                                 "changed those achievements since the console's set was made")
+                    mine = [n for n in mine if n not in stale]
+            for n in mine:
+                if n['id'] not in memaddr:
+                    continue
+                if n['proven']:
+                    if frame_needs.add(needs, code, n['id'], memaddr[n['id']], "console"):
+                        logging.info(f"Offline sync: {code}: achievement {n['id']} needs checking every frame (the console found)")
+                else:
+                    frame_needs.add_clean(needs, code, n['id'], memaddr[n['id']])
+                changed = True
+        if changed:
+            try:
+                frame_needs.save(needs)
+            except OSError as e:
+                logging.warning(f"Offline sync: couldn't save frame_needs.json: {e}")
 
     def _offline_unlocks(self, unlocks):
         """Unlocks from offline play: sent to RetroAchievements like any
@@ -457,6 +711,87 @@ class Engine:
             self._saves = SaveStore(path, keep)
         return self._saves
 
+    def _save_activity(self, e):
+        """The save sync's event, for self.activity. The launcher says when a
+        sync of its saves begins, with their bytes ('save_batch'), so the bar
+        moves with each piece of each save ('save_moving') across all of
+        them, and when it's over. Asking for the plan alone (the launcher's
+        connecting screen, the Saves list opening) isn't a sync. A launcher
+        from before 'save_batch': each save moved is one more of the plan's."""
+        from core import saves
+        act, kind = self.activity, e['type']
+        console = (e.get('console') or "DSi").split()[0]
+        b = self._save_batch
+        batch = b is not None and act.active("saves") and (act.current() or {}).get('generation') == b['generation']
+        if kind == 'save_plan':
+            self._save_moves = e['moves']
+            return
+        if kind == 'save_batch':
+            if e['saves'] and e['bytes']:
+                act.start("saves", "Syncing saves", console=console, total=e['bytes'], unit="bytes",
+                          items=e['saves'])
+                self._save_batch = {'generation': act.current()['generation'], 'base': 0, 'step': None,
+                                    'done': 0, 'size': 0, 'saves': set(), 'up': 0, 'down': 0, 'backed': 0}
+            elif batch:
+                self._finish_batch(b)
+            return
+        if kind == 'save_moving':
+            if not batch:
+                if not act.active("saves"):     # (a launcher from before batches)
+                    act.start("saves", "Syncing saves", console=console, total=self._save_moves)
+                act.progress(detail=self._moving_text(e))
+                return
+            step = (e['key'], e['slot'], e['up'], e.get('kind'))
+            if step != b['step'] or e['done'] < b['done']:
+                if b['step'] is not None and b['size'] and b['done'] >= b['size']:
+                    b['base'] += b['size']      # (the last step got to its end: a retry starts it again)
+                b['step'] = step
+                b['saves'].add((e['key'], e['slot']))
+                act.progress(detail=self._moving_text(e), item=len(b['saves']))
+            b['done'], b['size'] = e['done'], e['size']
+            act.progress(b['base'] + e['done'])
+            return
+        if kind in ('save_uploaded', 'save_downloaded'):
+            safety = kind == 'save_uploaded' and e.get('kind') == saves.PUT_SAFETY
+            if batch:
+                if not safety:
+                    k = 'down' if kind == 'save_downloaded' else 'backed' if e.get('kind') == saves.PUT_BACKUP else 'up'
+                    b[k] += 1
+                return
+            if safety:
+                return    # (a copy kept before a download replaces it: the download counts)
+            if not act.active("saves"):     # (a save picked on the console, outside a sync)
+                act.start("saves", "Syncing saves", console=console)
+            v = act.current() or {'done': 0}
+            name = e.get('name') or "a save"
+            act.progress(v['done'] + 1, detail=f"{'Uploaded' if kind == 'save_uploaded' else 'Downloaded'} {name}")
+            return
+        if kind == 'saves_synced' and act.active("saves"):
+            parts = [f"{e[k]} {what}" for k, what in (('uploaded', "uploaded"), ('backed_up', "backed up"),
+                                                     ('downloaded', "downloaded"), ('failed', "failed")) if e[k]]
+            act.finish(", ".join(parts) or "Everything was in sync", ok=not e['failed'])
+
+    def _finish_batch(self, b):
+        """The launcher says its sync is over: how it went, as DSiRPC saw it
+        (a save that didn't make it all the way: failed)."""
+        self._save_batch = None
+        parts = [f"{b[k]} {what}" for k, what in (('up', "uploaded"), ('backed', "backed up"), ('down', "downloaded"))
+                 if b[k]]
+        failed = len(b['saves']) - (b['up'] + b['backed'] + b['down'])
+        if failed > 0:
+            parts.append(f"{failed} failed")
+        self.activity.finish(", ".join(parts) or "Everything was in sync", ok=failed <= 0)
+
+    @staticmethod
+    def _moving_text(e):
+        """What a save on the move is doing, for the card's detail line."""
+        from core import saves
+        name = e.get('name') or "a save"
+        if not e['up']:
+            return f"Downloading {name}"
+        return {saves.PUT_SAFETY: f"Backing up {name} first", saves.PUT_BACKUP: f"Backing up {name}"}.get(
+            e.get('kind'), f"Uploading {name}")
+
     def _console_files(self):
         """The console's files as they came with this DSiRPC, for the
         launcher's update check, or None while the tray's "Console updates"
@@ -477,7 +812,12 @@ class Engine:
         return self.playtime, {'pc': pc_name(), 'ra': ra, 'discord': discord}
 
     def _on_saves(self, event):
-        """The save sync's events: the tray hears the summary at the end."""
+        """The save sync's events: the activity hears each save as it goes,
+        the tray the summary at the end."""
+        try:
+            self._save_activity(event)
+        except Exception:
+            logging.exception("Save sync: the activity failed")
         if event['type'] != 'saves_synced' or not self.on_change:
             return
         try:
@@ -554,7 +894,7 @@ class Engine:
         from core.console_sync import ConsoleSync
         new = ConsoleSync(old.sets_for, old.on_unlocks, old.on_console, port=old.port, host=old.host,
                           saves=old.saves, on_saves=old.on_saves, on_here=old.on_here, updates=old.updates,
-                          stats=old.stats)
+                          stats=old.stats, on_notes=old.on_notes, on_roms=old.on_roms, activity=old.activity)
         try:
             new.start()
         except OSError as e:
@@ -605,6 +945,11 @@ class Engine:
         if hasattr(self.source, 'parse_interval'):
             self.source.parse_interval = self.hub.interval
 
+    def _activity_view(self):
+        """What the launcher is doing, for the overlay window's activity card
+        (None while the tray menu's "Activity popup" is off)."""
+        return self.activity.current() if getattr(self.cfg, 'activity_popup', True) else None
+
     def _make_window(self, remote=False):
         """The overlay window; `remote`: in a process of its own (macOS's
         menu bar, see overlay/remote.py), else on the calling thread."""
@@ -619,14 +964,15 @@ class Engine:
             from overlay.remote import RemoteOverlay
             os.makedirs(LOG_DIR, exist_ok=True)
             return RemoteOverlay(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
-                                 log_file=os.path.join(LOG_DIR, "overlay.log"), music=self.cfg.ambient_music)
+                                 log_file=os.path.join(LOG_DIR, "overlay.log"), music=self.cfg.ambient_music,
+                                 activity=self._activity_view)
         try:
             window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, chroma=chroma, on_scale=save_scale,
-                                   music=self.cfg.ambient_music)
+                                   music=self.cfg.ambient_music, activity=self._activity_view)
         except ValueError as e:
             logging.warning(f"chroma in {os.path.basename(self.cfg.path)}: {e}; ignoring it")
             window = OverlayWindow(self.hub, scale=self.cfg.overlay_scale, on_scale=save_scale,
-                                   music=self.cfg.ambient_music)
+                                   music=self.cfg.ambient_music, activity=self._activity_view)
         return window
 
     def run_overlay_here(self):

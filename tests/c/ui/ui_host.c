@@ -12,7 +12,8 @@
 //                                then pattern RRGGBB RRGGBB RRGGBB (the
 //                                diamonds' backdrop, tile and dot)
 //   games sd|sort[|folder]       the game list (sort: 0 recent, 1 A-Z, 2
-//                                favorites first; the launcher in sd's
+//                                favorites first, 3 the most unlocked
+//                                first; the launcher in sd's
 //                                folder, "DSiRPC" if not given): game lines
 //                                code|name|publisher|version|favorite|last
 //                                played|earned/total, then games N
@@ -206,6 +207,30 @@ int main(void)
             host_started(f[0], f[1]);
             printf("started\n");
         }
+        else if (strcmp(line, "hash") == 0 && nf == 1)
+        {
+            host_hash(f[0]);
+        }
+        else if (strcmp(line, "setup") == 0 && nf == 1)
+        {
+            host_setup(f[0]);
+        }
+        else if (strcmp(line, "roms") == 0 && (nf == 1 || nf == 2))
+        {
+            host_roms(f[0], nf == 2 ? f[1] : NULL);
+        }
+        else if (strcmp(line, "status") == 0 && nf == 2)
+        {
+            host_status(f[0], f[1]);
+        }
+        else if (strcmp(line, "unreadable") == 0 && nf == 1)
+        {
+            snprintf(host_unreadable, sizeof(host_unreadable), "%s", f[0]);
+        }
+        else if (strcmp(line, "fits") == 0 && nf == 2)
+        {
+            host_fits(f[0], f[1]);
+        }
         else if (strcmp(line, "music") == 0 && nf == 3)
         {
             host_music_log[0] = '\0';
@@ -220,6 +245,10 @@ int main(void)
         else if (strcmp(line, "unlocks") == 0 && nf == 2)
         {
             host_unlocks(f[0], atoi(f[1]) != 0);
+        }
+        else if (strcmp(line, "batch") == 0)
+        {
+            host_save_batch();
         }
         else if (strcmp(line, "text") == 0 && nf == 2)
         {

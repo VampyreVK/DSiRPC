@@ -215,6 +215,7 @@ class DSiClient:
             self._dropout_report(self.last_hello)
             self.hellos.append((time.time(), self.last_hello))
             self.game = game_from_hello(self.last_hello)
+            self._arm9_report(self.last_hello)
             self._tick_report()
             if self.dsi_ip is None:
                 self.dsi_ip = addr[0]
@@ -232,6 +233,20 @@ class DSiClient:
                          "from the launcher again (it still checks and saves achievements)")
         elif self.verbose:
             print(f"  ignored {len(data)} bytes from {addr[0]}:{addr[1]}")
+
+    def _arm9_report(self, text):
+        """Logs what the hellos say about DSiRPC's ARM9 half (arm9_status())
+        when it changes: as a game starts, and once the search for its OS_Halt
+        is done."""
+        f = _hello_fields(text)
+        key = (f.get("gc"), f.get("a9"), f.get("a9s"))
+        if key == getattr(self, "_arm9_said", None):
+            return
+        self._arm9_said = key
+        status = arm9_status(f)
+        if status:
+            logging.info(f"Console: {f.get('gc') or 'the game'}: {status} (a9={f.get('a9')}"
+                         + (f" a9s={f['a9s']}" if "a9s" in f else "") + ")")
 
     def _dropout_report(self, text):
         """Logs the console's Wi-Fi riding out a dropout (a flaky hotspot,
@@ -449,6 +464,25 @@ class DSiClient:
             batch_bytes += p[2]
         flush()
         return results
+
+
+def arm9_status(fields):
+    """What a hello's a9= (and a9s=, the copies of OS_Halt rpcprobe's search
+    found; 9 while it's still looking) say about DSiRPC's ARM9 half, in
+    words, or None for a build that doesn't report it."""
+    a9, sites = fields.get("a9"), fields.get("a9s")
+    if a9 is None or not a9.isdigit():
+        return None
+    a9 = int(a9)
+    found = ""
+    if sites is not None and sites.isdigit():
+        found = (", still looking for the game's OS_Halt" if int(sites) == 9
+                 else f", {sites} cop{'y' if sites == '1' else 'ies'} of the game's OS_Halt found")
+    if a9 == 0:
+        return "no ARM9 half (values the game just wrote can be read a frame late)"
+    if a9 == 1:
+        return "ARM9 half found, but no idle call patched (no write-backs in the game's idle time)" + found
+    return f"ARM9 half found, {a9 - 1} idle call(s) patched (write-backs in the game's idle time)" + found
 
 
 def _hello_fields(text):

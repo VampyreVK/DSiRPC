@@ -160,6 +160,20 @@ int main(int argc, char *argv[])
                     sync_one(it, nf >= 3 ? f[2] : NULL);
             }
         }
+        else if (strcmp(line, "batch") == 0 && nf == 1)
+        {
+            // "*": a sync of everything to do begins (saveui.c's sync_all), "end": it's over
+            int n = 0;
+            uint32_t bytes = 0;
+            for (int i = 0; i < list.count && strcmp(f[0], "*") == 0; i++)
+            {
+                uint32_t b = saves_item_bytes(&list.items[i], console.backup_only);
+                n += b > 0;
+                bytes += b;
+            }
+            saves_batch(&job, &console, &server, n, bytes);
+            printf("batch %d %u\n", n, (unsigned)bytes);
+        }
         else if (strcmp(line, "exclude") == 0 && nf == 2)
         {
             SaveItem *it = find(f[0], atoi(f[1]));

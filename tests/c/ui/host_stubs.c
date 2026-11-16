@@ -24,6 +24,17 @@ static uint8_t main_bmp[65536] __attribute__((aligned(4)));
 static uint8_t sub_bmp[65536] __attribute__((aligned(4)));
 static PrintConsole console = { { default_font, NULL, 0, 1, 32, 96 } };
 
+// The SD card's hiccups: fopen() of a path with host_unreadable in it fails
+// (the host is linked with --wrap=fopen; the "unreadable" command sets it)
+char host_unreadable[256];
+FILE *__real_fopen(const char *path, const char *mode);
+FILE *__wrap_fopen(const char *path, const char *mode)
+{
+    if (host_unreadable[0] && strstr(path, host_unreadable) != NULL)
+        return NULL;
+    return __real_fopen(path, mode);
+}
+
 uint32_t host_keys = KEY_B;     // what every scan finds pressed
 uint32_t host_battery = 11;
 

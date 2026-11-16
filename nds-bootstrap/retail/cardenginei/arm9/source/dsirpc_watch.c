@@ -24,6 +24,9 @@
 
 #define MAINRAM_LO 0x02000000u
 #define MAINRAM_HI 0x02400000u
+// ITCM, where the SDK has the game copy its ITCM autoload block
+#define ITCM_LO 0x01FF8000u
+#define ITCM_HI 0x02000000u
 
 // What a patched OS_Halt starts with: ldr pc, [pc, #-4], then the address
 // it jumps to
@@ -75,14 +78,45 @@ asm(
 "	mcr	p15, 0, r0, c7, c10, 4\n"     // drain the write buffer
 "	mcr	p15, 0, r0, c7, c0, 4\n"      // halt until an interrupt (OS_Halt's own instruction)
 "	bx	lr\n"
+"	.global dsirpcItcmOn\n"
+"	.type	dsirpcItcmOn, %function\n"
+"dsirpcItcmOn:\n"                     // non-zero if ITCM is on (CP15 control, bit 18)
+"	mrc	p15, 0, r0, c1, c0, 0\n"
+"	and	r0, r0, #0x40000\n"
+"	bx	lr\n"
 "	.ltorg\n"
 "	.thumb\n"
 "	.popsection\n"
 );
 void dsirpcIdle(void);
+int dsirpcItcmOn(void);
 
 // The last ask this side answered
 static u16 served = 0;
+
+// rpcprobe found no OS_Halt in the game's static code: look in ITCM (only
+// the ARM9 can read it), where the SDK can have put it, and patch each copy
+// there the same way, only over all three of its words. Once per ask, and
+// rpcprobe stops asking once `found` says this side has looked and what it
+// found is patched: an 8192-word compare, in this interrupt, once a game.
+static u32 itcmHalts(DsirpcWatchBlock *b) {
+	u32 found = 0;
+	if (dsirpcItcmOn()) {
+		for (u32 a = ITCM_LO; a + 12 <= ITCM_HI && found < DSIRPC_IDLE_SITES; a += 4) {
+			vu32 *p = (vu32 *)a;
+			if (p[0] == IDLE_PATCH && p[1] == (u32)dsirpcIdle) {
+				found++; // already in
+				continue;
+			}
+			if (p[0] != DSIRPC_OS_HALT_0 || p[1] != DSIRPC_OS_HALT_1 || p[2] != DSIRPC_OS_HALT_2) continue;
+			p[1] = (u32)dsirpcIdle; // ITCM isn't cached: the next fetch gets it
+			p[0] = IDLE_PATCH;
+			found++;
+		}
+	}
+	b->found = DSIRPC_FOUND_LOOKED | found;
+	return found;
+}
 
 // Called from myIrqHandlerIPC on every IPC sync interrupt (rpcprobe rings
 // when it has found OS_Halt, and again while a copy isn't patched). Cheap
@@ -102,9 +136,10 @@ void dsirpcWatchService(void) {
 
 	// This runs in an interrupt, so the game's idle thread can't be in the
 	// middle of the two words being replaced.
-	u32 hooked = 0;
+	u32 hooked = 0, listed = 0;
 	for (u32 i = 0; i < DSIRPC_IDLE_SITES; i++) {
 		u32 a = b->haltAt[i];
+		if (a) listed++;
 		if (a < MAINRAM_LO || a > MAINRAM_HI - 12 || (a & 3)) continue;
 		vu32 *p = (vu32 *)a;
 		if (p[0] == IDLE_PATCH && p[1] == (u32)dsirpcIdle) {
@@ -120,8 +155,9 @@ void dsirpcWatchService(void) {
 		IC_InvalidateRange((void *)a, 8);  // where the next fetch gets it
 		hooked++;
 	}
+	if (!listed) hooked = itcmHalts(b);
 	b->hooked = hooked;
-	DC_FlushRange(&b->hooked, 4);
+	DC_FlushRange(&b->hooked, 8); // (and found)
 }
 
 // Called from nds-bootstrap's reset() (misc.c), with interrupts off, when
@@ -131,7 +167,8 @@ void dsirpcWatchService(void) {
 void dsirpcWatchReset(void) {
 	DsirpcWatchBlock *b = &dsirpcWatchBlock;
 	b->hooked = 0;
-	DC_FlushRange(&b->hooked, 4);
+	b->found = 0;
+	DC_FlushRange(&b->hooked, 8);
 }
 
 #endif

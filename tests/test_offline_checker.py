@@ -1,5 +1,5 @@
 """Offline play's checker (rpcprobe/probe_ach.c with probe_ach_vm.c), built
-for the PC with tests/c/ach/ach_host.c, running a real version 4 set from
+for the PC with tests/c/ach/ach_host.c, running a real version 5 set from
 core/offline.py against rcheevos.
 
 Every frame the simulated game writes memory, then the console samples (the
@@ -64,8 +64,8 @@ def _frame_line(mode, f, rng):
     going on around them."""
     if mode == "vblank":            # the swiHalt hook never runs: the VBlank checks
         return "frame 0 0"
-    if mode == "starve":            # the hook alive, but no visits for 100 frames
-        return "frame 1 0" if 1000 <= f < 1100 else f"frame 1 {rng.choice([1, 2])}"
+    if mode == "starve":            # the hook alive, but no visits for 400 frames (longer than the biggest ring)
+        return "frame 1 0" if 1000 <= f < 1400 else f"frame 1 {rng.choice([1, 2])}"
     if mode == "nullwait":          # altReadMethod: no ROM-read callback
         return f"frame 1 {rng.choice([1, 1, 2, 3, 4])} 0 1 1"
     if mode == "unclean":           # every third frame without a write-back
@@ -146,7 +146,7 @@ def test_checker_matches_rcheevos(ach_host, rcheevos, tmp_path, seed, n_ach, mod
     frame_console = [aid for aid in console if aid in frame_ids]
     dropped = sum(int(r["dropped"]) for r in stats)
     if mode == "starve":
-        assert dropped > 0, "100 frames without the idle side must leave gaps"
+        assert dropped > 0, "400 frames without the idle side must leave gaps"
         return
     assert dropped == 0, stats
     # The frame lane unlocks exactly what rcheevos does, in order
@@ -191,6 +191,99 @@ def test_saved_unlocks_read_back_and_stay_unlocked(ach_host, rcheevos, tmp_path)
     assert out[0].startswith("loaded ") and out[0].endswith(f"waiting {len(console)}"), out[0]
     again = [int(line.split()[1]) for line in out if line.startswith("T ")]
     assert not set(again) & set(console)
+
+
+def test_the_shadow_check_notes_what_it_finds(ach_host, rcheevos, tmp_path):
+    """The frame lane checked again from every 8th sample: the ones that come
+    out differently (the T-spin's one-frame flag) are noted proven, ones
+    whose memory changed a while with no difference clean, each once, in
+    RPCUNLK.BIN beside the unlocks, which read back as before."""
+    s, data, info, path = _set(tmp_path, 1, 60)
+    dump = tmp_path / "RPCUNLK.BIN"
+    lines, expected, _ = _play(1, "idle", s, info, path, every_frame=["save"])
+    out = _session(ach_host, lines + ["save", f"dump {dump}"])
+    console = [int(line.split()[1]) for line in out if line.startswith("T ")]
+    raw = dump.read_bytes()
+    notes = offline.read_shadow_notes(raw)
+    frame_ids = set(info["frame"])
+    assert notes and {n["id"] for n in notes} <= frame_ids
+    proven = {n["id"] for n in notes if n["proven"]}
+    if gen_set.T_SPIN_SINGLE in console:
+        assert gen_set.T_SPIN_SINGLE in proven
+    assert any(not n["proven"] for n in notes), "some should come out clean"
+    unlocks = offline.read_unlocks(raw, now=CLOCK.timestamp() + 86400)
+    assert sorted(u["id"] for u in unlocks) == sorted(console)
+    assert [u["seq"] for u in sorted(unlocks, key=lambda u: u["seq"])] == list(range(1, len(console) + 1))
+    assert offline.count_slots(raw) == len(console) + len(notes)
+
+
+@pytest.fixture(scope="module")
+def ach_host_no_shadow(cc, tmp_path_factory):
+    """ach_host without the shadow check (ACH_SHADOW 0), to compare."""
+    out = tmp_path_factory.mktemp("ach_ns")
+    exe = str(out / "ach_host")
+    here = os.path.join(C_DIR, "ach")
+    cbuild.build(exe, [os.path.join(here, "ach_host.c"), os.path.join(RPCPROBE, "probe_ach.c"),
+                       os.path.join(RPCPROBE, "probe_ach_vm.c")],
+                 flags=["-I", here, "-I", os.path.join(C_DIR, "stubs"), "-I", RPCPROBE, "-I", COMMON_INCLUDE,
+                        "-include", os.path.join(here, "prelude.h"), "-DACH_SHADOW=0",
+                        "-DACH_REG_VCOUNT=hostVcount()", "-DACH_RAM=hostRam", "-DACH_RTC_READ(t)=hostRtc(t)"])
+    return exe
+
+
+@pytest.mark.parametrize("mode", ["idle", "vblank", "starve", "nullwait", "unclean"])
+def test_the_frame_lane_never_waits_for_the_shadow(ach_host, ach_host_no_shadow, rcheevos, tmp_path, mode):
+    """The shadow check only runs while no sample waits (on its own copy of
+    one), so with it or without it the frame lane checks the same samples,
+    drops the same ones (none but in the starved case) and unlocks the same,
+    in the same order, on the biggest puzzle set."""
+    s, data, info, path = _set(tmp_path, 2, 300)
+    lines, expected, _ = _play(2, mode, s, info, path)
+    runs = []
+    for exe in (ach_host, ach_host_no_shadow):
+        out = _session(exe, lines)
+        stats = _stats(out)
+        frame_unlocks = [int(line.split()[1]) for line in out if line.startswith("T ") and
+                         int(line.split()[1]) in set(info["frame"])]
+        runs.append((sum(int(r["frames"]) for r in stats), sum(int(r["dropped"]) for r in stats), frame_unlocks))
+    (frames_on, dropped_on, unlocks_on), (frames_off, dropped_off, unlocks_off) = runs
+    assert frames_on == frames_off and dropped_on == dropped_off and unlocks_on == unlocks_off, runs
+    if mode != "starve":
+        assert dropped_on == 0
+
+
+def test_a_long_busy_stretch_fits_the_ring(ach_host, rcheevos, tmp_path):
+    """12 frames with no idle time to check in (the console busy, as Tetris
+    DS's higher levels make it), around a T-spin: the ring (as big as the
+    set's memory left over, 16 samples or more) holds them all, so nothing's dropped and the one-frame flag is still
+    caught, in order; a ring of 8 (the set's header asks for it, as DSiRPC
+    does for a set with little room) drops some."""
+    s, data, info, path = _set(tmp_path, 1, 60)
+    assert gen_set.T_SPIN_SINGLE in info["frame"]
+    lines, expected, _ = _play(1, "idle", s, info, path)
+    at = next((f for f, ids in expected if gen_set.T_SPIN_SINGLE in ids), None)
+    assert at is not None, "the game should do a T-spin in this many frames"
+    frame_lines = [i for i, line in enumerate(lines) if line.startswith("frame ")]
+    for f in range(at - 6, at + 6):
+        lines[frame_lines[f]] = "frame 1 0"   # (the hook alive, but no visits)
+    assert offline.read_set(data)["ring"] >= 16
+    small = bytearray(path.read_bytes())
+    small[44] = 3                                # 2^3 samples (the header isn't in the stamp)
+    path8 = tmp_path / "RPCSET_8.BIN"
+    path8.write_bytes(bytes(small))
+    assert offline.read_set(bytes(small))["ring"] == 8
+    runs = {}
+    for name, ls in (("16", lines), ("8", [f"set {path8}" if line == f"set {path}" else line for line in lines])):
+        out = _session(ach_host, ls)
+        console = [int(line.split()[1]) for line in out if line.startswith("T ")]
+        runs[name] = (sum(int(r["dropped"]) for r in _stats(out)), [aid for aid in console if aid in set(info["frame"])])
+    dropped, frame_console = runs["16"]
+    assert dropped == 0 and gen_set.T_SPIN_SINGLE in frame_console
+    k = 0
+    for f, ids in expected:
+        assert set(frame_console[k:k + len(ids)]) == ids, (f, frame_console[k:k + 6], ids)
+        k += len(ids)
+    assert runs["8"][0] > 0, "the ring of 8 should have overflowed"
 
 
 def test_a_full_unlock_file_is_left_alone(ach_host, rcheevos, tmp_path):
@@ -264,3 +357,45 @@ def test_bad_sets_are_refused(ach_host, rcheevos, tmp_path):
     assert load(b"XXXX" + data[4:]) == -1                            # not a set
     assert load(data[:offline.SET_HEADER.size]) in (-3, -4, -5)      # cut short
     assert load(b"") == 0                                            # no RPCSET.BIN: nothing to check
+
+
+def test_notes_leave_room_for_unlocks(ach_host, rcheevos, tmp_path):
+    """A dozen frame lane achievements whose memory changes every frame
+    come out clean at the same shadow judgement: the notes take no more of
+    the save queue than leaves room for unlocks, so an unlock right after,
+    with nothing saved in between, is kept (it used to find the queue full
+    and be lost); the notes that waited are queued at later judgements."""
+    achs = [{"ID": 700 + k, "Title": f"Watch {k}", "Description": "", "Points": 1, "Flags": 3, "BadgeName": "0",
+             "MemAddr": f"0xH0100!=d0xH0100_0xH0300={k + 1}"} for k in range(12)]
+    achs.append({"ID": 800, "Title": "The one", "Description": "", "Points": 5, "Flags": 3, "BadgeName": "0",
+                 "MemAddr": "0xH0400=1"})
+    s = ra_set.RaSet({"Success": True, "PatchData": {"ID": 4242, "Title": "Busy", "ConsoleID": 18,
+                                                     "RichPresencePatch": "", "Achievements": achs,
+                                                     "Leaderboards": []}})
+    data = offline.build_set(s, "TEST")
+    info = offline.read_set(data)
+    assert set(range(700, 712)) <= set(info["frame"])
+    path = tmp_path / "RPCSET.BIN"
+    path.write_bytes(data)
+    dump = tmp_path / "RPCUNLK.BIN"
+    lines = [f"set {path}"]
+    for f in range(900):
+        lines.append(f"w 100 {f & 0xFF:02x}")
+        if f == 850:
+            lines.append("w 400 01")
+        lines.append("frame 1 2")
+    lines += ["save", f"dump {dump}"]
+    # then saved as it goes: the notes that waited come too
+    for f in range(900, 1300):
+        lines += [f"w 100 {f & 0xFF:02x}", "frame 1 2", "save"]
+    lines += [f"dump {tmp_path / 'later.BIN'}"]
+    out = _session(ach_host, lines)
+    assert [int(ln.split()[1]) for ln in out if ln.startswith("T ")] == [800]
+    first_save = next(ln for ln in out if ln.startswith("saved "))
+    assert first_save.endswith("lost 0"), first_save
+    raw = dump.read_bytes()
+    assert [u["id"] for u in offline.read_unlocks(raw, now=CLOCK.timestamp() + 86400)] == [800]
+    notes = offline.read_shadow_notes(raw)
+    assert 0 < len(notes) <= offline.UNLOCK_SLOTS and len(notes) <= 7 - 3     # (the queue's room, less 3)
+    later = offline.read_shadow_notes((tmp_path / "later.BIN").read_bytes())
+    assert {n["id"] for n in later} == set(range(700, 712)) and not any(n["proven"] for n in later)

@@ -7,10 +7,14 @@ presence_connector.py - the Discord Rich Presence, as a state hub listener
                      the Battle Subway, Battle Institute and League)
   any other game     rpc/generic_presence.py (name, box art, and its
                      RetroAchievements rich presence if there's a set)
+  the launcher       rpc/generic_presence.py's launcher_presence(): while
+                     the console is in the DSiRPC launcher (the hub's
+                     snapshot.launcher), "Playing DSiRPC", with what the
+                     launcher is doing (activity, core/launcher_activity.py)
 
-Discord is only connected while the game answers, updates are only sent when
+Discord is only connected while the game answers (or the launcher is there), updates are only sent when
 the presence changes (and at most about every 5 s, Discord's limit), and the
-presence is cleared when the DSi goes quiet, when it's switched off here
+presence is cleared when the DSi goes quiet and the launcher's gone, when it's switched off here
 (enabled = False) and when the program stops. Each game can have its own
 Discord application (client_id()). Everything runs on the hub thread,
 including close() (register it with StateHub.add_closer), because
@@ -37,6 +41,7 @@ class DiscordConnector:
         self.enabled = enabled
         self.check_images = check_images
         self.console = None   # (name, image URL): the small image for games without their own presence
+        self.activity = None  # core/launcher_activity.py's LauncherActivity: its line() while in the launcher
         self.rpc = None
         self.start = None
         self.start_key = None
@@ -80,18 +85,30 @@ class DiscordConnector:
         presence['start'] = self.start
         return presence, 'CPUE', True
 
+    def _launcher_presence(self, launcher):
+        """The presence while the console is in the launcher, its timer from
+        when it was first seen there (the same while it starts a game)."""
+        key = ('launcher', launcher.get('ip'))
+        if self.start_key != key:
+            self.start, self.start_key = int(time.time()), key
+        line = self.activity.line() if self.activity else None
+        return generic.launcher_presence(launcher, line, self.start)
+
     def on_update(self, snap, events):
         if not self.enabled:
             if self.rpc or self.last_sent is not None:
                 self._clear()
             self.status = "off"
             return
-        if not snap.online or not snap.state:
+        if snap.online and snap.state:
+            presence = self._presence(snap.state)[0]
+        elif getattr(snap, 'launcher', None):
+            presence = self._launcher_presence(snap.launcher)
+        else:
             self._clear("No data from the DSi")
             self.status = "waiting for the game"
             return
 
-        presence = self._presence(snap.state)[0]
         client_id = self.client_id()
         if not client_id and not self.dry_run:
             if not self._warned_no_id:

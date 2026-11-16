@@ -6,7 +6,7 @@ OUTPUT_ARCH(arm)
 
 MEMORY {
 
-	vram	: ORIGIN = INGAME_MENU_LOCATION, LENGTH = 39K /* Main RAM */
+	vram	: ORIGIN = INGAME_MENU_LOCATION, LENGTH = INGAME_MENU_SIZE - 0x400 /* Main RAM (DSiRPC: was 39K, for upstream's 0xA000 window) */
 }
 
 __vram_start	=	ORIGIN(vram);

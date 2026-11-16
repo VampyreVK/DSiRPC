@@ -220,9 +220,55 @@ static void progress_card(const char *what, uint32_t done, uint32_t total, int p
     ui_present();
 }
 
+// A sync of several saves (or one, with its backup first): one bar across
+// all of them, by the bytes each upload and download moves
+static struct
+{
+    bool on;
+    uint32_t total, base;           // its bytes, and those of the steps done
+    uint32_t done, of;              // the step going on (an upload or a download)
+    char what[96];
+} batch;
+
+static void batch_begin(int n, uint32_t bytes)
+{
+    memset(&batch, 0, sizeof(batch));
+    batch.on = n > 0 && bytes > 0;
+    batch.total = bytes;
+    if (batch.on)
+        saves_batch(&job, &console, &server, n, bytes);
+}
+
+static void batch_end(void)
+{
+    if (batch.on)
+        saves_batch(&job, &console, &server, 0, 0);
+    batch.on = false;
+}
+
+// A step's done of total as the batch's: a new step (another line, or back
+// at the start) adds the last one's bytes if it got to its end (a retry
+// starts the same one again)
+static uint32_t batch_done(const char *what, uint32_t done, uint32_t total, uint32_t *of)
+{
+    if (strcmp(what, batch.what) != 0 || done < batch.done)
+    {
+        if (batch.of > 1 && batch.done >= batch.of)
+            batch.base += batch.of;
+        snprintf(batch.what, sizeof(batch.what), "%s", what);
+    }
+    batch.done = done;
+    batch.of = total;
+    *of = batch.total;
+    uint32_t at = batch.base + (total > 1 ? done : 0);
+    return at < batch.total ? at : batch.total;
+}
+
 static void progress(const char *what, uint32_t done, uint32_t total)
 {
     static int last_pct = -1;
+    if (batch.on && total)
+        done = batch_done(what, done, total, &total);
     int pct = total ? (int)((uint64_t)done * 100 / total) : -1;
     if (total && pct == last_pct && done != 0)
         return;
@@ -630,7 +676,9 @@ static void sync_one(SaveItem *it)
 {
     char msg[160];
     begin("Syncing saves");
+    batch_begin(1, saves_item_bytes(it, console.backup_only));
     int r = saves_sync_item(&job, &console, &server, &list, it, &counts, progress, msg, sizeof(msg));
+    batch_end();
     if (r < 0 || msg[0] != '\0')
     {
         char name[33];
@@ -757,8 +805,10 @@ static void versions_screen(SaveItem *it)
                 continue;
             }
             begin("Restoring a save");
+            batch_begin(1, (it->present ? it->size : 0) + v[sel].size);
             int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, v[sel].source, &counts,
                                   progress, msg, sizeof(msg));
+            batch_end();
             message(r > 0 ? "Restored" : "Didn't restore", r > 0 ? (msg[0] ? msg : "The save is on the console.")
                                                                  : msg);
             return;
@@ -803,8 +853,10 @@ static void versions_screen(SaveItem *it)
             if (wait_keys(KEY_A | KEY_B) & KEY_B)
                 continue;
             begin("Restoring a save");
+            batch_begin(1, (it->present ? it->size : 0) + v[sel].size);
             int r = saves_restore(&job, &console, &server, &list, it, v[sel].version, v[sel].source, &counts,
                                   progress, msg, sizeof(msg));
+            batch_end();
             message(r > 0 ? "Restored" : "Didn't restore", r > 0 ? (msg[0] ? msg : "The save is on the console.")
                                                                  : msg);
             return;
@@ -823,11 +875,19 @@ static void sync_all(void)
             it->choice = ask_conflict(it);
     }
     int total = 0, at = 0;
+    uint32_t bytes = 0;
     for (int i = 0; i < n_shown; i++)
-        total += to_do(&list.items[shown[i]]);
+    {
+        SaveItem *it = &list.items[shown[i]];
+        if (!to_do(it))
+            continue;
+        total++;
+        bytes += saves_item_bytes(it, console.backup_only);
+    }
     SaveCounts before = counts;
     int skipped = 0;
     begin("Syncing saves");
+    batch_begin(total, bytes);
     for (int i = 0; i < n_shown; i++)
     {
         SaveItem *it = &list.items[shown[i]];
@@ -844,6 +904,7 @@ static void sync_all(void)
         char msg[160];
         saves_sync_item(&job, &console, &server, &list, it, &counts, progress, msg, sizeof(msg));
     }
+    batch_end();
 
     // What it did, a line for each that happened: uploaded (the saves the
     // other consoles get), backed up (back up only), downloaded

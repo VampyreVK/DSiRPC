@@ -78,18 +78,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Only nds-bootstrap/ is needed, so skip downloading the sprites.
+      # The whole history (no file contents), for the tags: see below
       - uses: actions/checkout@v6
         with:
           sparse-checkout: nds-bootstrap
           filter: blob:none
+          fetch-depth: 0
 
       # The build needs an "lzss" tool inside the container. A static binary
       # built here runs in there regardless of its library versions.
       - name: Build lzss
         run: gcc -O2 -static nds-bootstrap/lzss.c -o lzss
 
+      # GIT_VER: the version its in-game menu shows. nds-bootstrap's
+      # arm9/Makefile asks git, but git can't see the repo from inside the
+      # container (only nds-bootstrap/ is mounted), so it's worked out here
+      # the same way: the tag for a release, else the last tag and the commit
+      # (at most 19 characters).
       - name: Build nds-bootstrap
-        run: docker run --rm -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            ver="$GITHUB_REF_NAME"
+          else
+            ver="$(git describe --tags --abbrev=0 2>/dev/null || echo dev)-$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "Version: $ver"
+          docker run --rm -v "$GITHUB_WORKSPACE/nds-bootstrap:/build" -v "$GITHUB_WORKSPACE/lzss:/usr/local/bin/lzss:ro" -w /build devkitpro/devkitarm:20241104 make nightly GIT_VER="$ver"
 
       # Its license goes along, for the Windows download's licenses folder
       - name: Name the output

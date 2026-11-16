@@ -162,6 +162,17 @@ int saves_restore(const SyncJob *job, const SaveConsole *console, const struct s
                   SaveList *list, SaveItem *item, uint8_t version, const char *from, SaveCounts *counts,
                   SaveProgress progress, char *msg, size_t msgsz);
 
+// The bytes syncing this save moves: its upload, or the PC's save it takes
+// (and the console's, backed up first). 0: nothing to do.
+uint32_t saves_item_bytes(const SaveItem *item, bool backup_only);
+
+// Tells DSiRPC that a sync of n saves moving bytes (saves_item_bytes()'s)
+// begins, or with n 0 that it's over, for its bar across all of them. A
+// DSiRPC from before it turns it down, which is fine: one try, no answer
+// needed.
+void saves_batch(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server, int n,
+                 uint32_t bytes);
+
 // Tells DSiRPC what the sync did (for its notification).
 void saves_done(const SyncJob *job, const SaveConsole *console, const struct sockaddr_in *server,
                 const SaveCounts *counts);

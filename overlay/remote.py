@@ -8,12 +8,16 @@ and stop()): it starts the window's process and sends it the hub's snapshot
 and events through a pipe each time they change. The window's process draws
 them with the usual OverlayWindow, from _PipeHub, which gives it what it
 needs of a StateHub, and the ambient music the tray picks. The window sends
-back its new size (the 1-6 keys) and whether it was closed.
+back its new size (the 1-6 keys) and whether it was closed. What the
+launcher is doing (core/launcher_activity.py's view, for the activity card)
+goes the same way, each time it changes (looked at every ACTIVITY_S).
 """
 
 import logging
 import multiprocessing
 import threading
+
+ACTIVITY_S = 0.05  # how often the tray's side looks at the launcher's activity
 
 
 class _PipeHub:
@@ -28,6 +32,7 @@ class _PipeHub:
         # Like a StateHub's, a snapshot from the start: the window can draw
         # its first frame before the tray's first one comes through
         self._snap = Snapshot()
+        self.activity_view = None   # the launcher's activity, as the tray last sent it
         self._listeners = []
         self._lock = threading.Lock()
 
@@ -56,6 +61,8 @@ class _PipeHub:
                     listeners = list(self._listeners)
                 for fn in listeners:
                     fn(self._snap, events)
+            elif msg[0] == 'activity':
+                self.activity_view = msg[1]
             elif msg[0] == 'music':
                 if self.window:
                     self.window.set_music(msg[1])
@@ -78,11 +85,13 @@ def _window_process(conn, scale, chroma, log_file, music="off"):
             conn.send(('scale', n))
         except (OSError, ValueError):
             pass
+    def activity():
+        return hub.activity_view
     try:
-        window = OverlayWindow(hub, scale=scale, chroma=chroma, on_scale=on_scale, music=music)
+        window = OverlayWindow(hub, scale=scale, chroma=chroma, on_scale=on_scale, music=music, activity=activity)
     except ValueError as e:
         logging.warning(f"chroma: {e}; ignoring it")
-        window = OverlayWindow(hub, scale=scale, on_scale=on_scale, music=music)
+        window = OverlayWindow(hub, scale=scale, on_scale=on_scale, music=music, activity=activity)
     hub.window = window
     threading.Thread(target=hub.pump, name="Pipe", daemon=True).start()
     closed = window.run()
@@ -95,8 +104,10 @@ def _window_process(conn, scale, chroma, log_file, music="off"):
 class RemoteOverlay:
     """OverlayWindow's run() and stop(), with the window in its own process."""
 
-    def __init__(self, hub, scale=3, chroma=None, on_scale=None, log_file=None, music="off"):
+    def __init__(self, hub, scale=3, chroma=None, on_scale=None, log_file=None, music="off", activity=None):
         self.hub = hub
+        self.activity = activity    # () -> the launcher's activity view, or None (OverlayWindow's)
+        self._activity_sent = None
         self.scale = scale
         self.chroma = chroma
         self.on_scale = on_scale
@@ -127,6 +138,19 @@ class RemoteOverlay:
         """Closes the window from another thread (run() returns soon after)."""
         self._stop.set()
 
+    def _send_activity(self):
+        """The launcher's activity, to the window's process when it changed."""
+        if not self.activity:
+            return
+        try:
+            view = self.activity()
+        except Exception:
+            logging.exception("Overlay window: the launcher's activity failed")
+            view = None
+        if view != self._activity_sent:
+            self._activity_sent = view
+            self._send(('activity', view))
+
     def set_music(self, name):
         """Another song, or off (as OverlayWindow's)."""
         self.music = name
@@ -152,8 +176,9 @@ class RemoteOverlay:
                     self._send(('stop',))
                     proc.join(timeout=5)
                     break
+                self._send_activity()
                 try:
-                    if not here.poll(0.2):
+                    if not here.poll(ACTIVITY_S if self.activity else 0.2):
                         continue
                     msg = here.recv()
                 except (EOFError, OSError):

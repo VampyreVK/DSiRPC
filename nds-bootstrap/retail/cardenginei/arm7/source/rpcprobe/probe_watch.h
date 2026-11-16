@@ -64,6 +64,11 @@
 // found and the game's OS_Halt patched (1 + the copies patched), so the
 // write-backs in the game's idle time are on.
 extern u8 probeWatchArm9;
+// How many copies of OS_Halt were found (0 to DSIRPC_IDLE_SITES): rpcprobe's
+// search of the static code, or when it found none, the ARM9's of ITCM; 9
+// while either hasn't finished (or started). The hellos' a9s=, so a9=1 says
+// whether the game's OS_Halt wasn't found or wasn't patched
+u8 ProbeWatch_Sites(void);
 
 // Looks for the ARM9 half's block. Call on the first VBlank (offline play
 // needs it too) and when the connection is up.

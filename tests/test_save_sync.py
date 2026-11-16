@@ -148,6 +148,43 @@ def test_a_dsi_and_a_3ds_share_their_saves(host, pc, tmp_path):
     assert set(actions(three.run("plan")).values()) == {saves.IN_SYNC}
 
 
+def test_the_pc_hears_a_sync_as_one_batch(host, tmp_path):
+    """The launcher says a sync of its saves begins, with their bytes, and
+    when it's over: DSiRPC's activity (the overlay window's card) is one bar
+    across them, moving with each piece"""
+    from app.engine import Engine
+    from core.launcher_activity import LauncherActivity
+    act = LauncherActivity()
+    engine = Engine.__new__(Engine)
+    engine.activity, engine._save_batch, engine._save_moves = act, None, 0
+    events = []
+
+    def on_saves(e):
+        events.append(e)
+        engine._save_activity(e)
+    store = saves.SaveStore(str(tmp_path / "pc saves"), keep=5)
+    sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host="127.0.0.1", saves=lambda: store,
+                       on_saves=on_saves)
+    sync.start()
+    try:
+        dsi = Console(host, sync.port, str(tmp_path / "dsi"))
+        dsi.put("sd:/roms/nds/Pokemon Black.nds", rom("IRBO"))
+        dsi.put("sd:/roms/nds/saves/Pokemon Black.sav", b"black" * 4000)
+        dsi.put("sd:/roms/nds/Tetris DS.nds", rom("ATRE"))
+        dsi.put("sd:/roms/nds/saves/Tetris DS.sav", b"tetris" * 100)
+        out = dsi.run("plan", "batch *")
+        assert "batch 2 20600" in out and act.current()['total'] == 20600
+        dsi.run("plan", "sync *", "batch end")
+        batches = [e for e in events if e["type"] == "save_batch"]
+        assert [(b["saves"], b["bytes"]) for b in batches] == [(2, 20600), (0, 0)]
+        moving = [e for e in events if e["type"] == "save_moving"]
+        assert len(moving) > 4 and sum(e["size"] for e in moving if e["done"] == e["size"]) == 20600
+        v = act.current()
+        assert (v['done'], v['item'], v['items'], v['summary'], v['ok']) == (20600, 2, 2, "2 uploaded", True)
+    finally:
+        sync.stop()
+
+
 def test_the_two_stage_check(host, pc, tmp_path):
     port, _ = pc
     dsi = Console(host, port, str(tmp_path / "dsi"))

@@ -1116,8 +1116,8 @@ void loadInGameMenu(void) {
 	const u32 igmLocation = INGAME_MENU_LOCATION;
 
 	sharedAddr[5] = 0x4C4D4749; // 'IGML'
-	fileWrite((char*)igmLocation, &pageFile, 0xA000, 0xA000);	// Backup part of game RAM to page file
-	fileRead((char*)igmLocation, &pageFile, 0, 0xA000);	// Read in-game menu
+	fileWrite((char*)igmLocation, &pageFile, INGAME_MENU_GAMERAM_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Backup part of game RAM to page file (DSiRPC: INGAME_MENU_SIZE)
+	fileRead((char*)igmLocation, &pageFile, INGAME_MENU_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Read in-game menu
 	sharedAddr[5] = 0;
 }
 
@@ -1128,8 +1128,8 @@ void unloadInGameMenu(void) {
 	const u32 igmLocation = INGAME_MENU_LOCATION;
 
 	sharedAddr[5] = 0x4C4D4749; // 'IGML'
-	fileWrite((char*)igmLocation, &pageFile, 0, 0xA000);	// Store in-game menu
-	fileRead((char*)igmLocation, &pageFile, 0xA000, 0xA000);	// Restore part of game RAM from page file
+	fileWrite((char*)igmLocation, &pageFile, INGAME_MENU_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Store in-game menu
+	fileRead((char*)igmLocation, &pageFile, INGAME_MENU_GAMERAM_PAGEFILE_OFFSET, INGAME_MENU_SIZE);	// Restore part of game RAM from page file
 	sharedAddr[5] = 0;
 }
 
@@ -1257,8 +1257,26 @@ void fpsa_setTargetFrameCycles(fpsa_t* fpsa, u64 cycles)
 
 void fpsa_setTargetFpsFraction(fpsa_t* fpsa, u32 num, u32 den)
 {
-    u64 cycles = (((double)FPSA_SYS_CLOCK * den * (1 << 24)) / num) + 0.5;
-    fpsa_setTargetFrameCycles(fpsa, cycles);//((((u64)FPSA_SYS_CLOCK * (u64)den) << 24) + ((num + 1) >> 1)) / num);
+    // round(FPSA_SYS_CLOCK * den * 2^24 / num) in integer math. The double
+    // version pulled ~3 KB of soft-float code into this binary. Restoring
+    // division, one bit at a time: the quotient bits shift into `n` as the
+    // dividend bits shift out, so `n` ends up holding the result. `num` must
+    // be below 2^31 (the in-game menu sends at most 75000) and `den` below
+    // 2^16 (it's 1 or 1001). The clock * den product is done in two 16-bit
+    // halves so it needs no 64-bit multiply (another 100 bytes of libgcc).
+    const u32 hi = (FPSA_SYS_CLOCK >> 16) * den;
+    const u32 lo = (FPSA_SYS_CLOCK & 0xFFFF) * den;
+    u64 n = ((((u64)hi << 16) + lo) << 24) + (num >> 1);
+    u32 r = 0;
+    for (int i = 0; i < 64; i++) {
+        r = (r << 1) | (u32)(n >> 63);
+        n <<= 1;
+        if (r >= num) {
+            r -= num;
+            n |= 1;
+        }
+    }
+    fpsa_setTargetFrameCycles(fpsa, n);
 }
 
 void fpsa_run(void) {

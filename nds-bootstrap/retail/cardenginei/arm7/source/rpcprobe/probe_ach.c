@@ -614,7 +614,7 @@ static void shadowJudge(void) {
 			continue;
 		}
 		if (((pendTail - pendHead - 1) & (ACH_PENDING - 1)) <= SH_QUEUE_ROOM) continue;
-		queueSave(kind, AchVm_AchievementId(&frameVm, i));
+		if (!queueSave(kind, AchVm_AchievementId(&frameVm, i))) continue;   // (not queued: at a later judge)
 		s->done = 1;
 		shNotes++;
 	}

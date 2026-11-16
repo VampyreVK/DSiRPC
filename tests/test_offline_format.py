@@ -239,6 +239,24 @@ def test_known_sets(puzzle_set, tmp_path):
     assert all(mem[i] == frame_needs.memaddr_hash(memaddr[i]) for i in mem)
 
 
+def test_a_damaged_known_set_is_as_if_unknown(puzzle_set, tmp_path, caplog):
+    """A hand-edited console_sets.json (a MemAddr id that isn't a number, a
+    lane that isn't a list): that set isn't known, with a warning, instead
+    of an error that would lose every game's notes at the sync"""
+    _, data = puzzle_set
+    stamp = offline.read_set(data)["stamp"]
+    offline.remember_set(data, str(tmp_path))
+    path = tmp_path / "cache" / "console_sets.json"
+    for damage in ({"mem": {"one": "abc"}}, {"frame": 5}):
+        known = json.loads(path.read_text())
+        known[f"{stamp:08X}"].update(damage)
+        path.write_text(json.dumps(known))
+        with caplog.at_level("WARNING"):
+            assert offline.known_set(stamp, str(tmp_path)) is None
+        assert "damaged" in caplog.text
+        caplog.clear()
+
+
 def test_known_sets_keep_the_newest(puzzle_set, tmp_path):
     _, data = puzzle_set
     path = tmp_path / "cache" / "console_sets.json"

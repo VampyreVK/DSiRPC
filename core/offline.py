@@ -914,9 +914,15 @@ def known_set(stamp, ra_dir=None):
     if not isinstance(entry, dict):
         return None
     mem = entry.get('mem')
-    return {'code': entry.get('code'), 'game_id': entry.get('game_id', 0),
-            'frame': set(entry.get('frame') or ()), 'pass': set(entry.get('pass') or ()),
-            'mem': {int(k): v for k, v in mem.items()} if isinstance(mem, dict) else None}
+    try:
+        return {'code': entry.get('code'), 'game_id': entry.get('game_id', 0),
+                'frame': set(entry.get('frame') or ()), 'pass': set(entry.get('pass') or ()),
+                'mem': {int(k): v for k, v in mem.items()} if isinstance(mem, dict) else None}
+    except (TypeError, ValueError):
+        # (a damaged entry, edited by hand, say: as if it weren't known, so
+        # only its own game's notes are taken without the check)
+        logging.warning(f"Offline sync: the remembered set {stamp:08X} in {_known_path(ra_dir)} is damaged")
+        return None
 
 
 def set_stamp(data):

@@ -286,8 +286,11 @@ class ConsoleSync:
                 act.finish(f"Sent {what}")
             return
         v = act.current()
+        # (a file it already took, from the start: the update tried again, so
+        # a new bar, not the last try's)
+        again = sent == 0 and what in self._update_files
         if (not act.active("update") or v['total'] != update or v['console'] != console
-                or self._update_sent is None):
+                or self._update_sent is None or again):
             act.start("update", "Updating the console", console=console, total=update, unit="bytes")
             self._update_sent, self._update_files = 0, []     # (the files sent whole so far)
         if sent == 0:

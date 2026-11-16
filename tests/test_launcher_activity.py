@@ -170,6 +170,27 @@ def test_the_console_update_tells_it_how_much_has_gone():
         ("Sending nds-bootstrap", "Sent the launcher and nds-bootstrap", True, len(data) * 2)
 
 
+def test_an_update_tried_again_is_a_new_bar():
+    """The launcher took one file, then the other failed; trying again takes
+    both from the start: a new bar from empty, and each file named once"""
+    act = LauncherActivity()
+    sync = ConsoleSync(lambda *a: [], lambda u: None, port=0, host=HOST, activity=act)
+    total = 6000 + 9000
+    for sent in (0, 6000):
+        sync._update_progress("the launcher", sent, 6000, "DSi", total)
+    sync._update_progress("nds-bootstrap", 0, 9000, "DSi", total)
+    sync._update_progress("nds-bootstrap", 4000, 9000, "DSi", total)    # (then it failed)
+    first = act.current()['generation']
+    sync._update_progress("the launcher", 0, 6000, "DSi", total)         # tried again
+    v = act.current()
+    assert v['generation'] != first and v['done'] == 0 and v['finished'] is None
+    for what, size in (("the launcher", 6000), ("nds-bootstrap", 9000)):
+        sync._update_progress(what, 0, size, "DSi", total)
+        sync._update_progress(what, size, size, "DSi", total)
+    v = act.current()
+    assert (v['done'], v['summary']) == (total, "Sent the launcher and nds-bootstrap")
+
+
 def _engine(act):
     from app.engine import Engine
     engine = Engine.__new__(Engine)

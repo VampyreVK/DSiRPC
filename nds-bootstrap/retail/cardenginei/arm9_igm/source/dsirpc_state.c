@@ -36,6 +36,8 @@ extern void dss_ic_invalidate_all(void);
 extern void dss_cp15_read(u32 *out);
 extern void dss_cp15_write_mpu(const u32 *in);
 extern void dss7Entry(const u32 *services); // dsirpc_state7.c
+extern VoidFn changeMpu; // (card_engine_header.s) the MPU opened up to all of 0-0x07FFFFFF, and back
+extern VoidFn revertMpu;
 
 #define REG8(a)  (*(vu8 *)(a))
 #define REG16(a) (*(vu16 *)(a))
@@ -403,6 +405,10 @@ static u32 saveBody(u32 slot) {
 
 	captureIo9(h->io9);
 	dss_cp15_read(h->cp15);
+	// The game's MPU leaves some of its own memory out (ITCM at 0, where the
+	// region list reads it), so open it up for the save. After the read
+	// above: a load puts back the game's own.
+	(*changeMpu)();
 	h->fifo9Count = drainFifo(h->fifo9);
 	blank(1, h->io9);
 
@@ -433,6 +439,7 @@ static u32 saveBody(u32 slot) {
 
 	dss_dc_flush_all();
 	blank(0, h->io9);
+	(*revertMpu)();
 	return (u32)res;
 }
 
@@ -473,6 +480,10 @@ static u32 loadBody(u32 slot) {
 
 	// The ARM7: main RAM, its own memory and registers, the save
 	request(DSS_OP_LOAD7);
+
+	// (the MPU opened up as for a save; dss_cp15_write_mpu() below puts the
+	// state's own back)
+	(*changeMpu)();
 
 	// The ARM9's own, through the staging buffer
 	vramToLcdc();

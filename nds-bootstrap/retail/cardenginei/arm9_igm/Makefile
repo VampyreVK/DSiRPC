@@ -129,7 +129,9 @@ $(DEPSDIR)/$(TARGET).elf:	cardengine.ld $(OFILES)
 #	@echo linking $(notdir $@)
 #	@$(LD)  $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
 
-cardengine.ld:	$(CURDIR)/../cardengine.ld.in
+# DSiRPC: and again when locations.h changes (the window's size,
+# INGAME_MENU_SIZE, comes from it), or a stale one fails the link
+cardengine.ld:	$(CURDIR)/../cardengine.ld.in $(CURDIR)/../../../common/include/locations.h
 	$(CPP) -P $(INCLUDE) $< $@
 
 

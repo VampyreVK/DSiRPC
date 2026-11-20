@@ -22,8 +22,9 @@
 // (its SSTE command, with dsirpcStateServices[]).
 //
 // A slot (DSS_SLOT_SIZE bytes): the header (DSS_HEADER_SIZE, written last, so
-// a slot whose save didn't finish has no header), then the regions at the
-// offsets the header lists from DSS_DATA_OFFSET.
+// a slot whose save didn't finish has no header), the 3D geometry engine's
+// matrices at DSS_GEOM_OFFSET (if the header's flags say so), then the
+// regions at the offsets the header lists from DSS_DATA_OFFSET.
 
 #ifndef __ASSEMBLER__
 #include <nds/ndstypes.h>
@@ -33,7 +34,9 @@
 #define DSS_MAGIC          0x54535344 // "DSST"
 #define DSS_VERSION        1
 #define DSS_HEADER_SIZE    0x1000
-#define DSS_DATA_OFFSET    0x4000     // (the rest of the first 16 KB: room for a thumbnail later)
+#define DSS_GEOM_OFFSET    0x1000     // DssGeometry (DSS_FLAG_GEOMETRY)
+#define DSS_GEOM_SIZE      0x1000
+#define DSS_DATA_OFFSET    0x4000     // (0x2000 to here: room for a thumbnail later)
 #define DSS_SLOT_SIZE      0x600000   // a state is about 0x5D5000 at most (dsirpc_state.c)
 #define DSS_MAX_SLOTS      8
 #define DSS_DEFAULT_SLOTS  3
@@ -52,6 +55,7 @@
 #define DSS_FLAG_SAVE_INCLUDED       BIT(1)
 #define DSS_FLAG_ARM7_NWRAM          BIT(2) // the ARM7 cardengine is in the DSi's WRAM-A at 0x037C0000, so the game's
                                             // ARM7 "shared WRAM" at 0x037F8000 is WRAM-A too: all 32 KB, whatever WRAMCNT says
+#define DSS_FLAG_GEOMETRY            BIT(3) // the slot has the geometry engine's matrices (DssGeometry at DSS_GEOM_OFFSET)
 
 // Results (DssRequest.result, State_Save(), State_Load())
 #define DSS_OK             0
@@ -119,13 +123,34 @@ typedef struct {
 	u32 flags;                   // 0x5D0 DSS_FLAG_*
 	u32 g3dValid;                // 0x5D4 DSIRPC_SH3D_*: the parts of g3d[] the ARM9 cardengine kept (0: none)
 	u8 g3d[DSIRPC_SH3D_SIZE];    // 0x5D8 the 3D engine's write-only setup registers, 0x04000330-0x040003BF (dsirpc_shadow3d.h)
-	u32 reserved[(0xFFC - 0x668) / 4];
+	u32 g2dValid;                // 0x668 BIT(layer): the layers of g2d[] the ARM9 cardengine kept (its affValid)
+	u32 g2d[DSIRPC_SH2D_LAYERS][4]; // 0x66C BG2 and BG3's rotate/zoom registers, both engines (its aff[])
+	u32 reserved[(0xFFC - 0x6AC) / 4];
 	u32 check;                   // 0xFFC dss_check() of the header before it
 } DssHeader;
 
 #ifndef __cplusplus
 _Static_assert(sizeof(DssHeader) == DSS_HEADER_SIZE, "DssHeader layout");
 _Static_assert(__builtin_offsetof(DssHeader, g3d) == 0x5D8, "DssHeader layout");
+_Static_assert(__builtin_offsetof(DssHeader, g2d) == 0x66C, "DssHeader layout");
+#endif
+
+// The 3D geometry engine's matrices, which it only takes commands for (none
+// can be read back as they are): what a save could read of them through the
+// ones that can, the clip matrix (the position matrix times the projection)
+// and the vector matrix's 3x3 (dsirpc_state.c's gxCapture() says how)
+typedef struct {
+	u32 level;           // the position and vector stack's (GXSTAT bits 8-12)
+	u32 mode;            // MTX_MODE
+	s32 proj[16];        // the projection matrix, 4x4
+	s32 pos[16];         // the position matrix, 4x4
+	s32 vec[9];          // the vector matrix, its 3x3 (the rest of it changes nothing a game draws)
+	s32 slotPos[31][16]; // the stack's 31 slots (MTX_STORE and MTX_RESTORE's, and MTX_PUSH's)
+	s32 slotVec[31][9];
+} DssGeometry;
+
+#ifndef __cplusplus
+_Static_assert(sizeof(DssGeometry) <= DSS_GEOM_SIZE, "DssGeometry size");
 #endif
 
 // A slot's summary for the menu's list

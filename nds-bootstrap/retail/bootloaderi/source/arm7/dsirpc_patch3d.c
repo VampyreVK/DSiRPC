@@ -9,7 +9,9 @@
 // the forms NitroSDK 3 (Mario Kart DS) and 4 (Pokemon Platinum) build them
 // in, and only patched if every part is there: a setter that isn't found
 // keeps the SDK's own code and its bit stays out of the block's valid, so a
-// load leaves those registers as they are.
+// load leaves those registers as they are. The same goes for the 2D
+// engines' rotate/zoom setter, G2x_SetBGyAffine_ (found by its code alone:
+// its registers are an argument).
 
 #include <stddef.h>
 #include <nds/ndstypes.h>
@@ -137,6 +139,50 @@ static bool initTable(u32 a, DsirpcShadow3d *b) {
 	return true;
 }
 
+// G2x_SetBGyAffine_(reg, mtx, centerX, centerY, x1, y1), at its first
+// instruction (a): a push that has lr, then ldr rN, [r1, #n] (both run as
+// well from affTramp); before its first return, mtx's four words read, two
+// mla, x1 and y1 read from just past the push, and str to [r0], [r0, #4],
+// [r0, #8] and [r0, #12] in that order, the last within 3 of a return. The
+// one in Tetris DS, Mario Kart DS and Pokemon Platinum (NitroSDK 3 and 4).
+static bool affineSetter(u32 a, u32 hi, DsirpcShadow3d *b) {
+	const u32 p = W(a);
+	if ((W(a + 4) & 0xFFFF0000) != 0xE5910000) return false;
+	u32 pushed = 0;
+	for (u32 r = p & 0xFFFF; r; r &= r - 1) pushed += 4;
+	u32 stores = 0, mtx = 0, mla = 0, stack = 0, last = 0;
+	for (u32 i = a + 4; i < a + 256 && i < hi; i += 4) {
+		const u32 w = W(i);
+		if ((w & 0xFFFF8000) == 0xE8BD8000 || w == BX_LR) return false;
+		if ((w & 0xFFFF0000) == 0xE5910000 && (w & 0xFFF) <= 12 && !(w & 3)) mtx |= BIT((w & 0xFFF) >> 2);
+		if ((w & 0x0FE000F0) == 0x00200090) mla++;
+		if ((w & 0xFFFF0000) == 0xE59D0000) {
+			if ((w & 0xFFF) == pushed) stack |= BIT(0);
+			if ((w & 0xFFF) == pushed + 4) stack |= BIT(1);
+		}
+		if ((w & 0xFFFF0000) == 0xE5800000) {
+			if ((w & 0xFFF) != stores * 4) return false;
+			if (++stores == 4) {
+				last = i;
+				break;
+			}
+		}
+	}
+	if (!last || mtx != 0xF || mla < 2 || stack != 3 || !startsFunction(a)) return false;
+	bool ret = false;
+	for (u32 i = last + 4; i <= last + 12 && i < hi; i += 4) {
+		if ((W(i) & 0xFFFF8000) == 0xE8BD8000 || W(i) == BX_LR) ret = true;
+	}
+	if (!ret) return false;
+	b->affTramp[0] = W(a);
+	b->affTramp[1] = W(a + 4);
+	b->affTramp[2] = LDR_PC_PC_M4;
+	b->affTramp[3] = a + 8;
+	b->affValid = 0;
+	jumpTo(a, b->hookAffine);
+	return true;
+}
+
 void dsirpcPatch3d(const cardengineArm9 *ce9, const tNDSHeader *ndsHeader, u32 pageFileCluster, bool bootstrapOnFlashcard) {
 	DsirpcShadow3d *b = findBlock(ce9);
 	if (!b) return;
@@ -152,6 +198,10 @@ void dsirpcPatch3d(const cardengineArm9 *ce9, const tNDSHeader *ndsHeader, u32 p
 	const u32 lo = (u32)ndsHeader->arm9destination + 0x20, hi = (u32)ndsHeader->arm9destination + iUncompressedSize - 8;
 	for (u32 a = lo; a < hi; a += 4) {
 		const u32 v = W(a);
+		if ((v & 0xFFFF4000) == 0xE92D4000) {
+			if (!(b->valid & DSIRPC_SH3D_AFFINE) && affineSetter(a, hi, b)) b->valid |= DSIRPC_SH3D_AFFINE;
+			continue;
+		}
 		if ((v & 0xFFFFF000) != 0x04000000) continue;
 		switch (v) {
 			case 0x04000330:

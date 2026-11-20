@@ -1,9 +1,10 @@
 // dsirpc_shadow3d.c - DSiRPC: the ARM9 cardengine's half of the copy of the
-// 3D engine's write-only setup registers that the in-game menu's save states
-// keep (common/include/dsirpc_shadow3d.h says why and how). The bootloader
+// 3D engine's write-only setup registers (and the 2D engines' rotate/zoom
+// ones) that the in-game menu's save states keep
+// (common/include/dsirpc_shadow3d.h says why and how). The bootloader
 // (bootloaderi/source/arm7/dsirpc_patch3d.c) makes the game's SDK setters
 // come here; each one does what the SDK's does, and keeps a copy in
-// dsirpcShadow3d.regs.
+// dsirpcShadow3d.regs (aff, for the 2D one).
 //
 // Only the variants for DS-mode games on the SD card carry it (plain and
 // GSDD, the ones the save states run with). The DLDI and TWLSDK variants
@@ -20,6 +21,7 @@ void dsirpcSh3dTable(void);
 void dsirpcSh3dClearColor(void);
 void dsirpcSh3dFog(void);
 void dsirpcSh3dInitTable(void);
+void dsirpcSh2dAffine(void);
 
 DsirpcShadow3d dsirpcShadow3d __attribute__((aligned(32))) = {
 	.magic0 = DSIRPC_SH3D_MAGIC0,
@@ -29,6 +31,7 @@ DsirpcShadow3d dsirpcShadow3d __attribute__((aligned(32))) = {
 	.hookClearColor = (u32)dsirpcSh3dClearColor,
 	.hookFog = (u32)dsirpcSh3dFog,
 	.hookInitTable = (u32)dsirpcSh3dInitTable,
+	.hookAffine = (u32)dsirpcSh2dAffine,
 };
 
 #define XSTR(x) STR(x)
@@ -128,6 +131,50 @@ asm(
 "	str	r0, [r12, r1]\n"
 "	bne	2b\n"
 "	ldr	pc, =dsirpcShadow3d + " XSTR(DSIRPC_SH3D_TRAMP_OFS) "\n"
+
+// G2x_SetBGyAffine_(reg, mtx, centerX, centerY, x1, y1), patched to jump
+// here (x1 and y1 on the stack). For BG2 or BG3 of either engine (reg
+// 0x04000020, 0x04000030, 0x04001020 or 0x04001030) the SDK's own works the
+// four words out into that layer's aff[] (affTramp: its first two
+// instructions, then a jump back to its third), with x1 and y1 copied below
+// what this pushes, and then they go to the registers and the layer's
+// affValid bit is set. Any other reg (a table the game fills in RAM) goes
+// straight to the SDK's own, as if nothing were here.
+"	.global dsirpcSh2dAffine\n"
+"	.type	dsirpcSh2dAffine, %function\n"
+"dsirpcSh2dAffine:\n"
+"	bic	r12, r0, #0x1000\n"
+"	bic	r12, r12, #0x10\n"
+"	sub	r12, r12, #0x04000000\n"
+"	cmp	r12, #0x20\n"
+"	ldrne	pc, =dsirpcShadow3d + " XSTR(DSIRPC_SH2D_TRAMP_OFS) "\n"
+"	push	{r0, lr}\n"
+"	ldr	r12, [sp, #8]\n"             // x1
+"	ldr	lr, [sp, #12]\n"             // y1
+"	push	{r12, lr}\n"
+"	and	r12, r0, #0x10\n"
+"	and	lr, r0, #0x1000\n"
+"	orr	r12, r12, lr, lsr #7\n"      // the layer's place in aff[]
+"	ldr	r0, =dsirpcShadow3d + " XSTR(DSIRPC_SH2D_AFF_OFS) "\n"
+"	add	r0, r0, r12\n"
+"	ldr	r12, =dsirpcShadow3d + " XSTR(DSIRPC_SH2D_TRAMP_OFS) "\n"
+"	blx	r12\n"
+"	add	sp, sp, #8\n"
+"	pop	{r0, lr}\n"
+"	and	r12, r0, #0x10\n"
+"	and	r1, r0, #0x1000\n"
+"	orr	r12, r12, r1, lsr #7\n"
+"	mov	r2, r12, lsr #4\n"
+"	mov	r3, #1\n"
+"	mov	r3, r3, lsl r2\n"            // its affValid bit
+"	ldr	r1, =dsirpcShadow3d + " XSTR(DSIRPC_SH2D_AFF_OFS) "\n"
+"	ldr	r2, [r1, #(" XSTR(DSIRPC_SH2D_VALID_OFS) " - " XSTR(DSIRPC_SH2D_AFF_OFS) ")]\n"
+"	orr	r2, r2, r3\n"
+"	str	r2, [r1, #(" XSTR(DSIRPC_SH2D_VALID_OFS) " - " XSTR(DSIRPC_SH2D_AFF_OFS) ")]\n"
+"	add	r12, r1, r12\n"
+"	ldm	r12, {r1, r2, r3, r12}\n"
+"	stm	r0, {r1, r2, r3, r12}\n"
+"	bx	lr\n"
 
 "	.ltorg\n"
 "	.thumb\n"

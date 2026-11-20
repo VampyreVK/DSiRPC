@@ -326,6 +326,12 @@ static void copy3d(u8 *dst, const u8 *src) {
 	for (u32 i = 0; i < DSIRPC_SH3D_SIZE; i += 4) *(u32 *)(dst + i) = *(const u32 *)(src + i);
 }
 
+static void copy2d(u32 (*dst)[4], const u32 (*src)[4]) {
+	for (int i = 0; i < DSIRPC_SH2D_LAYERS; i++) {
+		for (int k = 0; k < 4; k++) dst[i][k] = src[i][k];
+	}
+}
+
 // Each DSIRPC_SH3D_* bit's part of the registers: where, and how many bytes
 static const u8 g3dParts[5][2] = { { 0x00, 0x10 }, { 0x20, 6 }, { 0x2C, 2 }, { 0x30, 0x20 }, { 0x50, 0x40 } };
 
@@ -349,6 +355,178 @@ static void restore3d(const DssHeader *h) {
 		}
 	}
 	copy3d(b->regs, h->g3d);
+
+	// BG2 and BG3's rotate/zoom, the layers the game had set (and only
+	// those: the cardengine's copy of the rest is from after the save)
+	if (!(b->valid & DSIRPC_SH3D_AFFINE)) return;
+	const u32 layers = h->g2dValid & (BIT(DSIRPC_SH2D_LAYERS) - 1);
+	for (int i = 0; i < DSIRPC_SH2D_LAYERS; i++) {
+		if (!(layers & BIT(i))) continue;
+		for (int k = 0; k < 4; k++) REG32(DSIRPC_SH2D_REG(i) + k * 4) = h->g2d[i][k];
+	}
+	copy2d(b->aff, h->g2d);
+	b->affValid = layers;
+}
+
+// -- the 3D geometry engine's matrices --------------------------------------------
+
+// The geometry engine only takes commands for its matrices: the projection,
+// the position and vector (lighting) matrices, the stack's 31 slots for both
+// and its level, and the mode that says which one a command changes. A game
+// that loads its projection, or keeps a camera in a stack slot, once a scene
+// (Tetris DS) comes back from a load with what it loaded since. What can be
+// read is the clip matrix (the position matrix times the projection) and the
+// vector matrix's 3x3, so a save reads the position matrix through the clip
+// matrix with the projection the identity (pushed to its own stack and back),
+// each slot by restoring it, the projection with the position matrix the
+// identity, and the mode by what a multiply that swaps rows changes (exactly,
+// and undone). The texture matrix and the viewport can't be read at all, and
+// a save with the projection pushed (its stack's one slot in use) keeps none.
+
+#define GXSTAT        0x04000600
+#define GX_LEVEL(s)   (((s) >> 8) & 0x1F)
+#define GX_PROJ_LEVEL BIT(13)
+#define GX_ERROR      BIT(15)
+#define MTX_MODE      0x04000440
+#define MTX_PUSH      0x04000444
+#define MTX_POP       0x04000448
+#define MTX_STORE     0x0400044C
+#define MTX_RESTORE   0x04000450
+#define MTX_IDENTITY  0x04000454
+#define MTX_LOAD_4x4  0x04000458
+#define MTX_MULT_3x3  0x04000468
+#define CLIPMTX       0x04000640
+#define VECMTX        0x04000680
+
+// Every command sent done (the FIFO empty, nothing running, the stack not
+// busy), or 0 if it doesn't get there in spins reads (GX_SPINS: a few frames,
+// as it waits for a VBlank after a SWAP_BUFFERS)
+#define GX_SPINS 0x100000
+static int gxWait(u32 spins) {
+	for (u32 t = 0; t < spins; t++) {
+		if ((REG32(GXSTAT) & (BIT(27) | BIT(26) | BIT(14))) == BIT(26)) return 1;
+	}
+	return 0;
+}
+
+static void gxRead(s32 *clip, s32 *vec) {
+	gxWait(GX_SPINS);
+	for (int i = 0; i < 16; i++) clip[i] = REG32(CLIPMTX + i * 4);
+	if (vec) for (int i = 0; i < 9; i++) vec[i] = REG32(VECMTX + i * 4);
+}
+
+// A 3x3 of 1s and 0s (bit i: element i is 1.0), which only moves rows, so
+// what it multiplies comes out exact
+static void gxMult(u32 ones) {
+	for (int i = 0; i < 9; i++) REG32(MTX_MULT_3x3) = (ones >> i & 1) ? 0x1000 : 0;
+}
+
+static void gxLoad(const s32 *m) {
+	for (int i = 0; i < 16; i++) REG32(MTX_LOAD_4x4) = m[i];
+}
+
+// A vector matrix's 3x3 as a 4x4 (no translation)
+static void gxLoadVec(const s32 *v) {
+	for (int i = 0; i < 16; i++) {
+		const int r = i >> 2, c = i & 3;
+		REG32(MTX_LOAD_4x4) = (r < 3 && c < 3) ? v[r * 3 + c] : (i == 15) ? 0x1000 : 0;
+	}
+}
+
+// The mode, before anything changes it: the matrix it's on multiplied by one
+// that moves its first three rows round one (and back after). The vector
+// matrix changes in mode 2 (both), the clip matrix by those rows in mode 1,
+// some other way in mode 0 (or, with a position matrix that's the identity,
+// the same way: 1 then), and nothing in mode 3 (the texture matrix). (g's
+// matrices are only room for it here: the capture fills them after.)
+static u32 gxMode(DssGeometry *g) {
+	s32 *c0 = g->pos, *v0 = g->vec, *c1 = g->slotPos[0], *v1 = g->slotVec[0];
+	gxRead(c0, v0);
+	gxMult(BIT(1) | BIT(5) | BIT(6)); // rows 0-2 to 1, 2, 0
+	gxRead(c1, v1);
+	gxMult(BIT(2) | BIT(3) | BIT(7)); // and back
+	for (int i = 0; i < 9; i++) if (v1[i] != v0[i]) return 2;
+	int same = 1, moved = 1;
+	for (int i = 0; i < 16; i++) {
+		const int r = i >> 2;
+		if (c1[i] != c0[i]) same = 0;
+		if (c1[i] != c0[(r < 3) ? ((r + 1) % 3) * 4 + (i & 3) : i]) moved = 0;
+	}
+	return same ? 3 : moved ? 1 : 0;
+}
+
+// The current position and vector matrices and the mode back
+static void gxCurrent(const DssGeometry *g) {
+	REG32(MTX_MODE) = 2;
+	gxLoadVec(g->vec);
+	REG32(MTX_MODE) = 1;
+	gxLoad(g->pos);
+	REG32(MTX_MODE) = g->mode;
+}
+
+// The matrices to g, with the engine left as it was. 0 if there are none to
+// take: the engine off or not going idle (the menu opened part way through
+// a command, which waits for the rest of it), the projection pushed. (An
+// error flag the game left set doesn't matter: the reads push and pop only
+// the projection, at level 0.)
+static int gxCapture(DssGeometry *g) {
+	if (!(REG16(0x04000304) & BIT(3)) || !gxWait(GX_SPINS)) return 0;
+	const u32 stat = REG32(GXSTAT);
+	if (stat & GX_PROJ_LEVEL) return 0;
+	g->level = GX_LEVEL(stat);
+	g->mode = gxMode(g);
+
+	REG32(MTX_MODE) = 0;
+	REG32(MTX_PUSH) = 0;
+	REG32(MTX_IDENTITY) = 0;
+	gxRead(g->pos, g->vec);
+	REG32(MTX_MODE) = 2;
+	for (int i = 0; i < 31; i++) {
+		REG32(MTX_RESTORE) = i;
+		gxRead(g->slotPos[i], g->slotVec[i]);
+	}
+	REG32(MTX_MODE) = 0;
+	REG32(MTX_POP) = 1;
+	REG32(MTX_MODE) = 1;
+	REG32(MTX_IDENTITY) = 0;
+	gxRead(g->proj, 0);
+
+	gxCurrent(g); // (the slots and the level are as they were: restoring only reads them)
+	gxWait(GX_SPINS);
+	return 1;
+}
+
+// g's matrices to the engine (once it's idle, or nothing happens). A command
+// the menu opened part way through (a display list the game was copying in)
+// holds the whole engine up until the rest of its parameters come: zeros
+// finish it, then count as NOPs. A load can do that: nothing the game was
+// sending before it matters.
+static void gxApply(const DssGeometry *g) {
+	for (int i = 0; i < 128 && !gxWait(0x2000); i++) REG32(0x04000400) = 0;
+	if (!gxWait(GX_SPINS)) return;
+	const u32 stat = REG32(GXSTAT), level = GX_LEVEL(stat);
+	if (stat & GX_PROJ_LEVEL) {
+		REG32(MTX_MODE) = 0;
+		REG32(MTX_POP) = 1;
+	}
+	// The level: down with a pop, up with pushes (what they put in the slots
+	// is written over next)
+	REG32(MTX_MODE) = 2;
+	if (level > g->level) REG32(MTX_POP) = level - g->level;
+	for (u32 l = level; l < g->level; l++) REG32(MTX_PUSH) = 0;
+	for (int i = 0; i < 31; i++) {
+		REG32(MTX_MODE) = 2;
+		gxLoadVec(g->slotVec[i]);
+		REG32(MTX_MODE) = 1;
+		gxLoad(g->slotPos[i]);
+		REG32(MTX_MODE) = 2;
+		REG32(MTX_STORE) = i;
+	}
+	REG32(MTX_MODE) = 0;
+	gxLoad(g->proj);
+	gxCurrent(g);
+	gxWait(GX_SPINS);
+	if (REG32(GXSTAT) & GX_ERROR) REG32(GXSTAT) = (REG32(GXSTAT) & 0xC0000000) | GX_ERROR;
 }
 
 // -- save -------------------------------------------------------------------------
@@ -373,6 +551,8 @@ static void fillHeader(DssHeader *h) {
 	if (b) {
 		h->g3dValid = b->valid;
 		copy3d(h->g3d, b->regs);
+		h->g2dValid = b->affValid;
+		copy2d(h->g2d, b->aff);
 	}
 }
 
@@ -425,6 +605,15 @@ static u32 saveBody(u32 slot) {
 	dss_dc_flush_all();
 
 	if (res == DSS_OK) res = request(DSS_OP_SAVE7);
+	// The geometry engine's matrices, through the staging buffer (the ARM7's
+	// done with it)
+	if (res == DSS_OK && gxCapture((DssGeometry *)EXT)) {
+		DC_FlushRange(EXT, DSS_GEOM_SIZE);
+		r->offset = DSS_GEOM_OFFSET;
+		r->len = DSS_GEOM_SIZE;
+		res = request(DSS_OP_WRITE);
+		h->flags |= DSS_FLAG_GEOMETRY;
+	}
 	if (res == DSS_OK) res = writeArm9Regions(h);
 	if (res == DSS_OK) {
 		h->magic = DSS_MAGIC;
@@ -500,6 +689,18 @@ static u32 loadBody(u32 slot) {
 		}
 	}
 	setVramCnt(h->io9);
+
+	// The geometry engine's matrices (before END: through the staging
+	// buffer), with the engine on as the state had it
+	if (h->flags & DSS_FLAG_GEOMETRY) {
+		r->offset = DSS_GEOM_OFFSET;
+		r->len = DSS_GEOM_SIZE;
+		if (request(DSS_OP_READ) == DSS_OK) {
+			DC_InvalidateRange(EXT, DSS_GEOM_SIZE);
+			REG16(0x04000304) = h->io9[58];
+			gxApply((const DssGeometry *)EXT);
+		}
+	}
 
 	r->arg = 0;
 	request(DSS_OP_END);

@@ -129,6 +129,7 @@ extern u32 ramDumpCluster;
 extern u32 srParamsFileCluster;
 extern u32 screenshotCluster;
 extern u32 rpcClusters[3]; // DSiRPC
+extern void dsirpcPatch3d(const cardengineArm9* ce9, const tNDSHeader* ndsHeader, u32 pageFileCluster, bool bootstrapOnFlashcard); // DSiRPC: dsirpc_patch3d.c
 extern u32 apFixOverlaysCluster;
 extern u32 pageFileCluster;
 extern u32 manualCluster;
@@ -2418,6 +2419,7 @@ int arm7_main(void) {
 			errorOutput();
 		}
 		patchBinary((cardengineArm9*)ce9Location, ndsHeader, moduleParams);
+		dsirpcPatch3d((cardengineArm9*)ce9Location, ndsHeader, pageFileCluster, bootstrapOnFlashcard); // DSiRPC: for the save states' 3D registers
 
 		buildRomMap(ndsHeader, moduleParams, laterSdk, usesCloneboot, ROMinRAM);
 

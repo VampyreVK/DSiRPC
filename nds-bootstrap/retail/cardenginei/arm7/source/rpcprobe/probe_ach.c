@@ -134,6 +134,14 @@ static ProbeAchStats stats;
 typedef struct { s8 trig, reset; u8 done, pad; u16 since, act; } ShAch; // a frame lane achievement's
 static AchVm *shadowVm;               // in the set's memory, after the ring (0: no room)
 static ShAch *shAch;
+
+// DSiRPC: what the in-game menu's save states (cardenginei/arm9_igm's
+// dsirpc_state7.c) use of the ARM7 cardengine, in dsirpc_state.h's DSS_SVC_*
+// order (cardengine.c has it in the ALTERNATIVE build, which has no
+// checker). Here for the VMs, which a load puts back to waiting (every
+// achievement that hasn't triggered), the way rcheevos' rc_runtime_reset()
+// does: vm, frameVm, sampleVm, and where shadowVm's pointer is (it can be 0).
+const u32 dsirpcStateServices[6] = { (u32)fileRead, (u32)fileWrite, (u32)&vm, (u32)&frameVm, (u32)&sampleVm, (u32)&shadowVm };
 static u16 shSeq;                     // samples checked
 static u16 shRuns;                    // shadow passes done
 static u32 *shSample;                 // the sample the shadow checks (a copy: the ring's slot goes on)

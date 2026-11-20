@@ -178,6 +178,15 @@ static aFile screenshotFile;
 static aFile pageFile;
 static aFile manualFile;
 
+#ifdef ALTERNATIVE
+// DSiRPC: what the in-game menu's save states (cardenginei/arm9_igm's
+// dsirpc_state7.c: ARM code for the ARM7 in the menu's window in main RAM)
+// use of this cardengine, in dsirpc_state.h's DSS_SVC_* order. The menu's
+// SSTE command calls into that code with this table. (rpcprobe/probe_ach.c
+// has it where the achievement checker is, with the checker's VMs.)
+const u32 dsirpcStateServices[] = { (u32)fileRead, (u32)fileWrite, 0, 0, 0, 0 };
+#endif
+
 static int saveTimer = 0;
 
 static int languageTimer = 0;

@@ -69,7 +69,9 @@
 // makes the file big enough for (twlPageFileSize in conf_sd.cpp). Both
 // offsets are round numbers (a byte and zeros), so the ARM7 cardengine, which
 // is nearly full, loads them in one instruction pair, not from a literal.
-#define INGAME_MENU_SIZE                             0xC000
+// 0x10000 (was 0xC000) for the save states' code and private stacks
+// (dsirpc_state.c and dsirpc_state7.c), still a byte and zeros.
+#define INGAME_MENU_SIZE                             0x10000
 #define INGAME_MENU_PAGEFILE_OFFSET                  0x600000 // the menu
 #define INGAME_MENU_GAMERAM_PAGEFILE_OFFSET          0x620000 // the game RAM under it (up to 128 KB)
 #define INGAME_MENU_LOCATION_B4DS                    0x023E6000

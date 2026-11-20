@@ -16,6 +16,7 @@
 #ifndef B4DS
 #include "dsirpc_ach.h" // DSiRPC: the game's achievements
 #include "dsirpc_skin.h" // DSiRPC: the menu's look
+#include "dsirpc_state_menu.h" // DSiRPC: save states
 #endif
 
 void DC_InvalidateRange(const void *base, u32 size);
@@ -29,7 +30,9 @@ void DC_FlushRange(const void *base, u32 size);
 
 #ifndef B4DS
 // DSiRPC: the skin's tiles after the font's, and its two maps before the text's
-static u8 bgBak[SKIN_VRAM_TILE_BYTES];
+// (bgBak is the save states' scratch too, DssScratch, once they're back)
+u8 bgBak[SKIN_VRAM_TILE_BYTES] __attribute__((aligned(32)));
+_Static_assert(sizeof(DssScratch) <= SKIN_VRAM_TILE_BYTES, "the save states' scratch has to fit in bgBak");
 static u16 bgMapBak[SKIN_VRAM_MAP_BYTES / sizeof(u16)];
 #define BG_MAP_BAK_FROM BG_MAP_RAM_SUB(SKIN_BG_MAP)
 #else
@@ -531,9 +534,9 @@ static void drawCursor(u8 line) {
 // DSiRPC: the main screen's look: its items in a panel from line MENU_TOP,
 // each with an icon (by MenuItem)
 #define MENU_TOP 4
-static const u8 menuIcons[9] = {
+static const u8 menuIcons[10] = {
 	SKIN_ICON_PLAY, SKIN_ICON_RESET, SKIN_ICON_CAMERA, SKIN_ICON_PAGE, SKIN_ICON_DUMP,
-	SKIN_ICON_GEAR, SKIN_ICON_LENS, SKIN_ICON_POWER, SKIN_ICON_TROPHY
+	SKIN_ICON_GEAR, SKIN_ICON_LENS, SKIN_ICON_POWER, SKIN_ICON_TROPHY, SKIN_ICON_DUMP
 };
 
 static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
@@ -543,7 +546,8 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 
 	Skin_Panel(1, MENU_TOP - 1, 30, menuItemCount + 2);
 	for(int i = 0; i < menuItemCount; i++) {
-		const unsigned char *label = (menuItems[i] == MENU_ACHIEVEMENTS) ? Ach_Label() : igmText.menu[menuItems[i]];
+		const unsigned char *label = (menuItems[i] == MENU_ACHIEVEMENTS) ? Ach_Label()
+			: (menuItems[i] == MENU_STATES) ? (const unsigned char *)"Save States..." : igmText.menu[menuItems[i]];
 		Skin_Icon(igmText.rtl ? 28 : 3, MENU_TOP + i, menuIcons[menuItems[i]]);
 		if(igmText.rtl)
 			printRight(26, MENU_TOP + i, label, FONT_LIGHT_GRAY, false);
@@ -600,6 +604,216 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 	#endif
 }
 #endif // B4DS
+
+#ifndef B4DS
+// DSiRPC: save states (dsirpc_state.c), in a sub-menu in the RAM dump's
+// place (with the RAM dump in it). A save or a load runs once the menu has
+// put the game's screens back (runStateOp()); if it fails, the menu opens
+// again to say why.
+enum { STATE_NONE = 0, STATE_SAVE, STATE_SAVE_QUIT, STATE_LOAD };
+static int stateOp = STATE_NONE;
+static int stateSlot = 0;
+static s32 stateError = DSS_OK;
+static int stateLast = 0; // the slot the list starts on: the one last used
+
+#define STATE_ITEMS 4
+static const char *const stateLabels[STATE_ITEMS] = { "Save State", "Save State & Quit", "Load State", NULL }; // (NULL: igmText.menu[MENU_RAM_DUMP])
+static const u8 stateIcons[STATE_ITEMS] = { SKIN_ICON_STAR, SKIN_ICON_POWER, SKIN_ICON_PLAY, SKIN_ICON_DUMP };
+static const char *const stateHints[STATE_ITEMS] = {
+	"Saves the game as it is right now to a slot.",
+	"Saves the game to a slot, then quits it.",
+	"Puts the game back the way it was in a slot. Anything since then is lost.",
+	"Writes the game's RAM to ramDump.bin on the SD card, then closes the menu.",
+};
+
+static void waitRelease(u16 keys) {
+	do {
+		while (REG_VCOUNT != 191) mySwiDelay(100);
+		while (REG_VCOUNT == 191) mySwiDelay(100);
+	} while (KEYS & keys);
+}
+
+static const unsigned char *stateErrorText(s32 res) {
+	const char *str;
+	switch (res) {
+		case DSS_E_NOSLOTS:  str = "This game has no save state file."; break;
+		case DSS_E_EMPTY:    str = "There's no state in this slot."; break;
+		case DSS_E_GAME:     str = "This state was made by another game or another nds-bootstrap build, so it can't be loaded."; break;
+		case DSS_E_BUSY:     str = "The game is reading its ROM right now. Close the menu and try again in a moment."; break;
+		case DSS_E_HARDWARE: str = "This state was made with a different memory setup, so it can't be loaded."; break;
+		case DSS_E_CORRUPT:  str = "This state is damaged, so it can't be loaded."; break;
+		default:             str = "The SD card couldn't be read or written."; break;
+	}
+	return (const unsigned char *)str;
+}
+
+// A message on a sheet across the middle, until A or B
+static void messageBox(const unsigned char *str) {
+	clearScreen(false);
+	drawTitleBar(SKIN_ICON_LOGO, NULL);
+	const int top = 7;
+	const int y = printMsg(top + 1, str, FONT_WHITE, false);
+	Skin_Sheet(top, y + 2 - top);
+	waitRelease(KEY_A | KEY_B);
+	do {
+		waitKeys(KEY_A | KEY_B);
+	} while (!(KEYS & (KEY_A | KEY_B)));
+	waitRelease(KEY_A | KEY_B);
+}
+
+// "20YY-MM-DD HH:MM", 16 columns from x
+static void printStateTime(int x, int y, const u8 *t, FontPalette palette) {
+	printDec(x, y, 2000 + t[0], 4, palette, false);
+	printChar(x + 4, y, '-', palette, false);
+	printDec(x + 5, y, t[1], 2, palette, false);
+	printChar(x + 7, y, '-', palette, false);
+	printDec(x + 8, y, t[2], 2, palette, false);
+	printDec(x + 11, y, t[4], 2, palette, false);
+	printChar(x + 13, y, ':', palette, false);
+	printDec(x + 14, y, t[5], 2, palette, false);
+}
+
+// The slots, each with when its state was saved. The slot picked (asked
+// first if that overwrites or loads one), or -1.
+static int slotList(int forSave, const unsigned char *title, int icon) {
+	s32 res = State_List();
+	if (res != DSS_OK) {
+		messageBox(stateErrorText(res));
+		return -1;
+	}
+	const int count = State_Slots();
+	int sel = (stateLast < count) ? stateLast : 0;
+	unsigned char label[8] = "Slot 1";
+	waitRelease(KEY_A);
+	while (1) {
+		clearScreen(false);
+		drawTitleBar(icon, title);
+		Skin_Panel(1, MENU_TOP - 1, 30, count + 2);
+		Skin_Sheet(16, 8);
+		for (int i = 0; i < count; i++) {
+			const int y = MENU_TOP + i;
+			const DssSlotInfo *n = State_Info(i);
+			const s32 usable = State_Usable(i);
+			label[5] = '1' + i;
+			if (igmText.rtl) printRight(28, y, label, FONT_LIGHT_GRAY, false);
+			else print(3, y, label, FONT_LIGHT_GRAY, false);
+			if (usable == DSS_OK) {
+				printStateTime(igmText.rtl ? 3 : 13, y, n->time, FONT_LIGHT_BLUE);
+			} else {
+				const unsigned char *what = (const unsigned char *)((usable == DSS_E_EMPTY) ? "Empty"
+					: (n->stamp != igmText.stateStamp) ? "Other build" : "Other game");
+				if (igmText.rtl) print(3, y, what, FONT_DARKER_GRAY, false);
+				else printRight(28, y, what, FONT_DARKER_GRAY, false);
+			}
+		}
+		drawCursor(MENU_TOP + sel);
+		printMsg(17, (const unsigned char *)(forSave ? "Pick a slot to save to." : "Pick a state to load."), FONT_WHITE, false);
+
+		waitKeys(KEY_UP | KEY_DOWN | KEY_A | KEY_B);
+		if (KEYS & KEY_UP) {
+			sel = (sel > 0) ? sel - 1 : count - 1;
+		} else if (KEYS & KEY_DOWN) {
+			sel = (sel < count - 1) ? sel + 1 : 0;
+		} else if (KEYS & KEY_B) {
+			waitRelease(KEY_B);
+			return -1;
+		} else if (KEYS & KEY_A) {
+			const s32 usable = State_Usable(sel);
+			if (forSave) {
+				if (usable != DSS_E_EMPTY && !boolQuestion((const unsigned char *)"Save over the state in this slot?")) continue;
+			} else {
+				if (usable != DSS_OK) {
+					messageBox(stateErrorText(usable));
+					continue;
+				}
+				if (!boolQuestion((const unsigned char *)"Load this state? Anything since it was saved is lost.")) continue;
+			}
+			stateLast = sel;
+			return sel;
+		}
+	}
+}
+
+// The sub-menu. Picking a slot closes the menu for the save or the load
+// (stateOp); the RAM dump closes it as the main menu's item did.
+static void statesMenu(void) {
+	const int busy = State_Busy();
+	int sel = 0;
+	waitRelease(KEY_A);
+	while (1) {
+		clearScreen(false);
+		drawTitleBar(SKIN_ICON_DUMP, (const unsigned char *)"Save States");
+		Skin_Panel(1, MENU_TOP - 1, 30, STATE_ITEMS + 2);
+		Skin_Sheet(16, 8);
+		for (int i = 0; i < STATE_ITEMS; i++) {
+			const unsigned char *label = stateLabels[i] ? (const unsigned char *)stateLabels[i] : igmText.menu[MENU_RAM_DUMP];
+			const int off = busy && stateLabels[i]; // (no save or load part way through a ROM read)
+			Skin_Icon(igmText.rtl ? 28 : 3, MENU_TOP + i, stateIcons[i] | (off ? SKIN_ICON_GRAY : 0));
+			if (igmText.rtl) printRight(26, MENU_TOP + i, label, off ? FONT_DARKER_GRAY : FONT_LIGHT_GRAY, false);
+			else print(5, MENU_TOP + i, label, off ? FONT_DARKER_GRAY : FONT_LIGHT_GRAY, false);
+		}
+		drawCursor(MENU_TOP + sel);
+		printMsg(17, (const unsigned char *)stateHints[sel], FONT_WHITE, false);
+
+		waitKeys(KEY_UP | KEY_DOWN | KEY_A | KEY_B);
+		if (KEYS & KEY_UP) {
+			sel = (sel > 0) ? sel - 1 : STATE_ITEMS - 1;
+		} else if (KEYS & KEY_DOWN) {
+			sel = (sel < STATE_ITEMS - 1) ? sel + 1 : 0;
+		} else if (KEYS & KEY_B) {
+			waitRelease(KEY_B);
+			return;
+		} else if (KEYS & KEY_A) {
+			if (!stateLabels[sel]) {
+				sharedAddr[4] = 0x444D4152; // RAMD
+				while (sharedAddr[4] == 0x444D4152) {
+					while (REG_VCOUNT != 191) mySwiDelay(100);
+					while (REG_VCOUNT == 191) mySwiDelay(100);
+				}
+				return;
+			}
+			if (busy) {
+				messageBox(stateErrorText(DSS_E_BUSY));
+				continue;
+			}
+			const int slot = slotList(sel != 2, (const unsigned char *)stateLabels[sel], stateIcons[sel]);
+			if (slot < 0) continue;
+			stateSlot = slot;
+			stateOp = (sel == 0) ? STATE_SAVE : (sel == 1) ? STATE_SAVE_QUIT : STATE_LOAD;
+			return;
+		}
+	}
+}
+
+// Once the menu has put the game's screens back: the save or the load it
+// closed for. A load that works comes back out of the State_Save() that made
+// its state (DSS_RESUMED), in this frame as it was then, so the game goes on
+// whichever save that was (Save & Quit's too).
+static u32 runStateOp(u32 res) {
+	const int op = stateOp;
+	stateOp = STATE_NONE;
+	stateError = DSS_OK;
+	s32 r;
+	if (op == STATE_LOAD) {
+		r = State_Load(stateSlot); // (back only if it failed)
+	} else {
+		r = State_Save(stateSlot);
+		if (r == DSS_OK && op == STATE_SAVE_QUIT) {
+			res = 0x54495845; // EXIT
+			sharedAddr[3] = res;
+			sharedAddr[4] = 0x54495551; // QUIT
+			return res;
+		}
+		if (r == DSS_OK || r == DSS_RESUMED) {
+			sharedAddr[4] = 0x54495845; // EXIT
+			while (sharedAddr[4] != 0) swiDelay(100);
+			return res;
+		}
+	}
+	stateError = r; // the menu opens again to say why
+	return res;
+}
+#endif
 
 static void optionsMenu(s32 *mainScreen, u32 consoleModel) {
 	OptionsItem optionsItems[8];
@@ -1012,7 +1226,9 @@ static void ramViewer(void) {
 	(*revertMpu)();
 }
 
-u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
+// DSiRPC: readBusy: whether a ROM read was part way through (the DSi-mode
+// ARM9 cardengine's; no save states then)
+u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters, u32 readBusy) {
 	// If we were given exception registers, then we're handling an exception
 	bool exception = (exceptionRegisters != 0);
 
@@ -1022,10 +1238,19 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		ce9 = (cardengineArm9*)consoleModel;
 		ce9Set = true;
 	}
+	(void)readBusy;
 	#endif
 
 	u32 res = 0;
 
+	#ifndef B4DS
+	// DSiRPC: a save state's save or load runs after the menu's screens are
+	// gone (runStateOp()), and the menu opens again if it failed
+	State_Init(mainScreen, readBusy);
+	stateOp = STATE_NONE;
+	stateError = DSS_OK;
+	do {
+	#endif
 	u32 dispcnt = REG_DISPCNT_SUB;
 	u16 bg0cnt = REG_BG0CNT_SUB;
 	u16 bg1cnt = REG_BG1CNT_SUB;
@@ -1098,7 +1323,12 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	menuItems[menuItemCount++] = MENU_SCREENSHOT;
 	if(igmText.manualMaxLine > 0 && !exception)
 		menuItems[menuItemCount++] = MENU_MANUAL;
-	menuItems[menuItemCount++] = MENU_RAM_DUMP;
+	#ifndef B4DS
+	if(State_Slots() > 0 && !exception)
+		menuItems[menuItemCount++] = MENU_STATES; // DSiRPC: the RAM dump's in it
+	else
+	#endif
+		menuItems[menuItemCount++] = MENU_RAM_DUMP;
 	if(!exception)
 		menuItems[menuItemCount++] = MENU_OPTIONS;
 	menuItems[menuItemCount++] = MENU_RAM_VIEWER;
@@ -1125,8 +1355,19 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		while (REG_VCOUNT == 191) mySwiDelay(100);
 	} while(KEYS & igmText.hotkey);
 
+	#ifndef B4DS
+	if (stateError) { // DSiRPC: why the save or the load didn't work
+		messageBox(stateErrorText(stateError));
+		stateError = DSS_OK;
+	}
+	#endif
+
 	u8 cursorPosition = 0;
-	while (sharedAddr[4] == 0x554E454D) {
+	while (sharedAddr[4] == 0x554E454D
+	#ifndef B4DS
+	 && !stateOp // DSiRPC: closing for a save state
+	#endif
+	) {
 		drawMainMenu(menuItems, menuItemCount);
 		drawCursor(MENU_TOP + cursorPosition);
 		printTime();
@@ -1200,6 +1441,9 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 				case MENU_ACHIEVEMENTS:
 					Ach_Screen(); // DSiRPC
 					break;
+				case MENU_STATES:
+					statesMenu(); // DSiRPC: can close the menu (stateOp, or the RAM dump)
+					break;
 				#endif
 				case MENU_QUIT:
 					if (boolQuestion(igmText.quitGameMessage)) {
@@ -1254,6 +1498,11 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		REG_POWERCNT &= ~POWER_SWAP_LCDS;
 	else if(*mainScreen == 2)
 		REG_POWERCNT |= POWER_SWAP_LCDS;
+
+	#ifndef B4DS
+	if (stateOp) res = runStateOp(res); // DSiRPC
+	} while (stateError);
+	#endif
 
 	return res;
 }

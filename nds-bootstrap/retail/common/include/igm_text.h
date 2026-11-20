@@ -30,10 +30,18 @@ struct IgmText {
 	u8 currentScreenshot;
 	int manualLine;
 	int manualMaxLine;
+
+	// DSiRPC: save states (dsirpc_state.h): the slot file's first cluster,
+	// a hash of this build's cardengines and menu (a state only loads in the
+	// build that made it), and the slots (0: none, the menu hides them)
+	u32 stateCluster;
+	u32 stateStamp;
+	u8 stateSlots;
+	u8 statePad[3];
 };
 
 #ifdef __cplusplus
-static_assert(sizeof(IgmText) == 0xF40, "IgmText is too big! Allocate more space in the in-game menu header");
+static_assert(sizeof(IgmText) == 0xF4C, "IgmText is too big! Allocate more space in the in-game menu header"); // DSiRPC: 0xF4C (card_engine_header.s: 0xF50, aligned)
 
 enum class IgmFont : u8 {
 	arabic = 0,

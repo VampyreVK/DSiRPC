@@ -185,6 +185,13 @@ void inGameMenu(void) {
 					dumpRam();
 					exitMenu = true;
 					break;
+				#ifndef TWLSDK
+				case 0x45545353: { // SSTE (DSiRPC: a save state step, by the in-game menu's code at sharedAddr[0])
+					extern const u32 dsirpcStateServices[];
+					((void (*)(const u32 *))sharedAddr[0])(dsirpcStateServices);
+					break;
+				}
+				#endif
 				/* case 0x50455453: // STEP
 					returnToMenu = true;
 					exitMenu = true;

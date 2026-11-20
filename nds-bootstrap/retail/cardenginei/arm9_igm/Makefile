@@ -134,6 +134,15 @@ cardengine.ld:	$(CURDIR)/../cardengine.ld.in
 
 
 #---------------------------------------------------------------------------------
+# DSiRPC: the save states' ARM7 half (dsirpc_state7.c) is ARM code for the
+# ARM7 (ARMv4T) with no library calls. In neither half may a call become a
+# jump: the frame that called dss_setjmp() has to be there when a load
+# comes back into it.
+#---------------------------------------------------------------------------------
+dsirpc_state7.o: CFLAGS := $(filter-out -march=armv5te -mtune=arm946e-s,$(CFLAGS)) -march=armv4t -mtune=arm7tdmi -marm -mthumb-interwork -fno-builtin -fno-tree-loop-distribute-patterns -fno-optimize-sibling-calls
+dsirpc_state.o: CFLAGS += -fno-optimize-sibling-calls
+
+#---------------------------------------------------------------------------------
 %.bin.o	:	%.bin
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)

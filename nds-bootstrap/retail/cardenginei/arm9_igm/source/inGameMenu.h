@@ -12,7 +12,8 @@ typedef enum {
 	MENU_OPTIONS = 5,
 	MENU_RAM_VIEWER = 6,
 	MENU_QUIT = 7,
-	MENU_ACHIEVEMENTS = 8 // DSiRPC (dsirpc_ach.c); its label isn't in igmText.menu
+	MENU_ACHIEVEMENTS = 8, // DSiRPC (dsirpc_ach.c); its label isn't in igmText.menu
+	MENU_STATES = 9 // DSiRPC: save states and the RAM dump (dsirpc_state.c), in MENU_RAM_DUMP's place; nor is its
 } MenuItem;
 
 typedef enum {

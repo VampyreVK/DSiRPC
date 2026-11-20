@@ -30,6 +30,7 @@
 #include "conf_sd.h"
 #include "nitrofs.h"
 #include "igm_text.h"
+#include "dsirpc_state.h" // DSiRPC: save states
 #include "locations.h"
 #include "version.h"
 
@@ -210,6 +211,92 @@ static int loadCardEngineBinary(const char* cardenginePath, u8* location) {
 	}
 	fclose(cebin);
 	return 0;
+}
+
+// DSiRPC: the in-game menu's save states (dsirpc_state.h) go in one file
+// next to the game's save: its name with ".dss" for ".sav" (".dss1" for
+// ".sav1"), never a name with ".sav" in it, which the launcher's save sync
+// would take for a save. It's made here as big as all of its slots, since the
+// ARM7 can't grow a file, and kept (with the states in it) from then on.
+// DS-mode games on the SD card only: not DSi mode, DSiWare, or the game or its
+// save on a flashcard (its cardengine reads it through DLDI). The
+// slot file's first cluster and its slots go to the in-game menu's text.
+// DSiRPC: a hash of this build's DS-mode cardengines and in-game menu (their
+// files in NitroFS), for igmText->stateStamp: a state only loads in the build
+// that made it, since it comes back into their code
+static u32 stateStamp(void) {
+	static const char* const files[] = {
+		"nitro:/cardenginei_arm7.lz77", "nitro:/cardenginei_arm7_alt.lz77", "nitro:/cardenginei_arm9.lz77",
+		"nitro:/cardenginei_arm9_gsdd.lz77", "nitro:/cardenginei_arm9_igm.lz77"
+	};
+	u32 hash = 0x811C9DC5;
+	u8 buffer[0x400];
+	for (u32 i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		FILE* file = fopen(files[i], "rb");
+		if (!file) {
+			continue;
+		}
+		size_t n;
+		while ((n = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+			for (size_t b = 0; b < n; b++) {
+				hash = (hash ^ buffer[b]) * 0x01000193;
+			}
+		}
+		fclose(file);
+	}
+	return hash;
+}
+
+static void createStateSlots(configuration* conf, const u8 unitCode) {
+	igmText->stateCluster = 0;
+	igmText->stateStamp = 0;
+	igmText->stateSlots = 0;
+	if (conf->stateSlots <= 0 || (unitCode > 0 && conf->dsiMode) || conf->isDSiWare || conf->saveOnFlashcard || conf->gameOnFlashcard
+	 || !conf->savPath || !conf->savPath[0]) {
+		return;
+	}
+
+	std::string statePath = conf->savPath;
+	std::string number;
+	const size_t dot = statePath.find_last_of('.');
+	const size_t slash = statePath.find_last_of('/');
+	if (dot != std::string::npos && (slash == std::string::npos || dot > slash)) {
+		if (strncasecmp(statePath.c_str() + dot + 1, "sav", 3) == 0) {
+			number = statePath.substr(dot + 4);
+		}
+		statePath.erase(dot);
+	}
+	statePath += ".dss";
+	statePath += number;
+
+	const off_t size = (off_t)conf->stateSlots * DSS_SLOT_SIZE;
+	if (getFileSize(statePath.c_str()) < size) {
+		myConsoleDemoInit();
+		iprintf("Allocating space for\n");
+		iprintf("save states.\n");
+		iprintf("Please wait...");
+
+		const bool found = (access(statePath.c_str(), F_OK) == 0);
+		FILE *stateFile = fopen(statePath.c_str(), found ? "r+" : "wb");
+		if (stateFile) {
+			fseek(stateFile, size - 1, SEEK_SET);
+			fputc('\0', stateFile);
+			fclose(stateFile);
+		}
+
+		consoleClear();
+		if (getFileSize(statePath.c_str()) < size) {
+			return; // (no room on the SD card: the game starts without save states)
+		}
+	}
+
+	struct stat st;
+	if (stat(statePath.c_str(), &st) < 0) {
+		return;
+	}
+	igmText->stateCluster = st.st_ino;
+	igmText->stateStamp = stateStamp();
+	igmText->stateSlots = conf->stateSlots;
 }
 
 static void createRamDumpBin(configuration* conf) {
@@ -529,6 +616,16 @@ static void load_conf(configuration* conf, const char* fn) {
 	// 3DS keeps its Wi-Fi asleep, so it sleeps as usual.
 	if (conf->consoleModel < 2 && strtol(config_file.fetch("NDS-BOOTSTRAP", "DSIRPC_STAY_CONNECTED", "0").c_str(), NULL, 0)) {
 		conf->sleepMode = false;
+	}
+
+	// DSiRPC: the in-game menu's save state slots per game (dsirpc_state.h):
+	// DSIRPC_STATE_SLOTS in nds-bootstrap.ini, 0 for none (no slot file
+	// either), up to DSS_MAX_SLOTS; DSS_DEFAULT_SLOTS without the key
+	conf->stateSlots = strtol(config_file.fetch("NDS-BOOTSTRAP", "DSIRPC_STATE_SLOTS", "3").c_str(), NULL, 0);
+	if (conf->stateSlots < 0) {
+		conf->stateSlots = 0;
+	} else if (conf->stateSlots > DSS_MAX_SLOTS) {
+		conf->stateSlots = DSS_MAX_SLOTS;
 	}
 
 	// Boost CPU
@@ -1816,6 +1913,7 @@ int loadFromSD(configuration* conf, const char *bootstrapPath) {
 		rc = loadCardEngineBinary("nitro:/cardenginei_arm9_igm.lz77", (u8*)igmText);
 		if (rc == 0) {
 			getIgmStrings(conf, false);
+			createStateSlots(conf, unitCode); // DSiRPC
 
 			screenshotPath = "sd:/_nds/nds-bootstrap/screenshots.tar";
 			if (conf->bootstrapOnFlashcard) {

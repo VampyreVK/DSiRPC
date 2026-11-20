@@ -99,6 +99,7 @@ typedef struct configuration {
 	bool saveRelocation;
 	u16 cacheBlockSize;
 	u32 rpcClusters[3]; // DSiRPC: RPCHAND.TXT, RPCSET.BIN, RPCUNLK.BIN (0: not there)
+	int stateSlots; // DSiRPC: the in-game menu's save state slots per game (dsirpc_state.h; 0: none)
 } configuration;
 
 #endif // CONFIGURATION_H

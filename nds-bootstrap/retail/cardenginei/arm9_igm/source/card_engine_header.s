@@ -24,7 +24,7 @@
 
 #Text is placed here
 igmText:
-.space 0xF40
+.space 0xF50 @ DSiRPC: IGM_TEXT_SIZE_ALIGNED (was 0xF40, before IgmText's save state fields)
 .align 4
 
 sharedAddr:

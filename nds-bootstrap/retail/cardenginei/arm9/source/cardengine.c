@@ -771,7 +771,22 @@ static inline void applyColorLut(bool processExtPalettes) {
 	(*code)(processExtPalettes);
 }
 
+#ifndef TWLSDK
+// DSiRPC: how deep the game is in cardRead() (an IRQ can come part way
+// through), for the in-game menu, which won't take or load a save state
+// while it is: the read would carry on into the memory a load put back
+volatile u8 dsirpcReadDepth = 0;
+static void cardReadMain(u32* cacheStruct, u8* dst0, u32 src0, u32 len0);
 void cardRead(u32* cacheStruct, u8* dst0, u32 src0, u32 len0) {
+	dsirpcReadDepth++;
+	cardReadMain(cacheStruct, dst0, src0, len0);
+	dsirpcReadDepth--;
+}
+
+static void cardReadMain(u32* cacheStruct, u8* dst0, u32 src0, u32 len0) {
+#else
+void cardRead(u32* cacheStruct, u8* dst0, u32 src0, u32 len0) {
+#endif
 	//nocashMessage("\narm9 cardRead\n");
 	#ifdef TWLSDK
 	u32 src = src0;
@@ -1560,8 +1575,20 @@ void inGameMenu(s32* exRegisters) {
 	#endif
 
 	*(u32*)(INGAME_MENU_LOCATION + IGM_TEXT_SIZE_ALIGNED) = (u32)sharedAddr;
-	volatile u32 (*inGameMenu)(s32*, u32, s32*) = (volatile void*)INGAME_MENU_LOCATION + IGM_ENTRY;
-	const u32 res = (*inGameMenu)(&ce9->mainScreen, ce9->consoleModel, exRegisters);
+	// DSiRPC: and whether a ROM read is part way through (no save states then)
+	#ifndef TWLSDK
+	extern bool dmaReadOnArm9;
+	#ifndef DLDI
+	extern bool dmaReadOnArm7;
+	const u32 readBusy = dsirpcReadDepth | dmaReadOnArm7 | dmaReadOnArm9;
+	#else
+	const u32 readBusy = dsirpcReadDepth | dmaReadOnArm9;
+	#endif
+	#else
+	const u32 readBusy = 1;
+	#endif
+	volatile u32 (*inGameMenu)(s32*, u32, s32*, u32) = (volatile void*)INGAME_MENU_LOCATION + IGM_ENTRY;
+	const u32 res = (*inGameMenu)(&ce9->mainScreen, ce9->consoleModel, exRegisters, readBusy);
 
 	while (sharedAddr[5] != 0x4C4D4749) { // 'IGML'
 		while (REG_VCOUNT != 191) swiDelay(100);

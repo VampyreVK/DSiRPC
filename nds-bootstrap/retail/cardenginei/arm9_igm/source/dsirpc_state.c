@@ -263,6 +263,17 @@ static void restoreIo9(const u32 *io) {
 	REG32(0x040002B8) = io[56];
 	REG32(0x040002BC) = io[57];
 	REG32(0x04000600) = io[59] & 0xC0000000;
+	// BG scroll can't be read, so it's whatever the game last set before the
+	// load. A layer the state has off goes to 0: games that show a layer later
+	// often count on the 0 it had when the scene started (Mario Kart DS's
+	// pause menu, with a row of dashes just below the screen). The scroll of a
+	// layer that's on stays as it is (most games set it every frame).
+	for (int e = 0; e < 2; e++) {
+		const u32 dispcnt = io[e ? 13 : 0];
+		for (int bg = 0; bg < 4; bg++) {
+			if (!(dispcnt & BIT(8 + bg))) REG32(0x04000010 + e * 0x1000 + bg * 4) = 0;
+		}
+	}
 }
 
 static void setVramCnt(const u32 *io) {

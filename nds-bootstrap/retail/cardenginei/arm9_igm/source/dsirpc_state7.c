@@ -153,38 +153,25 @@ static void captureIo7(u32 *io) {
 // the mixer, and those two kept out of the mixer
 #define SND_ROUTE 0x3F00
 
-// The SDK's capture effect (reverb, surround): the two captures record the
-// mix and channels 1 and 3 play it to the speakers. Their addresses can't be
-// read, so they can't be started again after a load. When this session has
-// the same effect running (the same output selection and captures, both
-// channels playing), it's the one the state has: games set it up once, at
-// boot (Mario Kart DS), so it keeps running through the load.
-static int keepEffect(const u32 *io) {
-	return (io[7] & SND_ROUTE) && (REG16(0x04000500) & SND_ROUTE) == (io[7] & SND_ROUTE)
-		&& (io[17] & 0x8080) && REG16(0x04000508) == io[17]
-		&& (REG32(0x04000410) & BIT(31)) && (REG32(0x04000430) & BIT(31));
-}
-
 // What could read or write memory while it's put back: the sound channels
-// and captures, the DMAs, the timers (but not the capture effect when it's
-// kept: it only writes its own buffer)
-static void stopHardware7(int keep) {
-	for (int ch = 0; ch < 16; ch++) {
-		if (!keep || (ch != 1 && ch != 3)) REG32(0x04000400 + ch * 16) = 0;
-	}
-	if (!keep) {
-		REG8(0x04000508) = 0;
-		REG8(0x04000509) = 0;
-	}
+// and captures, the DMAs, the timers
+static void stopHardware7(void) {
+	for (int ch = 0; ch < 16; ch++) REG32(0x04000400 + ch * 16) = 0;
+	REG8(0x04000508) = 0;
+	REG8(0x04000509) = 0;
 	for (int d = 0; d < 4; d++) REG32(0x040000B8 + d * 12) = 0;
 	for (int t = 0; t < 4; t++) REG16(0x04000102 + t * 4) = 0;
 }
 
-static void restoreIo7(const u32 *io, int keep) {
+static void restoreIo7(const u32 *io) {
 	REG16(0x04000304) = io[6];
-	// (an effect that isn't running any more: the speakers from the mixer, or
-	// they'd play nothing until the game sets it up again)
-	REG16(0x04000500) = keep ? io[7] : (io[7] & ~SND_ROUTE);
+	// The SDK's capture effect (reverb, surround: the captures record the
+	// mix, channels 1 and 3 play it to the speakers) is stopped above, and
+	// its addresses can't be read to start it again: the speakers from the
+	// mixer, or they'd play nothing until the game sets it up again (Mario
+	// Kart DS only does at boot). Keeping this session's running instead
+	// isn't safe: its buffer can be where the state keeps something else.
+	REG16(0x04000500) = io[7] & ~SND_ROUTE;
 	REG16(0x04000504) = io[8];
 	REG16(0x04000132) = io[4];
 	REG16(0x04000134) = io[5];
@@ -361,8 +348,7 @@ static u32 load7(u32 unused) {
 	// From here on there's no going back: the BIOS calls' stack off the
 	// game's WRAM, then nothing running that reads or writes memory
 	dss_swap_svc_sp(SVCSTACK7);
-	const int keep = keepEffect(h->io7);
-	stopHardware7(keep);
+	stopHardware7();
 	REG16(IPC_FIFO_CR) = (REG16(IPC_FIFO_CR) & FIFO_KEEP) | FIFO_SEND_CLR | FIFO_ERROR;
 	drainFifo(0);
 
@@ -378,7 +364,7 @@ static u32 load7(u32 unused) {
 		}
 	}
 
-	restoreIo7(h->io7, keep);
+	restoreIo7(h->io7);
 	feedFifo(h->fifo9, h->fifo9Count);
 	resetChecker();
 	startTimers(h->io7 + 9);
